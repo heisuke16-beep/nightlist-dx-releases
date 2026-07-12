@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="4.8.0">
+<meta name="app-version" content="4.9.0">
 <title>リスト表 v4 (POS Beta)</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=JetBrains+Mono:wght@400;600&family=Shippori+Mincho+B1:wght@600;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -3107,7 +3107,7 @@ select:focus, input:focus { border-color: var(--gold); box-shadow: 0 0 0 3px var
   <div class="header-logo">
     <span class="header-logo-mark">🌙</span>
     <span class="header-logo-text">List</span>
-    <span class="header-logo-ver">v4.4.3</span>
+    <span id="header-logo-ver" class="header-logo-ver"></span>
     <span id="header-shopname" class="header-shopname" style="display:none;margin-left:10px;padding:2px 10px;font-size:12px;color:var(--tx2);background:rgba(255,255,255,0.04);border:1px solid var(--bdr2);border-radius:10px"></span>
   </div>
 
@@ -3970,10 +3970,16 @@ const AuthStore = {
   },
 };
 
+const AUTH_SESSION_KEY = 'nightlist__auth_session_v1';
+
 const AuthGate = {
   async check() {
     const record = AuthStore.read();
     if (record && record.hash) {
+      const session = this._readSession();
+      if (session && session.username === record.username && session.bizDate === this._todayBizDateStr()) {
+        return true; // 同じ営業日内の再起動・再訪問はログイン済み扱い
+      }
       return new Promise(resolve => this._render(resolve, record));
     }
     const recovery = AuthStore.readRecovery();
@@ -3981,6 +3987,28 @@ const AuthGate = {
       return new Promise(resolve => this._renderRecovery(resolve));
     }
     return new Promise(resolve => this._renderSetup(resolve));
+  },
+
+  // 営業日の境界（getBizDayBoundaryHour、既定12時）で区切った「今日」の文字列。
+  // 深夜営業をまたいでも同じ営業日内なら再ログインを求めない。
+  _todayBizDateStr() {
+    const d = typeof getBizDate === 'function' ? getBizDate() : new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  },
+
+  _readSession() {
+    try {
+      const raw = localStorage.getItem(AUTH_SESSION_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch (_) {
+      return null;
+    }
+  },
+
+  _writeSession(username) {
+    try {
+      localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify({ username, bizDate: this._todayBizDateStr() }));
+    } catch (_) {}
   },
 
   _hasBusinessData() {
@@ -4068,6 +4096,7 @@ const AuthGate = {
       try {
         const next = await AuthStore.setCredentials(username, pass.value);
         if (next.recoveryCode) await this.showRecoveryCodeModal(next.recoveryCode);
+        this._writeSession(username);
         overlay.remove();
         resolve(true);
       } catch (ex) {
@@ -4209,6 +4238,7 @@ const AuthGate = {
       try {
         const ok = await AuthStore.verify(user.value, pass.value);
         if (ok) {
+          this._writeSession(record.username);
           overlay.remove();
           resolve(true);
           return;
@@ -14453,6 +14483,12 @@ function printTimetable() {
 /* ================================================================
    INIT
 ================================================================ */
+(function () {
+  const el = document.getElementById('header-logo-ver');
+  const meta = document.querySelector('meta[name="app-version"]');
+  if (el && meta) el.textContent = 'v' + meta.content;
+})();
+
 async function __boot() {
   const mode = await UsbStore.init();
   if (mode === 'usb') await UsbBootGate.show();
