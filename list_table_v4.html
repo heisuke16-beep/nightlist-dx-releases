@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="4.9.0">
+<meta name="app-version" content="4.9.1">
 <title>リスト表 v4 (POS Beta)</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=JetBrains+Mono:wght@400;600&family=Shippori+Mincho+B1:wght@600;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -4260,6 +4260,9 @@ const AuthGate = {
 /* ================================================================
    SELF UPDATE
 ================================================================ */
+// 配信元は全店舗共通の単一チャンネル（店舗ごとに変える理由がないため内蔵化）
+const SELF_UPDATE_URL = 'https://raw.githubusercontent.com/heisuke16-beep/nightlist-dx-releases/main/version.json';
+
 const SelfUpdate = {
   currentVersion() {
     return document.querySelector('meta[name="app-version"]')?.content || 'unknown';
@@ -4268,8 +4271,7 @@ const SelfUpdate = {
   async checkAndRun(options = {}) {
     const onProgress = typeof options.onProgress === 'function' ? options.onProgress : () => {};
     try {
-      const updateUrl = (cfg.updateUrl || '').trim();
-      if (!updateUrl) return this._result('aborted', '配信元URLが未設定です');
+      const updateUrl = SELF_UPDATE_URL;
       if (!UsbStore.active || !UsbStore._dirHandle) return this._result('aborted', 'USBモードで利用できます');
 
       onProgress('確認中…');
@@ -4467,7 +4469,6 @@ const SETTINGS_KEY = 'nightlist__cfg_v1';
 const CFG_DEFAULTS = {
   shopName: '',              // 店舗の通称・表示名（ヘッダー/印刷見出し用）
   shopId:   null,            // テナント識別子（SaaS化準備・任意）
-  updateUrl: '',             // セルフアップデート用 version.json URL
   timeStartH:   20,          // 営業開始時
   timeEndH:     29,          // 営業終了時（29=翌5時）
   bizDayBoundaryHour: 12,    // 営業日の境界時刻（この時刻より前は前日扱い）
@@ -12365,10 +12366,6 @@ function renderSettingsPanel() {
         <div class="settings-row">
           <div class="settings-label">🔄 アプリ更新<div class="settings-sub">現在バージョン: ${escHtml(appVersion)}</div></div>
         </div>
-        <div class="settings-row">
-          <div class="settings-label">配信元URL<div class="settings-sub">管理者が設定</div></div>
-          <input type="text" class="settings-input" id="cfg-updateUrl" value="${escAttr(cfg.updateUrl ?? '')}" placeholder="version.json のURL（管理者が設定）" style="width:min(100%,420px)">
-        </div>
         <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:8px">
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
             <button type="button" class="btn primary" id="self-update-btn" onclick="selfUpdateRunNow()" ${usbActive ? '' : 'disabled'}>🔄 今すぐ更新</button>
@@ -12873,14 +12870,6 @@ async function selfUpdateRunNow() {
   const setStatus = msg => { if (status) status.textContent = msg; };
   if (btn) btn.disabled = true;
   try {
-    const input = document.getElementById('cfg-updateUrl');
-    if (input) {
-      const updateUrl = input.value.trim();
-      if (cfg.updateUrl !== updateUrl) {
-        cfg.updateUrl = updateUrl;
-        saveCfg();
-      }
-    }
     const result = await SelfUpdate.checkAndRun({ interactive: true, onProgress: setStatus });
     setStatus(result.message);
     if (typeof showToast === 'function') showToast(result.message);
@@ -13202,7 +13191,6 @@ function applySettings() {
   // 店舗情報
   const shopName = (get('cfg-shopName')?.value ?? '').trim();
   const shopId   = (get('cfg-shopId')?.value ?? '').trim() || null;
-  const updateUrl = (get('cfg-updateUrl')?.value ?? '').trim();
 
   // 給与計算ルール：入力欄は「キャスト管理」タブに移設済み（cfg直書き）。
   // ここでは cfg = {...} の全置換で消えないよう既存値をそのまま素通りさせるだけ。
@@ -13227,7 +13215,7 @@ function applySettings() {
   const receiptNote       = _rcpt('cfg-receiptNote',       'receiptNote');
 
   cfg = {
-    shopName, shopId, updateUrl,
+    shopName, shopId,
     timeStartH, timeEndH, bizDayBoundaryHour: bizHour, defStay, dohanStay,
     clockInFrom, clockInTo, clockInStep,
     clockOutFrom, clockOutTo, clockOutStep,
