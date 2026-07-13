@@ -4,9 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="app-version" content="1.0.0">
-<title>リスト表 v4 (POS Beta)</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=JetBrains+Mono:wght@400;600&family=Shippori+Mincho+B1:wght@600;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<title>リスト表 v4</title>
+<!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
+     フォントはOS内蔵にフォールバックする（--font/--monoのスタック参照）。 -->
 <style>
 /* ================================================================
    手入力欄のネイティブ数値スピナー(↑↓)を全廃（手入力に統一）
@@ -37,8 +37,8 @@ input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
   --pink:     #e870a0;
   --green:    #38cc80;
   --cyan:     #40b8e0;
-  --font: 'Zen Kaku Gothic New', 'Hiragino Kaku Gothic ProN', sans-serif;
-  --mono: 'JetBrains Mono', 'Courier New', monospace;
+  --font: 'Zen Kaku Gothic New', 'Hiragino Kaku Gothic ProN', 'Yu Gothic UI', Meiryo, sans-serif;
+  --mono: 'JetBrains Mono', Consolas, 'Courier New', monospace;
   --radius: 6px;
   --shadow: 0 4px 24px rgba(0,0,0,0.5);
   /* header / body */
@@ -491,7 +491,7 @@ select option { background: var(--sur2); }
   --tx:#f1f4f9; --tx2:#a7b0c0; --tx3:#697283;
   --gold:#d8b86c; --gold2:#e8cd86; --gold3:#f6e4b4; --goldglow:rgba(216,184,108,0.20);
   --red:#f4566e; --pink:#e879a8; --green:#34d399; --cyan:#4cc4e6;
-  --mono:'DM Mono','JetBrains Mono',monospace;
+  --mono:'DM Mono','JetBrains Mono',Consolas,monospace;
   --radius:10px;
   --shadow:0 10px 34px rgba(0,0,0,0.5);
   --header-bg:linear-gradient(180deg,#13161c 0%,#0b0d11 100%);
@@ -514,15 +514,15 @@ select option { background: var(--sur2); }
 }
 /* --- Editorial typography：明朝の表示フォントで高級感を出す（AURUMの肝・機能UIは視認性優先でゴシックのまま）--- */
 [data-theme="aurum"] .header-logo-text {
-  font-family:'Shippori Mincho B1',serif; font-weight:800; letter-spacing:.24em;
+  font-family:'Shippori Mincho B1','Yu Mincho','游明朝',serif; font-weight:800; letter-spacing:.24em;
   background:linear-gradient(180deg,var(--gold3),var(--gold)); -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; color:var(--gold3);
 }
-[data-theme="aurum"] .header-logo-ver { font-family:'DM Mono',monospace; letter-spacing:.18em; color:var(--gold); opacity:.65; }
+[data-theme="aurum"] .header-logo-ver { font-family:'DM Mono',Consolas,monospace; letter-spacing:.18em; color:var(--gold); opacity:.65; }
 [data-theme="aurum"] .pos-section-title,
 [data-theme="aurum"] .settings-section-title,
 [data-theme="aurum"] .agg-box-head h3,
 [data-theme="aurum"] .past-sidebar-title {
-  font-family:'Shippori Mincho B1',serif; font-weight:600; letter-spacing:.14em; color:var(--gold3);
+  font-family:'Shippori Mincho B1','Yu Mincho','游明朝',serif; font-weight:600; letter-spacing:.14em; color:var(--gold3);
 }
 [data-theme="aurum"] .tab-btn { letter-spacing:.05em; }
 [data-theme="aurum"] .tab-btn.active { color:var(--gold2); }
@@ -1259,7 +1259,7 @@ select option { background: var(--sur2); }
 .pos-slip-timer {
   font-size: 20px;
   font-weight: 800;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'JetBrains Mono', Consolas, monospace;
   color: #1a1a2e;
   letter-spacing: 0.5px;
   line-height: 1.2;
@@ -1412,12 +1412,12 @@ select option { background: var(--sur2); }
   text-align: right;
   font-size: 22px; font-weight: 900;
   color: #f5dfa0;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'JetBrains Mono', Consolas, monospace;
   white-space: nowrap;
 }
 .pos-ext-amount.cur { color: #9badc8; font-size: 18px; }
 .pos-ext-dlabel    { font-size: 11px; color: #5e6e90; }
-.pos-ext-delta     { text-align: right; font-size: 13px; color: #38cc80; font-family: 'JetBrains Mono', monospace; }
+.pos-ext-delta     { text-align: right; font-size: 13px; color: #38cc80; font-family: 'JetBrains Mono', Consolas, monospace; }
 
 /* ================================================================
    POS セット入力スピナー（キャバレジ3 set order screen）
@@ -1447,14 +1447,14 @@ select option { background: var(--sur2); }
   flex: 1; height: 64px;
   display: flex; align-items: center; justify-content: center;
   font-size: 22px; font-weight: 900; color: #222;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'JetBrains Mono', Consolas, monospace;
 }
 .pos-setentry-subtotal {
   display: flex; justify-content: space-between; align-items: center;
   padding: 16px 24px; background: #f5f5f5;
   font-size: 22px; font-weight: 900; border-top: 2px solid #888;
 }
-.pos-setentry-subtotal-val { font-family: 'JetBrains Mono', monospace; color: #c0392b; font-size: 28px; }
+.pos-setentry-subtotal-val { font-family: 'JetBrains Mono', Consolas, monospace; color: #c0392b; font-size: 28px; }
 .pos-setentry-actions { display: flex; gap: 12px; padding: 20px 24px; justify-content: center; }
 .pos-setentry-add {
   width: 220px; height: 60px;
@@ -1482,10 +1482,10 @@ select option { background: var(--sur2); }
 .pos-drink-cast-btn.none { border-style: dashed; color: #9badc8; }
 /* キャスト折半モーダル */
 .pos-cs-amount { padding: 14px 20px 0; font-size: 14px; color: #9badc8; display: flex; align-items: baseline; gap: 18px; flex-wrap: wrap; }
-.pos-cs-amount b { font-size: 20px; color: #f5dfa0; font-family: 'JetBrains Mono', monospace; margin-left: 6px; }
+.pos-cs-amount b { font-size: 20px; color: #f5dfa0; font-family: 'JetBrains Mono', Consolas, monospace; margin-left: 6px; }
 .pos-cs-back b { color: #38cc80; }
-.pos-cs-remain { font-size: 14px; font-weight: 900; font-family: 'JetBrains Mono', monospace; margin-left: auto; }
-.pos-cs-input { width: 90px; padding: 6px 8px; background: #12203a; border: 1px solid #4a5c80; border-radius: 4px; color: #f5dfa0; font-size: 16px; font-weight: 900; font-family: 'JetBrains Mono', monospace; text-align: right; }
+.pos-cs-remain { font-size: 14px; font-weight: 900; font-family: 'JetBrains Mono', Consolas, monospace; margin-left: auto; }
+.pos-cs-input { width: 90px; padding: 6px 8px; background: #12203a; border: 1px solid #4a5c80; border-radius: 4px; color: #f5dfa0; font-size: 16px; font-weight: 900; font-family: 'JetBrains Mono', Consolas, monospace; text-align: right; }
 .pos-cs-input:focus { border-color: #f5dfa0; outline: none; }
 .pos-cs-hint { padding: 0 20px 6px; font-size: 12px; color: #9badc8; }
 .pos-cs-list { padding: 12px 20px; display: flex; flex-direction: column; gap: 6px; max-height: 48vh; overflow-y: auto; }
@@ -1493,7 +1493,7 @@ select option { background: var(--sur2); }
 .pos-cs-row.checked { border-color: #f5dfa0; background: #3a3320; }
 .pos-cs-check { display: flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 700; color: #e8edf6; }
 .pos-cs-check input { width: 18px; height: 18px; }
-.pos-cs-share { font-size: 16px; font-weight: 900; color: #f5dfa0; font-family: 'JetBrains Mono', monospace; }
+.pos-cs-share { font-size: 16px; font-weight: 900; color: #f5dfa0; font-family: 'JetBrains Mono', Consolas, monospace; }
 .pos-cs-actions { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; padding: 4px 20px 20px; }
 .pos-co-header { background: #4a6fa5; padding: 12px 16px; display: flex; align-items: center; gap: 12px; }
 .pos-co-title { font-size: 18px; font-weight: 900; color: #fff; flex: 1; }
@@ -1501,7 +1501,7 @@ select option { background: var(--sur2); }
 .pos-co-body { padding: 18px 20px; }
 .pos-co-amount-row { display: flex; justify-content: space-between; align-items: baseline; padding: 12px 0; border-bottom: 1px solid #2a3450; }
 .pos-co-amount-label { font-size: 15px; color: #9badc8; }
-.pos-co-amount-val { font-size: 28px; font-weight: 900; color: #f5dfa0; font-family: 'JetBrains Mono', monospace; }
+.pos-co-amount-val { font-size: 28px; font-weight: 900; color: #f5dfa0; font-family: 'JetBrains Mono', Consolas, monospace; }
 .pos-co-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 16px; }
 .pos-co-btn {
   height: 64px; border: 0; border-radius: 6px;
@@ -1520,10 +1520,10 @@ select option { background: var(--sur2); }
 .pos-split-field-label { font-size: 13px; color: #9badc8; margin-bottom: 4px; }
 .pos-split-field.cash .pos-split-field-label { color: #38cc80; }
 .pos-split-field.card .pos-split-field-label { color: #40b8e0; }
-.pos-split-field-val { font-size: 26px; font-weight: 900; color: #fff; font-family: 'JetBrains Mono', monospace; text-align: right; }
+.pos-split-field-val { font-size: 26px; font-weight: 900; color: #fff; font-family: 'JetBrains Mono', Consolas, monospace; text-align: right; }
 .pos-split-remain { display: flex; justify-content: space-between; align-items: baseline; padding: 8px 14px; margin-bottom: 12px; background: #12203a; border-radius: 8px; }
 .pos-split-remain-label { font-size: 13px; color: #9badc8; }
-.pos-split-remain-val { font-size: 20px; font-weight: 900; font-family: 'JetBrains Mono', monospace; }
+.pos-split-remain-val { font-size: 20px; font-weight: 900; font-family: 'JetBrains Mono', Consolas, monospace; }
 .pos-split-keypad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 14px; }
 .pos-split-key { height: 60px; border: 0; border-radius: 8px; background: #2a3a5a; color: #fff; font-size: 24px; font-weight: 900; cursor: pointer; }
 .pos-split-key:active { background: #3a4f7a; }
@@ -1553,11 +1553,12 @@ select option { background: var(--sur2); }
 .pos-hist-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 16px; }
 .pos-hist-stat { background: #0d1118; border: 1px solid #2a3450; border-radius: 6px; padding: 10px 12px; }
 .pos-hist-stat-label { font-size: 11px; color: #5e6e90; }
-.pos-hist-stat-val { font-size: 20px; font-weight: 900; color: #f5dfa0; font-family: 'JetBrains Mono', monospace; }
+.pos-hist-stat-val { font-size: 20px; font-weight: 900; color: #f5dfa0; font-family: 'JetBrains Mono', Consolas, monospace; }
 .pos-hist-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .pos-hist-table th { background: #253050; color: #9badc8; padding: 8px; text-align: left; border-bottom: 1px solid #354266; font-weight: 700; }
 .pos-hist-table td { padding: 8px; border-bottom: 1px solid #2a3450; color: #eef2fc; }
 .pos-hist-table tr:hover { background: rgba(74,92,128,0.18); cursor: pointer; }
+.pos-oe-dragging { opacity: 0.4; }
 .pos-hist-method { padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; }
 .pos-hist-method.cash { background: #16a085; color: #fff; }
 .pos-hist-method.card { background: #2980b9; color: #fff; }
@@ -2446,41 +2447,6 @@ table#customer-table { border-collapse: collapse; width: 100%; min-width: 800px;
   color: var(--tx); border-radius: 4px; outline: none; font-family: var(--font);
 }
 .tag-add-input:focus { border-color: var(--gold); border-style: solid; }
-#settings-top-bar {
-  position: sticky; top: 0; z-index: 20;
-  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-  padding: 10px 0 12px;
-  background: var(--bg); border-bottom: 1px solid var(--bdr);
-  margin-bottom: 20px;
-}
-.settings-save-btn {
-  padding: 9px 28px; font-size: 13px; font-weight: 700;
-  background: linear-gradient(135deg, #2a1f08, #1e1808);
-  border: 1px solid var(--gold); color: var(--gold2);
-  border-radius: var(--radius); cursor: pointer; font-family: var(--font);
-  letter-spacing: 0.05em; transition: all 0.18s;
-  box-shadow: 0 0 12px rgba(201,168,76,0.12); white-space: nowrap;
-}
-.settings-save-btn:hover {
-  background: linear-gradient(135deg, #3a2c10, #2a2210);
-  box-shadow: 0 0 20px rgba(201,168,76,0.25);
-}
-.settings-save-btn.dirty {
-  background: linear-gradient(135deg, #4a1010, #3a0808);
-  border-color: var(--red); color: #ff9090;
-  animation: settings-dirty-pulse 1.4s ease-in-out infinite;
-}
-@keyframes settings-dirty-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(232,64,96,0.6); }
-  50%       { box-shadow: 0 0 0 10px rgba(232,64,96,0); }
-}
-#settings-dirty-warn {
-  position: sticky; top: 0; z-index: 10;
-  background: rgba(232,64,96,0.1); border: 1px solid rgba(232,64,96,0.35);
-  border-radius: 8px; padding: 10px 16px; margin-bottom: 16px;
-  color: #ff9090; font-size: 13px; font-weight: 700;
-  display: flex; align-items: center; gap: 8px;
-}
 
 /* ================================================================
    PAST LIST PANEL
@@ -2947,7 +2913,7 @@ select, input[type="text"], .pos-pill-btn, .pos-sorters button {
 .header-logo { border-right-color: var(--bdr2); padding-right: 16px; }
 .header-logo-mark { font-size: 20px; filter: drop-shadow(0 0 10px rgba(216,184,108,0.55)); }
 .header-logo-text {
-  font-family: 'Shippori Mincho B1', serif;
+  font-family: 'Shippori Mincho B1', 'Yu Mincho', '游明朝', serif;
   font-size: 20px; font-weight: 800; letter-spacing: 0.22em;
   background: linear-gradient(180deg, var(--gold3), var(--gold) 74%);
   -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
@@ -3150,7 +3116,7 @@ select:focus, input:focus { border-color: var(--gold); box-shadow: 0 0 0 3px var
 
 <!-- TABS -->
 <div id="tabs">
-  <button class="tab-btn" id="tab-pos" data-tab="pos" onclick="showTab('pos')" style="display:none">🧾 POSレジ</button>
+  <button class="tab-btn" id="tab-pos" data-tab="pos" onclick="showTab('pos')">🧾 POSレジ</button>
   <button class="tab-btn active" data-tab="list"     onclick="showTab(&quot;list&quot;)">📋 リスト表</button>
   <button class="tab-btn"        data-tab="cast"     onclick="showTab('cast')">👥 出勤キャスト</button>
   <button class="tab-btn"        data-tab="report"   onclick="showTab('report')">📊 集計</button>
@@ -3332,10 +3298,6 @@ select:focus, input:focus { border-color: var(--gold); box-shadow: 0 0 0 3px var
 
 <!-- SETTINGS PANEL -->
 <div id="settings-panel" class="hidden">
-  <div id="settings-top-bar">
-    <button class="settings-save-btn" onclick="applySettings()">✅ 設定を保存して即時反映</button>
-    <div id="settings-dirty-warn" style="display:none">⚠️ 変更が未保存です。保存ボタンを押してください。</div>
-  </div>
   <div id="settings-form"></div>
 </div>
 <div id="summary-bar">
@@ -3458,6 +3420,15 @@ const Persist = {
     if (typeof UsbStore !== 'undefined' && UsbStore.active) UsbStore.markAllDirty();
   },
 };
+
+/* 率(%)上乗せ＋丸め単位切り上げの単一窓口（税サ・カード手数料共通）。
+   浮動小数点で (1+rate) を掛けると、結果がちょうど丸め単位の倍数になるケースで
+   誤差により1単位余分に繰り上がる（例: 1000×1.1/100 = 11.000000000000002 → ¥1,200）。
+   整数に戻してから割ることで正確に切り上げる。 */
+function ceilAddRate(base, ratePct, round) {
+  round = round || 100;
+  return Math.ceil(Math.round(base * (100 + (ratePct || 0))) / (100 * round)) * round;
+}
 
 /* ================================================================
    ASSET: 店舗ロゴ（Embellir / アンベリール）— 領収書・伝票の印刷用
@@ -4468,7 +4439,6 @@ const SelfUpdate = {
 const SETTINGS_KEY = 'nightlist__cfg_v1';
 const CFG_DEFAULTS = {
   shopName: '',              // 店舗の通称・表示名（ヘッダー/印刷見出し用）
-  shopId:   null,            // テナント識別子（SaaS化準備・任意）
   timeStartH:   20,          // 営業開始時
   timeEndH:     29,          // 営業終了時（29=翌5時）
   bizDayBoundaryHour: 12,    // 営業日の境界時刻（この時刻より前は前日扱い）
@@ -4482,7 +4452,7 @@ const CFG_DEFAULTS = {
   clockOutTo:    1680,        // 退勤時刻の選択肢・終了（分）例:1680=28:00=翌4:00
   clockOutStep:  30,          // 退勤時刻の刻み（分）
   extOptions:   [20, 40, 60],// 延長の選択肢（分）
-  sources:      ['フロント','不明','新規','TikTok','紹介','今村','案内所','GC'],
+  sources:      ['フロント','不明','新規','TikTok','紹介','案内所'],
   conditions:   ['NF','40込み','50込み','60込み','70込み'],
   rankVip:      10,          // VIP閾値（来店回数）
   rankRepeat:   3,           // リピーター閾値
@@ -4517,7 +4487,6 @@ const CFG_DEFAULTS = {
   cardFeeRate:     10,      // カード手数料率（%）
   cardFeeRound:    100,     // カード手数料端数単位（円、切り上げ）
   showCountdown:   true,    // 残り時間カウントダウン表示
-  enablePOS:       false,   // POSレジ（β）— ONでリスト表の左にタブが出現
   posMenu:         {},      // POSカスタムメニュー { shot:[{name,amount},...], bottle:[...], ... }
   // --- 領収書設定（印刷時の店舗固定情報） ---
   // 新規導入店舗にそのまま出荷されるデフォルト値なので、特定店舗の実データを置かない
@@ -4755,10 +4724,8 @@ function hasAutoCloseWarnData() {
   ));
 }
 
-function getRealNowMin() {
-  const d = new Date();
-  return d.getHours() * 60 + d.getMinutes();
-}
+/* getRealNowMin は 04-time-utilities.js の定義（深夜+24h補正・開発時刻オーバーライド対応）を使う。
+   ここに素朴な同名関数を再定義すると結合ビルドで後勝ちし、深夜0時以降の全時刻判定が壊れる。 */
 
 function showAutoCloseWarnDialog(curKey) {
   const message = 'まもなく（約1時間後）営業日が切り替わり、本日分のリストは自動でリセットされます。\n\nまだ営業中の場合は、今日だけ営業時間を延長できます。';
@@ -4873,6 +4840,9 @@ function snapRows() {
     rows: state.rows, nextGid: state.nextGid, nextGuest: state.nextGuest,
     rotCols: state.rotCols, extCols: state.extCols,
     manualSort: state.manualSort,
+    // 復元中の過去日キーもスナップショットに含める。行だけ戻してキーが残ると、
+    // 次の自動保存が過去日のバックアップを今日のデータで上書きする
+    _restoredFromKey: state._restoredFromKey || null,
   });
 }
 function pushUndo() {
@@ -6212,12 +6182,8 @@ function calcBill(row) {
   }
   // ※延長"指名料"の自動加算は本店ルールで全廃。源泉はボーイ手入力の本延/延指オーダーのみ（posOrders側で計上）。
   //   かつての _ef() による mainType/subCast 由来の延長指名料の自動加算はここから削除済み。
-  const taxRate  = (cfg.taxRate  || 0) / 100;
-  const taxRound = cfg.taxRound  || 100;
-  const cash = Math.ceil(base * (1 + taxRate) / taxRound) * taxRound;
-  const cardFeeRate  = (cfg.cardFeeRate  || 0) / 100;
-  const cardFeeRound = cfg.cardFeeRound  || 100;
-  const card = Math.ceil(cash * (1 + cardFeeRate) / cardFeeRound) * cardFeeRound;
+  const cash = ceilAddRate(base, cfg.taxRate || 0, cfg.taxRound || 100);
+  const card = ceilAddRate(cash, cfg.cardFeeRate || 0, cfg.cardFeeRound || 100);
   return { subtotal: base, cash, card };
 }
 
@@ -8150,14 +8116,6 @@ function showTab(tab) {
   if (tab === 'settings') renderSettingsPanel();
 }
 
-/* POSタブボタンの表示制御（cfg.enablePOSに連動） */
-function applyPOSTabVisibility() {
-  const btn = document.getElementById('tab-pos');
-  if (!btn) return;
-  btn.style.display = cfg.enablePOS ? '' : 'none';
-  if (!cfg.enablePOS && btn.classList.contains('active')) showTab('list');
-}
-
 /* ================================================================
    POS PANEL (β) - Cabaregi-like field UI prototype
 ================================================================ */
@@ -8188,10 +8146,8 @@ function posRowTotal(row) { return calcBill(row).cash + posOrdersTotal(row); }
    taxIncluded フラグの付いたオーダーは税サを上乗せせず、そのまま総額に加える。
    extraTaxable は延長試算などで一時的に加える課税対象額。 */
 function _posComputeTotals(seatSubtotal, orders, extraTaxable) {
-  const taxRate      = (cfg.taxRate      || 0) / 100;
-  const taxRound     =  cfg.taxRound     || 100;
-  const cardFeeRate  = (cfg.cardFeeRate  || 0) / 100;
-  const cardFeeRound =  cfg.cardFeeRound || 100;
+  const taxRound     = cfg.taxRound     || 100;
+  const cardFeeRound = cfg.cardFeeRound || 100;
   let taxable = (seatSubtotal || 0) + (extraTaxable || 0);
   let incl = 0;
   let postTax = 0;   // 割引（マイナス額）は税サ計算後に適用＝税サは割引前の課税額にかかる
@@ -8203,8 +8159,8 @@ function _posComputeTotals(seatSubtotal, orders, extraTaxable) {
     else taxable += amt;
   });
   const subtotal = taxable + incl + postTax;
-  const cash = Math.ceil(taxable * (1 + taxRate) / taxRound) * taxRound + incl + postTax;
-  const card = Math.ceil(cash * (1 + cardFeeRate) / cardFeeRound) * cardFeeRound;
+  const cash = ceilAddRate(taxable, cfg.taxRate || 0, taxRound) + incl + postTax;
+  const card = ceilAddRate(cash, cfg.cardFeeRate || 0, cardFeeRound);
   return { subtotal, cash, card };
 }
 /* 多人数卓：先頭行以外のグループ各行に入った延長の「基本料(extPrice)」を合算して返す。
@@ -8491,7 +8447,6 @@ function posApplySlipEdit() {
     r.gcount   = cnt;
   });
   row.source   = source;
-  row.mainCast = '';
   row.posColor = colorObj.hex;
   row.startMin = _posSeIdx.startMin;
   row.endMin   = _posSeIdx.startMin + oldDur;
@@ -8716,7 +8671,7 @@ function _posPickUnusedColor() {
 
 const _POS_SOURCE_EN = {
   'フロント':'FRONT', '本指名':'HONSHIMEI', '同伴':'DOUHAN',
-  'フリー':'FREE', '紹介':'REFERRAL', '今村':'IMAMURA',
+  'フリー':'FREE', '紹介':'REFERRAL',
   '本指名(無料チケット)':'FREE TICKET', '本指名(イベント)':'EVENT',
   'フリー(イベント)':'FREE EVENT',
 };
@@ -9517,9 +9472,7 @@ function _posSplitKeydown(e) {
 /* カード手数料を上乗せ（設定のカード手数料率・丸め単位を使用） */
 function _posSplitCardFee(amount) {
   if (amount <= 0) return 0;
-  const rate = (cfg.cardFeeRate || 0) / 100;
-  const round = cfg.cardFeeRound || 100;
-  return Math.ceil(amount * (1 + rate) / round) * round;
+  return ceilAddRate(amount, cfg.cardFeeRate || 0, cfg.cardFeeRound || 100);
 }
 
 /* 現金が変わるたびに、残り（現金ベース）にカード手数料を乗せてカード欄を自動算出 */
@@ -10786,10 +10739,9 @@ function _posOeRowsHtml(orders, seatSet, row) {
     </tr>`).join('');
   if (!orders.length && !seatSet && !extLines.length && !_depCasts.length) return `<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--tx3)">オーダーはまだありません</td></tr>`;
   html += orders.map((o, i) => `
-    <tr draggable="true" data-idx="${i}"
-        ondragstart="_posOeDragStart(event,${i})" ondragover="_posOeDragOver(event)"
-        ondragleave="_posOeDragLeave(event)" ondrop="_posOeDrop(event,${i})" ondragend="_posOeDragEnd(event)">
-      <td style="padding:10px 6px 10px 14px;text-align:center;color:var(--tx3);cursor:grab;user-select:none" title="ドラッグで並び替え">⠿</td>
+    <tr data-idx="${i}">
+      <td style="padding:10px 6px 10px 14px;text-align:center;color:var(--tx3);cursor:grab;user-select:none;touch-action:none"
+          title="ドラッグで並び替え" onpointerdown="_posOePointerDown(event,${i})">⠿</td>
       <td style="padding:10px 14px;font-weight:700;color:var(--tx)">${escHtml(o.name||'')}</td>
       <td style="padding:10px 14px;text-align:center;color:var(--tx2)">${o.qty||1}</td>
       <td style="padding:10px 14px;text-align:right;font-family:var(--mono);color:var(--tx)">¥${((o.amount||0)*(o.qty||1)).toLocaleString()}</td>
@@ -10803,29 +10755,50 @@ function _posOeRowsHtml(orders, seatSet, row) {
   return html;
 }
 
-let _posOeDragIdx = null;
-function _posOeDragStart(e, idx) {
-  _posOeDragIdx = idx;
-  e.dataTransfer.effectAllowed = 'move';
-  try { e.dataTransfer.setData('text/plain', String(idx)); } catch (_) {}
-  e.currentTarget.style.opacity = '0.4';
-}
-function _posOeDragOver(e) {
+/* 並び替えドラッグ（Pointer Events統一実装 — マウス・タッチ・ペン共通。
+   HTML5 Drag and Drop APIはタッチデバイスで発火しないため使わない） */
+let _posOeDrag = null;
+function _posOePointerDown(e, idx) {
+  if (_posOeDrag) return;
   e.preventDefault();
-  e.dataTransfer.dropEffect = 'move';
-  e.currentTarget.style.boxShadow = 'inset 0 2px 0 0 var(--gold)';
+  const tbody = document.getElementById('pos-oe-tbody');
+  const tr = tbody?.querySelector(`tr[data-idx="${idx}"]`);
+  if (!tbody || !tr) return;
+  const handle = e.currentTarget;
+  try { handle.setPointerCapture(e.pointerId); } catch (_) {}
+  _posOeDrag = { idx, overIdx: idx, pointerId: e.pointerId, tbody, tr };
+  tr.classList.add('pos-oe-dragging');
+  handle.addEventListener('pointermove', _posOePointerMove);
+  handle.addEventListener('pointerup', _posOePointerUp);
+  handle.addEventListener('pointercancel', _posOePointerUp);
 }
-function _posOeDragLeave(e) { e.currentTarget.style.boxShadow = ''; }
-function _posOeDrop(e, idx) {
+function _posOePointerMove(e) {
+  if (!_posOeDrag) return;
   e.preventDefault();
-  e.currentTarget.style.boxShadow = '';
-  if (_posOeDragIdx !== null && _posOeDragIdx !== idx) posOrderEditMove(_posOeDragIdx, idx);
-  _posOeDragIdx = null;
+  const rows = Array.from(_posOeDrag.tbody.querySelectorAll('tr[data-idx]'));
+  let overIdx = _posOeDrag.idx;
+  for (const row of rows) {
+    const rect = row.getBoundingClientRect();
+    if (e.clientY >= rect.top && e.clientY <= rect.bottom) { overIdx = parseInt(row.dataset.idx, 10); break; }
+  }
+  rows.forEach(r => r.style.boxShadow = '');
+  if (overIdx !== _posOeDrag.idx) {
+    rows.find(r => parseInt(r.dataset.idx, 10) === overIdx)?.style.setProperty('box-shadow', 'inset 0 2px 0 0 var(--gold)');
+  }
+  _posOeDrag.overIdx = overIdx;
 }
-function _posOeDragEnd(e) {
-  e.currentTarget.style.opacity = '';
-  document.querySelectorAll('#pos-oe-tbody tr').forEach(tr => tr.style.boxShadow = '');
-  _posOeDragIdx = null;
+function _posOePointerUp(e) {
+  if (!_posOeDrag) return;
+  const { idx, overIdx, tbody, tr, pointerId } = _posOeDrag;
+  const handle = e.currentTarget;
+  try { handle.releasePointerCapture(pointerId); } catch (_) {}
+  handle.removeEventListener('pointermove', _posOePointerMove);
+  handle.removeEventListener('pointerup', _posOePointerUp);
+  handle.removeEventListener('pointercancel', _posOePointerUp);
+  tr.classList.remove('pos-oe-dragging');
+  tbody.querySelectorAll('tr[data-idx]').forEach(r => r.style.boxShadow = '');
+  _posOeDrag = null;
+  if (overIdx !== idx) posOrderEditMove(idx, overIdx);
 }
 
 function posOrderEditMove(from, to) {
@@ -11052,7 +11025,7 @@ function _posExtTrial(row, extMin) {
   const t = _posComputeTotals(calcBill(row).subtotal, posOrders(row), extPriceTotal + enchoshimeiExtra);
   const advance = (typeof _posAdvancePrincipal === 'function') ? _posAdvancePrincipal(row) : 0;
   const dueCash = Math.max(0, t.cash - advance);
-  const dueCard = Math.ceil(dueCash * (1 + ((cfg.cardFeeRate || 0) / 100)) / (cfg.cardFeeRound || 100)) * (cfg.cardFeeRound || 100);
+  const dueCard = ceilAddRate(dueCash, cfg.cardFeeRate || 0, cfg.cardFeeRound || 100);
   return { extMin, extPrice: extPriceTotal, enchoshimeiExtra, cash: t.cash, card: t.card, dueCash, dueCard };
 }
 
@@ -11067,15 +11040,15 @@ function posPrintReceipt() {
 
   // 現在金額：手動入力済みなら row.amountCash を優先（自動計算との乖離を防ぐ）
   const curCash = advance ? Math.max(0, b.cash - advance) : (parseInt(row.amountCash) || b.cash);
-  const cardFeeRate  = (cfg.cardFeeRate  || 0) / 100;
-  const cardFeeRound =  cfg.cardFeeRound || 100;
-  const curCard = advance ? Math.ceil(curCash * (1 + cardFeeRate) / cardFeeRound) * cardFeeRound : (parseInt(row.amountCard) || Math.ceil(curCash * (1 + cardFeeRate) / cardFeeRound) * cardFeeRound);
+  const cardFeePct   = cfg.cardFeeRate  || 0;
+  const cardFeeRound = cfg.cardFeeRound || 100;
+  const curCard = advance ? ceilAddRate(curCash, cardFeePct, cardFeeRound) : (parseInt(row.amountCard) || ceilAddRate(curCash, cardFeePct, cardFeeRound));
 
   const extRows = opts.map(min => {
     const t = _posExtTrial(row, min);
     const cashDelta = t.cash - b.cash;
     const extCash   = advance ? t.dueCash : curCash + cashDelta;
-    const extCard   = advance ? t.dueCard : Math.ceil(extCash * (1 + cardFeeRate) / cardFeeRound) * cardFeeRound;
+    const extCard   = advance ? t.dueCard : ceilAddRate(extCash, cardFeePct, cardFeeRound);
     return '<div class="pos-ext-row">'
       + '<div class="pos-ext-min">' + min + '<small>分</small></div>'
       + '<div class="pos-ext-right">'
@@ -11195,18 +11168,18 @@ function posPrintExtTrial() {
   const row = posSelectedRow();
   if (!row) { showToast('伝票を選択してください'); return; }
   const b     = _posCalcTotal(row);
-  const cardFeeRate  = (cfg.cardFeeRate  || 0) / 100;
-  const cardFeeRound =  cfg.cardFeeRound || 100;
+  const cardFeePct   = cfg.cardFeeRate  || 0;
+  const cardFeeRound = cfg.cardFeeRound || 100;
   const advance = (typeof _posAdvancePrincipal === 'function') ? _posAdvancePrincipal(row) : 0;
   const curCash = advance ? Math.max(0, b.cash - advance) : (parseInt(row.amountCash) || b.cash);
-  const curCard = advance ? Math.ceil(curCash * (1 + cardFeeRate) / cardFeeRound) * cardFeeRound : (parseInt(row.amountCard) || Math.ceil(curCash * (1 + cardFeeRate) / cardFeeRound) * cardFeeRound);
+  const curCard = advance ? ceilAddRate(curCash, cardFeePct, cardFeeRound) : (parseInt(row.amountCard) || ceilAddRate(curCash, cardFeePct, cardFeeRound));
   const opts = cfg.extOptions || [];
 
   let rows = '';
   opts.forEach((min, i) => {
     const t = _posExtTrial(row, min);
     const extCash = advance ? t.dueCash : curCash + (t.cash - b.cash);
-    const extCard = advance ? t.dueCard : Math.ceil(extCash * (1 + cardFeeRate) / cardFeeRound) * cardFeeRound;
+    const extCard = advance ? t.dueCard : ceilAddRate(extCash, cardFeePct, cardFeeRound);
     rows += '<tr class="' + (i > 0 ? 'sep' : '') + '">'
       + '<td class="time">⏱ ' + min + '分</td>'
       + '<td class="amt">¥' + extCash.toLocaleString() + '</td>'
@@ -12156,7 +12129,10 @@ function savePastDay() {
   const guests  = pastState.rows.length;
   const sales   = pastState.rows.filter(r => r.isFirst && r.settled)
     .reduce((s,r) => s + rowSales(r), 0);
+  // 既存バックアップのフィールドを引き継ぐ。pastState は編集対象（rows等）しか持たないため、
+  // 全置換すると timetableSnap（出退勤記録＝給与計算・日報の元データ）が消える。
   const snap = {
+    ...(idx >= 0 ? backups[idx] : {}),
     ...pastState,
     dayKey: pastDayKey,
     savedAt: new Date().toLocaleString('ja-JP'),
@@ -12393,10 +12369,6 @@ function renderSettingsPanel() {
           <div class="settings-label">店舗名（表示名）<div class="settings-sub">ヘッダー・印刷見出しに使用</div></div>
           <input type="text" class="settings-input" id="cfg-shopName" value="${escAttr(cfg.shopName ?? '')}" placeholder="例: キャバレー〇〇 八王子店" style="width:240px">
         </div>
-        <div class="settings-row">
-          <div class="settings-label">店舗ID<div class="settings-sub">任意。将来のSaaS連携用（空欄で可）</div></div>
-          <input type="text" class="settings-input" id="cfg-shopId" value="${escAttr(cfg.shopId ?? '')}" placeholder="（空欄で可）" style="width:180px">
-        </div>
         <div style="margin:8px 0 4px;font-size:11px;font-weight:700;color:var(--tx2);letter-spacing:0.04em">🧾 領収書情報</div>
         <div class="settings-sub" style="margin-bottom:10px">領収書印刷に印字する店舗情報です。宛名・金額・日付・No.は印刷時に伝票から自動入力されます。</div>
         <div class="settings-row">
@@ -12549,7 +12521,7 @@ function renderSettingsPanel() {
         </div>
         <div class="settings-row">
           <div class="settings-label">同伴時のセット料金<div class="settings-sub">ON: セット料金 + 同伴料 / OFF: セット0円 + 同伴料</div></div>
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px"><input type="checkbox" id="cfg-dohanIncludesSet" > セット料金も加算する</label>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px"><input type="checkbox" id="cfg-dohanIncludesSet" ${cfg.dohanIncludesSet ? 'checked' : ''}> セット料金も加算する</label>
         </div>
         <div class="settings-row">
           <div class="settings-label">場内指名料</div>
@@ -12708,32 +12680,6 @@ function renderSettingsPanel() {
         </div>
       </div>
     </div>
-
-    <!-- データ移行 -->
-    <div class="settings-section">
-      <div class="settings-section-header"><span class="settings-section-title">💿 データの持ち運び</span></div>
-      <div class="settings-section-body">
-        <div class="settings-row">
-          <div class="settings-label">全データをエクスポート<div class="settings-sub">PC移行・バックアップ用JSONファイル</div></div>
-          <button class="btn primary" onclick="exportAllData()" style="white-space:nowrap">📥 JSONダウンロード</button>
-        </div>
-        <div class="settings-row">
-          <div class="settings-label">データをインポート<div class="settings-sub">別PCからのJSONファイルを読み込む</div></div>
-          <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
-            <input type="file" id="import-file-input" accept=".json" style="display:none" onchange="importAllData(this)">
-            <button class="btn" onclick="document.getElementById('import-file-input').click()" style="white-space:nowrap">📤 JSONを選択</button>
-            <span id="import-status" style="font-size:11px;color:var(--tx3)"></span>
-          </label>
-        </div>
-        <div style="margin-top:8px;padding:10px 12px;background:rgba(201,168,76,0.06);border:1px solid rgba(201,168,76,0.2);border-radius:6px;font-size:11px;color:var(--tx3);line-height:1.7">
-          📋 <b style="color:var(--tx2)">PC移行の手順</b><br>
-          ① 旧PCでこの画面から「JSONダウンロード」→ USBに保存<br>
-          ② 新PCで <code style="background:var(--sur3);padding:1px 5px;border-radius:3px">list_table.html</code> をUSBからコピーしてブラウザで開く<br>
-          ③ 設定タブ → 「JSONを選択」→ ダウンロードしたファイルを選択<br>
-          ④ 完了 — 全データが復元されます
-        </div>
-      </div>
-    </div>
     </div>
 
     <div>
@@ -12741,15 +12687,7 @@ function renderSettingsPanel() {
     <div class="settings-section">
       <div class="settings-section-header"><span class="settings-section-title">🍶 POSレジ設定</span></div>
       <div class="settings-section-body">
-        <div class="settings-row" style="padding-bottom:12px;border-bottom:1px solid var(--bdr2);margin-bottom:12px">
-          <div class="settings-label" style="font-weight:700">🧾 POSレジ（β）<div class="settings-sub" style="color:#e0a050">ONにするとリスト表の左にタブが出現します</div></div>
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-            <input type="checkbox" id="cfg-enablePOS" ${cfg.enablePOS ? 'checked' : ''}
-              onchange="document.getElementById('pos-menu-body').style.display=this.checked?'':'none'">
-            <span style="font-size:13px;font-weight:700">有効化する</span>
-          </label>
-        </div>
-        <div id="pos-menu-body" style="${cfg.enablePOS ? '' : 'display:none'}">
+        <div id="pos-menu-body">
           <div class="settings-sub" style="margin-bottom:12px;line-height:1.7">
             各カテゴリのメニューを自由に編集できます。行を追加・削除して保存してください。<br>
             金額はすべて小計で入力してください。<br>
@@ -13048,19 +12986,10 @@ function rerenderTagEditor(id, values) {
       onkeydown="if(event.key==='Enter')settingTagAdd('${id}')">`;
 }
 
-/* 未保存変更トラッキング */
+/* 未保存変更トラッキング（タブ離脱時のapplySettings呼び出し・閉じる前警告の判定に使用） */
 let _settingsDirty = false;
-function _settingsMarkDirty() {
-  if (_settingsDirty) return;
-  _settingsDirty = true;
-  document.getElementById('settings-dirty-warn')?.style.setProperty('display', 'flex');
-  document.querySelector('.settings-save-btn')?.classList.add('dirty');
-}
-function _settingsClearDirty() {
-  _settingsDirty = false;
-  document.getElementById('settings-dirty-warn')?.style.setProperty('display', 'none');
-  document.querySelector('.settings-save-btn')?.classList.remove('dirty');
-}
+function _settingsMarkDirty() { _settingsDirty = true; }
+function _settingsClearDirty() { _settingsDirty = false; }
 
 /* 設定を保存して全体に即時反映 */
 function applySettings() {
@@ -13086,16 +13015,19 @@ function applySettings() {
       el.childNodes[0].textContent.trim()
     ).filter(Boolean);
   }
-  const clockInFromH  = parseInt(get('cfg-clockInFromH')?.value)  ?? 20;
+  // parseInt は失敗時 NaN（null ではない）を返すため ?? ではフォールバックできない。
+  // 空欄のまま自動保存されると NaN が料金設定へ入り伝票計算まで壊れるので、isNaN で判定する。
+  const _int = (id, fb) => { const v = parseInt(get(id)?.value); return isNaN(v) ? fb : v; };
+  const clockInFromH  = _int('cfg-clockInFromH', 20);
   const clockInFromM  = parseInt(get('cfg-clockInFromM')?.value)  || 0;
-  const clockInToH    = parseInt(get('cfg-clockInToH')?.value)    ?? 23;
+  const clockInToH    = _int('cfg-clockInToH', 23);
   const clockInToM    = parseInt(get('cfg-clockInToM')?.value)    || 30;
   const clockInFrom   = clockInFromH * 60 + clockInFromM;
   const clockInTo     = clockInToH   * 60 + clockInToM;
   const clockInStep   = parseInt(get('cfg-clockInStep')?.value)   || cfg.clockInStep  || 30;
-  const clockOutFromH = parseInt(get('cfg-clockOutFromH')?.value) ?? 22;
+  const clockOutFromH = _int('cfg-clockOutFromH', 22);
   const clockOutFromM = parseInt(get('cfg-clockOutFromM')?.value) || 0;
-  const clockOutToH   = parseInt(get('cfg-clockOutToH')?.value)   ?? 28;
+  const clockOutToH   = _int('cfg-clockOutToH', 28);
   const clockOutToM   = parseInt(get('cfg-clockOutToM')?.value)   || 0;
   const clockOutFrom  = clockOutFromH * 60 + clockOutFromM;
   const clockOutTo    = clockOutToH   * 60 + clockOutToM;
@@ -13119,23 +13051,23 @@ function applySettings() {
   if (bizHour < 5 || bizHour > 18) { alert('営業日の境界時刻は5〜18時の範囲で設定してください'); return; }
 
   // 料金設定
-  const setPrice        = parseInt(get('cfg-setPrice')?.value)        ?? cfg.setPrice;
+  const setPrice        = _int('cfg-setPrice', cfg.setPrice);
   const earlySetEnabled = !!(get('cfg-earlySetEnabled')?.checked);
-  const earlySetFromH   = parseInt(get('cfg-earlySetFromH')?.value)   ?? cfg.earlySetFromH;
-  const earlySetToH     = parseInt(get('cfg-earlySetToH')?.value)     ?? cfg.earlySetToH;
-  const earlySetPrice   = parseInt(get('cfg-earlySetPrice')?.value)   ?? cfg.earlySetPrice;
-  const nominateFee     = parseInt(get('cfg-nominateFee')?.value)     ?? cfg.nominateFee;
-  const dohanFee        = parseInt(get('cfg-dohanFee')?.value)        ?? cfg.dohanFee;
+  const earlySetFromH   = _int('cfg-earlySetFromH', cfg.earlySetFromH);
+  const earlySetToH     = _int('cfg-earlySetToH', cfg.earlySetToH);
+  const earlySetPrice   = _int('cfg-earlySetPrice', cfg.earlySetPrice);
+  const nominateFee     = _int('cfg-nominateFee', cfg.nominateFee);
+  const dohanFee        = _int('cfg-dohanFee', cfg.dohanFee);
   const dohanIncludesSet = !!(get('cfg-dohanIncludesSet')?.checked);
-  const jonaiFee        = parseInt(get('cfg-jonaiFee')?.value)        ?? cfg.jonaiFee;
+  const jonaiFee        = _int('cfg-jonaiFee', cfg.jonaiFee);
   const enchoshimeiFee        = cfg.enchoshimeiFee; // kept for legacy initial-seat-fee reference
   const extFeeHonshimeiAmt   = cfg.extFeeHonshimeiAmt   || 2000; // スカラーはフォールバック保持
   const extFeeJounaiAmt      = cfg.extFeeJounaiAmt      || 2000;
   const extFeeEnchoshimeiAmt = cfg.extFeeEnchoshimeiAmt || 2000;
   const _extOptCount = document.querySelectorAll('#ext-options-tbody tr').length || (cfg.extOptions || []).length;
-  const extFeeHonshimeiAmts   = Array.from({length: _extOptCount}, (_, i) => parseInt(get(`cfg-extFeeHonshimeiAmts-${i}`)?.value)   ?? (cfg.extFeeHonshimeiAmts?.[i]   ?? 2000));
-  const extFeeJounaiAmts      = Array.from({length: _extOptCount}, (_, i) => parseInt(get(`cfg-extFeeJounaiAmts-${i}`)?.value)      ?? (cfg.extFeeJounaiAmts?.[i]      ?? 2000));
-  const extFeeEnchoshimeiAmts = Array.from({length: _extOptCount}, (_, i) => parseInt(get(`cfg-extFeeEnchoshimeiAmts-${i}`)?.value) ?? (cfg.extFeeEnchoshimeiAmts?.[i] ?? 2000));
+  const extFeeHonshimeiAmts   = Array.from({length: _extOptCount}, (_, i) => _int(`cfg-extFeeHonshimeiAmts-${i}`,   cfg.extFeeHonshimeiAmts?.[i]   ?? 2000));
+  const extFeeJounaiAmts      = Array.from({length: _extOptCount}, (_, i) => _int(`cfg-extFeeJounaiAmts-${i}`,      cfg.extFeeJounaiAmts?.[i]      ?? 2000));
+  const extFeeEnchoshimeiAmts = Array.from({length: _extOptCount}, (_, i) => _int(`cfg-extFeeEnchoshimeiAmts-${i}`, cfg.extFeeEnchoshimeiAmts?.[i] ?? 2000));
   const extFeeOnHonshimei   = !!(get('cfg-extFeeOnHonshimei')?.checked);
   const extFeeOnJounai      = !!(get('cfg-extFeeOnJounai')?.checked);
   const extFeeOnEnchoshimei = !!(get('cfg-extFeeOnEnchoshimei')?.checked);
@@ -13165,7 +13097,6 @@ function applySettings() {
     L: parseInt(get('cfg-drinkCount-L')?.value) || 0,
   };
   const showCountdown   = !!(get('cfg-showCountdown')?.checked);
-  const enablePOS       = !!(get('cfg-enablePOS')?.checked);
 
   // POSメニュー: ビジュアルエディタの各行から収集
   // 空配列も保存する（現場が「デフォルト全削除」を選んだ意図を尊重し、フォールバックさせない）。
@@ -13190,7 +13121,6 @@ function applySettings() {
 
   // 店舗情報
   const shopName = (get('cfg-shopName')?.value ?? '').trim();
-  const shopId   = (get('cfg-shopId')?.value ?? '').trim() || null;
 
   // 給与計算ルール：入力欄は「キャスト管理」タブに移設済み（cfg直書き）。
   // ここでは cfg = {...} の全置換で消えないよう既存値をそのまま素通りさせるだけ。
@@ -13215,7 +13145,7 @@ function applySettings() {
   const receiptNote       = _rcpt('cfg-receiptNote',       'receiptNote');
 
   cfg = {
-    shopName, shopId,
+    shopName,
     timeStartH, timeEndH, bizDayBoundaryHour: bizHour, defStay, dohanStay,
     clockInFrom, clockInTo, clockInStep,
     clockOutFrom, clockOutTo, clockOutStep,
@@ -13227,14 +13157,13 @@ function applySettings() {
     extFeeOnHonshimei, extFeeOnJounai, extFeeOnEnchoshimei, extPrices,
     extBasePerSeat, extFeePerSeat, doubanAsHonshimeiExt, drinkCounts,
     taxRate, taxRound, discountAfterTax, cardFeeRate, cardFeeRound,
-    showCountdown, enablePOS, posMenu, posPrices,
+    showCountdown, posMenu, posPrices,
     receiptStoreName1, receiptStoreAddr, receiptStoreTel, receiptInvoiceNo, receiptNote,
     payrollClockInRoundMin, payrollClockOutRoundMin, payrollClockOutRoundThreshold,
     payrollLateFineUnitMin, payrollLateFineAmt, payrollBottleSpRate,
     defaultTheme,
   };
   saveCfg();
-  applyPOSTabVisibility();
 
   // ビュー全体を即時再描画
   renderTable();
@@ -13243,15 +13172,6 @@ function applySettings() {
   updateClock(); // ヘッダーの営業日表示を即時反映
 
   _settingsClearDirty();
-  const btn = document.querySelector('.settings-save-btn');
-  if (btn) {
-    btn.textContent = '✅ 適用しました';
-    btn.style.boxShadow = '0 0 20px rgba(56,204,128,0.35)';
-    setTimeout(() => {
-      btn.textContent = '✅ 設定を保存して即時反映';
-      btn.style.boxShadow = '';
-    }, 1500);
-  }
   showToast('設定を保存・反映しました');
 }
 /* ================================================================
@@ -13290,41 +13210,6 @@ async function exportAllData() {
   const a    = document.createElement('a');
   a.href = url; a.download = fname; a.click();
   URL.revokeObjectURL(url);
-}
-
-function importAllData(input) {
-  const file = input.files[0];
-  if (!file) return;
-  const status = document.getElementById('import-status');
-  const reader = new FileReader();
-  reader.onload = e => {
-    try {
-      const imported = JSON.parse(e.target.result);
-      if (!imported.version || !imported.data) throw new Error('形式が不正です');
-      if (!confirm(`${imported.exportedAt || '不明'} のバックアップデータをインポートしますか？\n\n⚠️ 現在のデータは上書きされます。`)) {
-        input.value = ''; return;
-      }
-      const { data } = imported;
-      Persist.importAll(data);  // listState/backups/customers/settings/timetable を一括書込
-
-      // 再読み込みして全状態を反映
-      loadCfg();
-      loadState();
-      renderTable();
-      renderCastPanel();
-      renderTimetable();
-      updateStoreStatusBadge();
-      refreshHistoryBtns();
-
-      if (status) status.textContent = '✅ インポート完了';
-      if (status) status.style.color = 'var(--green)';
-      setTimeout(() => { if(status){status.textContent='';} }, 3000);
-    } catch(err) {
-      alert('インポートに失敗しました: ' + err.message);
-    }
-    input.value = '';
-  };
-  reader.readAsText(file);
 }
 
 /* ================================================================
@@ -14499,16 +14384,15 @@ async function __boot() {
   renderTable();
   renderCastPanel();
   refreshHistoryBtns();
-  applyPOSTabVisibility();
   if (typeof initThemeFromPersist === 'function') initThemeFromPersist();
 
   // 設定パネルの未保存変更検知（バブルアップで一括キャッチ）
   document.getElementById('settings-panel').addEventListener('input',  _settingsMarkDirty);
   document.getElementById('settings-panel').addEventListener('change', _settingsMarkDirty);
 
-  // ブラウザを閉じる前に未保存警告
+  // ブラウザを閉じる前に未保存警告（リスト表データ・設定パネルの両方をチェック）
   window.addEventListener('beforeunload', e => {
-    if (_unsavedChanges && state.rows.length > 0) {
+    if ((_unsavedChanges && state.rows.length > 0) || _settingsDirty) {
       e.preventDefault();
       e.returnValue = '保存されていないデータがあります。閉じる前に💾保存ボタンを押してください。';
     }
