@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.14">
+<meta name="app-version" content="1.0.15">
 <title>リスト表 v4</title>
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
      フォントはOS内蔵にフォールバックする（--font/--monoのスタック参照）。 -->
@@ -10004,6 +10004,11 @@ function _ssDismiss(e) {
    TAB SWITCH
 ================================================================ */
 function showTab(tab) {
+  if (document.body.dataset.activeTab === 'settings' && tab !== 'settings' && _settingsDirty) {
+    const shouldSave = confirm('設定の変更を保存して移動しますか？\n\n・OK：変更を保存して移動します\n・キャンセル：設定タブに戻ります（変更はそのまま残ります）');
+    if (!shouldSave) return;
+    applySettings();
+  }
   document.querySelectorAll('.tab-btn').forEach(b =>
     b.classList.toggle('active', b.dataset.tab === tab)
   );
@@ -10015,7 +10020,6 @@ function showTab(tab) {
   document.getElementById('report-panel').classList.toggle('hidden', tab !== 'report');
   document.getElementById('analytics-panel').classList.toggle('hidden', tab !== 'analytics');
   document.getElementById('past-panel').classList.toggle('hidden', tab !== 'past');
-  if (tab !== 'settings' && _settingsDirty) applySettings();
   document.getElementById('settings-panel').classList.toggle('hidden', tab !== 'settings');
   document.getElementById('toolbar').style.display = tab === 'list' ? '' : 'none';
   document.getElementById('summary-bar').style.display = tab === 'pos' ? 'none' : '';
@@ -12161,7 +12165,7 @@ function posMenuDelItem(btn) {
    保存（applySettings）した時点で cfg.posMenu に空配列として書かれ、
    デフォルト（澪/モエ等）にフォールバックしなくなる。 */
 function posMenuClearAllDefaults() {
-  if (!confirm('ショット／ボトル／フード／持込／割引・割増／カスタムカテゴリ のメニューを全て削除します。\n\n（保存ボタンを押すまでは反映されません）\n\n本当に削除しますか？')) return;
+  if (!confirm('ショット／ボトル／フード／持込／割引・割増／カスタムカテゴリ のメニューを全て削除します。\n\n（設定タブを離れるときに保存の確認が出ます）\n\n本当に削除しますか？')) return;
   document.querySelectorAll('table[id^="cfg-posMenu-"] tbody').forEach(tbody => { tbody.innerHTML = ''; });
   if (typeof _settingsMarkDirty === 'function') _settingsMarkDirty();
   if (typeof showToast === 'function') showToast('全カテゴリのメニューを削除しました。保存してください。');
@@ -17650,7 +17654,7 @@ function shopLogoClear() {
   const fi = document.getElementById('cfg-shopLogo-file');
   if (fi) fi.value = '';
   _settingsMarkDirty();
-  showToast('ロゴを削除します。「保存」で確定します');
+  showToast('ロゴを削除します。設定タブを離れるときに確定します');
 }
 
 /* 設定を保存して全体に即時反映 */
