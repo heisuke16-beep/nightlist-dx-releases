@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.11">
+<meta name="app-version" content="1.0.12">
 <title>リスト表 v4</title>
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
      フォントはOS内蔵にフォールバックする（--font/--monoのスタック参照）。 -->
@@ -12098,7 +12098,14 @@ function extOptAddRow() {
 }
 
 function extOptDelRow(btn) {
-  btn.closest('tr').remove();
+  const tr = btn.closest('tr');
+  const tbody = document.getElementById('ext-options-tbody');
+  const idx = [...tbody.querySelectorAll('tr')].indexOf(tr);
+  // 行だけ消すと syncExtFeeRows のインデックス対応で料金が別の分数へズレるため、料金欄も同じ位置を消す
+  ['ext-fee-honshimei-opts', 'ext-fee-jounai-opts', 'ext-fee-enchoshimei-opts'].forEach(id => {
+    document.getElementById(id)?.children[idx]?.remove();
+  });
+  tr.remove();
   syncExtFeeRows();
   document.getElementById('ext-options-tbody')?.dispatchEvent(new Event('change', { bubbles: true }));
   if (typeof _settingsMarkDirty === 'function') _settingsMarkDirty();
