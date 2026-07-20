@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.5">
+<meta name="app-version" content="1.0.6">
 <title>リスト表 v4</title>
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
      フォントはOS内蔵にフォールバックする（--font/--monoのスタック参照）。 -->
@@ -15326,7 +15326,7 @@ function posPrintReceiptDirect(row) {
     // 下余白の自前確保: カット位置は「最後に印字された黒」の直後で決まり、末尾の空白はドライバに
     // 切り詰められる（2026-07-14実機実証）。ドライバ「紙送り量」設定はPC個体ごとに漏れ・不発が
     // 起きるため、末尾10mm下に極小ドット(1px)を印字してそこまで確実に紙を送らせる（2026-07-21）。
-    + '<div style="margin:10mm 0 0;width:0.5mm;height:0;border-top:1px solid #000;print-color-adjust:exact;-webkit-print-color-adjust:exact"></div>'
+    + '<div style="margin:10mm auto 0;width:0.5mm;height:0;border-top:1px solid #000;print-color-adjust:exact;-webkit-print-color-adjust:exact"></div>'
     + '<script>window.onafterprint=()=>setTimeout(()=>window.close(),100);window.onload=()=>window.print()<\/script>'  // 印刷後に自動クローズ（キオスク印刷モードでの窓の溜まり防止）
     + '</body></html>');
   w.document.close();
@@ -15402,7 +15402,7 @@ function posPrintExtTrial() {
     + '</table>'
     // 下余白の自前確保: 末尾の空白はドライバに切り詰められるため、10mm下に極小ドットを印字して
     // そこまで紙を送らせる（ドライバ「紙送り量」の設定漏れPCでも下が切れない。2026-07-21）
-    + '<div style="margin:10mm 0 0;width:0.5mm;height:0;border-top:1px solid #000;print-color-adjust:exact;-webkit-print-color-adjust:exact"></div>'
+    + '<div style="margin:10mm auto 0;width:0.5mm;height:0;border-top:1px solid #000;print-color-adjust:exact;-webkit-print-color-adjust:exact"></div>'
     + '<script>window.onafterprint=()=>setTimeout(()=>window.close(),100);window.onload=()=>window.print()<\/script>'  // 印刷後に自動クローズ（キオスク印刷モードでの窓の溜まり防止）
     + '</body></html>');
   w.document.close();
@@ -21097,7 +21097,7 @@ function _receiptOpenWindow(data) {
     + '</div></div>'
     // 下余白の自前確保: 末尾の空白はドライバに切り詰められるため、10mm下に極小ドットを印字して
     // そこまで紙を送らせる（ドライバ「紙送り量」の設定漏れPCでも送り方向の端が切れない。2026-07-21）
-    + '<div style="margin:10mm 0 0;width:0.5mm;height:0;border-top:1px solid #000;print-color-adjust:exact;-webkit-print-color-adjust:exact"></div>'
+    + '<div style="margin:10mm auto 0;width:0.5mm;height:0;border-top:1px solid #000;print-color-adjust:exact;-webkit-print-color-adjust:exact"></div>'
     + '<script>window.onafterprint=()=>setTimeout(()=>window.close(),100);window.onload=()=>window.print()<\/script>'  // 印刷後に自動クローズ（キオスク印刷モードでの窓の溜まり防止）
     + '</body></html>');
   w.document.close();
