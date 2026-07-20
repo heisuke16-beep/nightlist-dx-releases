@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.12">
+<meta name="app-version" content="1.0.13">
 <title>リスト表 v4</title>
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
      フォントはOS内蔵にフォールバックする（--font/--monoのスタック参照）。 -->
@@ -6445,8 +6445,12 @@ function autoSave() {
     while (backups.length > BACKUP_MAX) backups.pop();
   }
   backups.sort((a,b) => (b.dayKey||'').localeCompare(a.dayKey||''));
-  saveBackups(backups);
-  _unsavedChanges = false;
+  const saved = saveBackups(backups);
+  if (saved) {
+    _unsavedChanges = false;
+  } else {
+    _notifySaveFailure('自動保存');
+  }
 }
 startAutoSave();
 
@@ -6509,7 +6513,17 @@ function saveBackups(arr) {
   // データ復旧：上書き・削除で消える「中身のある」営業日を退避してから書き込む。
   // 万一バグや誤操作でバックアップが空に化けても、ボーイが🛟ボタンから戻せる安全網。
   try { _archiveLostSnaps(loadBackups(), arr); } catch (_) {}
-  Persist.write('backups', arr);
+  return Persist.write('backups', arr);
+}
+
+let _lastSaveFailureNotificationAt = 0;
+function _notifySaveFailure(context) {
+  const now = Date.now();
+  if (now - _lastSaveFailureNotificationAt < 600000) return;
+  if (typeof showToast === 'function') {
+    _lastSaveFailureNotificationAt = now;
+    showToast('⚠ ' + context + 'に失敗しました。端末の空き容量を確認し、オーナーへ連絡してください');
+  }
 }
 
 /* ----------------------------------------------------------------
@@ -6579,13 +6593,19 @@ function manualSave() {
   }
   // dayKeyの降順でソート
   backups.sort((a,b) => (b.dayKey||'').localeCompare(a.dayKey||''));
-  saveBackups(backups);
-  _unsavedChanges = false;
-
+  const saved = saveBackups(backups);
   const btn = document.getElementById('save-btn');
-  btn.textContent = '✅ 保存完了';
-  btn.disabled = true;
-  setTimeout(() => { btn.textContent = '💾 保存'; btn.disabled = false; }, 1500);
+  if (saved) {
+    _unsavedChanges = false;
+    btn.textContent = '✅ 保存完了';
+    btn.disabled = true;
+    setTimeout(() => { btn.textContent = '💾 保存'; btn.disabled = false; }, 1500);
+  } else {
+    btn.textContent = '⚠ 保存できません';
+    btn.disabled = false;
+    setTimeout(() => { btn.textContent = '💾 保存'; }, 3000);
+    alert('保存に失敗しました。\n\n端末の空き容量が不足している可能性があります。\nこのまま営業を続けると入力内容が失われるおそれがあるため、オーナーへ連絡してください。');
+  }
 }
 
 /* 現在のstateを指定した営業日キーでバックアップ（スナップショット）保存する。
