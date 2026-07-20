@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.8">
+<meta name="app-version" content="1.0.9">
 <title>リスト表 v4</title>
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
      フォントはOS内蔵にフォールバックする（--font/--monoのスタック参照）。 -->
@@ -13130,9 +13130,13 @@ function _weekRange(ref) {
 function renderReportPanel() {
   const panel = document.getElementById('report-panel');
   if (!panel) return;
-  const endBusinessDayHtml = reportPeriod === 'day' && _reportDaySource().dayKey === getLoadedDayKey()
-    ? '<div class="report-end-business-day"><button type="button" class="btn danger" onclick="reportEndBusinessDay()">🔚 営業終了（日締め）</button></div>'
-    : '';
+  let endBusinessDayHtml = '';
+  if (reportPeriod === 'day' && _reportDaySource().dayKey === getLoadedDayKey()) {
+    const frozen = _dailyCloseNormalizeFrozen(_dailyCloseCurrentRecord().frozen).closedAt > 0;
+    endBusinessDayHtml = frozen
+      ? '<div class="report-end-business-day"><button type="button" class="btn" onclick="reportReopenBusinessDay()">↩ 営業終了を取り消す</button></div>'
+      : '<div class="report-end-business-day"><button type="button" class="btn danger" onclick="reportEndBusinessDay()">🔚 営業終了（日締め）</button></div>';
+  }
   panel.innerHTML = endBusinessDayHtml + _reportPeriodSwitchHtml()
     + (reportPeriod === 'day' ? _renderReportDay() : _renderReportRange(reportPeriod));
 }
@@ -14205,14 +14209,21 @@ function dailyCloseLockNow() {
   return _dailyCloseSaveCurrent(rec);
 }
 
+function dailyCloseUnlockNow() {
+  if (_reportDaySource().dayKey !== getLoadedDayKey()) return false;
+  const rec = _dailyCloseCurrentRecord();
+  if (_dailyCloseNormalizeFrozen(rec.frozen).closedAt <= 0) return false;
+  rec.frozen = { ...rec.frozen, closedAt: 0 };
+  return _dailyCloseSaveCurrent(rec);
+}
+
 /* 鍵トグル: 🔓未確定（自動集計はライブ値）⇄ 🔒ロック（その時点の値で凍結） */
 function dailyCloseToggleLock() {
   const src = _reportDaySource();
   if (src.dayKey !== getLoadedDayKey()) return;
   const rec = _dailyCloseCurrentRecord();
   if (_dailyCloseNormalizeFrozen(rec.frozen).closedAt > 0) {
-    rec.frozen = { ...rec.frozen, closedAt: 0 };
-    if (_dailyCloseSaveCurrent(rec)) {
+    if (dailyCloseUnlockNow()) {
       _dailyCloseRerender();
       showToast('🔓 ロックを解除しました（自動集計はライブ値に戻ります）');
     }
@@ -14237,6 +14248,27 @@ function reportEndBusinessDay() {
   resetDayCore();
   renderReportPanel();
   showToast('🔚 営業を終了しました（日次締めロック済み）');
+}
+
+function reportReopenBusinessDay() {
+  if (_reportDaySource().dayKey !== getLoadedDayKey()) {
+    showToast('過去の営業日は操作できません');
+    return;
+  }
+  const rec = _dailyCloseCurrentRecord();
+  if (_dailyCloseNormalizeFrozen(rec.frozen).closedAt <= 0) {
+    showToast('営業終了された状態ではありません');
+    return;
+  }
+  const snap = loadBackups().find(item => item.dayKey === getLoadedDayKey());
+  if (!snap) {
+    showToast('営業終了時点のバックアップが見つかりません');
+    return;
+  }
+  if (!confirm('営業終了を取り消しますか？\n・日次締めのロックを解除します\n・リスト表を営業終了時点の状態に復元します\n（現在のリスト表の内容は置き換わります）')) return;
+  dailyCloseUnlockNow();
+  applySnapshot(snap);
+  showToast('↩ 営業終了を取り消しました');
 }
 
 /* 日払い（社交）は時給マスタと違い「その日の手入力」のため凍結の保護対象にしない。
@@ -14421,9 +14453,7 @@ function _dailyCloseSectionHtml(src, agg, payrollRows, isPast) {
     <style>
       .dc-section{margin-top:18px}.dc-head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px}
       .dc-head h3{margin:0;font-size:16px;color:var(--tx)}.dc-status{font-size:11px;color:var(--tx3)}
-      .dc-close-btn,.dc-add,.dc-delete{border:1px solid var(--bdr2);border-radius:6px;background:var(--sur2);color:var(--tx2);cursor:pointer}
-      .dc-close-btn{padding:8px 14px;background:linear-gradient(180deg,var(--red),#b02a40);border-color:rgba(229,53,77,0.6);color:#fff;font-weight:700}
-      .dc-close-btn.unlocked-style{background:var(--sur2);border-color:rgba(229,53,77,0.5);color:var(--red);font-weight:600}
+      .dc-add,.dc-delete{border:1px solid var(--bdr2);border-radius:6px;background:var(--sur2);color:var(--tx2);cursor:pointer}
       .dc-table-wrap{overflow-x:auto}.dc-auto-table{width:100%;border-collapse:collapse;font-size:12px;min-width:620px}
       .dc-auto-table th,.dc-auto-table td{border-bottom:1px solid var(--bdr);padding:9px 10px;text-align:right}.dc-auto-table th:first-child{text-align:left}
       .dc-auto-table thead th{color:var(--tx3);background:var(--sur2)}.dc-auto-table td{font-weight:700;color:var(--tx)}
@@ -14437,10 +14467,9 @@ function _dailyCloseSectionHtml(src, agg, payrollRows, isPast) {
       .dc-results{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin-top:14px}.dc-result{background:var(--sur2);border:1px solid var(--bdr);border-radius:10px;padding:12px;text-align:center}.dc-result span,.dc-result small{display:block;color:var(--tx3);font-size:11px}.dc-result strong{display:block;font-size:20px;margin:5px 0;color:var(--tx)}
       .dc-result.ok strong{color:var(--green)}.dc-result.plus strong{color:#6aa6e8}.dc-result.minus strong{color:#e66}.dc-warning{margin-top:8px;color:#e5a84b;font-size:12px;text-align:right}
       @media(max-width:900px){.dc-list-grid{grid-template-columns:1fr}.dc-manual{grid-template-columns:1fr}.dc-results{grid-template-columns:repeat(2,minmax(0,1fr))}}
-      @media print{.dc-close-btn,.dc-add,.dc-delete,.dc-copy-btn{display:none}.dc-list-row input,.dc-manual input,.dc-note{border:none;background:transparent}}
+      @media print{.dc-add,.dc-delete,.dc-copy-btn{display:none}.dc-list-row input,.dc-manual input,.dc-note{border:none;background:transparent}}
     </style>
-    <div class="dc-head"><div><h3>${readOnly || frozen ? '🔒' : '🔓'} 日次締め</h3><div class="dc-status">${readOnly ? '🔒 過去日の確定値（読み取り専用）' : frozen ? `🔒 ロック中（確定 ${new Date(auto.closedAt).toLocaleString('ja-JP')}）` : '🔓 未確定 — 自動集計はライブ値。締めたらロックしてください'}</div></div>
-      ${readOnly || !frozen ? '' : '<button type="button" class="dc-close-btn unlocked-style" onclick="dailyCloseToggleLock()">🔓 ロック解除</button>'}</div>
+    <div class="dc-head"><div><h3>${readOnly || frozen ? '🔒' : '🔓'} 日次締め</h3><div class="dc-status">${readOnly ? '🔒 過去日の確定値（読み取り専用）' : frozen ? `🔒 ロック中（確定 ${new Date(auto.closedAt).toLocaleString('ja-JP')}）` : '🔓 未確定 — 自動集計はライブ値。締めたらロックしてください'}</div></div></div>
     ${_dailyCloseAutoTable(auto, month)}
     <div class="dc-list-grid">
       ${_dailyCloseListHtml('staffPay', '社員日払い', record, month, readOnly, candidates.staffPay)}
