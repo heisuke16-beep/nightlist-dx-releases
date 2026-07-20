@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.6">
+<meta name="app-version" content="1.0.7">
 <title>リスト表 v4</title>
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
      フォントはOS内蔵にフォールバックする（--font/--monoのスタック参照）。 -->
@@ -15285,6 +15285,9 @@ function posPrintReceiptDirect(row) {
   // 新規導入店舗がロゴ未設定のまま印刷すると前店舗のロゴが出てしまっていた（他店舗展開の洗い出しで発見・修正）。
   const logo = escAttr((cfg && cfg.shopLogo) || '');
   const tnum = row.tableNum ? escHtml(posTableLabel(row.tableNum)) : '';
+  // 伝票番号の隣に出す営業日（深夜営業は日付切替を跨ぐため getBizDate 基準）
+  const bizD = getBizDate();
+  const bizDateStr = bizD.getFullYear() + '/' + (bizD.getMonth() + 1) + '/' + bizD.getDate();
   w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>伝票</title>'
     + '<style>'
     + '@page{size:80mm auto;margin:0}'
@@ -15316,6 +15319,8 @@ function posPrintReceiptDirect(row) {
             ? '<h2 style="text-align:center;margin:0 0 0.5mm;font-size:14pt">' + escHtml(cfg.shopName) + '</h2>'
               + '<div style="text-align:center;font-size:8pt;margin:0 0 2mm">お会計伝票</div>'
             : '<h2 style="text-align:center;margin:0 0 2mm">お会計伝票</h2>'))
+    // 伝票番号: アプリ画面の伝票カードと同じ組番号(gid)＋営業日（2026-07-21 オーナー要望。紙とアプリの突き合わせ用）
+    + '<div class="meta">No.' + (row.gid || '-') + '　' + bizDateStr + '</div>'
     + '<table class="items"><thead><tr><th style="text-align:left">品目</th><th class="q">数</th><th class="a">金額</th></tr></thead><tbody>' + lines + '</tbody></table>'
     + '<table class="sum">'
     + '<tr><td class="lbl" rowspan="4">' + (row.gcount || 1) + '名様' + (tnum ? '<br>' + tnum : '') + '</td><td class="k">合計</td><td class="v">¥' + b.subtotal.toLocaleString() + '</td></tr>'
