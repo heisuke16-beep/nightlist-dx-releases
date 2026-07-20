@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.10">
+<meta name="app-version" content="1.0.11">
 <title>リスト表 v4</title>
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
      フォントはOS内蔵にフォールバックする（--font/--monoのスタック参照）。 -->
@@ -6540,7 +6540,7 @@ function _archiveLostSnaps(oldArr, newArr) {
   }
   if (!lost.length) return;
   const rec = loadRecovery();
-  for (const a of lost) {
+  for (const a of lost.slice().reverse()) {
     // 同じ日・同じ入客数・同じ保存時刻の重複退避は避ける
     const dup = rec.some(r => r.dayKey === a.dayKey
       && (r.rows || []).length === (a.rows || []).length
@@ -7601,6 +7601,7 @@ function addSubCast(id) {
 function removeSubCast(id, idx) {
   const row = state.rows.find(r => r.id === id);
   if (!row) return;
+  pushUndo();
   row.subCasts.splice(idx, 1);
   renderTable(); saveState();
 }
@@ -8353,6 +8354,7 @@ function addAmountEntry(id, type) {
 function removeAmountEntry(id, type, idx) {
   const row = state.rows.find(r => r.id === id);
   if (!row) return;
+  pushUndo();
   if (type === 'cash') row.cashEntries.splice(idx, 1);
   else row.cardEntries.splice(idx, 1);
   renderTable(); saveState();
@@ -15775,6 +15777,7 @@ function posQty(orderId, delta) {
 function posRemoveItem(orderId) {
   const row = posSelectedRow();
   if (!row) return;
+  pushUndo();
   row.posOrders = posOrders(row).filter(x => x.id !== orderId);
   saveState(); renderPOSPanel();
 }
