@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.4">
+<meta name="app-version" content="1.0.5">
 <title>リスト表 v4</title>
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
      フォントはOS内蔵にフォールバックする（--font/--monoのスタック参照）。 -->
@@ -15387,6 +15387,8 @@ function posPrintExtTrial() {
     + '@media print{body{padding:0 4mm}}</style>'
     + '</head><body>'
     + '<h2>延長料金のご案内</h2>'
+    // 卓番: タイトル直下に中央表示（2026-07-21 オーナー要望。「T-5」→「5卓」表記、未設定なら行ごと出さない）
+    + (row.tableNum ? '<div class="sub">' + escHtml(posTableDisplay(posTableLabel(row.tableNum))) + '</div>' : '')
     + '<div class="rule"></div>'
     + '<div class="cur"><span class="lbl">現在の金額（現金）</span><span class="lead"></span><span class="amt">¥' + curCash.toLocaleString() + '</span></div>'
     + '<div class="cur"><span class="lbl">現在の金額（カード）</span><span class="lead"></span><span class="amt">¥' + curCard.toLocaleString() + '</span></div>'
