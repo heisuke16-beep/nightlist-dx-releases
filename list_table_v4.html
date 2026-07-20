@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.13">
+<meta name="app-version" content="1.0.14">
 <title>リスト表 v4</title>
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
      フォントはOS内蔵にフォールバックする（--font/--monoのスタック参照）。 -->
@@ -4795,14 +4795,19 @@ const Persist = {
   read(name, opts = {}) {
     const key = this.KEYS[name];
     if (!key) { console.error(`[Persist] unknown key: ${name}`); return null; }
+    let raw = null;
     try {
-      const raw = (typeof UsbStore !== 'undefined' && UsbStore.active)
+      raw = (typeof UsbStore !== 'undefined' && UsbStore.active)
         ? UsbStore.readSync(name)
         : localStorage.getItem(key);
       return JSON.parse(raw || 'null');
     }
     catch(e) {
       console.error(`[Persist] read('${name}') parse failed:`, e);
+      if (raw !== null && raw !== '') {
+        try { localStorage.setItem(`nightlist__corrupt_${name}_${Date.now()}`, raw); }
+        catch (archiveError) { console.error(`[Persist] archive corrupt '${name}' failed:`, archiveError); }
+      }
       if (opts.onError) { try { opts.onError(e); } catch(_){} }
       return null;
     }
@@ -6506,7 +6511,9 @@ function bizKeyToLabel(key) {
 
 function loadBackups() {
   return Persist.read('backups', {
-    onError: () => setTimeout(() => { try { showToast('⚠ バックアップ履歴の読込に失敗しました。データ破損の可能性があります'); } catch (_) {} }, 100)
+    onError: () => setTimeout(() => {
+      if (typeof alert === 'function') alert('バックアップ履歴の読み込みに失敗しました。\n\nデータが壊れている可能性があります。\n壊れたデータは端末内に退避しました。\nこのまま営業は続けられますが、過去の営業日データが表示されなくなっている場合があります。\n必ずオーナーへ連絡してください。');
+    }, 100)
   }) || [];
 }
 function saveBackups(arr) {
@@ -19144,6 +19151,8 @@ function editCustomerName(oldName) {
   const data = loadCustomers();
   if (data[trimmed] && trimmed !== oldName) {
     if (!confirm(`「${trimmed}」という顧客は既に存在します。\n統合して ${data[trimmed].visits}回＋${data[oldName]?.visits||0}回 の履歴としてまとめますか？`)) return;
+  } else {
+    if (!confirm(`「${oldName}」を「${trimmed}」に変更します。\n\n・今日のリストと、過去の全営業日の記録が新しい名前に変わります\n・ボトルキープ・売掛の名義も変わります\n・この操作は元に戻せません\n\n変更しますか？`)) return;
   }
 
   // 1. 今日のリスト（state.rows）の客名を更新
