@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.9">
+<meta name="app-version" content="1.0.10">
 <title>リスト表 v4</title>
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
      フォントはOS内蔵にフォールバックする（--font/--monoのスタック参照）。 -->
@@ -13010,12 +13010,26 @@ function setReportDay(key) {
 }
 /* 閲覧対象の営業日キー（当日含む）。 */
 function _reportDayKey() { return reportSelectedDay || getLoadedDayKey(); }
+/* 締め済み当日の表示に使うバックアップ。ライブに行が入れば null に戻る。 */
+function _reportClosedTodaySnap() {
+  if (typeof _dailyCloseNormalizeFrozen !== 'function'
+      || typeof _dailyCloseCurrentRecord !== 'function'
+      || typeof loadBackups !== 'function') return null;
+  const frozen = _dailyCloseNormalizeFrozen(_dailyCloseCurrentRecord().frozen);
+  if (!(frozen && frozen.closedAt > 0) || (state.rows || []).length !== 0) return null;
+  const todayKey = getLoadedDayKey();
+  return loadBackups().find(snap => snap.dayKey === todayKey) || null;
+}
 /* 選択中営業日の { rows, tt } を返す。過去日はバックアップのスナップから（ライブ状態は壊さない）。 */
 function _reportDaySource() {
   const todayKey = getLoadedDayKey();
   const key = reportSelectedDay;
   if (!key || key === todayKey) {
     const tt = (typeof loadTimetableState === 'function') ? loadTimetableState() : {};
+    const snap = _reportClosedTodaySnap();
+    if (snap) {
+      return { dayKey: todayKey, rows: Array.isArray(snap.rows) ? snap.rows : [], tt: snap.timetableSnap || tt };
+    }
     return { dayKey: todayKey, rows: state.rows || [], tt };
   }
   // 過去営業日：バックアップから rows + timetableSnap を取得（閲覧専用）
@@ -13116,7 +13130,8 @@ function _collectDayRows() {
   const map = {};
   loadBackups().forEach(snap => { if (Array.isArray(snap.rows)) map[snap.dayKey] = snap.rows; });
   const liveKey = getLoadedDayKey();   // ロード中データの営業日（単一ソース）
-  map[liveKey] = state.rows;   // ライブ状態を最新として上書き
+  const closedTodaySnap = _reportClosedTodaySnap();
+  map[liveKey] = closedTodaySnap && Array.isArray(closedTodaySnap.rows) ? closedTodaySnap.rows : state.rows;
   return map;
 }
 function _bizKeyToDate(key) { return new Date(+key.slice(0,4), +key.slice(4,6)-1, +key.slice(6,8)); }
@@ -13838,6 +13853,7 @@ function _reportDaySelectHtml() {
 /* 日報：本日（または選択した過去営業日）の精算済み伝票の詳細 + 集計ダッシュボード */
 function _renderReportDay() {
   const src = _reportDaySource();           // #15 { dayKey, rows, tt }
+  const closedToday = !!_reportClosedTodaySnap();
   const settled = (src.rows || []).filter(r => r.isFirst && r.settled);
   const agg = computeReportAgg(settled);
   const isPast = src.dayKey !== getLoadedDayKey();
@@ -13860,7 +13876,7 @@ function _renderReportDay() {
         <span class="pos-hist-method ${method}">${methodLabel}</span>
         <span style="color:var(--tx3);font-size:11px">${minToHHMM(r.startMin)}–${minToHHMM(r.endMin)}</span>
       </div>
-      ${isPast ? '' : `<div class="pos-report-slip-actions">
+      ${isPast || closedToday ? '' : `<div class="pos-report-slip-actions">
         <button class="pos-report-btn" style="color:#2680e8" onclick="posReportPrint(${r.gid})">🧾 印刷</button>
         <button class="pos-report-btn restore" onclick="posReportRestore(${r.gid})">↩ 復元</button>
         <button class="pos-report-btn delete" onclick="posReportDelete(${r.gid})">🗑 完全削除</button>
