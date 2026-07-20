@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.7">
+<meta name="app-version" content="1.0.8">
 <title>リスト表 v4</title>
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
      フォントはOS内蔵にフォールバックする（--font/--monoのスタック参照）。 -->
@@ -4521,7 +4521,6 @@ html[data-display="tablet"] #list-table .col-ctrl-btn { min-width: 32px; min-hei
           title="ドラッグで動かした並びを破棄し、開始時刻の早い順に自動で並べ直します">⇅ 開始時刻順に戻す</button>
   <span style="margin-left:auto;display:flex;align-items:center;gap:8px">
     <button class="btn" onclick="doPrint()">🖨 印刷</button>
-    <button class="btn danger" onclick="resetDay()" title="本日のリスト表を空にして営業を終了する">🔚 リスト表を閉めて営業終了</button>
   </span>
 </div>
 
@@ -13035,6 +13034,7 @@ function _reportPeriodSwitchHtml() {
     + '.report-period-switch .rp-btn{padding:8px 24px;background:var(--sur);color:var(--tx2);border:none;border-right:1px solid var(--bdr2);cursor:pointer;font-size:13px;font-weight:600}'
     + '.report-period-switch .rp-btn:last-child{border-right:none}'
     + '.report-period-switch .rp-btn.active{background:linear-gradient(180deg,var(--gold),var(--gold2));color:#1a1410}'
+    + '.report-end-business-day{margin-bottom:18px}'
     + '.report-range-table{border-collapse:collapse;font-size:13px;margin-top:8px;min-width:520px}'
     + '.report-range-table th,.report-range-table td{border:1px solid var(--bdr);padding:8px 12px;text-align:right;white-space:nowrap}'
     + '.report-range-table th{background:var(--sur2);color:var(--tx2);text-align:center}'
@@ -13093,7 +13093,7 @@ function _reportPeriodSwitchHtml() {
     + '.payroll-table input.pay-in.pay-time{width:44px;text-align:center;font-family:var(--mono)}'   /* 出退勤HH:MM編集 */
     + '.payroll-table select.pay-time{box-sizing:border-box;width:44px;font-size:11px;padding:3px 1px;background:var(--sur2);color:var(--tx);border:1px solid var(--bdr2);border-radius:5px;text-align:center;font-family:var(--mono);cursor:pointer}'   /* 出退勤30分刻みドロップダウン */
     + '.payroll-table select.pay-time:focus{outline:none;border-color:var(--gold)}'
-    + '@media print{.report-period-switch,.agg-box-actions,.pos-report-slip-actions,.pos-report-bar{display:none}}'
+    + '@media print{.report-end-business-day,.report-period-switch,.agg-box-actions,.pos-report-slip-actions,.pos-report-bar{display:none}}'
     + '@media print{.payroll-table input.pay-in,.payroll-table select.pay-time{border:none;background:transparent;-webkit-appearance:none;appearance:none}}'
     + '</style>'
     + '<div class="report-period-switch">'
@@ -13130,7 +13130,10 @@ function _weekRange(ref) {
 function renderReportPanel() {
   const panel = document.getElementById('report-panel');
   if (!panel) return;
-  panel.innerHTML = _reportPeriodSwitchHtml()
+  const endBusinessDayHtml = reportPeriod === 'day' && _reportDaySource().dayKey === getLoadedDayKey()
+    ? '<div class="report-end-business-day"><button type="button" class="btn danger" onclick="reportEndBusinessDay()">🔚 営業終了（日締め）</button></div>'
+    : '';
+  panel.innerHTML = endBusinessDayHtml + _reportPeriodSwitchHtml()
     + (reportPeriod === 'day' ? _renderReportDay() : _renderReportRange(reportPeriod));
 }
 
@@ -14190,6 +14193,18 @@ function dailyCloseSetListValue(field, index, prop, value) {
   if (_dailyCloseSaveCurrent(rec)) _dailyCloseRerender();
 }
 
+function dailyCloseLockNow() {
+  const src = _reportDaySource();
+  if (src.dayKey !== getLoadedDayKey()) return false;
+  const rec = _dailyCloseCurrentRecord();
+  if (_dailyCloseNormalizeFrozen(rec.frozen).closedAt > 0) return false;
+  const settled = (src.rows || []).filter(row => row.isFirst && row.settled);
+  const agg = computeReportAgg(settled);
+  const payrollRows = computePayrollTable(settled, { dayKey: src.dayKey, tt: src.tt });
+  rec.frozen = { ..._dailyCloseLiveAuto(src, agg, payrollRows), closedAt: Date.now() };
+  return _dailyCloseSaveCurrent(rec);
+}
+
 /* 鍵トグル: 🔓未確定（自動集計はライブ値）⇄ 🔒ロック（その時点の値で凍結） */
 function dailyCloseToggleLock() {
   const src = _reportDaySource();
@@ -14203,14 +14218,25 @@ function dailyCloseToggleLock() {
     }
     return;
   }
-  const settled = (src.rows || []).filter(row => row.isFirst && row.settled);
-  const agg = computeReportAgg(settled);
-  const payrollRows = computePayrollTable(settled, { dayKey: src.dayKey, tt: src.tt });
-  rec.frozen = { ..._dailyCloseLiveAuto(src, agg, payrollRows), closedAt: Date.now() };
-  if (_dailyCloseSaveCurrent(rec)) {
+  if (dailyCloseLockNow()) {
     _dailyCloseRerender();
     showToast('🔒 締めをロックしました');
   }
+}
+
+function reportEndBusinessDay() {
+  const src = _reportDaySource();
+  if (src.dayKey !== getLoadedDayKey()) {
+    showToast('過去の営業日は締められません');
+    return;
+  }
+  if (!confirm('営業を終了しますか？\n・日次締めをロックします（未ロックの場合）\n・本日のリスト表を空にします\n（データは過去のリストから復元できます）')) return;
+  const rec = _dailyCloseCurrentRecord();
+  if (_dailyCloseNormalizeFrozen(rec.frozen).closedAt <= 0) dailyCloseLockNow();
+  try { saveBackupForKey(getLoadedDayKey()); } catch (_) {}
+  resetDayCore();
+  renderReportPanel();
+  showToast('🔚 営業を終了しました（日次締めロック済み）');
 }
 
 /* 日払い（社交）は時給マスタと違い「その日の手入力」のため凍結の保護対象にしない。
@@ -14391,7 +14417,6 @@ function _dailyCloseSectionHtml(src, agg, payrollRows, isPast) {
   const disabled = readOnly ? ' disabled' : '';
   const cashDiffClass = calc.cashDifference === null ? '' : calc.cashDifference === 0 ? ' ok' : calc.cashDifference > 0 ? ' plus' : ' minus';
   const transferWarning = record.actualCash !== null && record.actualCash < tillFloat;
-  const closeLabel = frozen ? '🔓 ロック解除' : '🔒 締めをロック';
   return `<div id="daily-close-host" class="agg-box dc-section">
     <style>
       .dc-section{margin-top:18px}.dc-head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px}
@@ -14415,7 +14440,7 @@ function _dailyCloseSectionHtml(src, agg, payrollRows, isPast) {
       @media print{.dc-close-btn,.dc-add,.dc-delete,.dc-copy-btn{display:none}.dc-list-row input,.dc-manual input,.dc-note{border:none;background:transparent}}
     </style>
     <div class="dc-head"><div><h3>${readOnly || frozen ? '🔒' : '🔓'} 日次締め</h3><div class="dc-status">${readOnly ? '🔒 過去日の確定値（読み取り専用）' : frozen ? `🔒 ロック中（確定 ${new Date(auto.closedAt).toLocaleString('ja-JP')}）` : '🔓 未確定 — 自動集計はライブ値。締めたらロックしてください'}</div></div>
-      ${readOnly ? '' : `<button type="button" class="dc-close-btn${frozen ? ' unlocked-style' : ''}" onclick="dailyCloseToggleLock()">${closeLabel}</button>`}</div>
+      ${readOnly || !frozen ? '' : '<button type="button" class="dc-close-btn unlocked-style" onclick="dailyCloseToggleLock()">🔓 ロック解除</button>'}</div>
     ${_dailyCloseAutoTable(auto, month)}
     <div class="dc-list-grid">
       ${_dailyCloseListHtml('staffPay', '社員日払い', record, month, readOnly, candidates.staffPay)}
