@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.21">
+<meta name="app-version" content="1.0.22">
 <title>リスト表 v4</title>
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
      フォントはOS内蔵にフォールバックする（--font/--monoのスタック参照）。 -->
@@ -2680,7 +2680,7 @@ table#customer-table { border-collapse: collapse; width: 100%; min-width: 800px;
 .analytics-kpi-card.is-blank { border-color: transparent; background: var(--sur2); }
 .analytics-kpi-card.is-blank strong { color: var(--tx3); }
 .analytics-kpi-head { display: flex; align-items: center; justify-content: space-between; gap: 5px; margin-bottom: 7px; color: var(--tx3); font-size: 11px; }
-.analytics-kpi-card strong { display: block; overflow: hidden; color: var(--tx); font-family: var(--mono); font-size: clamp(18px, 2vw, 25px); text-overflow: ellipsis; white-space: nowrap; }
+.analytics-kpi-card strong { display: block; overflow: hidden; color: var(--tx); font-family: var(--font); font-variant-numeric: tabular-nums; font-size: clamp(18px, 2vw, 25px); text-overflow: ellipsis; white-space: nowrap; }
 .analytics-kpi-delta { padding: 2px 5px; border-radius: 999px; font-size: 9px; font-weight: 700; }
 .analytics-kpi-delta.up { color: var(--green); background: rgba(55,190,132,.12); }
 .analytics-kpi-delta.down { color: var(--red); background: rgba(229,53,77,.12); }
@@ -2709,7 +2709,7 @@ table#customer-table { border-collapse: collapse; width: 100%; min-width: 800px;
 .analytics-payment-legend { display: flex; gap: 10px 16px; flex-wrap: wrap; color: var(--tx3); font-size: 10px; }
 .analytics-payment-legend span { display: flex; align-items: center; gap: 4px; }
 .analytics-payment-legend i { width: 8px; height: 8px; border-radius: 2px; }
-.analytics-payment-legend b { color: var(--tx2); font-family: var(--mono); }
+.analytics-payment-legend b { color: var(--tx2); font-family: var(--font); font-variant-numeric: tabular-nums; }
 .analytics-chart-empty { display: grid; min-height: 128px; place-items: center; color: var(--tx3); font-size: 11px; }
 .analytics-empty { padding: 48px 20px; border: 1px dashed var(--bdr2); border-radius: 10px; color: var(--tx3); text-align: center; }
 @media (max-width: 900px) { .analytics-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .analytics-chart-grid { grid-template-columns: 1fr; } }
@@ -14696,16 +14696,9 @@ function _bizAnalyticsPayments(row) {
   return { cash, card, urikake, sales: cash + card + urikake };
 }
 
-function _bizAnalyticsDiscount(row) {
-  const negativeTotal = (Array.isArray(row.posOrders) ? row.posOrders : [])
-    .filter(order => order && order.category === 'discount' && Number(order.amount) < 0)
-    .reduce((sum, order) => sum + Number(order.amount) * (Number(order.qty) || 1), 0);
-  return Math.abs(negativeTotal);
-}
-
 function _bizAnalyticsDay(snap) {
   const rows = _bizAnalyticsSettled(snap);
-  const result = { bizKey: snap.dayKey, sales: 0, cash: 0, card: 0, urikake: 0, guests: 0, groups: rows.length, discount: 0 };
+  const result = { bizKey: snap.dayKey, sales: 0, cash: 0, card: 0, urikake: 0, guests: 0, groups: rows.length };
   rows.forEach(row => {
     const pay = _bizAnalyticsPayments(row);
     result.sales += pay.sales;
@@ -14713,7 +14706,6 @@ function _bizAnalyticsDay(snap) {
     result.card += pay.card;
     result.urikake += pay.urikake;
     result.guests += Number(row.gcount) || 1;
-    result.discount += _bizAnalyticsDiscount(row);
   });
   return result;
 }
@@ -14721,7 +14713,7 @@ function _bizAnalyticsDay(snap) {
 function bizKpiSummary(snapshots, range) {
   const snaps = _bizAnalyticsSnaps(snapshots, range);
   const rows = snaps.flatMap(_bizAnalyticsSettled);
-  let sales = 0, cash = 0, card = 0, urikake = 0, guests = 0, named = 0, discount = 0;
+  let sales = 0, cash = 0, card = 0, urikake = 0, guests = 0, named = 0;
   rows.forEach(row => {
     const pay = _bizAnalyticsPayments(row);
     sales += pay.sales;
@@ -14730,7 +14722,6 @@ function bizKpiSummary(snapshots, range) {
     urikake += pay.urikake;
     guests += Number(row.gcount) || 1;
     if ((row.mainType || 'free') !== 'free') named++;
-    discount += _bizAnalyticsDiscount(row);
   });
   const groups = rows.length;
   return {
@@ -14743,7 +14734,6 @@ function bizKpiSummary(snapshots, range) {
     組単価: groups ? Math.round(sales / groups) : 0,
     客単価: guests ? Math.round(sales / guests) : 0,
     指名率: groups ? Math.round(named / groups * 1000) / 10 : 0,
-    値引き合計: discount,
     // スナップショットには日別のキャスト単価・給与手入力が無く、純関数では正確に再計算できない。
     キャスト給与計: null,
     給率: null,
@@ -14776,31 +14766,27 @@ function bizWeekdayAvg(snapshots, range) {
   }));
 }
 
-function bizHourlyGuests(snapshots, range) {
-  const buckets = [
-    { bucket: '18-20', from: 18 * 60, to: 20 * 60, guests: 0 },
-    { bucket: '20-22', from: 20 * 60, to: 22 * 60, guests: 0 },
-    { bucket: '22-24', from: 22 * 60, to: 24 * 60, guests: 0 },
-    { bucket: '24-26', from: 24 * 60, to: 26 * 60, guests: 0 },
-    { bucket: '26-28', from: 26 * 60, to: 28 * 60, guests: 0 },
-  ];
+/* 時間帯別入客数: 店舗の営業時間（cfg.timeStartH〜timeEndH）に合わせて1時間刻みのバケツを作る。
+   hoursを省略した場合は従来の18-26時をデフォルトにする（テスト・呼び出し側簡略化用）。 */
+function bizHourlyGuests(snapshots, range, hours) {
+  const startH = Math.floor(Number(hours && hours.startH));
+  const endH = Math.floor(Number(hours && hours.endH));
+  const from0 = isFinite(startH) ? startH : 18;
+  const to0 = isFinite(endH) && endH > from0 ? endH : from0 + 8;
+  const buckets = [];
+  for (let h = from0; h < to0; h++) {
+    buckets.push({ bucket: `${h}-${h + 1}`, from: h * 60, to: (h + 1) * 60, guests: 0 });
+  }
   _bizAnalyticsSnaps(snapshots, range).forEach(snap => {
     _bizAnalyticsSettled(snap).forEach(row => {
       let startMin = Number(row.startMin);
       if (!isFinite(startMin)) return;
-      if (startMin < 12 * 60) startMin += 24 * 60;
+      if (startMin < from0 * 60) startMin += 24 * 60;
       const target = buckets.find(item => startMin >= item.from && startMin < item.to);
       if (target) target.guests += Number(row.gcount) || 1;
     });
   });
   return buckets.map(({ bucket, guests }) => ({ bucket, guests }));
-}
-
-function bizDiscountTrend(snapshots, range) {
-  return _bizAnalyticsSnaps(snapshots, range)
-    .map(_bizAnalyticsDay)
-    .filter(day => day.discount > 0)
-    .map(day => ({ bizKey: day.bizKey, discount: day.discount }));
 }
 
 function bizPaymentMix(snapshots, range) {
@@ -14921,7 +14907,7 @@ function _analyticsKpiHtml(summary, previous, hasPrevious) {
   const cards = [
     ['総売上', '総売上', 'money', 'k-hero'], ['現金', '現金計', 'money', ''], ['カード', 'カード計', 'money', ''], ['売掛', '売掛計', 'money', ''],
     ['組数', '組数', 'count', ''], ['入客数', '入客数', 'people', ''], ['組単価', '組単価', 'money', ''], ['客単価', '客単価', 'money', ''],
-    ['指名率', '指名率', 'percent', ''], ['値引き合計', '値引き合計', 'money', ''], ['キャスト給与計', 'キャスト給与計', 'money', ''], ['給率', '給率', 'percent', ''],
+    ['指名率', '指名率', 'percent', ''], ['キャスト給与計', 'キャスト給与計', 'money', ''], ['給率', '給率', 'percent', ''],
   ];
   return cards.map(([label, key, kind, cls]) => {
     const value = summary[key];
@@ -14989,8 +14975,7 @@ function renderBusinessAnalyticsPanel() {
   }
   const daily = bizDailyTrend(snapshots, range);
   const weekday = bizWeekdayAvg(snapshots, range);
-  const hourly = bizHourlyGuests(snapshots, range);
-  const discount = bizDiscountTrend(snapshots, range);
+  const hourly = bizHourlyGuests(snapshots, range, { startH: cfg.timeStartH, endH: cfg.timeEndH });
   const payments = bizPaymentMix(snapshots, range);
   panel.innerHTML = `<div class="analytics-title"><h2>📈 経営分析</h2><span>${_analyticsInputDate(range.start)} 〜 ${_analyticsInputDate(range.end)}</span></div>
     ${controls}
@@ -15000,7 +14985,6 @@ function renderBusinessAnalyticsPanel() {
       <section class="analytics-chart-card"><h3>日別入客数推移</h3>${_analyticsTrendHtml(daily, 'guests', value => `${value}名`, 'guests')}</section>
       <section class="analytics-chart-card"><h3>曜日別売上平均</h3>${_analyticsTrendHtml(weekday, 'sales', _analyticsMoney, 'weekday')}</section>
       <section class="analytics-chart-card"><h3>時間帯別入客数</h3>${_analyticsHourlyHtml(hourly)}</section>
-      <section class="analytics-chart-card"><h3>日別値引き額推移</h3>${_analyticsTrendHtml(discount, 'discount', _analyticsMoney, 'discount')}</section>
       <section class="analytics-chart-card"><h3>支払方法構成比</h3>${_analyticsPaymentHtml(payments)}</section>
     </div>`;
 }
