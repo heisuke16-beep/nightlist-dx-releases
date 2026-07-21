@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.19">
+<meta name="app-version" content="1.0.20">
 <title>リスト表 v4</title>
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
      フォントはOS内蔵にフォールバックする（--font/--monoのスタック参照）。 -->
@@ -16733,7 +16733,7 @@ function showDeletedSlipsModal() {
   overlay.id = 'deleted-slips-overlay';
   overlay.style.cssText = 'position:fixed;inset:0;z-index:10020;background:rgba(0,0,0,.75);display:flex;align-items:center;justify-content:center;padding:20px';
   overlay.onclick = event => { if (event.target === overlay) overlay.remove(); };
-  overlay.innerHTML = `<div style="background:var(--sur);color:var(--tx);width:min(760px,96vw);max-height:88vh;overflow:auto;border-radius:12px;padding:18px"><div style="display:flex;justify-content:space-between"><strong>🗑 削除済み伝票アーカイブ</strong><button onclick="document.getElementById('deleted-slips-overlay').remove()">×</button></div><div style="font-size:12px;color:var(--tx3);margin-top:8px">※undoで復元された伝票の削除記録も残ります</div>${rows || '<div style="padding:20px;text-align:center;color:var(--tx3)">記録はありません</div>'}</div>`;
+  overlay.innerHTML = `<div style="background:var(--sur);color:var(--tx);width:min(760px,96vw);max-height:88vh;overflow:auto;border-radius:12px;padding:18px"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><strong>🗑 削除済み伝票アーカイブ</strong><div style="display:flex;gap:8px;align-items:center"><button type="button" class="btn danger" style="padding:3px 10px;font-size:12px" onclick="clearAllDeletedSlips()" ${authSet && entries.length ? '' : 'disabled'}>全件削除</button><button onclick="document.getElementById('deleted-slips-overlay').remove()">×</button></div></div><div style="font-size:12px;color:var(--tx3);margin-top:8px">※undoで復元された伝票の削除記録も残ります</div>${rows || '<div style="padding:20px;text-align:center;color:var(--tx3)">記録はありません</div>'}</div>`;
   document.getElementById('deleted-slips-overlay')?.remove();
   document.body.appendChild(overlay);
 }
@@ -16744,6 +16744,17 @@ async function deleteDeletedSlipEntry(id) {
   if (!await AuthStore.verifyRecovery(code)) { showToast('リカバリーコードが違います'); return; }
   if (!confirm('この記録を完全に削除しますか？')) return;
   if (saveDeletedSlips(loadDeletedSlips().filter(entry => entry.id !== id))) showDeletedSlipsModal();
+}
+
+async function clearAllDeletedSlips() {
+  const entries = loadDeletedSlips();
+  if (!entries.length) { showToast('削除記録はありません'); return; }
+  const code = prompt('リカバリーコードを入力してください');
+  if (!code) return;
+  if (!await AuthStore.verifyRecovery(code)) { showToast('リカバリーコードが違います'); return; }
+  if (!confirm(`削除済み伝票アーカイブの全記録（${entries.length}件）を削除しますか？\nこの操作は元に戻せません。`)) return;
+  if (!confirm('最終確認です。本当にすべて削除しますか？')) return;
+  if (saveDeletedSlips([])) { showToast('削除済み伝票アーカイブを全件削除しました'); showDeletedSlipsModal(); }
 }
 /* ================================================================
    SETTINGS PANEL
