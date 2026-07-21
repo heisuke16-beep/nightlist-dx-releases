@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.17">
+<meta name="app-version" content="1.0.18">
 <title>リスト表 v4</title>
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
      フォントはOS内蔵にフォールバックする（--font/--monoのスタック参照）。 -->
@@ -4705,6 +4705,9 @@ html[data-display="tablet"] #list-table .col-ctrl-btn { min-width: 32px; min-hei
           style="font-size:12px;font-weight:700;padding:5px 10px;border-radius:6px;
           cursor:pointer;background:rgba(201,168,76,0.12);border:1px solid rgba(201,168,76,0.4);
           color:var(--gold2)">🛟 データ復旧</button>
+        <button onclick="showDeletedSlipsModal()" title="削除した伝票の記録を表示"
+          style="font-size:12px;font-weight:700;padding:5px 10px;border-radius:6px;cursor:pointer;
+          background:transparent;border:1px solid var(--bdr2);color:var(--tx2)">🗑 削除伝票</button>
       </span>
     </div>
     <div id="past-day-list"></div>
@@ -4786,6 +4789,8 @@ const Persist = {
     timetable: 'nightlist__timetable_v1',
     devTime:   'nightlist__dev_v1',
     recovery:  'nightlist__recovery_v1',   // 上書き・削除で失われた営業日スナップの退避先（データ復旧用）
+    slipCounter: 'nightlist__slip_counter_v1',
+    deletedSlips: 'nightlist__deleted_slips_v1',
     theme:     'nightlist_theme',          // テーマ選択（端末別。export/importに含めて店舗設定として持ち運べる）
     displayMode: 'nightlist_display_mode', // 表示モード（desktop/tablet。扱いはthemeと同じ）
     auth:      'nightlist__auth_v1',
@@ -4949,6 +4954,8 @@ const UsbStore = {
     timetable: 'timetable.json',
     devTime:   'devTime.json',
     recovery:  'recovery.json',
+    slipCounter: 'slipCounter.json',
+    deletedSlips: 'deletedSlips.json',
     theme:     'theme.json',
     displayMode: 'displayMode.json',  // 表示モード（desktop/tablet）。扱いはthemeと同じ
     auth:      'auth.json',
@@ -6551,6 +6558,29 @@ function loadRecovery()    {
 }
 function saveRecovery(arr) { Persist.write('recovery', arr); }
 
+const DELETED_SLIPS_MAX = 300;
+function loadSlipCounter() {
+  return Persist.read('slipCounter', {
+    onError: () => setTimeout(() => { try { showToast('⚠ 伝票番号の読込に失敗しました'); } catch (_) {} }, 100)
+  }) || { prevDaysMax: 0 };
+}
+function saveSlipCounter(value) {
+  const ok = Persist.write('slipCounter', value);
+  if (!ok) _notifySaveFailure('伝票番号の保存');
+  return ok;
+}
+function loadDeletedSlips() {
+  const value = Persist.read('deletedSlips', {
+    onError: () => setTimeout(() => { try { showToast('⚠ 削除済み伝票アーカイブの読込に失敗しました'); } catch (_) {} }, 100)
+  });
+  return Array.isArray(value) ? value : [];
+}
+function saveDeletedSlips(value) {
+  const ok = Persist.write('deletedSlips', value);
+  if (!ok) _notifySaveFailure('削除済み伝票アーカイブの保存');
+  return ok;
+}
+
 /* 旧バックアップ群と新バックアップ群を比較し、入客数が減る(=削除/空上書き)
    営業日の「旧スナップ」を復旧アーカイブへ退避する。中身(rows)が無い日は対象外。 */
 function _archiveLostSnaps(oldArr, newArr) {
@@ -7018,7 +7048,7 @@ function restoreFromRecovery(idx) {
      は呼出側が overrides で渡す前提。 */
 function ROW_DEFAULTS() {
   return {
-    id: '', gid: 0, gidx: 0, gcount: 1,
+    id: '', gid: 0, slipNo: 0, gidx: 0, gcount: 1,
     isFirst: false,
     startMin: 0, endMin: 0,
     mainCast: '', mainType: 'free',
@@ -7100,6 +7130,45 @@ function calcEndMin(row) {
 }
 
 /* ================================================================
+   SLIP NUMBER
+================================================================ */
+function liveMaxSlipNo(rows) {
+  return (Array.isArray(rows) ? rows : []).reduce((max, row) => {
+    const value = Number(row && row.slipNo) || 0;
+    return value > max ? value : max;
+  }, 0);
+}
+
+function computeNextSlipNo(prevDaysMax, rows) {
+  return Math.max(Number(prevDaysMax) || 0, liveMaxSlipNo(rows)) + 1;
+}
+
+function slipNoLabel(row) {
+  if (Number(row && row.slipNo) > 0) return String(row.slipNo);
+  return String((row && row.gid) || '-');
+}
+
+function assignNextSlipNo() {
+  return computeNextSlipNo(loadSlipCounter().prevDaysMax, state.rows);
+}
+
+function commitSlipCounterOnClose() {
+  const current = loadSlipCounter();
+  return saveSlipCounter({
+    ...current,
+    prevDaysMax: Math.max(Number(current.prevDaysMax) || 0, liveMaxSlipNo(state.rows)),
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+function spSharesTotal(rows, dayKey, castName) {
+  return (Array.isArray(rows) ? rows : []).reduce((sum, row) => {
+    if (!row || !row.isFirst || !row.settled) return sum;
+    return sum + (Array.isArray(row.posOrders) ? row.posOrders : []).reduce((orderSum, order) =>
+      orderSum + (Number(order && order.spShares && order.spShares[castName]) || 0), 0);
+  }, 0);
+}
+/* ================================================================
    GROUP OPERATIONS
 ================================================================ */
 function addCustomGroup() {
@@ -7113,6 +7182,7 @@ function addGroup(count) {
   if (!count || count < 1) return;
   pushUndo();
   const gid      = state.nextGid++;
+  const slipNo   = assignNextSlipNo();
   const nowMin   = getNowMin();
   const lasts    = state.rows.filter(r => r.isFirst).map(r => r.startMin);
   const last     = lasts.length ? lasts[lasts.length - 1] : null;
@@ -7120,7 +7190,7 @@ function addGroup(count) {
   const endMin   = Math.min(getTimeMax(), startMin + getDefStay());
   for (let i = 0; i < count; i++) {
     state.rows.push(createRow({
-      gid, gidx: i, gcount: count,
+      gid, slipNo, gidx: i, gcount: count,
       isFirst: i === 0,
       startMin, endMin,
       rotations:  Array(state.rotCols).fill(''),
@@ -7159,7 +7229,7 @@ function addMemberToGroup(firstRowId) {
 
   // 新メンバーの開始時刻は組の先頭と同じ（個別変更可能）
   const newRow = createRow({
-    gid, gidx: newGidx, gcount: newGcount,
+    gid, slipNo: firstRow.slipNo || 0, gidx: newGidx, gcount: newGcount,
     isFirst: false,
     startMin: firstRow.startMin,
     endMin:   firstRow.endMin,
@@ -7211,7 +7281,10 @@ function enableIndivTime(id) {
 function deleteGroup(firstRowId) {
   const row = state.rows.find(r => r.id === firstRowId);
   if (!row) return;
+  if (!confirm(`この伝票（No.${slipNoLabel(row)}）を削除しますか？\n※削除した伝票は「削除済み伝票アーカイブ」に記録されます`)) return;
+  const groupRows = state.rows.filter(r => r.gid === row.gid);
   pushUndo();
+  archiveDeletedSlip(groupRows, 'リスト表', getLoadedDayKey());
   state.rows = state.rows.filter(r => r.gid !== row.gid);
   renderTable(); saveState();
 }
@@ -8459,6 +8532,7 @@ function resetDay() {
    営業終了ボタン（resetDay）と、営業日境界をまたいだ時の自動締め（checkAutoCloseDay）から共用する */
 function resetDayCore() {
   pushUndo();
+  commitSlipCounterOnClose();
   state.rows=[]; state.nextGid=1; state.nextGuest=1; state.rotCols=3; state.extCols=5;
   state.manualSort=false;   // 新しい営業日は開始時刻順の自動ソートに戻す
   state._restoredFromKey=null;   // 締め＝通常運用へ復帰。過去日キーのまま新営業日に入る事故を防ぐ
@@ -11752,9 +11826,11 @@ function posSlipSelect(gid) {
 function posDeleteSlip() {
   const row = posSelectedRow();
   if (!row) return;
-  if (!confirm('この伝票を削除しますか？')) return;
+  if (!confirm(`この伝票（No.${slipNoLabel(row)}）を削除しますか？\n※削除した伝票は「削除済み伝票アーカイブ」に記録されます`)) return;
+  const groupRows = state.rows.filter(r => r.gid === row.gid);
   pushUndo();
   const gid = row.gid;
+  archiveDeletedSlip(groupRows, 'POSレジ', getLoadedDayKey());
   state.rows = state.rows.filter(r => r.gid !== gid);
   posBetaState.selectedGid = null;
   posBetaState.viewMode = 'slip';   // 削除後は別伝票のオーダー画面に飛ばずフロアへ戻る
@@ -11821,7 +11897,7 @@ function renderPOSSlipRail(firsts, selected) {
   const list = firsts.length ? firsts.map(r => {
     const b = calcBill(r);
     const active = selected && String(selected.gid) === String(r.gid);
-    const label = r.guestName || ('No.' + r.gid);
+    const label = r.guestName || ('No.' + slipNoLabel(r));
     const time = minToHHMM(r.startMin) + '-' + minToHHMM(r.endMin);
     return '<div class="pos-slip-card' + (active ? ' active' : '') + '" onclick="posSelect(' + r.gid + ')">'
       + '<div class="pos-slip-name"><span>' + escHtml(label) + '</span><span>' + escHtml(posTableLabel(r.tableNum) || 'T-?') + '</span></div>'
@@ -13364,7 +13440,7 @@ function computeReportAgg(settled) {
     nomList.forEach((cast, idx) => {
       nominatedCasts[cast] = true;
       const g = ensureN(cast);
-      const label = 'No.' + (r.gid != null ? r.gid : '?') + (r.source ? ' ' + r.source : '');
+      const label = 'No.' + slipNoLabel(r) + (r.source ? ' ' + r.source : '');
       const ln = g.lines[label] = g.lines[label] || { qty:0, amt:0 };
       // 等分。端数は最後のキャストに寄せて Σ(share) = tableTotal を保証（多重計上・取りこぼし無し）。
       const share = (idx === nomCount - 1)
@@ -13650,7 +13726,9 @@ function _payYen(n) { return '¥' + (Number(n) || 0).toLocaleString(); }
 
 /* SP/日払い/本数入力 → 保存 → 日計表のみ再描画。dayKey は閲覧中の営業日。 */
 function payrollSetSP(castName, value) {
-  setPayrollSP(_reportDayKey(), castName, value);
+  const dayKey = _reportDayKey();
+  const derived = spSharesTotal(_reportDaySource().rows, dayKey, castName);
+  setPayrollSP(dayKey, castName, (Number(value) || 0) - derived);
   _rerenderPayrollTable();
 }
 function payrollSetNibarai(castName, value) {
@@ -14003,7 +14081,7 @@ function posReportPrint(gid) {
 function posReportRestore(gid) {
   const row = state.rows.find(r => r.gid === gid && r.isFirst);
   if (!row) return;
-  if (!confirm(`No.${gid} ${row.source||''} を未精算に戻しますか？\n（POSレジの伝票一覧に復元されます）`)) return;
+  if (!confirm(`No.${slipNoLabel(row)} ${row.source||''} を未精算に戻しますか？\n（POSレジの伝票一覧に復元されます）`)) return;
   if (row.amountMethod === 'urikake' && !urikakeRevokeByRowId(row.id)) {
     showToast('売掛台帳の取消に失敗しました');
     return;
@@ -14014,20 +14092,22 @@ function posReportRestore(gid) {
   renderTable();
   renderPOSPanel();
   renderReportPanel();
-  showToast(`No.${gid} を復元しました`);
+  showToast(`No.${slipNoLabel(row)} を復元しました`);
 }
 
 function posReportDelete(gid) {
   const row = state.rows.find(r => r.gid === gid && r.isFirst);
   if (!row) return;
-  if (!confirm(`No.${gid} ${row.source||''} を完全に削除しますか？\n（この操作は元に戻せません。データから消去されます）`)) return;
+  if (!confirm(`この伝票（No.${slipNoLabel(row)}）を削除しますか？\n※削除した伝票は「削除済み伝票アーカイブ」に記録されます`)) return;
+  const groupRows = state.rows.filter(r => r.gid === gid);
   pushUndo();
+  archiveDeletedSlip(groupRows, '日報', getLoadedDayKey());
   state.rows = state.rows.filter(r => r.gid !== gid);
   saveState();
   renderTable();
   renderPOSPanel();
   renderReportPanel();
-  showToast(`No.${gid} を完全削除しました`);
+  showToast(`No.${slipNoLabel(row)} を完全削除しました`);
 }
 
 /* ================================================================
@@ -14929,7 +15009,7 @@ function posOpenOrderEdit() {
   const html = `<div class="pos-hist-overlay" id="pos-oe-overlay" onclick="if(event.target===this)this.remove()">
     <div class="pos-hist-panel" style="width:min(560px,95vw)">
       <div class="pos-hist-header">
-        <div class="pos-hist-title">✏️ 履歴修正 — No.${row.gid} ${escHtml(row.source||'')}</div>
+        <div class="pos-hist-title">✏️ 履歴修正 — No.${slipNoLabel(row)} ${escHtml(row.source||'')}</div>
         <button class="pos-hist-close" onclick="document.getElementById('pos-oe-overlay').remove()">×</button>
       </div>
       <div class="pos-hist-body">
@@ -15413,9 +15493,8 @@ function posPrintReceiptDirect(row) {
   // 新規導入店舗がロゴ未設定のまま印刷すると前店舗のロゴが出てしまっていた（他店舗展開の洗い出しで発見・修正）。
   const logo = escAttr((cfg && cfg.shopLogo) || '');
   const tnum = row.tableNum ? escHtml(posTableLabel(row.tableNum)) : '';
-  // 伝票番号の隣に出す営業日（深夜営業は日付切替を跨ぐため getBizDate 基準）
-  const bizD = getBizDate();
-  const bizDateStr = bizD.getFullYear() + '/' + (bizD.getMonth() + 1) + '/' + bizD.getDate();
+  const bizKey = getLoadedDayKey();
+  const bizDateStr = +bizKey.slice(0, 4) + '/' + +bizKey.slice(4, 6) + '/' + +bizKey.slice(6, 8);
   w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>伝票</title>'
     + '<style>'
     + '@page{size:80mm auto;margin:0}'
@@ -15424,7 +15503,8 @@ function posPrintReceiptDirect(row) {
     + 'body{font-family:"Hiragino Kaku Gothic ProN","Meiryo",sans-serif;color:#000;width:72mm;padding:3mm;margin:0 auto}'
     // ロゴ: 42mm→30mmへ縮小・上マージン0（2026-07-14 実機テスト「でかすぎる・上の空白不要」）
     + '.logo{display:block;width:30mm;margin:0 auto 2mm}'
-    + '.meta{text-align:center;font-size:9pt;margin-bottom:2mm}'
+    + '.head{position:relative;margin-bottom:2mm}'
+    + '.meta{position:absolute;top:0;right:0;text-align:right;font-size:8pt;line-height:1.5}'
     + 'table.items{width:100%;border-collapse:collapse;font-size:10pt}'
     + 'table.items th{border-bottom:2px solid #000;padding:1.5mm 1mm;font-size:9pt;font-weight:700}'
     + 'table.items th.q{width:9mm;text-align:center}table.items th.a{width:22mm;text-align:right}'
@@ -15441,6 +15521,7 @@ function posPrintReceiptDirect(row) {
     + '</head><body>'
     // 見出しの3段フォールバック: ロゴ → 店舗名(＋小さく「お会計伝票」) → 「お会計伝票」
     // （ロゴを入れずに運用する店でも、店舗名を設定するだけで自店の伝票の体裁になる）
+    + '<div class="head">'
     + (logo
         ? '<img class="logo" src="' + logo + '">'
         : (cfg.shopName
@@ -15448,7 +15529,7 @@ function posPrintReceiptDirect(row) {
               + '<div style="text-align:center;font-size:8pt;margin:0 0 2mm">お会計伝票</div>'
             : '<h2 style="text-align:center;margin:0 0 2mm">お会計伝票</h2>'))
     // 伝票番号: アプリ画面の伝票カードと同じ組番号(gid)＋営業日（2026-07-21 オーナー要望。紙とアプリの突き合わせ用）
-    + '<div class="meta">No.' + (row.gid || '-') + '　' + bizDateStr + '</div>'
+    + '<div class="meta">No.' + slipNoLabel(row) + '<br>' + bizDateStr + '</div></div>'
     + '<table class="items"><thead><tr><th style="text-align:left">品目</th><th class="q">数</th><th class="a">金額</th></tr></thead><tbody>' + lines + '</tbody></table>'
     + '<table class="sum">'
     + '<tr><td class="lbl" rowspan="4">' + (row.gcount || 1) + '名様' + (tnum ? '<br>' + tnum : '') + '</td><td class="k">合計</td><td class="v">¥' + b.subtotal.toLocaleString() + '</td></tr>'
@@ -15566,7 +15647,7 @@ function _posApplyDesignationToList(row, cast, desigType) {
   if (existing) existing.type = desigType;
   else target.subCasts.push({ cast, type: desigType });
 }
-function posAddItem(name, amount, category) {
+function posAddItem(name, amount, category, spShares) {
   let row = posSelectedRow();
   if (!row) { posCreateSlip(1); row = posSelectedRow(); }
   if (!row) return;
@@ -15581,8 +15662,16 @@ function posAddItem(name, amount, category) {
       o.category === category && o.name === name && (Number(o.amount) || 0) === amt && !o.taxIncluded);
     if (existing) {
       existing.qty = (Number(existing.qty) || 1) + 1;
+      if (spShares) {
+        existing.spShares = existing.spShares || {};
+        Object.keys(spShares).forEach(cast => {
+          existing.spShares[cast] = (Number(existing.spShares[cast]) || 0) + (Number(spShares[cast]) || 0);
+        });
+      }
     } else {
-      orders.push({ id: 'po_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7), name, amount: amt, qty:1, category, createdAt:Date.now() });
+      const order = { id: 'po_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7), name, amount: amt, qty:1, category, createdAt:Date.now() };
+      if (spShares) order.spShares = { ...spShares };
+      orders.push(order);
     }
   }
   // 指名オーダーからリスト表の指名（キャスト・種別）を自動反映する。
@@ -15808,13 +15897,7 @@ function posConfirmCastSplit() {
   // shares を確定値（整数円）に正規化
   casts.forEach(c => { s.shares[c] = Math.round(Number(s.shares[c]) || 0); });
   // 明細は満額1行（誰が折半したかは品名に付記。コロン禁止 → 集計対象外のまま）
-  posAddItem(s.name + '（折半 ' + casts.join('・') + '）', s.amount, s.category);
-  // バック分を各キャストの日計表SPへ加算（当日営業日）
-  const dayKey = getLoadedDayKey();
-  casts.forEach(cast => {
-    const cur = getPayrollManual(dayKey, cast).sp;
-    setPayrollSP(dayKey, cast, cur + s.shares[cast]);
-  });
+  posAddItem(s.name + '（折半 ' + casts.join('・') + '）', s.amount, s.category, s.shares);
   const detail = casts.map(c => c + ' +¥' + s.shares[c].toLocaleString()).join(' / ');
   posCastSplitClose();
   // 日計表を開いていれば即反映
@@ -15852,7 +15935,6 @@ function posApplyPayment(method) {
   row.amountCard = method === 'card' ? String(total) : '';
   renderTable(); saveState(); renderPOSPanel();
 }
-
 /* ================================================================
    PAST LIST PANEL
 ================================================================ */
@@ -16362,6 +16444,7 @@ function pastDeleteGroup(firstRowId) {
   if (!pastState) return;
   const row = pastState.rows.find(r => r.id === firstRowId);
   if (!row) return;
+  if (!confirm(`この伝票（No.${slipNoLabel(row)}）を削除しますか？\n※💾保存すると「削除済み伝票アーカイブ」に記録されます`)) return;
   const gid = row.gid;
   pastState.rows = pastState.rows.filter(r => r.gid !== gid);
   renderPastTable();
@@ -16485,6 +16568,7 @@ function savePastDay() {
   if (!pastState || !pastDayKey) return;
   const backups = loadBackups();
   const idx     = backups.findIndex(b => b.dayKey === pastDayKey);
+  const oldSnap = idx >= 0 ? backups[idx] : null;
   const guests  = pastState.rows.length;
   const sales   = pastState.rows.filter(r => r.isFirst && r.settled)
     .reduce((s,r) => s + rowSales(r), 0);
@@ -16504,7 +16588,13 @@ function savePastDay() {
     backups.sort((a,b) => (b.dayKey||'').localeCompare(a.dayKey||''));
   }
   while (backups.length > BACKUP_MAX) backups.pop();
-  saveBackups(backups);
+  if (!saveBackups(backups)) return;
+  if (oldSnap) {
+    const currentGids = new Set(pastState.rows.filter(r => r.isFirst).map(r => r.gid));
+    oldSnap.rows.filter(r => r.isFirst && !currentGids.has(r.gid)).forEach(first => {
+      archiveDeletedSlip(oldSnap.rows.filter(r => r.gid === first.gid), '過去リスト編集', pastDayKey);
+    });
+  }
   // 過去リストの精算状態・指名キャストが変わると顧客集計に影響するため、保存と同時に再集計
   syncCustomers();
   // 顧客タブの表示も即更新（データは syncCustomers で直るが、表示が古いまま残るのを防ぐ）
@@ -16598,6 +16688,67 @@ function createNewPastDay() {
 }
 
 /* ================================================================
+   DELETED SLIPS ARCHIVE
+================================================================ */
+function buildDeletedSlipEntry(groupRows, meta) {
+  const rows = JSON.parse(JSON.stringify(Array.isArray(groupRows) ? groupRows : []));
+  const first = rows.find(row => row.isFirst) || rows[0] || {};
+  const now = Date.now();
+  return {
+    id: 'ds_' + now + '_' + Math.random().toString(36).slice(2, 7),
+    slipNo: Number(first.slipNo) || 0,
+    gid: first.gid || 0,
+    bizDayKey: meta && meta.bizDayKey || '',
+    deletedAt: now,
+    deletedAtLabel: new Date(now).toLocaleString('ja-JP'),
+    route: meta && meta.route || '',
+    settled: !!first.settled,
+    amountMethod: first.amountMethod || '',
+    sales: typeof rowSales === 'function' ? rowSales(first) : 0,
+    rows,
+  };
+}
+
+function archiveDeletedSlip(groupRows, route, bizDayKey) {
+  const entries = loadDeletedSlips();
+  entries.unshift(buildDeletedSlipEntry(groupRows, { route, bizDayKey }));
+  while (entries.length > DELETED_SLIPS_MAX) entries.pop();
+  return saveDeletedSlips(entries);
+}
+
+function showDeletedSlipsModal() {
+  const entries = loadDeletedSlips();
+  const authSet = !!(typeof AuthStore !== 'undefined' && AuthStore.readRecovery()?.hash);
+  const rows = entries.map(entry => {
+    const first = entry.rows && (entry.rows.find(row => row.isFirst) || entry.rows[0]);
+    const items = (first && Array.isArray(first.posOrders) ? first.posOrders : []).slice(0, 4)
+      .map(order => `${escHtml(order.name || '')}×${Number(order.qty) || 1}`).join('、') || '明細なし';
+    const no = entry.slipNo > 0 ? `No.${entry.slipNo}` : 'No.-（旧）';
+    return `<div style="border:1px solid var(--bdr);border-radius:8px;padding:10px;margin-top:8px">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><strong>${no}</strong><span>${escHtml(bizKeyToLabel(entry.bizDayKey))}</span><span>${escHtml(entry.deletedAtLabel || '')}</span><span style="border:1px solid var(--bdr2);border-radius:999px;padding:2px 7px">${escHtml(entry.route || '')}</span></div>
+      <div style="margin-top:5px">¥${(Number(entry.sales) || 0).toLocaleString('ja-JP')}・${entry.settled ? '精算済み' : '未精算'}・${escHtml(entry.amountMethod || '')}</div>
+      <div style="font-size:12px;color:var(--tx3);margin-top:4px">${items}</div>
+      <button type="button" class="btn danger" style="margin-top:7px;padding:3px 8px;font-size:11px" onclick="deleteDeletedSlipEntry('${escAttr(entry.id)}')" ${authSet ? '' : 'disabled'}>削除</button>
+      ${authSet ? '' : '<span style="font-size:11px;color:var(--tx3);margin-left:7px">🔐 起動ログインを設定すると利用できます</span>'}
+    </div>`;
+  }).join('');
+  const overlay = document.createElement('div');
+  overlay.id = 'deleted-slips-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:10020;background:rgba(0,0,0,.75);display:flex;align-items:center;justify-content:center;padding:20px';
+  overlay.onclick = event => { if (event.target === overlay) overlay.remove(); };
+  overlay.innerHTML = `<div style="background:var(--sur);color:var(--tx);width:min(760px,96vw);max-height:88vh;overflow:auto;border-radius:12px;padding:18px"><div style="display:flex;justify-content:space-between"><strong>🗑 削除済み伝票アーカイブ</strong><button onclick="document.getElementById('deleted-slips-overlay').remove()">×</button></div><div style="font-size:12px;color:var(--tx3);margin-top:8px">※undoで復元された伝票の削除記録も残ります</div>${rows || '<div style="padding:20px;text-align:center;color:var(--tx3)">記録はありません</div>'}</div>`;
+  document.getElementById('deleted-slips-overlay')?.remove();
+  document.body.appendChild(overlay);
+}
+
+async function deleteDeletedSlipEntry(id) {
+  const code = prompt('リカバリーコードを入力してください');
+  if (!code) return;
+  if (!await AuthStore.verifyRecovery(code)) { showToast('リカバリーコードが違います'); return; }
+  if (!confirm('この記録を完全に削除しますか？')) return;
+  if (saveDeletedSlips(loadDeletedSlips().filter(entry => entry.id !== id))) showDeletedSlipsModal();
+}
+/* ================================================================
    SETTINGS PANEL
 ================================================================ */
 function renderSettingsPanel() {
@@ -16680,6 +16831,22 @@ function renderSettingsPanel() {
       </div>
     </div>
   `;
+  const slipNext = computeNextSlipNo(loadSlipCounter().prevDaysMax, state.rows);
+  const recoverySet = !!(typeof AuthStore !== 'undefined' && AuthStore.readRecovery()?.hash);
+  const slipNumberSection = `
+    <div class="settings-section" style="margin-bottom:16px">
+      <div class="settings-section-header"><span class="settings-section-title">🧾 伝票番号</span></div>
+      <div class="settings-section-body">
+        <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:8px">
+          <div class="settings-label">次の伝票番号: ${slipNext}</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;width:100%">
+            <input type="text" class="settings-input" id="slip-recovery-code" placeholder="リカバリーコード" autocomplete="off" style="flex:1;min-width:220px">
+            <button type="button" class="btn danger" onclick="resetSlipNumberWithRecovery()" ${recoverySet ? '' : 'disabled'}>番号を1に戻す</button>
+          </div>
+          ${recoverySet ? '' : '<div class="settings-sub">🔐 起動ログインを設定すると利用できます</div>'}
+        </div>
+      </div>
+    </div>`;
 
   form.innerHTML = `
     <div class="settings-section" style="margin-bottom:16px">
@@ -16719,6 +16886,7 @@ function renderSettingsPanel() {
     </div>
 
     ${authAccountSection}
+    ${slipNumberSection}
 
     <!-- 🏪 店舗情報 (最初に埋める場所) -->
     <div class="settings-section" style="margin-bottom:16px">
@@ -17430,6 +17598,22 @@ async function authSettingsResetWithRecovery() {
     console.error('[settings] auth recovery reset failed:', e);
     showToast('\u8a8d\u8a3c\u306e\u30ea\u30bb\u30c3\u30c8\u306b\u5931\u6557\u3057\u307e\u3057\u305f');
   }
+}
+
+async function resetSlipNumberWithRecovery() {
+  const code = _authInputValue('slip-recovery-code');
+  if (!code) { showToast('リカバリーコードを入力してください'); return; }
+  const ok = await AuthStore.verifyRecovery(code);
+  if (!ok) { showToast('リカバリーコードが違います'); return; }
+  const max = liveMaxSlipNo(state.rows);
+  const message = max > 0
+    ? `伝票番号をリセットします。\n本日の伝票 No.${max} が残っているため、次の番号は ${max + 1} になります。\n完全に1から始めるには営業終了後に実行してください。\nリセットしますか？`
+    : '伝票番号をリセットします。次の伝票が No.1 になります。よろしいですか？';
+  if (!confirm(message)) return;
+  const now = new Date().toISOString();
+  if (!saveSlipCounter({ prevDaysMax: 0, updatedAt: now, lastResetAt: now })) return;
+  showToast('伝票番号をリセットしました');
+  renderSettingsPanel();
 }
 
 async function authSettingsClear() {
@@ -20606,7 +20790,9 @@ function computePayrollForCast(castName, prodByCast, opts) {
   };
 
   /* --- SP / 日払い（手入力。manualRec は上で取得済み） --- */
-  const sp      = (opts.sp      != null) ? (Number(opts.sp)      || 0) : (Number(manualRec.sp)      || 0);
+  const manualSp = (opts.sp != null) ? (Number(opts.sp) || 0) : (Number(manualRec.sp) || 0);
+  const derivedSp = spSharesTotal(opts.rows || ((typeof state !== 'undefined' && state.rows) || []), dayKey, castName);
+  const sp = manualSp + derivedSp;
   const nibarai = (opts.nibarai != null) ? (Number(opts.nibarai) || 0) : (Number(manualRec.nibarai) || 0);
 
   /* --- バック合計（SP含む。SPは円をそのまま加算） --- */
@@ -20690,7 +20876,7 @@ function computePayrollTable(settled, opts) {
   if (typeof castsSortedByClockIn === 'function') casts = castsSortedByClockIn(casts, tt);
   else if (typeof castsSortedByNo === 'function') casts = castsSortedByNo(casts);
 
-  const baseOpts = Object.assign({}, opts, { dayKey, tt, manual, nameGroups });
+  const baseOpts = Object.assign({}, opts, { dayKey, tt, manual, nameGroups, rows: settled });
   return casts.map(name => computePayrollForCast(name, prodByCast, baseOpts));
 }
 /* ================================================================
@@ -21073,11 +21259,8 @@ function payslipCastNames(dailycloseStore, from, to) {
    形式 = 営業日(YYMMDD) + 卓番(無ければ末尾2桁の連番風)。
    例: 卓5・2026-06-01 → 260601-05 */
 function _receiptSlipNo(row) {
-  const d = getBizDate();
-  const yy = String(d.getFullYear()).slice(2);
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  const base = yy + mm + dd;
+  const base = String(getLoadedDayKey() || '').slice(-6);
+  if (Number(row && row.slipNo) > 0) return base + '-' + row.slipNo;
   const tbl = row && row.tableNum ? String(row.tableNum).padStart(2, '0') : null;
   if (tbl) return base + '-' + tbl;
   // 卓番が無ければ gid 下2桁でユニーク性を確保
@@ -21131,6 +21314,7 @@ function printReceipt(rowId, opts) {
     + '<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--tx2)">但し書き'
     + '<input type="text" id="receipt-edit-note" value="' + escAttr(note) + '"'
     + ' style="padding:9px 11px;font-size:14px;background:var(--sur3);border:1px solid var(--bdr2);color:var(--tx);border-radius:6px;outline:none"></label>'
+    + '<label style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="receipt-edit-blankdate">日付を空欄にする（手書き用）</label>'
     + '</div>'
     + '<div class="pos-co-actions" style="margin-top:18px">'
     + '<button class="pos-co-btn cash" onclick="_receiptDoPrint(\'' + escAttr(slipNo) + '\')">🖨️ 印刷する</button>'
@@ -21146,17 +21330,18 @@ function _receiptDoPrint(slipNo) {
   const nameEl = document.getElementById('receipt-edit-name');
   const amtEl  = document.getElementById('receipt-edit-amount');
   const noteEl = document.getElementById('receipt-edit-note');
+  const blankDate = !!document.getElementById('receipt-edit-blankdate')?.checked;
   const guestName = (nameEl?.value || '').trim();
   const amount = Math.max(0, parseInt(amtEl?.value) || 0);
   const note = (noteEl?.value || '').trim() || (cfg.receiptNote || 'ご飲食代として');
   document.getElementById('receipt-edit-overlay')?.remove();
-  _receiptOpenWindow({ guestName, amount, note, slipNo });
+  _receiptOpenWindow({ guestName, amount, note, slipNo, blankDate });
 }
 
 /* 領収書HTMLを組み立てて別ウィンドウで印刷（80mmレシート向け） */
 function _receiptOpenWindow(data) {
   const d = getBizDate();
-  const dateStr = d.getFullYear() + '年' + (d.getMonth() + 1) + '月' + d.getDate() + '日';
+  const dateStr = data.blankDate ? '　　年　　月　　日' : d.getFullYear() + '年' + (d.getMonth() + 1) + '月' + d.getDate() + '日';
   const name1 = cfg.receiptStoreName1 || '';
   const addr  = cfg.receiptStoreAddr  || '';
   const tel   = cfg.receiptStoreTel   || '';
