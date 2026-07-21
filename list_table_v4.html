@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.20">
+<meta name="app-version" content="1.0.21">
 <title>リスト表 v4</title>
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
      フォントはOS内蔵にフォールバックする（--font/--monoのスタック参照）。 -->
@@ -4799,9 +4799,8 @@ const Persist = {
     if (!key) { console.error(`[Persist] unknown key: ${name}`); return null; }
     let raw = null;
     try {
-      raw = (typeof UsbStore !== 'undefined' && UsbStore.active)
-        ? UsbStore.readSync(name)
-        : localStorage.getItem(key);
+      // 本番の永続化処理はUSBゲート解決後に走り、先行するdevTime読取もゲート後に再同期される。
+      raw = UsbStore.readSync(name);
       return JSON.parse(raw || 'null');
     }
     catch(e) {
@@ -4820,8 +4819,7 @@ const Persist = {
     if (!key) { console.error(`[Persist] unknown key: ${name}`); return false; }
     try {
       const raw = JSON.stringify(value);
-      if (typeof UsbStore !== 'undefined' && UsbStore.active) UsbStore.writeSync(name, raw);
-      else localStorage.setItem(key, raw);
+      UsbStore.writeSync(name, raw);
       return true;
     }
     catch(e) { console.error(`[Persist] write('${name}') failed:`, e); return false; }
@@ -4830,9 +4828,7 @@ const Persist = {
   exportAll() {
     const out = {};
     Object.keys(this.KEYS).forEach(name => {
-      out[name] = (typeof UsbStore !== 'undefined' && UsbStore.active)
-        ? UsbStore.readSync(name)
-        : localStorage.getItem(this.KEYS[name]);
+      out[name] = UsbStore.readSync(name);
     });
     return out;
   },
@@ -4843,13 +4839,12 @@ const Persist = {
       const val = data[name];
       if (val !== null && val !== undefined) {
         try {
-          if (typeof UsbStore !== 'undefined' && UsbStore.active) UsbStore.cache[name] = val;
-          else localStorage.setItem(this.KEYS[name], val);
+          UsbStore.cache[name] = val;
         }
         catch(e) { console.error(`[Persist] importAll('${name}') failed:`, e); }
       }
     });
-    if (typeof UsbStore !== 'undefined' && UsbStore.active) UsbStore.markAllDirty();
+    UsbStore.markAllDirty();
   },
 };
 
@@ -5243,8 +5238,9 @@ const UsbBootGate = {
       'align-items:center', 'justify-content:center', 'background:rgba(0,0,0,0.88)',
       'color:#f1f4f9', 'font-family:var(--font, sans-serif)', 'backdrop-filter:blur(12px)'
     ].join(';');
+    const hasDirHandle = !!UsbStore._dirHandle;
     const folder = UsbStore.getDirName() || '保存先フォルダ';
-    overlay.innerHTML = `
+    overlay.innerHTML = hasDirHandle ? `
       <div style="width:min(520px,92vw);padding:28px;border:1px solid rgba(216,184,108,0.35);border-radius:14px;background:#13161c;box-shadow:0 24px 80px rgba(0,0,0,0.65);text-align:center">
         <div style="font-size:13px;letter-spacing:.18em;color:#d8b86c;margin-bottom:8px">NightListDX</div>
         <div style="font-size:22px;font-weight:800;margin-bottom:8px">USB保存モード</div>
@@ -5253,18 +5249,33 @@ const UsbBootGate = {
         <div id="usb-boot-error" style="display:none;margin-top:14px;color:#ff8c8c;font-size:12px;line-height:1.6"></div>
         <div style="display:flex;justify-content:center;gap:18px;margin-top:18px;flex-wrap:wrap">
           <button id="usb-boot-repick" type="button" style="background:none;border:none;color:#e8cd86;text-decoration:underline;cursor:pointer;font-size:12px">別のフォルダを選び直す</button>
-          <button id="usb-boot-local" type="button" style="background:none;border:none;color:#a7b0c0;text-decoration:underline;cursor:pointer;font-size:12px">USBを使わず起動（localStorageモード・今回のみ）</button>
         </div>
-        <div style="margin-top:12px;font-size:11px;color:#697283">USBを使わず起動すると、PC内のデータが古い可能性があります。</div>
+      </div>
+    ` : `
+      <div style="width:min(520px,92vw);padding:28px;border:1px solid rgba(216,184,108,0.35);border-radius:14px;background:#13161c;box-shadow:0 24px 80px rgba(0,0,0,0.65);text-align:center">
+        <div style="font-size:13px;letter-spacing:.18em;color:#d8b86c;margin-bottom:8px">NightListDX</div>
+        <div style="font-size:22px;font-weight:800;margin-bottom:8px">初回セットアップ</div>
+        <div style="font-size:12px;color:#a7b0c0;margin-bottom:22px">NightListDXはUSBメモリ内にデータを保存します。保存先フォルダ（新規・既存どちらでも可）を選んでください</div>
+        <button id="usb-boot-select" type="button" style="width:100%;padding:16px 18px;border-radius:10px;border:1px solid #d8b86c;background:#d8b86c;color:#17120a;font-size:20px;font-weight:900;cursor:pointer">📁 USBフォルダを選択して開始</button>
+        <div id="usb-boot-error" style="display:none;margin-top:14px;color:#ff8c8c;font-size:12px;line-height:1.6"></div>
       </div>
     `;
     document.body.appendChild(overlay);
     const err = overlay.querySelector('#usb-boot-error');
-    const finishLocal = () => {
-      UsbStore.active = false;
-      overlay.remove();
-      resolve('local');
-    };
+    if (!hasDirHandle) {
+      overlay.querySelector('#usb-boot-select').onclick = async () => {
+        try {
+          const ok = await UsbStore.activateWithPicker();
+          if (ok) { overlay.remove(); resolve('usb'); return; }
+          err.style.display = 'block';
+          err.textContent = 'このブラウザは非対応です。Chrome / Edge で開いてください。';
+        } catch (_) {
+          err.style.display = 'block';
+          err.textContent = 'フォルダの選択がキャンセルされました。もう一度ボタンを押して選び直してください。';
+        }
+      };
+      return;
+    }
     overlay.querySelector('#usb-boot-start').onclick = async () => {
       try {
         await UsbStore.hydrate();
@@ -5273,7 +5284,7 @@ const UsbBootGate = {
       } catch (e) {
         console.error('[UsbBootGate] hydrate failed:', e);
         err.style.display = 'block';
-        err.textContent = 'USBフォルダを読み込めませんでした。フォルダを選び直すか、USBを使わず起動してください。';
+        err.textContent = 'USBフォルダを読み込めませんでした。フォルダを選び直すか、USBの接続を確認してもう一度お試しください。';
       }
     };
     overlay.querySelector('#usb-boot-repick').onclick = async () => {
@@ -5286,10 +5297,9 @@ const UsbBootGate = {
         err.style.display = 'block';
         err.textContent = (e && e.code === 'NO_DATA_IN_FOLDER')
           ? '選んだフォルダに保存データが見つかりません。正しい保存先フォルダを選んでください。（新しいフォルダへの移行は、起動後に設定画面から行えます）'
-          : 'USBフォルダを選択できませんでした。別のフォルダを選ぶか、USBを使わず起動してください。';
+          : 'USBフォルダを選択できませんでした。USBの接続を確認してもう一度お試しください。';
       }
     };
-    overlay.querySelector('#usb-boot-local').onclick = finishLocal;
   },
 };
 /* ================================================================
@@ -16788,10 +16798,8 @@ function renderSettingsPanel() {
 
   const appVersion = document.querySelector('meta[name="app-version"]')?.content || 'unknown';
   const usbActive = typeof UsbStore !== 'undefined' && UsbStore.active;
-  const usbFolder = usbActive ? (UsbStore.getDirName() || '未取得') : '';
-  const storageModeLabel = usbActive
-    ? `USBモード（フォルダ名: ${escHtml(usbFolder)}）`
-    : 'PC内保存（localStorage）';
+  const usbFolder = UsbStore.getDirName() || '未取得';
+  const storageModeLabel = `USBモード（フォルダ名: ${escHtml(usbFolder)}）`;
   const authSupported = typeof AuthStore !== 'undefined' && AuthStore.isSupported();
   const authRecord = typeof AuthStore !== 'undefined' ? AuthStore.read() : null;
   const authIsSet = !!(authRecord && authRecord.hash);
@@ -16888,7 +16896,7 @@ function renderSettingsPanel() {
         <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:8px">
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
             <button type="button" class="btn primary" id="self-update-btn" onclick="selfUpdateRunNow()" ${usbActive ? '' : 'disabled'}>🔄 今すぐ更新</button>
-            <span id="self-update-status" class="settings-sub">${usbActive ? '' : 'USBモードで利用できます'}</span>
+            <span id="self-update-status" class="settings-sub">${usbActive ? '' : 'USBの準備が完了すると利用できます'}</span>
           </div>
         </div>
       </div>
@@ -20337,8 +20345,8 @@ function printTimetable() {
 })();
 
 async function __boot() {
-  const mode = await UsbStore.init();
-  if (mode === 'usb') await UsbBootGate.show();
+  await UsbStore.init();
+  await UsbBootGate.show();
   await AuthGate.check();
 
   // 04-time-utilities.js は定義時にlocalStorageを一度読むため、USBゲート後に再同期する。
@@ -20375,7 +20383,6 @@ async function __boot() {
   });
 }
 __boot();
-
 /* ================================================================
    THEME MANAGEMENT
    ※ 永続化は Persist.write/read('theme') 経由（export/importに含めるため）。
