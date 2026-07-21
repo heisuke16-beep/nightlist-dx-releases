@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.16">
+<meta name="app-version" content="1.0.17">
 <title>リスト表 v4</title>
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
      フォントはOS内蔵にフォールバックする（--font/--monoのスタック参照）。 -->
@@ -5853,15 +5853,22 @@ const SelfUpdate = {
 
   async _getVerifiedAppFileHandle() {
     const fileName = decodeURIComponent(location.pathname.split('/').pop() || '');
-    const fromDb = await this._loadHandle('appFile');
-    if (fromDb && await this._ensureFilePermission(fromDb)) {
-      if (await this._verifyAppIdentity(fromDb)) return fromDb;
-    }
+    // いま開いているファイル名での探索を最優先にする。記憶済みハンドルを先にすると、
+    // 配信ファイルのリネーム後に (a)旧ファイル消滅→未捕捉例外で即失敗
+    // (b)旧ファイル残存→開いていない方を書き換えて成功表示、の両方が起きる（2026-07-21店舗で実発生）。
     try {
       const sameFolderHandle = await UsbStore._dirHandle.getFileHandle(fileName);
       if (await this._ensureFilePermission(sameFolderHandle) && await this._verifyAppIdentity(sameFolderHandle)) {
         await this._saveHandle('appFile', sameFolderHandle);
         return sameFolderHandle;
+      }
+    } catch (_) {}
+    // フォールバック: 記憶済みハンドル（アプリ本体がUSB外にある構成用）。
+    // リネーム・削除でハンドル先が消えているとgetFile()が例外を投げるため必ずガードする。
+    try {
+      const fromDb = await this._loadHandle('appFile');
+      if (fromDb && await this._ensureFilePermission(fromDb)) {
+        if (await this._verifyAppIdentity(fromDb)) return fromDb;
       }
     } catch (_) {}
     if (typeof showToast === 'function') showToast('アプリ本体のファイル（いま開いているHTML）を選択してください');
