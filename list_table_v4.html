@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.15">
+<meta name="app-version" content="1.0.16">
 <title>リスト表 v4</title>
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
      フォントはOS内蔵にフォールバックする（--font/--monoのスタック参照）。 -->
@@ -10073,7 +10073,7 @@ function resolvePosCatLayout(settings) {
     const key = String(cat?.key || '');
     if (!key || known.has(key)) return;
     known.add(key);
-    all.push({ key, label: String(cat?.label || key) });
+    all.push({ key, label: String(cat?.label || key), drinkPick: !!cat?.drinkPick });
   });
   const byKey = new Map(all.map(cat => [cat.key, cat]));
   const used = new Set();
@@ -10082,12 +10082,12 @@ function resolvePosCatLayout(settings) {
     const cat = byKey.get(entry?.key);
     if (!cat || used.has(cat.key)) return;
     used.add(cat.key);
-    resolved.push({ key: cat.key, label: cat.label, visible: entry.visible !== false });
+    resolved.push({ key: cat.key, label: cat.label, visible: entry.visible !== false, drinkPick: !!cat.drinkPick });
   });
   all.forEach(cat => {
     if (used.has(cat.key)) return;
     used.add(cat.key);
-    resolved.push({ key: cat.key, label: cat.label, visible: true });
+    resolved.push({ key: cat.key, label: cat.label, visible: true, drinkPick: !!cat.drinkPick });
   });
   return resolved;
 }
@@ -11850,6 +11850,13 @@ function renderPOSQuickView(row, firsts, allTotal, allBase, allPos) {
 }
 
 const POS_DRINK_CATS = ['shot', 'bottle'];
+/* 固定カテゴリ(shot/bottle)は常時、店舗独自カテゴリはcfg.posCustomCatsのdrinkPickフラグで
+   「誰が飲んだ？」モーダル(posOpenDrinkCastPick)の要否を切り替える。 */
+function _posCategoryDrinkPick(category) {
+  if (POS_DRINK_CATS.includes(category)) return true;
+  const custom = (cfg.posCustomCats || []).find(c => c && c.key === category);
+  return !!(custom && custom.drinkPick);
+}
 /* 退席：グループの最後のアクティブ席（最大gidxで mainType≠departed、なるべくゲスト行）を退席にする。
    延長の課金席数が1減る（既存の延長は不変、次の延長から減る）。リスト表トグルにも「退席」が出る。 */
 function posMarkDeparted() {   // 退席ボタン → 退席モーダルを開く（誰が退席したか選ぶ）
@@ -11974,7 +11981,7 @@ function posProductHTML(item) {
       + stateLine
       + '</button>';
   }
-  const onclick = POS_DRINK_CATS.includes(item.category)
+  const onclick = _posCategoryDrinkPick(item.category)
     ? 'posOpenDesignatedDrinkCastPick(&quot;' + escAttr(item.name) + '&quot;,' + (Number(item.amount)||0) + ',&quot;' + escAttr(item.category) + '&quot;)'
     : 'posAddItem(&quot;' + escAttr(item.name) + '&quot;,' + (Number(item.amount)||0) + ',&quot;' + escAttr(item.category) + '&quot;)';
   const productName = String(item.name || '');
@@ -12213,10 +12220,14 @@ function _posCatRowHTML(cat) {
   const label = custom
     ? `<input type="text" class="settings-input pos-cat-label-input" value="${escAttr(cat.label)}" placeholder="カテゴリ名" oninput="posCatSyncLabel('${cat.key}',this.value)">`
     : `<span class="pos-cat-fixed-label">${escHtml(cat.label)}</span>`;
+  const drinkPick = custom
+    ? `<input type="checkbox" class="pos-cat-drinkpick" ${cat.drinkPick ? 'checked' : ''} aria-label="${escAttr(cat.label)}で誰が飲んだかモーダルを使う">`
+    : '';
   return `<tr draggable="true" class="pos-cat-manage-row" data-key="${escAttr(cat.key)}" data-custom="${custom ? '1' : '0'}">
     <td class="pos-me-drag" title="ドラッグして並び替え">⠿</td>
     <td>${label}</td>
     <td style="text-align:center"><input type="checkbox" class="pos-cat-visible" ${cat.visible ? 'checked' : ''} aria-label="${escAttr(cat.label)}を表示"></td>
+    <td style="text-align:center">${drinkPick}</td>
     <td>${custom ? `<button type="button" class="pos-me-del pos-cat-delete-btn" onclick="posCatDelete('${cat.key}')">削除</button>` : ''}</td>
   </tr>`;
 }
@@ -12256,7 +12267,7 @@ function posCatAdd() {
   const tbody = document.getElementById('cfg-pos-cat-layout');
   const editors = document.getElementById('pos-menu-editors');
   if (!tbody || !editors) return;
-  tbody.insertAdjacentHTML('beforeend', _posCatRowHTML({ key, label, visible:true }));
+  tbody.insertAdjacentHTML('beforeend', _posCatRowHTML({ key, label, visible:true, drinkPick:false }));
   editors.insertAdjacentHTML('beforeend', _posMenuEditorHTML(key, label, []));
   const menuBody = document.querySelector(`#cfg-posMenu-${key}-tbl tbody`);
   if (menuBody) _posMenuInitDnd(menuBody);
@@ -17186,7 +17197,7 @@ function renderSettingsPanel() {
             return `<div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:8px;padding-bottom:14px;border-bottom:1px solid var(--bdr2);margin-bottom:14px">
               <div class="settings-label" style="font-weight:700">カテゴリ管理<div class="settings-sub">表示するカテゴリと並び順を店舗に合わせて変更できます。</div></div>
               <table class="pos-me-table pos-cat-manage-table">
-                <thead><tr><th style="width:28px"></th><th>カテゴリ名</th><th style="width:60px">表示</th><th style="width:56px"></th></tr></thead>
+                <thead><tr><th style="width:28px"></th><th>カテゴリ名</th><th style="width:60px">表示</th><th style="width:90px">誰が飲んだか</th><th style="width:56px"></th></tr></thead>
                 <tbody id="cfg-pos-cat-layout">${cats.map(_posCatRowHTML).join('')}</tbody>
               </table>
               <button type="button" class="pos-me-add-btn pos-cat-add-btn" onclick="posCatAdd()">＋ カテゴリを追加</button>
@@ -17803,7 +17814,8 @@ function applySettings() {
   const posCustomCats = posCatRows.filter(tr => tr.dataset.custom === '1').map(tr => {
     const key = tr.dataset.key;
     const label = tr.querySelector('.pos-cat-label-input')?.value.trim() || key;
-    return { key, label };
+    const drinkPick = !!tr.querySelector('.pos-cat-drinkpick')?.checked;
+    return { key, label, drinkPick };
   });
   const posCatLayout = posCatRows.map(tr => ({ key: tr.dataset.key, visible: !!tr.querySelector('.pos-cat-visible')?.checked }));
   const currentCatKeys = new Set(posCatRows.map(tr => tr.dataset.key));
