@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.18">
+<meta name="app-version" content="1.0.19">
 <title>リスト表 v4</title>
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
      フォントはOS内蔵にフォールバックする（--font/--monoのスタック参照）。 -->
@@ -4705,9 +4705,6 @@ html[data-display="tablet"] #list-table .col-ctrl-btn { min-width: 32px; min-hei
           style="font-size:12px;font-weight:700;padding:5px 10px;border-radius:6px;
           cursor:pointer;background:rgba(201,168,76,0.12);border:1px solid rgba(201,168,76,0.4);
           color:var(--gold2)">🛟 データ復旧</button>
-        <button onclick="showDeletedSlipsModal()" title="削除した伝票の記録を表示"
-          style="font-size:12px;font-weight:700;padding:5px 10px;border-radius:6px;cursor:pointer;
-          background:transparent;border:1px solid var(--bdr2);color:var(--tx2)">🗑 削除伝票</button>
       </span>
     </div>
     <div id="past-day-list"></div>
@@ -16844,6 +16841,7 @@ function renderSettingsPanel() {
             <button type="button" class="btn danger" onclick="resetSlipNumberWithRecovery()" ${recoverySet ? '' : 'disabled'}>番号を1に戻す</button>
           </div>
           ${recoverySet ? '' : '<div class="settings-sub">🔐 起動ログインを設定すると利用できます</div>'}
+          <button type="button" class="btn" onclick="showDeletedSlipsModal()" style="margin-top:4px">🗑 削除済み伝票アーカイブを見る</button>
         </div>
       </div>
     </div>`;
