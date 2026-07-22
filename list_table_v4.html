@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.23">
+<meta name="app-version" content="1.0.24">
 <title>リスト表 v4</title>
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
      フォントはOS内蔵にフォールバックする（--font/--monoのスタック参照）。 -->
@@ -13478,7 +13478,12 @@ function computeReportAgg(settled) {
       }
       if (cast) {
         const p = ensureP(cast);
-        _aggApplyProd(p, o.category, qty);
+        // 出戻り本指のキャストに付いた指名料明細は「料金のみ・カウント無効」。
+        // カウントは構造側（_MODORI_COL＝設定連動）が持つ（2026-07-23 店ルール: 出戻りは本指にカウントしない）
+        const _isModoriNominateLine = o.category === 'nominate' &&
+          ((r.mainCast === cast && r.mainType === 'modori_honshimei') ||
+           (r.subCasts || []).some(sc => sc.cast === cast && sc.type === 'modori_honshimei'));
+        if (!_isModoriNominateLine) _aggApplyProd(p, o.category, qty);
         if (isDrinkCat) {
           const cnt = qty * DRINK_COUNT[o.category]; // サイズ重みを掛けた本数
           // 指D = その卓の本指名/同伴キャスト本人のドリンク。メイン枠だけでなくサブ指名・
