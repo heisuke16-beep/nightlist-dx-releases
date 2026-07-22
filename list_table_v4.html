@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.24">
+<meta name="app-version" content="1.0.25">
 <title>リスト表 v4</title>
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
      フォントはOS内蔵にフォールバックする（--font/--monoのスタック参照）。 -->
@@ -14029,11 +14029,12 @@ function _renderReportDay() {
         <span class="pos-hist-method ${method}">${methodLabel}</span>
         <span style="color:var(--tx3);font-size:11px">${minToHHMM(r.startMin)}–${minToHHMM(r.endMin)}</span>
       </div>
-      ${isPast || closedToday ? '' : `<div class="pos-report-slip-actions">
+      <div class="pos-report-slip-actions">
         <button class="pos-report-btn" style="color:#2680e8" onclick="posReportPrint(${r.gid})">🧾 印刷</button>
+        ${isPast || closedToday ? '' : `
         <button class="pos-report-btn restore" onclick="posReportRestore(${r.gid})">↩ 復元</button>
-        <button class="pos-report-btn delete" onclick="posReportDelete(${r.gid})">🗑 完全削除</button>
-      </div>`}
+        <button class="pos-report-btn delete" onclick="posReportDelete(${r.gid})">🗑 完全削除</button>`}
+      </div>
     </div>`;
   }).join('') : `<div style="text-align:center;color:var(--tx3);padding:40px">${isPast ? 'この営業日の精算済み伝票はありません' : '本日の精算済み伝票はありません'}</div>`;
 
@@ -14090,7 +14091,8 @@ function _renderReportDay() {
 }
 
 function posReportPrint(gid) {
-  const row = state.rows.find(r => r.gid === gid && r.isFirst);
+  const src = (typeof _reportDaySource === 'function') ? _reportDaySource() : { rows: state.rows };
+  const row = (src.rows || []).find(r => r.gid === gid && r.isFirst);
   if (!row) return;
   posPrintReceiptDirect(row);
 }
