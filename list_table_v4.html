@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.22">
+<meta name="app-version" content="1.0.23">
 <title>リスト表 v4</title>
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
      フォントはOS内蔵にフォールバックする（--font/--monoのスタック参照）。 -->
@@ -6006,6 +6006,7 @@ const CFG_DEFAULTS = {
   extBasePerSeat:      true,  // 延長基本料を席数ぶん取る（false=卓単位・延長1回ぶん）
   extFeePerSeat:       false, // 延長指名料を席数ぶん取る（false=延長1回ぶん＝指名1人につき1回）
   doubanAsHonshimeiExt: true, // 同伴を本指名扱いで延長指名料を取る（false=同伴は延長指名料なし）
+  modoriHonshimeiAgg: 'honen', // 出戻り本指の集計扱い: 'honen'=延長扱い(本延+1・既定) | 'honshimei'=本指名扱い(本指+1) | 'none'=カウントしない
   drinkCounts:     { S: 1, M: 2, L: 3 }, // ドリンク本数換算（指D/D集計の重み。ショットは常に1本）
   extPrices:       [4000, 7000, 11000], // 延長料金（extOptionsと順番対応）
   taxRate:         20,      // 税サービス料率（%）
@@ -13396,6 +13397,7 @@ function _aggApplyProd(p, category, qty) {
 }
 
 function computeReportAgg(settled) {
+  const modoriAgg = ['honen','honshimei','none'].includes(cfg?.modoriHonshimeiAgg) ? cfg.modoriHonshimeiAgg : 'honen';
   const prodByCast = {};
   const ensureP = c => (prodByCast[c] = prodByCast[c] || { '指':0,'同':0,'場':0,'延指20':0,'延指40':0,'本延':0,'S':0,'M':0,'L':0,'指D':0,'D':0 });
   // 指名売上：本指名/同伴で付いた卓の税込総計を、指名キャストの頭数で等分して計上（R2・卓単位）。
@@ -13404,6 +13406,7 @@ function computeReportAgg(settled) {
   const ensureN = c => (nameGroups[c] = nameGroups[c] || { total:0, lines:{} });
   // 指名売上の対象タイプ。場内(jounai)・延長指名(enchoshimei)は除外。
   const SHIMEI_NOMINATE = ['honshimei', 'douban'];
+  if (modoriAgg !== 'none') SHIMEI_NOMINATE.push('modori_honshimei');
   const byCategory = {};
   const bySource = {};
   // 「指名が来た子」: 本指名/同伴で卓に付いたキャスト（main または subCasts）。
@@ -13490,14 +13493,16 @@ function computeReportAgg(settled) {
     // 指名はスリップ設定（構造側）で付くのが通常運用。posOrdersに同カテゴリ明細がある時だけ
     // そちらを優先し二重計上しない（_posSeatLineItems の指名ライン重複抑止と同じ方針）。
     // 本指(指)＋同伴(同)は後段 48-payroll の autoCounts で 本指=指+同伴 / 本延=本延+同伴 に展開される。
-    // 出戻り種別（modori_honshimei / modori_enchoshimei / modori_free）は
-    // 「一度退店して戻ってきた＝延長扱い」として、元種別カウントには入れず延長カウントへ振り替える：
-    //   modori_honshimei   → 本延 +1（指 / 本指名カウントには加算しない）
+    // 出戻り種別（modori_honshimei / modori_enchoshimei / modori_free）の振替先：
+    //   modori_honshimei   → 設定に応じて 本延 +1 / 指 +1 / 加算なし
     //   modori_enchoshimei → 延指40 +1（場 / 場内カウントには加算しない）
     //   modori_free        → 加算なし
     const _STRUCT_CAT = { honshimei:'nominate', douban:'dohan', jounai:'jonai' };  // 構造種別→オーダーカテゴリ
     const _PROD_OF    = { nominate:'指', dohan:'同', jonai:'場' };                  // オーダーカテゴリ→集計列
-    const _MODORI_COL = { modori_honshimei:'本延', modori_enchoshimei:'延指40' };  // 出戻り→振替先列
+    const _MODORI_COL = {
+      modori_honshimei: modoriAgg === 'honen' ? '本延' : (modoriAgg === 'honshimei' ? '指' : null),
+      modori_enchoshimei: '延指40'
+    };  // 出戻り→振替先列
     const _hasOrderCat     = cat => posOrders(r).some(o => o.category === cat);
     const _hasOrderCatCast = (cat, c) => posOrders(r).some(o => o.category === cat && _aggCastOf(o.name) === c);
     // メイン指名／出戻り
@@ -14044,7 +14049,7 @@ function _renderReportDay() {
       </div>
       <div class="agg-box">
         <div class="agg-box-head">
-          <h3>キャスト別指名売上 <span class="payroll-note">※本指名・同伴で付いた卓の税込総計（場内・延長指名は除外）</span></h3>
+          <h3>キャスト別指名売上 <span class="payroll-note">※本指名・同伴で付いた卓の税込総計（場内・延長指名は除外）。出戻り本指は設定「出戻り本指の集計扱い」に従う</span></h3>
           <div class="agg-box-actions">
             <select onchange="setReportCardSort(this.value)">${cardSortOpts}</select>
           </div>
@@ -17196,6 +17201,14 @@ function renderSettingsPanel() {
             <input type="checkbox" id="cfg-doubanAsHonshimeiExt" ${cfg.doubanAsHonshimeiExt !== false ? 'checked' : ''} style="margin-top:2px">
             <div><b>同伴を本指名として延長指名料を取る</b><div style="font-size:11px;color:var(--tx3)">OFF: 同伴のお客様には延長指名料を取らない</div></div>
           </label>
+          <label style="display:flex;align-items:flex-start;gap:8px;font-size:13px">
+            <div><b>出戻り本指の集計扱い</b><div style="font-size:11px;color:var(--tx3)">延長扱い・本指名扱いでは、出戻り卓のキャストドリンクは指D、卓の総計はキャスト別指名売上に含まれます。カウントしないでは指D・指名売上にも含まれません。</div></div>
+            <select class="settings-input" id="cfg-modoriHonshimeiAgg" style="min-width:240px">
+              <option value="honen" ${!['honshimei','none'].includes(cfg.modoriHonshimeiAgg) ? 'selected' : ''}>延長扱い（本延に+1・おすすめ）</option>
+              <option value="honshimei" ${cfg.modoriHonshimeiAgg === 'honshimei' ? 'selected' : ''}>本指名扱い（本指に+1）</option>
+              <option value="none" ${cfg.modoriHonshimeiAgg === 'none' ? 'selected' : ''}>カウントしない</option>
+            </select>
+          </label>
           <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px">
             <b>ドリンクの本数換算</b>
             <span style="color:var(--tx3);font-size:11px">指D/D集計の重み</span>
@@ -17994,6 +18007,8 @@ function applySettings() {
   const extBasePerSeat      = !!(get('cfg-extBasePerSeat')?.checked);
   const extFeePerSeat       = !!(get('cfg-extFeePerSeat')?.checked);
   const doubanAsHonshimeiExt = !!(get('cfg-doubanAsHonshimeiExt')?.checked);
+  const modoriHonshimeiAggValue = get('cfg-modoriHonshimeiAgg')?.value;
+  const modoriHonshimeiAgg = ['honen','honshimei','none'].includes(modoriHonshimeiAggValue) ? modoriHonshimeiAggValue : 'honen';
   const drinkCounts = {
     S: parseInt(get('cfg-drinkCount-S')?.value) || 0,
     M: parseInt(get('cfg-drinkCount-M')?.value) || 0,
@@ -18118,7 +18133,7 @@ function applySettings() {
     extFeeHonshimeiAmt, extFeeJounaiAmt, extFeeEnchoshimeiAmt,
     extFeeHonshimeiAmts, extFeeJounaiAmts, extFeeEnchoshimeiAmts,
     extFeeOnHonshimei, extFeeOnJounai, extFeeOnEnchoshimei, extPrices,
-    extBasePerSeat, extFeePerSeat, doubanAsHonshimeiExt, drinkCounts,
+    extBasePerSeat, extFeePerSeat, doubanAsHonshimeiExt, modoriHonshimeiAgg, drinkCounts,
     taxRate, taxRound, discountAfterTax, cardFeeRate, cardFeeRound, tillFloat,
     showCountdown, posMenu, posCatLayout, posCustomCats, posPrices,
     receiptStoreName1, receiptStoreAddr, receiptStoreTel, receiptInvoiceNo, receiptNote,
