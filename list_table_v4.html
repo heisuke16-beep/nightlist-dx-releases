@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.27">
+<meta name="app-version" content="1.0.28">
 <title>リスト表 v4</title>
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
      フォントはOS内蔵にフォールバックする（--font/--monoのスタック参照）。 -->
@@ -10266,12 +10266,12 @@ function _posComputeTotals(seatSubtotal, orders, extraTaxable) {
   const cardFeeRound = cfg.cardFeeRound || 100;
   let taxable = (seatSubtotal || 0) + (extraTaxable || 0);
   let incl = 0;
-  let postTax = 0;   // 割引（マイナス額）は税サ計算後に適用＝税サは割引前の課税額にかかる
-  const _discAfterTax = cfg.discountAfterTax !== false;   // 既定: 割引は税サ後（設定でOFFにすると割引後に課税）
+  let postTax = 0;   // 割引・割増（discountカテゴリ）は税サ計算後に適用＝税サは割引・割増前の課税額にかかる
+  const _discAfterTax = cfg.discountAfterTax !== false;   // 既定: 割引・割増は税サ後（設定でOFFにすると課税対象に含める）
   (orders || []).forEach(o => {
     const amt = (Number(o.amount) || 0) * (Number(o.qty) || 1);
     if (o.taxIncluded) incl += amt;
-    else if (amt < 0 && _discAfterTax) postTax += amt;   // 割引は税サの対象に含めず、最後に差し引く
+    else if ((o.category === 'discount' || amt < 0) && _discAfterTax) postTax += amt;   // 割引は税サの対象に含めず、最後に差し引く
     else taxable += amt;
   });
   const subtotal = taxable + incl + postTax;
@@ -17143,7 +17143,7 @@ function renderSettingsPanel() {
         </div>
         <div class="settings-row">
           <div class="settings-label">割引と税サの順序<div class="settings-sub">ON: 割引前の金額に税サをかけ、割引は最後に引く（一般的）／OFF: 割引を引いた後の金額に税サをかける</div></div>
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px"><input type="checkbox" id="cfg-discountAfterTax" ${cfg.discountAfterTax !== false ? 'checked' : ''}> 税サの後に割引を引く</label>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px"><input type="checkbox" id="cfg-discountAfterTax" ${cfg.discountAfterTax !== false ? 'checked' : ''}> 税サの後に割引・割増を適用する</label>
         </div>
         <div class="settings-row">
           <div class="settings-label">カード手数料率</div>
