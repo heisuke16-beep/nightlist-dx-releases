@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.28">
+<meta name="app-version" content="1.0.30">
 <title>リスト表 v4</title>
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
      フォントはOS内蔵にフォールバックする（--font/--monoのスタック参照）。 -->
@@ -1551,7 +1551,7 @@ select option { background: var(--sur2); }
   background: #1a1a2e;
   border: 1px solid #4a5c80;
   border-radius: 8px;
-  width: min(440px, 95vw);
+  width: min(520px, 95vw);
   box-shadow: 0 8px 40px rgba(0,0,0,0.85);
   overflow: hidden;
 }
@@ -1578,14 +1578,14 @@ select option { background: var(--sur2); }
   background: #253050;
   color: #9badc8;
   font-size: 13px;
-  padding: 8px 16px;
+  padding: 8px 12px;
   text-align: center;
   border-bottom: 1px solid #354266;
 }
-.pos-ext-table thead th:first-child { text-align: left; width: 110px; }
-.pos-ext-cur td  { background: #0d1118; border-bottom: 2px solid #4a5c80; padding: 12px 16px; }
-.pos-ext-opt td  { background: #121720; padding: 10px 16px; border-top: 1px solid #2a3450; }
-.pos-ext-diff td { background: #0d1118; padding: 2px 16px 8px; border-bottom: 1px solid #2a3450; }
+.pos-ext-table thead th:first-child { text-align: left; width: 90px; }
+.pos-ext-cur td  { background: #0d1118; border-bottom: 2px solid #4a5c80; padding: 12px 12px; }
+.pos-ext-opt td  { background: #121720; padding: 10px 12px; border-top: 1px solid #2a3450; }
+.pos-ext-diff td { background: #0d1118; padding: 2px 12px 8px; border-bottom: 1px solid #2a3450; }
 .pos-ext-name     { font-size: 16px; font-weight: 700; color: #eef2fc; }
 .pos-ext-amount   {
   text-align: right;
@@ -12114,6 +12114,16 @@ function posOrderHTML(o) {
     + '<button class="pos-action-btn danger" style="min-width:34px;height:34px;font-size:18px" onclick="posRemoveItem(&quot;' + o.id + '&quot;)">×</button></div>';
 }
 
+/* 商品バック設定のパース: "500"=固定額500円 / "10%"=商品単価の10%（1円未満切り捨て）/ それ以外・空=バックなし(0)。
+   注文時に円換算してオーダーへ刻印する（スナップショット方式。amountと同じ思想）。 */
+function posMenuBackYen(back, amount) {
+  const s = String(back == null ? '' : back).trim();
+  if (/^\d+$/.test(s)) return parseInt(s, 10);
+  const m = s.match(/^(\d+(?:\.\d+)?)%$/);
+  if (m) return Math.floor((Number(amount) || 0) * parseFloat(m[1]) / 100);
+  return 0;
+}
+
 function posCategoryItems(category, row) {
   const casts = posActiveCastList();
   const pp = (key, fallback) => { const v = cfg.posPrices && cfg.posPrices[key]; return (v === 0 || (v != null && !isNaN(v))) ? Number(v) : fallback; };
@@ -12269,6 +12279,7 @@ function posMenuAddItem(key) {
   tr.innerHTML = `<td class="pos-me-drag" title="ドラッグして並び替え">⠿</td>
     <td><input type="text" class="pos-me-name-input" value="" placeholder="メニュー名"></td>
     <td><input type="number" class="pos-me-price-input" value="" step="${_posMenuStep}" placeholder="金額"></td>
+    <td><input type="text" class="pos-me-back-input" value="" placeholder="額 or %"></td>
     <td><button type="button" class="pos-me-del" onclick="posMenuDelItem(this)">削除</button></td>`;
   tbody.appendChild(tr);
   tr.querySelector('.pos-me-name-input').focus();
@@ -12349,6 +12360,7 @@ function _posMenuEditorHTML(key, label, items, open = false) {
     <td class="pos-me-drag" title="ドラッグして並び替え">⠿</td>
     <td><input type="text" class="pos-me-name-input" value="${escAttr(item.name)}" placeholder="メニュー名"></td>
     <td><input type="number" class="pos-me-price-input" value="${Number(item.amount) || 0}" step="${_posMenuStep}" placeholder="金額"></td>
+    <td><input type="text" class="pos-me-back-input" value="${escAttr(item.back || '')}" placeholder="額 or %"></td>
     <td><button type="button" class="pos-me-del" onclick="posMenuDelItem(this)">削除</button></td>
   </tr>`).join('');
   const openAttr = open ? ' open' : '';
@@ -12356,7 +12368,7 @@ function _posMenuEditorHTML(key, label, items, open = false) {
     <details class="pos-me-acc"${openAttr}>
       <summary><span class="settings-label pos-menu-editor-label" style="font-weight:700">${escHtml(label)}</span></summary>
       <table class="pos-me-table" id="cfg-posMenu-${escAttr(key)}-tbl">
-        <thead><tr><th style="width:28px"></th><th>メニュー名</th><th style="width:110px">金額（円）</th><th style="width:56px"></th></tr></thead>
+        <thead><tr><th style="width:28px"></th><th>メニュー名</th><th style="width:110px">金額（円）</th><th style="width:90px">バック</th><th style="width:56px"></th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
       <button type="button" class="pos-me-add-btn" onclick="posMenuAddItem('${key}')">＋ 追加</button>
@@ -13424,6 +13436,7 @@ function computeReportAgg(settled) {
   const modoriAgg = ['honen','honshimei','none'].includes(cfg?.modoriHonshimeiAgg) ? cfg.modoriHonshimeiAgg : 'honen';
   const modoriEnchoshimeiAgg = ['enchoshimei40','jounai','none'].includes(cfg?.modoriEnchoshimeiAgg) ? cfg.modoriEnchoshimeiAgg : 'enchoshimei40';
   const prodByCast = {};
+  const prodBackByCast = {};
   const ensureP = c => (prodByCast[c] = prodByCast[c] || { '指':0,'同':0,'場':0,'延指20':0,'延指40':0,'本延':0,'S':0,'M':0,'L':0,'指D':0,'D':0 });
   // 指名売上：本指名/同伴で付いた卓の税込総計を、指名キャストの頭数で等分して計上（R2・卓単位）。
   // lines は卓ごとの寄与（No.X 会計種別 → その卓の税込総計）。total はその合計。
@@ -13497,6 +13510,10 @@ function computeReportAgg(settled) {
       const DRINK_COUNT = { castS: _dc.S ?? 1, castM: _dc.M ?? 2, castL: _dc.L ?? 3, shot: 1 };
       const isDrinkCat = Object.prototype.hasOwnProperty.call(DRINK_COUNT, o.category);
       const isExcludedDrinker = (!cast || cast === 'ボーイ' || cast === 'ゲスト');
+      const backYen = Number(o.back) || 0;
+      if (cast && !isExcludedDrinker && !o.spShares && backYen > 0) {
+        prodBackByCast[cast] = (prodBackByCast[cast] || 0) + backYen * qty;
+      }
       if (isDrinkCat && isExcludedDrinker) {
         // ボーイ/ゲスト/指定なしのドリンクは指D/D・S/M/L 全てに計上しない（バック対象外）
         return;
@@ -13509,7 +13526,7 @@ function computeReportAgg(settled) {
           ((r.mainCast === cast && r.mainType === 'modori_honshimei') ||
            (r.subCasts || []).some(sc => sc.cast === cast && sc.type === 'modori_honshimei'));
         if (!_isModoriNominateLine) _aggApplyProd(p, o.category, qty);
-        if (isDrinkCat) {
+        if (isDrinkCat && !(backYen > 0)) {
           const cnt = qty * DRINK_COUNT[o.category]; // サイズ重みを掛けた本数
           // 指D = その卓の本指名/同伴キャスト本人のドリンク。メイン枠だけでなくサブ指名・
           // 指名系オーダー由来も含む（nominators）。指名売上と同じ判定。場内・延指は対象外。
@@ -13555,7 +13572,7 @@ function computeReportAgg(settled) {
 
   const total = cashSum + cardSum + urikakeSum;
   return {
-    prodByCast, nameGroups, nominatedCasts, byCategory, bySource,
+    prodByCast, prodBackByCast, nameGroups, nominatedCasts, byCategory, bySource,
     cashCount, cardCount, urikakeCount, cashSum, cardSum, urikakeSum,
     guests, total, avg: guests ? Math.round(total/guests) : 0, count: settled.length
   };
@@ -13851,7 +13868,7 @@ function _payrollTableInnerHtml(src) {
   const CNT_COLS = [['本指','本指'],['本延','本延'],['en20','20延'],['en40','40延'],['場内','場内'],['同伴','同伴'],['指D','指D'],['D','D']];
   const deductionItems = (typeof cfg !== 'undefined' && Array.isArray(cfg.payrollDeductions)) ? cfg.payrollDeductions : [];
 
-  const tot = { back: 0, late: 0, nibarai: 0, daily: 0, deduction: 0, net: 0 };
+  const tot = { prodBack: 0, back: 0, late: 0, nibarai: 0, daily: 0, deduction: 0, net: 0 };
   const body = rows.map(r => {
     const c = r.castName;
     const cj = escHtml(c).replace(/'/g, "\\'");
@@ -13891,6 +13908,7 @@ function _payrollTableInnerHtml(src) {
         + ' onchange="payrollSetCount(\'' + cj + '\', \'' + k + '\', this.value)"></td>';
     }).join('');
 
+    tot.prodBack += r.prodBack || 0;
     tot.back += r.backTotal || 0;
     tot.late += r.lateFee || 0;
     tot.nibarai += r.nibarai || 0;
@@ -13911,6 +13929,7 @@ function _payrollTableInnerHtml(src) {
       + '<td>' + _payWorkLabel(r.workMinutes) + '</td>'
       + hourlyCell
       + cntCells
+      + '<td class="pay-amt' + (r.prodBack ? '' : ' pay-muted') + '">' + (r.prodBack ? _payYen(r.prodBack) : '—') + '</td>'
       + '<td><input type="number" class="pay-in" value="' + (r.sp || '') + '" placeholder="0" '
         + 'onchange="payrollSetSP(\'' + cj + '\', this.value)"></td>'
       + '<td class="pay-total">' + _payYen(r.backTotal) + '</td>'
@@ -13927,6 +13946,7 @@ function _payrollTableInnerHtml(src) {
     + '<td class="pay-name">合計</td>'
     + '<td></td><td></td><td></td><td></td>'
     + CNT_COLS.map(() => '<td></td>').join('')
+    + '<td class="pay-amt">' + (tot.prodBack ? _payYen(tot.prodBack) : '—') + '</td>'
     + '<td></td>'
     + '<td class="pay-total">' + _payYen(tot.back) + '</td>'
     + '<td class="pay-amt">' + (tot.late ? '-' + _payYen(tot.late) : '—') + '</td>'
@@ -13944,7 +13964,7 @@ function _payrollTableInnerHtml(src) {
     + '<th class="pay-name">社交名</th>'
     + '<th>出勤</th><th>退勤</th><th>勤務</th><th>時間給</th>'
     + CNT_COLS.map(([, label]) => '<th>' + label + '</th>').join('')
-    + '<th>SP</th><th>バック合計</th><th>遅刻</th><th>日払い</th><th>日給</th>'
+    + '<th>商品B</th><th>SP</th><th>バック合計</th><th>遅刻</th><th>日払い</th><th>日給</th>'
     + (deductionItems.length
       ? deductionItems.map(item => '<th>' + escHtml(item.label || '') + '</th>').join('') + '<th>控除計</th><th>差引支給</th>'
       : '')
@@ -15681,13 +15701,17 @@ function posAddItem(name, amount, category, spShares) {
   if (!row) return;
   const amt = Number(amount) || 0;
   const orders = posOrders(row);
+  const label = String(name).indexOf(':') >= 0 ? String(name).slice(0, String(name).indexOf(':')) : String(name);
+  const item = ((cfg.posMenu && cfg.posMenu[category]) || []).find(v => v.name === label);
+  const backYen = (!spShares && item) ? posMenuBackYen(item.back, amt) : 0;
   // 延長(extension)はオーダー明細を作らない。延長は row.extensions を単一ソースとして
   // calcBill・_posSeatLineItems・リスト表・endMin が計上するため、オーダー明細も足すと
   // 延長料が二重計上（伝票に延長が2行・金額も倍）になる。延長は下の extensions 反映のみ行う。
   if (category !== 'extension') {
     // 同じ明細（カテゴリ・名称・単価が一致）は数量をまとめる（SETは別経路のため対象外）
     const existing = category !== 'set' && orders.find(o =>
-      o.category === category && o.name === name && (Number(o.amount) || 0) === amt && !o.taxIncluded);
+      o.category === category && o.name === name && (Number(o.amount) || 0) === amt &&
+      (Number(o.back) || 0) === backYen && !o.taxIncluded);
     if (existing) {
       existing.qty = (Number(existing.qty) || 1) + 1;
       if (spShares) {
@@ -15699,6 +15723,7 @@ function posAddItem(name, amount, category, spShares) {
     } else {
       const order = { id: 'po_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7), name, amount: amt, qty:1, category, createdAt:Date.now() };
       if (spShares) order.spShares = { ...spShares };
+      if (backYen > 0) order.back = backYen;
       orders.push(order);
     }
   }
@@ -18118,7 +18143,9 @@ function applySettings() {
     const items = Array.from(tbody.querySelectorAll('tr')).map(tr => {
       const name   = tr.querySelector('.pos-me-name-input')?.value.trim();
       const amount = parseInt(tr.querySelector('.pos-me-price-input')?.value);
-      return (name && !isNaN(amount)) ? { name, amount } : null;
+      const backRaw = tr.querySelector('.pos-me-back-input')?.value.trim();
+      const back = (backRaw && /^(\d+|\d+(\.\d+)?%)$/.test(backRaw)) ? backRaw : null;
+      return (name && !isNaN(amount)) ? (back ? { name, amount, back } : { name, amount }) : null;
     }).filter(Boolean);
     posMenu[key] = items;
   }
@@ -20883,10 +20910,11 @@ function computePayrollForCast(castName, prodByCast, opts) {
   const manualSp = (opts.sp != null) ? (Number(opts.sp) || 0) : (Number(manualRec.sp) || 0);
   const derivedSp = spSharesTotal(opts.rows || ((typeof state !== 'undefined' && state.rows) || []), dayKey, castName);
   const sp = manualSp + derivedSp;
+  const prodBack = Number((opts.prodBackByCast || {})[castName]) || 0;
   const nibarai = (opts.nibarai != null) ? (Number(opts.nibarai) || 0) : (Number(manualRec.nibarai) || 0);
 
   /* --- バック合計（SP含む。SPは円をそのまま加算） --- */
-  let backTotal = sp;
+  let backTotal = sp + prodBack;
   for (const k in backAmounts) backTotal += backAmounts[k];
 
   /* --- 遅刻罰金 --- */
@@ -20922,7 +20950,7 @@ function computePayrollForCast(castName, prodByCast, opts) {
     roundedIn:  inHHMM  ? roundClockIn(inHHMM)   : '',
     roundedOut: outHHMM ? roundClockOut(outHHMM) : '',
     backCounts, autoCounts, manualCounts, backAmounts,
-    sp, backTotal,
+    sp, prodBack, backTotal,
     lateFee, chikokuMin,
     nibarai,
     dailyPay,
@@ -20947,6 +20975,7 @@ function computePayrollTable(settled, opts) {
   }
   const agg = (typeof computeReportAgg === 'function') ? computeReportAgg(settled) : { prodByCast:{}, nameGroups:{} };
   const prodByCast = agg.prodByCast || {};
+  const prodBackByCast = agg.prodBackByCast || {};
   const nameGroups = agg.nameGroups || {};
   const dayKey = opts.dayKey || (typeof getBizDayKey === 'function' ? getBizDayKey() : '');
   const tt = opts.tt || (typeof loadTimetableState === 'function' ? loadTimetableState() : {});
@@ -20966,7 +20995,7 @@ function computePayrollTable(settled, opts) {
   if (typeof castsSortedByClockIn === 'function') casts = castsSortedByClockIn(casts, tt);
   else if (typeof castsSortedByNo === 'function') casts = castsSortedByNo(casts);
 
-  const baseOpts = Object.assign({}, opts, { dayKey, tt, manual, nameGroups, rows: settled });
+  const baseOpts = Object.assign({}, opts, { dayKey, tt, manual, nameGroups, prodBackByCast, rows: settled });
   return casts.map(name => computePayrollForCast(name, prodByCast, baseOpts));
 }
 /* ================================================================
