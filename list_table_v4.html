@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.25">
+<meta name="app-version" content="1.0.27">
 <title>リスト表 v4</title>
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
      フォントはOS内蔵にフォールバックする（--font/--monoのスタック参照）。 -->
@@ -2784,7 +2784,21 @@ table#customer-table { border-collapse: collapse; width: 100%; min-width: 800px;
    SETTINGS PANEL
 ================================================================ */
 #settings-panel { padding: 20px; max-width: 1200px; }
-.settings-2col { display: grid; grid-template-columns: minmax(0,1fr) 420px; gap: 24px; align-items: start; }
+.settings-layout { display: flex; gap: 20px; align-items: flex-start; }
+.settings-nav { flex: 0 0 190px; position: sticky; top: 12px; display: flex; flex-direction: column; gap: 4px; }
+.settings-nav-btn {
+  text-align: left; padding: 10px 14px; font-size: 13px; font-weight: 600;
+  background: transparent; border: 1px solid transparent; border-radius: 8px;
+  color: var(--tx2); cursor: pointer;
+}
+.settings-nav-btn:hover { background: var(--sur3); color: var(--tx); }
+.settings-nav-btn.active { background: var(--sur3); border-color: var(--bdr); color: var(--tx); }
+.settings-content { flex: 1; min-width: 0; }
+.settings-section.setcat-hidden { display: none; }
+@media (max-width: 900px) {
+  .settings-layout { flex-direction: column; }
+  .settings-nav { position: static; flex-direction: row; flex-wrap: wrap; width: 100%; }
+}
 /* POSメニューエディタ */
 .pos-me-table { width:100%; border-collapse:collapse; margin-bottom:8px; }
 .pos-me-table th { background:var(--sur4); color:var(--tx2); font-size:12px; padding:6px 10px; text-align:left; font-weight:600; }
@@ -2831,6 +2845,12 @@ table#customer-table { border-collapse: collapse; width: 100%; min-width: 800px;
 .settings-sub {
   font-size: 10px; color: var(--tx3); margin-top: 2px;
 }
+.settings-group-head { margin:18px 0 6px; padding-top:12px; border-top:1px solid var(--bdr); font-size:11px; font-weight:700; color:var(--tx2); letter-spacing:0.04em; }
+.settings-group-head.first { border-top:none; padding-top:0; margin-top:4px; }
+.pos-me-acc { width:100%; }
+.pos-me-acc > summary { cursor:pointer; padding:8px 10px; border:1px solid var(--bdr); border-radius:8px; background:var(--sur3); font-size:13px; user-select:none; }
+.pos-me-acc > summary:hover { border-color: var(--bdr2); }
+.pos-me-acc[open] > summary { margin-bottom:8px; }
 .settings-input {
   padding: 5px 10px; font-size: 12px; width: 80px;
   background: var(--sur3); border: 1px solid var(--bdr2);
@@ -6007,6 +6027,7 @@ const CFG_DEFAULTS = {
   extFeePerSeat:       false, // 延長指名料を席数ぶん取る（false=延長1回ぶん＝指名1人につき1回）
   doubanAsHonshimeiExt: true, // 同伴を本指名扱いで延長指名料を取る（false=同伴は延長指名料なし）
   modoriHonshimeiAgg: 'honen', // 出戻り本指の集計扱い: 'honen'=延長扱い(本延+1・既定) | 'honshimei'=本指名扱い(本指+1) | 'none'=カウントしない
+  modoriEnchoshimeiAgg: 'enchoshimei40', // 出戻り延指（元:場内/延長指名）の集計扱い: 'enchoshimei40'=延指40+1(既定) | 'jounai'=場内+1 | 'none'=カウントしない
   drinkCounts:     { S: 1, M: 2, L: 3 }, // ドリンク本数換算（指D/D集計の重み。ショットは常に1本）
   extPrices:       [4000, 7000, 11000], // 延長料金（extOptionsと順番対応）
   taxRate:         20,      // 税サービス料率（%）
@@ -12323,20 +12344,23 @@ function _posCatRowHTML(cat) {
   </tr>`;
 }
 
-function _posMenuEditorHTML(key, label, items) {
+function _posMenuEditorHTML(key, label, items, open = false) {
   const rows = (items || []).map(item => `<tr draggable="true">
     <td class="pos-me-drag" title="ドラッグして並び替え">⠿</td>
     <td><input type="text" class="pos-me-name-input" value="${escAttr(item.name)}" placeholder="メニュー名"></td>
     <td><input type="number" class="pos-me-price-input" value="${Number(item.amount) || 0}" step="${_posMenuStep}" placeholder="金額"></td>
     <td><button type="button" class="pos-me-del" onclick="posMenuDelItem(this)">削除</button></td>
   </tr>`).join('');
-  return `<div class="settings-row pos-menu-editor" data-key="${escAttr(key)}" style="align-items:flex-start;flex-direction:column;gap:6px;margin-bottom:20px">
-    <div class="settings-label pos-menu-editor-label" style="font-weight:700">${escHtml(label)}</div>
-    <table class="pos-me-table" id="cfg-posMenu-${escAttr(key)}-tbl">
-      <thead><tr><th style="width:28px"></th><th>メニュー名</th><th style="width:110px">金額（円）</th><th style="width:56px"></th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table>
-    <button type="button" class="pos-me-add-btn" onclick="posMenuAddItem('${key}')">＋ 追加</button>
+  const openAttr = open ? ' open' : '';
+  return `<div class="settings-row pos-menu-editor" data-key="${escAttr(key)}" style="align-items:flex-start;flex-direction:column;gap:6px;margin-bottom:8px">
+    <details class="pos-me-acc"${openAttr}>
+      <summary><span class="settings-label pos-menu-editor-label" style="font-weight:700">${escHtml(label)}</span></summary>
+      <table class="pos-me-table" id="cfg-posMenu-${escAttr(key)}-tbl">
+        <thead><tr><th style="width:28px"></th><th>メニュー名</th><th style="width:110px">金額（円）</th><th style="width:56px"></th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <button type="button" class="pos-me-add-btn" onclick="posMenuAddItem('${key}')">＋ 追加</button>
+    </details>
   </div>`;
 }
 
@@ -12359,7 +12383,7 @@ function posCatAdd() {
   const editors = document.getElementById('pos-menu-editors');
   if (!tbody || !editors) return;
   tbody.insertAdjacentHTML('beforeend', _posCatRowHTML({ key, label, visible:true, drinkPick:false }));
-  editors.insertAdjacentHTML('beforeend', _posMenuEditorHTML(key, label, []));
+  editors.insertAdjacentHTML('beforeend', _posMenuEditorHTML(key, label, [], true));
   const menuBody = document.querySelector(`#cfg-posMenu-${key}-tbl tbody`);
   if (menuBody) _posMenuInitDnd(menuBody);
   _settingsMarkDirty();
@@ -13398,6 +13422,7 @@ function _aggApplyProd(p, category, qty) {
 
 function computeReportAgg(settled) {
   const modoriAgg = ['honen','honshimei','none'].includes(cfg?.modoriHonshimeiAgg) ? cfg.modoriHonshimeiAgg : 'honen';
+  const modoriEnchoshimeiAgg = ['enchoshimei40','jounai','none'].includes(cfg?.modoriEnchoshimeiAgg) ? cfg.modoriEnchoshimeiAgg : 'enchoshimei40';
   const prodByCast = {};
   const ensureP = c => (prodByCast[c] = prodByCast[c] || { '指':0,'同':0,'場':0,'延指20':0,'延指40':0,'本延':0,'S':0,'M':0,'L':0,'指D':0,'D':0 });
   // 指名売上：本指名/同伴で付いた卓の税込総計を、指名キャストの頭数で等分して計上（R2・卓単位）。
@@ -13500,13 +13525,13 @@ function computeReportAgg(settled) {
     // 本指(指)＋同伴(同)は後段 48-payroll の autoCounts で 本指=指+同伴 / 本延=本延+同伴 に展開される。
     // 出戻り種別（modori_honshimei / modori_enchoshimei / modori_free）の振替先：
     //   modori_honshimei   → 設定に応じて 本延 +1 / 指 +1 / 加算なし
-    //   modori_enchoshimei → 延指40 +1（場 / 場内カウントには加算しない）
+    //   modori_enchoshimei → 設定に応じて 延指40 +1 / 場 +1 / 加算なし
     //   modori_free        → 加算なし
     const _STRUCT_CAT = { honshimei:'nominate', douban:'dohan', jounai:'jonai' };  // 構造種別→オーダーカテゴリ
     const _PROD_OF    = { nominate:'指', dohan:'同', jonai:'場' };                  // オーダーカテゴリ→集計列
     const _MODORI_COL = {
       modori_honshimei: modoriAgg === 'honen' ? '本延' : (modoriAgg === 'honshimei' ? '指' : null),
-      modori_enchoshimei: '延指40'
+      modori_enchoshimei: modoriEnchoshimeiAgg === 'jounai' ? '場' : (modoriEnchoshimeiAgg === 'none' ? null : '延指40')
     };  // 出戻り→振替先列
     const _hasOrderCat     = cat => posOrders(r).some(o => o.category === cat);
     const _hasOrderCatCast = (cat, c) => posOrders(r).some(o => o.category === cat && _aggCastOf(o.name) === c);
@@ -16765,6 +16790,16 @@ async function clearAllDeletedSlips() {
 /* ================================================================
    SETTINGS PANEL
 ================================================================ */
+let _settingsActiveCat = 'basic';
+function settingsSelectCategory(cat) {
+  _settingsActiveCat = cat;
+  document.querySelectorAll('#settings-form .settings-section[data-setcat]').forEach(sec => {
+    sec.classList.toggle('setcat-hidden', sec.dataset.setcat !== cat);
+  });
+  document.querySelectorAll('#settings-nav .settings-nav-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.setcat === cat));
+}
+
 function renderSettingsPanel() {
   // 設定欄を触ったら未保存フラグを立てる→タブ離脱時に showTab() が自動保存(applySettings)する
   if (!renderSettingsPanel._dirtyBound) {
@@ -16801,7 +16836,7 @@ function renderSettingsPanel() {
   const authIsSet = !!(authRecord && authRecord.hash);
   const authUnavailable = authSupported ? '' : `<div class="settings-sub" style="color:#d85d5d;margin-bottom:10px">このブラウザでは利用できません</div>`;
   const authAccountSection = `
-    <div class="settings-section" style="margin-bottom:16px">
+    <div class="settings-section" data-setcat="system">
       <div class="settings-section-header"><span class="settings-section-title">🔐 アカウント（起動ログイン）</span></div>
       <div class="settings-section-body">
         ${authUnavailable}
@@ -16846,7 +16881,7 @@ function renderSettingsPanel() {
   const slipNext = computeNextSlipNo(loadSlipCounter().prevDaysMax, state.rows);
   const recoverySet = !!(typeof AuthStore !== 'undefined' && AuthStore.readRecovery()?.hash);
   const slipNumberSection = `
-    <div class="settings-section" style="margin-bottom:16px">
+    <div class="settings-section" data-setcat="slip">
       <div class="settings-section-header"><span class="settings-section-title">🧾 伝票番号</span></div>
       <div class="settings-section-body">
         <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:8px">
@@ -16862,54 +16897,26 @@ function renderSettingsPanel() {
     </div>`;
 
   form.innerHTML = `
-    <div class="settings-section" style="margin-bottom:16px">
-      <div class="settings-section-header"><span class="settings-section-title">💾 データ保存先（USB運用）</span></div>
-      <div class="settings-section-body">
-        <div class="settings-row">
-          <div class="settings-label">現在モード<div class="settings-sub">アプリバージョン: ${escHtml(appVersion)}</div></div>
-          <div style="font-size:13px;color:var(--tx);font-weight:700">${storageModeLabel}</div>
-        </div>
-        <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:8px">
-          <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <button type="button" class="btn primary" onclick="usbSettingsActivate()">USBフォルダを選択して移行</button>
-            <button type="button" class="btn" onclick="usbSettingsDeactivate()" ${usbActive ? '' : 'disabled'}>PC内保存に戻す</button>
-            <button type="button" class="btn danger" onclick="usbSettingsClearLocal()" ${usbActive ? '' : 'disabled'}>PC側データを消去</button>
-          </div>
-          <div class="settings-sub" style="line-height:1.7">
-            USBモードでは、営業データはUSB内にのみ保存されます。USBの紛失・破損に備え、定期的にJSONエクスポートで控えを取ってください。対応ブラウザ: Chrome / Edge
-          </div>
-        </div>
-        <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:8px">
-          <div class="settings-label">📁 JSONバックアップ<div class="settings-sub">全データをファイルへ書き出し・ファイルから読み込み（旧ヘッダーの「書き出し/読み込み」）</div></div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <button type="button" class="btn" onclick="exportAllData()">📤 書き出し</button>
-            <button type="button" class="btn" onclick="openImportDialog()">📥 読み込み</button>
-          </div>
-        </div>
-        <div class="settings-row">
-          <div class="settings-label">🔄 アプリ更新<div class="settings-sub">現在バージョン: ${escHtml(appVersion)}</div></div>
-        </div>
-        <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:8px">
-          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-            <button type="button" class="btn primary" id="self-update-btn" onclick="selfUpdateRunNow()" ${usbActive ? '' : 'disabled'}>🔄 今すぐ更新</button>
-            <span id="self-update-status" class="settings-sub">${usbActive ? '' : 'USBの準備が完了すると利用できます'}</span>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    ${authAccountSection}
-    ${slipNumberSection}
-
+    <div class="settings-layout">
+    <nav class="settings-nav" id="settings-nav">
+      <button type="button" class="settings-nav-btn active" data-setcat="basic" onclick="settingsSelectCategory('basic')">🏪 店舗基本</button>
+      <button type="button" class="settings-nav-btn" data-setcat="fees" onclick="settingsSelectCategory('fees')">💴 料金・会計</button>
+      <button type="button" class="settings-nav-btn" data-setcat="pos" onclick="settingsSelectCategory('pos')">🍶 POSレジ</button>
+      <button type="button" class="settings-nav-btn" data-setcat="cast" onclick="settingsSelectCategory('cast')">👥 キャスト・給与</button>
+      <button type="button" class="settings-nav-btn" data-setcat="customer" onclick="settingsSelectCategory('customer')">🚪 顧客・入店</button>
+      <button type="button" class="settings-nav-btn" data-setcat="slip" onclick="settingsSelectCategory('slip')">🧾 伝票・締め</button>
+      <button type="button" class="settings-nav-btn" data-setcat="system" onclick="settingsSelectCategory('system')">💾 データ・システム</button>
+    </nav>
+    <div class="settings-content">
     <!-- 🏪 店舗情報 (最初に埋める場所) -->
-    <div class="settings-section" style="margin-bottom:16px">
+    <div class="settings-section" data-setcat="basic">
       <div class="settings-section-header"><span class="settings-section-title">🏪 店舗情報</span></div>
       <div class="settings-section-body">
         <div style="margin-bottom:12px;padding:10px 12px;background:rgba(201,168,76,0.06);border:1px solid rgba(201,168,76,0.2);border-radius:6px;font-size:11px;color:var(--tx3);line-height:1.8">
           📋 <b style="color:var(--tx2)">新店セットアップ手順</b><br>
-          ① <b style="color:var(--tx)">店舗名・領収書情報</b>を入力（下の店舗情報セクション）<br>
-          ② 左カラムの<b style="color:var(--tx)">営業時間／料金／延長ルール／税サ・カード手数料</b>を自店に合わせて調整<br>
-          ③ 右カラムの <b style="color:var(--tx)">POSレジ設定</b> でカスタムメニューを入れ替え（「🗑 全カテゴリのデフォルトメニューを削除」を押せばまっさらから組める）<br>
+          ① <b style="color:var(--tx)">店舗名・領収書情報</b>を入力（この「🏪 店舗基本」カテゴリー）<br>
+          ② <b style="color:var(--tx)">🏪 店舗基本の営業時間と、💴 料金・会計の料金／延長ルール／税サ・カード手数料</b>を自店に合わせて調整<br>
+          ③ <b style="color:var(--tx)">🍶 POSレジ</b>でカスタムメニューを入れ替え（「🗑 全カテゴリのデフォルトメニューを削除」を押せばまっさらから組める）<br>
           ④ <b style="color:var(--tx)">「👥 出勤キャスト」内の「💴 キャスト管理」</b>にある給与計算ルールで出退勤丸め単位・遅刻罰金・SP参考率を店舗運用に合わせる<br>
           ⑤ 最後に <b style="color:var(--tx)">保存</b>
         </div>
@@ -16950,9 +16957,8 @@ function renderSettingsPanel() {
       </div>
     </div>
 
-    <div class="settings-2col"><div>
     <!-- 営業時間 -->
-    <div class="settings-section">
+    <div class="settings-section" data-setcat="basic">
       <div class="settings-section-header"><span class="settings-section-title">🕐 営業時間</span></div>
       <div class="settings-section-body">
         <div class="settings-row">
@@ -16967,19 +16973,203 @@ function renderSettingsPanel() {
           <div class="settings-label">営業日の境界時刻<div class="settings-sub">この時刻より前は前日の営業日扱い（例：12なら翌朝11:59まで前日扱い）</div></div>
           <input type="number" class="settings-input" id="cfg-bizDayBoundaryHour" value="${cfg.bizDayBoundaryHour ?? 12}" min="5" max="18"> 時
         </div>
+      </div>
+    </div>
+
+    <!-- 料金設定 -->
+    <div class="settings-section" data-setcat="fees">
+      <div class="settings-section-header"><span class="settings-section-title">💴 料金設定</span></div>
+      <div class="settings-section-body">
+        <div class="settings-group-head first">🍸 セット</div>
         <div class="settings-row">
-          <div class="settings-label">デフォルトセット時間</div>
-          <input type="number" class="settings-input" id="cfg-defStay" value="${cfg.defStay}" min="10" max="120" step="10"> 分
+          <div class="settings-label">基本セット料金<div class="settings-sub">1セットの時間と料金。セット追加の初期値と終了時刻の計算に使われます</div></div>
+          <input type="number" class="settings-input" id="cfg-defStay" value="${cfg.defStay}" min="10" max="120" step="10" style="width:70px"> 分
+          <input type="number" class="settings-input" id="cfg-setPrice" value="${cfg.setPrice ?? 7000}" min="0" step="500" style="width:90px"> 円
         </div>
         <div class="settings-row">
-          <div class="settings-label">同伴セット分</div>
+          <div class="settings-label">早割セット料金<div class="settings-sub">営業前半の割引セット。チェックONの間、この時間帯はセット料金がこの金額になります</div></div>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:12px">
+              <input type="checkbox" id="cfg-earlySetEnabled" ${cfg.earlySetEnabled ? 'checked' : ''}> 有効
+            </label>
+            <input type="number" class="settings-input" id="cfg-earlySetFromH" value="${cfg.earlySetFromH ?? 18}" min="16" max="23" style="width:48px"> 時〜
+            <input type="number" class="settings-input" id="cfg-earlySetToH"   value="${cfg.earlySetToH   ?? 21}" min="17" max="25" style="width:48px"> 時
+            <input type="number" class="settings-input" id="cfg-earlySetPrice" value="${cfg.earlySetPrice ?? 5000}" min="0" step="500" style="width:72px"> 円
+          </div>
+        </div>
+        <div class="settings-group-head">💁 指名・同伴</div>
+        <div class="settings-row">
+          <div class="settings-label">本指名料<div class="settings-sub">入店時からの指名。1指名あたりの料金</div></div>
+          <input type="number" class="settings-input" id="cfg-nominateFee" value="${cfg.nominateFee ?? 2000}" min="0" step="500"> 円
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">場内指名料<div class="settings-sub">席についてからの指名。1指名あたりの料金</div></div>
+          <input type="number" class="settings-input" id="cfg-jonaiFee" value="${cfg.jonaiFee ?? 2000}" min="0" step="500"> 円
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">同伴料</div>
+          <input type="number" class="settings-input" id="cfg-dohanFee" value="${cfg.dohanFee ?? 15000}" min="0" step="1000"> 円
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">同伴時のセット料金<div class="settings-sub">ON: セット料金 + 同伴料 / OFF: セット0円 + 同伴料</div></div>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px"><input type="checkbox" id="cfg-dohanIncludesSet" ${cfg.dohanIncludesSet ? 'checked' : ''}> セット料金も加算する</label>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">同伴セット時間<div class="settings-sub">同伴卓の終了時刻＝開始＋この分数</div></div>
           <input type="number" class="settings-input" id="cfg-dohanStay" value="${cfg.dohanStay ?? 60}" min="10" max="120" step="10"> 分
+        </div>
+        <div class="settings-group-head">⏱ 延長</div>
+        <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:8px;padding:12px 0">
+          <div style="display:flex;align-items:center;justify-content:space-between;width:100%">
+            <div class="settings-label" style="font-weight:700;margin-bottom:0">延長料金</div>
+            <button type="button" onclick="extOptAddRow()" style="background:var(--sur4);border:1px solid var(--bdr);border-radius:6px;color:var(--tx2);cursor:pointer;font-size:12px;padding:4px 10px">＋ オプションを追加</button>
+          </div>
+          <div class="settings-sub">延長の時間と料金（小計）。行の追加・削除ができます</div>
+          <table style="width:100%;border-collapse:collapse">
+            <thead>
+              <tr style="border-bottom:1px solid var(--bdr)">
+                <th style="font-size:11px;color:var(--tx2);font-weight:normal;text-align:left;padding:4px 8px 6px">延長時間</th>
+                <th style="font-size:11px;color:var(--tx2);font-weight:normal;text-align:left;padding:4px 8px 6px">料金（小計）</th>
+                <th style="width:32px"></th>
+              </tr>
+            </thead>
+            <tbody id="ext-options-tbody">
+              ${(cfg.extOptions || [20,40,60]).map((min, i) => `
+                <tr>
+                  <td style="padding:5px 4px">
+                    <div style="display:flex;align-items:center;gap:4px">
+                      <input type="number" class="settings-input" id="cfg-extOpt-${i}-min" value="${min}" min="1" step="1" style="width:60px" oninput="syncExtFeeRows()"> 分
+                    </div>
+                  </td>
+                  <td style="padding:5px 4px">
+                    <div style="display:flex;align-items:center;gap:4px">
+                      <input type="number" class="settings-input" id="cfg-extOpt-${i}-price" value="${(cfg.extPrices||[])[i] ?? ''}" min="0" step="500" style="width:80px"> 円
+                    </div>
+                  </td>
+                  <td style="padding:5px 4px;text-align:center">
+                    <button type="button" onclick="extOptDelRow(this)" style="background:none;border:none;cursor:pointer;color:var(--tx3);font-size:15px;padding:2px 6px;line-height:1" title="削除">✕</button>
+                  </td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+        <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:6px;padding:12px 0">
+          <div class="settings-label" style="font-weight:700;margin-bottom:2px">延長指名料</div>
+          <div class="settings-sub" style="margin-bottom:8px">延長のたびに指名料を取る場合はチェックし、延長時間ごとの金額を設定します</div>
+          <div style="padding:10px 12px;background:var(--sur3);border:1px solid var(--bdr);border-radius:8px;width:100%;box-sizing:border-box">
+            <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer">
+              <input type="checkbox" id="cfg-extFeeOnHonshimei" ${cfg.extFeeOnHonshimei !== false ? 'checked' : ''} style="margin-top:3px;flex-shrink:0">
+              <div style="flex:1">
+                <div style="font-size:13px;font-weight:700;color:var(--tx)">本指名のお客様が延長した場合</div>
+                <div style="font-size:11px;color:var(--tx3);margin-top:2px">最初から「この子で」と指名があったお客様が延長するケース</div>
+              </div>
+            </label>
+            <div id="ext-fee-honshimei-opts" style="display:flex;flex-direction:column;gap:4px;margin-top:8px;margin-left:26px">
+              ${(cfg.extOptions || [20,40,60]).map((min, i) => `<div style="display:flex;align-items:center;gap:6px"><span style="font-size:12px;color:var(--tx2);min-width:36px">${min}分</span><input type="number" class="settings-input" id="cfg-extFeeHonshimeiAmts-${i}" value="${(cfg.extFeeHonshimeiAmts||[])[i] ?? cfg.extFeeHonshimeiAmt ?? 2000}" min="0" step="500" style="width:80px"> 円</div>`).join('')}
+            </div>
+          </div>
+          <div style="padding:10px 12px;background:var(--sur3);border:1px solid var(--bdr);border-radius:8px;width:100%;box-sizing:border-box">
+            <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer">
+              <input type="checkbox" id="cfg-extFeeOnJounai" ${cfg.extFeeOnJounai !== false ? 'checked' : ''} style="margin-top:3px;flex-shrink:0">
+              <div style="flex:1">
+                <div style="font-size:13px;font-weight:700;color:var(--tx)">場内指名のお客様が延長した場合</div>
+                <div style="font-size:11px;color:var(--tx3);margin-top:2px">席についてから「この子で」と指名したお客様が延長するケース</div>
+              </div>
+            </label>
+            <div id="ext-fee-jounai-opts" style="display:flex;flex-direction:column;gap:4px;margin-top:8px;margin-left:26px">
+              ${(cfg.extOptions || [20,40,60]).map((min, i) => `<div style="display:flex;align-items:center;gap:6px"><span style="font-size:12px;color:var(--tx2);min-width:36px">${min}分</span><input type="number" class="settings-input" id="cfg-extFeeJounaiAmts-${i}" value="${(cfg.extFeeJounaiAmts||[])[i] ?? cfg.extFeeJounaiAmt ?? 2000}" min="0" step="500" style="width:80px"> 円</div>`).join('')}
+            </div>
+          </div>
+          <div style="padding:10px 12px;background:var(--sur3);border:1px solid var(--bdr);border-radius:8px;width:100%;box-sizing:border-box">
+            <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer">
+              <input type="checkbox" id="cfg-extFeeOnEnchoshimei" ${cfg.extFeeOnEnchoshimei !== false ? 'checked' : ''} style="margin-top:3px;flex-shrink:0">
+              <div style="flex:1">
+                <div style="font-size:13px;font-weight:700;color:var(--tx)">フリーのお客様が延長時に卓についている女の子を指名した場合</div>
+                <div style="font-size:11px;color:var(--tx3);margin-top:2px">フリーで来たお客様が延長するタイミングで「この子で」と指名するケース</div>
+              </div>
+            </label>
+            <div id="ext-fee-enchoshimei-opts" style="display:flex;flex-direction:column;gap:4px;margin-top:8px;margin-left:26px">
+              ${(cfg.extOptions || [20,40,60]).map((min, i) => `<div style="display:flex;align-items:center;gap:6px"><span style="font-size:12px;color:var(--tx2);min-width:36px">${min}分</span><input type="number" class="settings-input" id="cfg-extFeeEnchoshimeiAmts-${i}" value="${(cfg.extFeeEnchoshimeiAmts||[])[i] ?? cfg.extFeeEnchoshimeiAmt ?? 2000}" min="0" step="500" style="width:80px"> 円</div>`).join('')}
+            </div>
+          </div>
+        </div>
+        <div class="settings-group-head">📊 集計・店ルール</div>
+        <div class="settings-sub" style="margin-bottom:8px">お店によって違う計算ルール。基本は最初に1回だけ設定すればOKです。</div>
+        <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:8px">
+          <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:13px">
+            <input type="checkbox" id="cfg-extBasePerSeat" ${cfg.extBasePerSeat !== false ? 'checked' : ''} style="margin-top:2px">
+            <div><b>延長料金を人数ぶん取る</b><div style="font-size:11px;color:var(--tx3)">ON: 3名なら延長料×3／OFF: 卓に1回ぶんだけ</div></div>
+          </label>
+          <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:13px">
+            <input type="checkbox" id="cfg-extFeePerSeat" ${cfg.extFeePerSeat ? 'checked' : ''} style="margin-top:2px">
+            <div><b>延長指名料を人数ぶん取る</b><div style="font-size:11px;color:var(--tx3)">ON: 指名1人につき人数ぶん／OFF: 延長1回につき1人分（おすすめ）</div></div>
+          </label>
+          <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:13px">
+            <input type="checkbox" id="cfg-doubanAsHonshimeiExt" ${cfg.doubanAsHonshimeiExt !== false ? 'checked' : ''} style="margin-top:2px">
+            <div><b>同伴を本指名として延長指名料を取る</b><div style="font-size:11px;color:var(--tx3)">OFF: 同伴のお客様には延長指名料を取らない</div></div>
+          </label>
+          <label style="display:flex;align-items:flex-start;gap:8px;font-size:13px">
+            <div><b>出戻り本指の集計扱い</b><div style="font-size:11px;color:var(--tx3)">延長扱い・本指名扱いでは、出戻り卓のキャストドリンクは指D、卓の総計はキャスト別指名売上に含まれます。カウントしないでは指D・指名売上にも含まれません。</div></div>
+            <select class="settings-input" id="cfg-modoriHonshimeiAgg" style="min-width:240px">
+              <option value="honen" ${!['honshimei','none'].includes(cfg.modoriHonshimeiAgg) ? 'selected' : ''}>延長扱い（本延に+1・おすすめ）</option>
+              <option value="honshimei" ${cfg.modoriHonshimeiAgg === 'honshimei' ? 'selected' : ''}>本指名扱い（本指に+1）</option>
+              <option value="none" ${cfg.modoriHonshimeiAgg === 'none' ? 'selected' : ''}>カウントしない</option>
+            </select>
+          </label>
+          <label style="display:flex;align-items:flex-start;gap:8px;font-size:13px">
+            <div><b>出戻り延指の集計扱い</b><div style="font-size:11px;color:var(--tx3)">「元は場内」「元は延長指名」で出戻った客の集計先です。既定は延指40（場内カウントには含みません）。</div></div>
+            <select class="settings-input" id="cfg-modoriEnchoshimeiAgg" style="min-width:240px">
+              <option value="enchoshimei40" ${!['jounai','none'].includes(cfg.modoriEnchoshimeiAgg) ? 'selected' : ''}>延長指名扱い（延指40に+1・おすすめ）</option>
+              <option value="jounai" ${cfg.modoriEnchoshimeiAgg === 'jounai' ? 'selected' : ''}>場内扱い（場内に+1）</option>
+              <option value="none" ${cfg.modoriEnchoshimeiAgg === 'none' ? 'selected' : ''}>カウントしない</option>
+            </select>
+          </label>
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px">
+            <b>ドリンクの本数換算</b>
+            <span style="color:var(--tx3);font-size:11px">指D/D集計の重み</span>
+            <span>S<input type="number" class="settings-input" id="cfg-drinkCount-S" value="${(cfg.drinkCounts||{}).S ?? 1}" min="0" step="1" style="width:54px"></span>
+            <span>M<input type="number" class="settings-input" id="cfg-drinkCount-M" value="${(cfg.drinkCounts||{}).M ?? 2}" min="0" step="1" style="width:54px"></span>
+            <span>L<input type="number" class="settings-input" id="cfg-drinkCount-L" value="${(cfg.drinkCounts||{}).L ?? 3}" min="0" step="1" style="width:54px"></span>
+          </div>
+        </div>
+        <div class="settings-group-head">🧾 税サ・カード</div>
+        <div class="settings-row">
+          <div class="settings-label">税サービス料率<div class="settings-sub">小計に上乗せするTAX・サービス料</div></div>
+          <input type="number" class="settings-input" id="cfg-taxRate" value="${cfg.taxRate ?? 20}" min="0" max="50" step="1"> %
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">税サ端数単位<div class="settings-sub">税サ加算後の切り上げ単位（100なら100円単位に切り上げ）</div></div>
+          <input type="number" class="settings-input" id="cfg-taxRound" value="${cfg.taxRound ?? 100}" min="1" step="10"> 円
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">割引と税サの順序<div class="settings-sub">ON: 割引前の金額に税サをかけ、割引は最後に引く（一般的）／OFF: 割引を引いた後の金額に税サをかける</div></div>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px"><input type="checkbox" id="cfg-discountAfterTax" ${cfg.discountAfterTax !== false ? 'checked' : ''}> 税サの後に割引を引く</label>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">カード手数料率</div>
+          <input type="number" class="settings-input" id="cfg-cardFeeRate" value="${cfg.cardFeeRate ?? 10}" min="0" max="30" step="1"> %
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">カード手数料端数単位<div class="settings-sub">切り上げ単位</div></div>
+          <input type="number" class="settings-input" id="cfg-cardFeeRound" value="${cfg.cardFeeRound ?? 100}" min="1" step="10"> 円
+        </div>
+        <div class="settings-group-head">🏦 レジ・表示</div>
+        <div class="settings-row">
+          <div class="settings-label">レジ常備金<div class="settings-sub">日次締めで、レジに残しておく釣り銭・準備金の金額</div></div>
+          <input type="number" class="settings-input" id="cfg-tillFloat" value="${cfg.tillFloat ?? 60000}" min="0" step="1000"> 円
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">残り時間カウントダウン<div class="settings-sub">各グループの終了時刻まで表示。10分以下で赤点滅</div></div>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" id="cfg-showCountdown" ${cfg.showCountdown ? 'checked' : ''}>
+            <span>表示する</span>
+          </label>
         </div>
       </div>
     </div>
 
     <!-- 卓・延長 -->
-    <div class="settings-section">
+    <div class="settings-section" data-setcat="fees">
       <div class="settings-section-header"><span class="settings-section-title">🪑 卓・延長設定</span></div>
       <div class="settings-section-body">
         <div class="settings-row">
@@ -17042,224 +17232,89 @@ function renderSettingsPanel() {
       </div>
     </div>
 
-    <!-- 入店経路・条件 -->
-    <div class="settings-section">
-      <div class="settings-section-header"><span class="settings-section-title">📋 入店情報</span></div>
+    <!-- POSレジ設定 -->
+    <div class="settings-section" data-setcat="pos">
+      <div class="settings-section-header"><span class="settings-section-title">🍶 POSレジ設定</span></div>
       <div class="settings-section-body">
-        <div class="settings-row">
-          <div class="settings-label">入店経路の選択肢<div class="settings-sub">Enterで追加、✕で削除</div></div>
-          ${tagEditor('sources', cfg.sources)}
-        </div>
-        <div class="settings-row">
-          <div class="settings-label">入店条件の選択肢<div class="settings-sub">Enterで追加、✕で削除</div></div>
-          ${tagEditor('conditions', cfg.conditions)}
-        </div>
-      </div>
-    </div>
-
-    <!-- 顧客ランク -->
-    <div class="settings-section">
-      <div class="settings-section-header"><span class="settings-section-title">👑 顧客ランク閾値</span></div>
-      <div class="settings-section-body">
-        <div class="settings-row">
-          <div class="settings-label">VIPの来店回数<div class="settings-sub">この回数以上でVIP</div></div>
-          <input type="number" class="settings-input" id="cfg-rankVip" value="${cfg.rankVip}" min="2" max="100"> 回以上
-        </div>
-        <div class="settings-row">
-          <div class="settings-label">リピーターの来店回数<div class="settings-sub">この回数以上でリピーター</div></div>
-          <input type="number" class="settings-input" id="cfg-rankRepeat" value="${cfg.rankRepeat}" min="2" max="50"> 回以上
-        </div>
-        <div class="settings-row">
-          <div class="settings-label">誕生日接近バッジ<div class="settings-sub">誕生日の何日前から🎂を表示するか</div></div>
-          <input type="number" class="settings-input" id="cfg-birthdayAlertDays" value="${cfg.birthdayAlertDays ?? 14}" min="0" max="365"> 日前
-        </div>
-      </div>
-    </div>
-
-    <!-- ボトルキープ -->
-    <div class="settings-section">
-      <div class="settings-section-header"><span class="settings-section-title">🍾 ボトルキープ</span></div>
-      <div class="settings-section-body">
-        <div class="settings-row">
-          <div class="settings-label">キープ期限<div class="settings-sub">新規登録時に開始日から自動計算</div></div>
-          <input type="number" class="settings-input" id="cfg-bottleKeepDays" value="${cfg.bottleKeepDays ?? 90}" min="1" max="3650"> 日
-        </div>
-        <div class="settings-row">
-          <div class="settings-label">期限接近警告<div class="settings-sub">期限まで残り何日から黄表示するか</div></div>
-          <input type="number" class="settings-input" id="cfg-bottleWarnDays" value="${cfg.bottleWarnDays ?? 14}" min="0" max="365"> 日前
-        </div>
-      </div>
-    </div>
-
-    <!-- 料金設定 -->
-    <div class="settings-section">
-      <div class="settings-section-header"><span class="settings-section-title">💴 料金設定（自動計算用）</span></div>
-      <div class="settings-section-body">
-        <div class="settings-row">
-          <div class="settings-label">セット料金<div class="settings-sub">基本セット1本の料金</div></div>
-          <input type="number" class="settings-input" id="cfg-setPrice" value="${cfg.setPrice ?? 7000}" min="0" step="500"> 円
-        </div>
-        <div class="settings-row">
-          <div class="settings-label">早割セット料金<div class="settings-sub">時間帯割引（チェックでON）</div></div>
-          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-            <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:12px">
-              <input type="checkbox" id="cfg-earlySetEnabled" ${cfg.earlySetEnabled ? 'checked' : ''}> 有効
-            </label>
-            <input type="number" class="settings-input" id="cfg-earlySetFromH" value="${cfg.earlySetFromH ?? 18}" min="16" max="23" style="width:48px"> 時〜
-            <input type="number" class="settings-input" id="cfg-earlySetToH"   value="${cfg.earlySetToH   ?? 21}" min="17" max="25" style="width:48px"> 時
-            <input type="number" class="settings-input" id="cfg-earlySetPrice" value="${cfg.earlySetPrice ?? 5000}" min="0" step="500" style="width:72px"> 円
+        <div id="pos-menu-body">
+          <div class="settings-group-head first">🗂 カテゴリ管理</div>
+          <div class="settings-sub" style="margin-bottom:8px">表示するカテゴリと並び順を店舗に合わせて変更できます。</div>
+          ${(() => {
+            const cats = resolvePosCatLayout(cfg);
+            return `<div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:8px">
+              <table class="pos-me-table pos-cat-manage-table">
+                <thead><tr><th style="width:28px"></th><th>カテゴリ名</th><th style="width:60px">表示</th><th style="width:90px">誰が飲んだか</th><th style="width:56px"></th></tr></thead>
+                <tbody id="cfg-pos-cat-layout">${cats.map(_posCatRowHTML).join('')}</tbody>
+              </table>
+              <button type="button" class="pos-me-add-btn pos-cat-add-btn" onclick="posCatAdd()">＋ カテゴリを追加</button>
+            </div>`;
+          })()}
+          <div class="settings-group-head">🎟 指名系・ドリンクの単価</div>
+          <div class="settings-sub" style="margin-bottom:8px">POSのボタン金額（お客様の支払額）。店ごとに違うのでここで設定します。集計の「指名売上」にも反映されます。</div>
+          ${(() => {
+            const P = cfg.posPrices || {};
+            const cell = (key, label, def) =>
+              `<div style="display:flex;flex-direction:column;gap:3px">
+                 <span style="font-size:11px;color:var(--tx2)">${label}</span>
+                 <span style="display:inline-flex;align-items:center;gap:3px">
+                   <input type="number" class="settings-input" id="cfg-posprice-${key}" value="${P[key] ?? def}" min="0" step="500" style="width:88px"><span style="font-size:11px;color:var(--tx3)">円</span>
+                 </span>
+               </div>`;
+            const grp = (title, hint, cells) =>
+              `<div style="margin-bottom:14px">
+                 <div class="settings-label" style="font-weight:700;margin-bottom:2px">${title}</div>
+                 <div class="settings-sub" style="margin-bottom:8px">${hint}</div>
+                 <div style="display:flex;flex-wrap:wrap;gap:14px">${cells}</div>
+               </div>`;
+            return `<div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:6px">
+              ${grp('延指（フリー席の延長指名）', '20分／40分／60分（60分は集計で延指40＋延指20に展開されます）',
+                  cell('enshi20','20分',1000) + cell('enshi40','40分',2000) + cell('enshi60','60分',3000))}
+              ${grp('本延（本指名卓の延長）', '20分／40分／60分（集計では20・40＝1pt、60＝2ptで本延に集約）',
+                  cell('honen20','20分',2000) + cell('honen40','40分',2000) + cell('honen60','60分',4000))}
+              ${grp('ドリンク（S／M／L）', 'S／M／L',
+                  cell('castS','S',1500) + cell('castM','M',2500) + cell('castL','L',3500))}
+            </div>`;
+          })()}
+          <div class="settings-group-head">🍾 メニュー編集</div>
+          <div class="settings-sub" style="margin-bottom:12px;line-height:1.7">
+            各カテゴリのメニューを自由に編集できます。行を追加・削除して保存してください。<br>
+            金額はすべて小計で入力してください。<br>
+            割引は金額をマイナスで入力してください（例：−1000）。
           </div>
-        </div>
-        <div class="settings-row">
-          <div class="settings-label">本指名料</div>
-          <input type="number" class="settings-input" id="cfg-nominateFee" value="${cfg.nominateFee ?? 2000}" min="0" step="500"> 円
-        </div>
-        <div class="settings-row">
-          <div class="settings-label">同伴料</div>
-          <input type="number" class="settings-input" id="cfg-dohanFee" value="${cfg.dohanFee ?? 15000}" min="0" step="1000"> 円
-        </div>
-        <div class="settings-row">
-          <div class="settings-label">同伴時のセット料金<div class="settings-sub">ON: セット料金 + 同伴料 / OFF: セット0円 + 同伴料</div></div>
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px"><input type="checkbox" id="cfg-dohanIncludesSet" ${cfg.dohanIncludesSet ? 'checked' : ''}> セット料金も加算する</label>
-        </div>
-        <div class="settings-row">
-          <div class="settings-label">場内指名料</div>
-          <input type="number" class="settings-input" id="cfg-jonaiFee" value="${cfg.jonaiFee ?? 2000}" min="0" step="500"> 円
-        </div>
-        <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:8px;padding:12px 0">
-          <div style="display:flex;align-items:center;justify-content:space-between;width:100%">
-            <div class="settings-label" style="font-weight:700;margin-bottom:0">延長料金の設定</div>
-            <button type="button" onclick="extOptAddRow()" style="background:var(--sur4);border:1px solid var(--bdr);border-radius:6px;color:var(--tx2);cursor:pointer;font-size:12px;padding:4px 10px">＋ オプションを追加</button>
+          <div class="settings-row" style="padding-bottom:10px;margin-bottom:12px">
+            <div class="settings-label">金額の入力単位</div>
+            <div style="display:flex;gap:16px">
+              <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:13px">
+                <input type="radio" name="pos-menu-step" value="100" ${_posMenuStep === 100 ? 'checked' : ''} onchange="posMenuSetStep(100)"> 100円単位
+              </label>
+              <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:13px">
+                <input type="radio" name="pos-menu-step" value="10" ${_posMenuStep === 10 ? 'checked' : ''} onchange="posMenuSetStep(10)"> 10円単位
+              </label>
+              <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:13px">
+                <input type="radio" name="pos-menu-step" value="1" ${_posMenuStep === 1 ? 'checked' : ''} onchange="posMenuSetStep(1)"> 1円単位
+              </label>
+            </div>
           </div>
-          <div class="settings-sub">延長の時間と料金（小計）を設定してください。行の追加・削除が可能です。</div>
-          <table style="width:100%;border-collapse:collapse">
-            <thead>
-              <tr style="border-bottom:1px solid var(--bdr)">
-                <th style="font-size:11px;color:var(--tx2);font-weight:normal;text-align:left;padding:4px 8px 6px">延長時間</th>
-                <th style="font-size:11px;color:var(--tx2);font-weight:normal;text-align:left;padding:4px 8px 6px">料金（小計）</th>
-                <th style="width:32px"></th>
-              </tr>
-            </thead>
-            <tbody id="ext-options-tbody">
-              ${(cfg.extOptions || [20,40,60]).map((min, i) => `
-                <tr>
-                  <td style="padding:5px 4px">
-                    <div style="display:flex;align-items:center;gap:4px">
-                      <input type="number" class="settings-input" id="cfg-extOpt-${i}-min" value="${min}" min="1" step="1" style="width:60px" oninput="syncExtFeeRows()"> 分
-                    </div>
-                  </td>
-                  <td style="padding:5px 4px">
-                    <div style="display:flex;align-items:center;gap:4px">
-                      <input type="number" class="settings-input" id="cfg-extOpt-${i}-price" value="${(cfg.extPrices||[])[i] ?? ''}" min="0" step="500" style="width:80px"> 円
-                    </div>
-                  </td>
-                  <td style="padding:5px 4px;text-align:center">
-                    <button type="button" onclick="extOptDelRow(this)" style="background:none;border:none;cursor:pointer;color:var(--tx3);font-size:15px;padding:2px 6px;line-height:1" title="削除">✕</button>
-                  </td>
-                </tr>`).join('')}
-            </tbody>
-          </table>
-        </div>
-        <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:6px;padding:12px 0">
-          <div class="settings-label" style="font-weight:700;margin-bottom:2px">延長時に指名料は追加されますか？</div>
-          <div class="settings-sub" style="margin-bottom:8px">延長のたびに指名料を加算するケースにチェックを入れ、金額を設定してください。</div>
-          <label style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;background:var(--sur3);border:1px solid var(--bdr);border-radius:8px;width:100%;cursor:pointer;box-sizing:border-box">
-            <input type="checkbox" id="cfg-extFeeOnHonshimei" ${cfg.extFeeOnHonshimei !== false ? 'checked' : ''} style="margin-top:3px;flex-shrink:0">
-            <div style="flex:1">
-              <div style="font-size:13px;font-weight:700;color:var(--tx)">本指名のお客様が延長した場合</div>
-              <div style="font-size:11px;color:var(--tx3);margin-top:2px">最初から「この子で」と指名があったお客様が延長するケース</div>
-              <div id="ext-fee-honshimei-opts" style="display:flex;flex-direction:column;gap:4px;margin-top:8px">
-                ${(cfg.extOptions || [20,40,60]).map((min, i) => `<div style="display:flex;align-items:center;gap:6px"><span style="font-size:12px;color:var(--tx2);min-width:36px">${min}分</span><input type="number" class="settings-input" id="cfg-extFeeHonshimeiAmts-${i}" value="${(cfg.extFeeHonshimeiAmts||[])[i] ?? cfg.extFeeHonshimeiAmt ?? 2000}" min="0" step="500" style="width:80px"> 円</div>`).join('')}
-              </div>
-            </div>
-          </label>
-          <label style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;background:var(--sur3);border:1px solid var(--bdr);border-radius:8px;width:100%;cursor:pointer;box-sizing:border-box">
-            <input type="checkbox" id="cfg-extFeeOnJounai" ${cfg.extFeeOnJounai !== false ? 'checked' : ''} style="margin-top:3px;flex-shrink:0">
-            <div style="flex:1">
-              <div style="font-size:13px;font-weight:700;color:var(--tx)">場内指名のお客様が延長した場合</div>
-              <div style="font-size:11px;color:var(--tx3);margin-top:2px">席についてから「この子で」と指名したお客様が延長するケース</div>
-              <div id="ext-fee-jounai-opts" style="display:flex;flex-direction:column;gap:4px;margin-top:8px">
-                ${(cfg.extOptions || [20,40,60]).map((min, i) => `<div style="display:flex;align-items:center;gap:6px"><span style="font-size:12px;color:var(--tx2);min-width:36px">${min}分</span><input type="number" class="settings-input" id="cfg-extFeeJounaiAmts-${i}" value="${(cfg.extFeeJounaiAmts||[])[i] ?? cfg.extFeeJounaiAmt ?? 2000}" min="0" step="500" style="width:80px"> 円</div>`).join('')}
-              </div>
-            </div>
-          </label>
-          <label style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;background:var(--sur3);border:1px solid var(--bdr);border-radius:8px;width:100%;cursor:pointer;box-sizing:border-box">
-            <input type="checkbox" id="cfg-extFeeOnEnchoshimei" ${cfg.extFeeOnEnchoshimei !== false ? 'checked' : ''} style="margin-top:3px;flex-shrink:0">
-            <div style="flex:1">
-              <div style="font-size:13px;font-weight:700;color:var(--tx)">フリーのお客様が延長時に卓についている女の子を指名した場合</div>
-              <div style="font-size:11px;color:var(--tx3);margin-top:2px">フリーで来たお客様が延長するタイミングで「この子で」と指名するケース</div>
-              <div id="ext-fee-enchoshimei-opts" style="display:flex;flex-direction:column;gap:4px;margin-top:8px">
-                ${(cfg.extOptions || [20,40,60]).map((min, i) => `<div style="display:flex;align-items:center;gap:6px"><span style="font-size:12px;color:var(--tx2);min-width:36px">${min}分</span><input type="number" class="settings-input" id="cfg-extFeeEnchoshimeiAmts-${i}" value="${(cfg.extFeeEnchoshimeiAmts||[])[i] ?? cfg.extFeeEnchoshimeiAmt ?? 2000}" min="0" step="500" style="width:80px"> 円</div>`).join('')}
-              </div>
-            </div>
-          </label>
-        </div>
-        <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:8px">
-          <div class="settings-label" style="font-weight:700;margin-bottom:2px">⚙️ 延長・課金の店ルール<div class="settings-sub">お店によって違う計算ルール。基本は最初に1回だけ設定すればOKです。</div></div>
-          <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:13px">
-            <input type="checkbox" id="cfg-extBasePerSeat" ${cfg.extBasePerSeat !== false ? 'checked' : ''} style="margin-top:2px">
-            <div><b>延長料金を人数ぶん取る</b><div style="font-size:11px;color:var(--tx3)">ON: 3名なら延長料×3／OFF: 卓に1回ぶんだけ</div></div>
-          </label>
-          <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:13px">
-            <input type="checkbox" id="cfg-extFeePerSeat" ${cfg.extFeePerSeat ? 'checked' : ''} style="margin-top:2px">
-            <div><b>延長指名料を人数ぶん取る</b><div style="font-size:11px;color:var(--tx3)">ON: 指名1人につき人数ぶん／OFF: 延長1回につき1人分（おすすめ）</div></div>
-          </label>
-          <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:13px">
-            <input type="checkbox" id="cfg-doubanAsHonshimeiExt" ${cfg.doubanAsHonshimeiExt !== false ? 'checked' : ''} style="margin-top:2px">
-            <div><b>同伴を本指名として延長指名料を取る</b><div style="font-size:11px;color:var(--tx3)">OFF: 同伴のお客様には延長指名料を取らない</div></div>
-          </label>
-          <label style="display:flex;align-items:flex-start;gap:8px;font-size:13px">
-            <div><b>出戻り本指の集計扱い</b><div style="font-size:11px;color:var(--tx3)">延長扱い・本指名扱いでは、出戻り卓のキャストドリンクは指D、卓の総計はキャスト別指名売上に含まれます。カウントしないでは指D・指名売上にも含まれません。</div></div>
-            <select class="settings-input" id="cfg-modoriHonshimeiAgg" style="min-width:240px">
-              <option value="honen" ${!['honshimei','none'].includes(cfg.modoriHonshimeiAgg) ? 'selected' : ''}>延長扱い（本延に+1・おすすめ）</option>
-              <option value="honshimei" ${cfg.modoriHonshimeiAgg === 'honshimei' ? 'selected' : ''}>本指名扱い（本指に+1）</option>
-              <option value="none" ${cfg.modoriHonshimeiAgg === 'none' ? 'selected' : ''}>カウントしない</option>
-            </select>
-          </label>
-          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px">
-            <b>ドリンクの本数換算</b>
-            <span style="color:var(--tx3);font-size:11px">指D/D集計の重み</span>
-            <span>S<input type="number" class="settings-input" id="cfg-drinkCount-S" value="${(cfg.drinkCounts||{}).S ?? 1}" min="0" step="1" style="width:54px"></span>
-            <span>M<input type="number" class="settings-input" id="cfg-drinkCount-M" value="${(cfg.drinkCounts||{}).M ?? 2}" min="0" step="1" style="width:54px"></span>
-            <span>L<input type="number" class="settings-input" id="cfg-drinkCount-L" value="${(cfg.drinkCounts||{}).L ?? 3}" min="0" step="1" style="width:54px"></span>
+          <div id="pos-menu-editors">
+            ${[
+              ['shot',    'ショット'],
+              ['bottle',  'ボトル'],
+              ['food',    'フード'],
+              ['bring',   '持込'],
+              ['discount','割引・割増'],
+              ...resolvePosCatLayout(cfg).filter(cat => cat.key.startsWith('cust_')).map(cat => [cat.key, cat.label]),
+            ].map(([key, label]) => _posMenuEditorHTML(key, label, posCategoryItems(key, null))).join('')}
           </div>
-        </div>
-        <div class="settings-row">
-          <div class="settings-label">税サービス料率</div>
-          <input type="number" class="settings-input" id="cfg-taxRate" value="${cfg.taxRate ?? 20}" min="0" max="50" step="1"> %
-        </div>
-        <div class="settings-row">
-          <div class="settings-label">税サ端数単位<div class="settings-sub">切り上げ単位（例：100→100円単位）</div></div>
-          <input type="number" class="settings-input" id="cfg-taxRound" value="${cfg.taxRound ?? 100}" min="1" step="10"> 円
-        </div>
-        <div class="settings-row">
-          <div class="settings-label">割引の課税タイミング<div class="settings-sub">ON: 税サは割引前の金額にかかる（割引は最後に差し引く＝一般的）／OFF: 割引後の金額に課税する</div></div>
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px"><input type="checkbox" id="cfg-discountAfterTax" ${cfg.discountAfterTax !== false ? 'checked' : ''}> 税サの後に割引を適用する</label>
-        </div>
-        <div class="settings-row">
-          <div class="settings-label">カード手数料率</div>
-          <input type="number" class="settings-input" id="cfg-cardFeeRate" value="${cfg.cardFeeRate ?? 10}" min="0" max="30" step="1"> %
-        </div>
-        <div class="settings-row">
-          <div class="settings-label">カード手数料端数単位</div>
-          <input type="number" class="settings-input" id="cfg-cardFeeRound" value="${cfg.cardFeeRound ?? 100}" min="1" step="10"> 円
-        </div>
-        <div class="settings-row">
-          <div class="settings-label">レジ常備金<div class="settings-sub">実際現金のうち、レジに残しておく金額</div></div>
-          <input type="number" class="settings-input" id="cfg-tillFloat" value="${cfg.tillFloat ?? 60000}" min="0" step="1000"> 円
-        </div>
-        <div class="settings-row">
-          <div class="settings-label">残り時間カウントダウン<div class="settings-sub">各グループの終了時刻まで表示。10分以下で赤点滅</div></div>
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-            <input type="checkbox" id="cfg-showCountdown" ${cfg.showCountdown ? 'checked' : ''}>
-            <span>表示する</span>
-          </label>
+          <div class="settings-row" style="padding-bottom:10px;margin-bottom:12px;align-items:flex-start;flex-direction:column;gap:6px">
+            <div class="settings-label">新店オンボーディング<div class="settings-sub">下のショット／ボトル等のデフォルトメニューを一気に空にして、自店仕入れに合わせて入れ直すための操作。保存するまで反映されません。</div></div>
+            <button type="button" class="btn danger" onclick="posMenuClearAllDefaults()" style="font-size:12px">🗑 全カテゴリのデフォルトメニューを削除</button>
+          </div>
         </div>
       </div>
     </div>
 
     <!-- 給与計算ルール -->
-    <div class="settings-section">
+    <div class="settings-section" data-setcat="cast">
       <div class="settings-section-header"><span class="settings-section-title">💴 給与計算ルール</span></div>
       <div class="settings-section-body">
         <div class="settings-row">
@@ -17317,7 +17372,7 @@ function renderSettingsPanel() {
     </div>
 
     <!-- 社員名簿 -->
-    <div class="settings-section">
+    <div class="settings-section" data-setcat="cast">
       <div class="settings-section-header"><span class="settings-section-title">👤 社員名簿</span></div>
       <div class="settings-section-body">
         <div class="settings-row">
@@ -17327,8 +17382,59 @@ function renderSettingsPanel() {
       </div>
     </div>
 
+    <!-- 入店経路・条件 -->
+    <div class="settings-section" data-setcat="customer">
+      <div class="settings-section-header"><span class="settings-section-title">📋 入店情報</span></div>
+      <div class="settings-section-body">
+        <div class="settings-row">
+          <div class="settings-label">入店経路の選択肢<div class="settings-sub">Enterで追加、✕で削除</div></div>
+          ${tagEditor('sources', cfg.sources)}
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">入店条件の選択肢<div class="settings-sub">Enterで追加、✕で削除</div></div>
+          ${tagEditor('conditions', cfg.conditions)}
+        </div>
+      </div>
+    </div>
+
+    <!-- 顧客ランク -->
+    <div class="settings-section" data-setcat="customer">
+      <div class="settings-section-header"><span class="settings-section-title">👑 顧客ランク閾値</span></div>
+      <div class="settings-section-body">
+        <div class="settings-row">
+          <div class="settings-label">VIPの来店回数<div class="settings-sub">この回数以上でVIP</div></div>
+          <input type="number" class="settings-input" id="cfg-rankVip" value="${cfg.rankVip}" min="2" max="100"> 回以上
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">リピーターの来店回数<div class="settings-sub">この回数以上でリピーター</div></div>
+          <input type="number" class="settings-input" id="cfg-rankRepeat" value="${cfg.rankRepeat}" min="2" max="50"> 回以上
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">誕生日接近バッジ<div class="settings-sub">誕生日の何日前から🎂を表示するか</div></div>
+          <input type="number" class="settings-input" id="cfg-birthdayAlertDays" value="${cfg.birthdayAlertDays ?? 14}" min="0" max="365"> 日前
+        </div>
+      </div>
+    </div>
+
+    <!-- ボトルキープ -->
+    <div class="settings-section" data-setcat="customer">
+      <div class="settings-section-header"><span class="settings-section-title">🍾 ボトルキープ</span></div>
+      <div class="settings-section-body">
+        <div class="settings-row">
+          <div class="settings-label">キープ期限<div class="settings-sub">新規登録時に開始日から自動計算</div></div>
+          <input type="number" class="settings-input" id="cfg-bottleKeepDays" value="${cfg.bottleKeepDays ?? 90}" min="1" max="3650"> 日
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">期限接近警告<div class="settings-sub">期限まで残り何日から黄表示するか</div></div>
+          <input type="number" class="settings-input" id="cfg-bottleWarnDays" value="${cfg.bottleWarnDays ?? 14}" min="0" max="365"> 日前
+        </div>
+      </div>
+    </div>
+
+    ${slipNumberSection}
+
     <!-- 日次締め項目 -->
-    <div class="settings-section">
+    <div class="settings-section" data-setcat="slip">
       <div class="settings-section-header"><span class="settings-section-title">📒 日次締め項目</span></div>
       <div class="settings-section-body">
         <div class="settings-row">
@@ -17342,8 +17448,46 @@ function renderSettingsPanel() {
       </div>
     </div>
 
+    <div class="settings-section" data-setcat="system">
+      <div class="settings-section-header"><span class="settings-section-title">💾 データ保存先（USB運用）</span></div>
+      <div class="settings-section-body">
+        <div class="settings-row">
+          <div class="settings-label">現在モード<div class="settings-sub">アプリバージョン: ${escHtml(appVersion)}</div></div>
+          <div style="font-size:13px;color:var(--tx);font-weight:700">${storageModeLabel}</div>
+        </div>
+        <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:8px">
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button type="button" class="btn primary" onclick="usbSettingsActivate()">USBフォルダを選択して移行</button>
+            <button type="button" class="btn" onclick="usbSettingsDeactivate()" ${usbActive ? '' : 'disabled'}>PC内保存に戻す</button>
+            <button type="button" class="btn danger" onclick="usbSettingsClearLocal()" ${usbActive ? '' : 'disabled'}>PC側データを消去</button>
+          </div>
+          <div class="settings-sub" style="line-height:1.7">
+            USBモードでは、営業データはUSB内にのみ保存されます。USBの紛失・破損に備え、定期的にJSONエクスポートで控えを取ってください。対応ブラウザ: Chrome / Edge
+          </div>
+        </div>
+        <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:8px">
+          <div class="settings-label">📁 JSONバックアップ<div class="settings-sub">全データをファイルへ書き出し・ファイルから読み込み（旧ヘッダーの「書き出し/読み込み」）</div></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button type="button" class="btn" onclick="exportAllData()">📤 書き出し</button>
+            <button type="button" class="btn" onclick="openImportDialog()">📥 読み込み</button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">🔄 アプリ更新<div class="settings-sub">現在バージョン: ${escHtml(appVersion)}</div></div>
+        </div>
+        <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:8px">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            <button type="button" class="btn primary" id="self-update-btn" onclick="selfUpdateRunNow()" ${usbActive ? '' : 'disabled'}>🔄 今すぐ更新</button>
+            <span id="self-update-status" class="settings-sub">${usbActive ? '' : 'USBの準備が完了すると利用できます'}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    ${authAccountSection}
+
     <!-- 開発者モード -->
-    <div class="settings-section">
+    <div class="settings-section" data-setcat="system">
       <div class="settings-section-header"><span class="settings-section-title">🛠️ 開発者モード</span></div>
       <div class="settings-section-body">
         <div class="settings-row">
@@ -17375,89 +17519,8 @@ function renderSettingsPanel() {
         </div>
       </div>
     </div>
-    </div>
-
-    <div>
-    <!-- POSレジ設定 -->
-    <div class="settings-section">
-      <div class="settings-section-header"><span class="settings-section-title">🍶 POSレジ設定</span></div>
-      <div class="settings-section-body">
-        <div id="pos-menu-body">
-          <div class="settings-sub" style="margin-bottom:12px;line-height:1.7">
-            各カテゴリのメニューを自由に編集できます。行を追加・削除して保存してください。<br>
-            金額はすべて小計で入力してください。<br>
-            割引は金額をマイナスで入力してください（例：−1000）。
-          </div>
-          ${(() => {
-            const cats = resolvePosCatLayout(cfg);
-            return `<div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:8px;padding-bottom:14px;border-bottom:1px solid var(--bdr2);margin-bottom:14px">
-              <div class="settings-label" style="font-weight:700">カテゴリ管理<div class="settings-sub">表示するカテゴリと並び順を店舗に合わせて変更できます。</div></div>
-              <table class="pos-me-table pos-cat-manage-table">
-                <thead><tr><th style="width:28px"></th><th>カテゴリ名</th><th style="width:60px">表示</th><th style="width:90px">誰が飲んだか</th><th style="width:56px"></th></tr></thead>
-                <tbody id="cfg-pos-cat-layout">${cats.map(_posCatRowHTML).join('')}</tbody>
-              </table>
-              <button type="button" class="pos-me-add-btn pos-cat-add-btn" onclick="posCatAdd()">＋ カテゴリを追加</button>
-            </div>`;
-          })()}
-          ${(() => {
-            const P = cfg.posPrices || {};
-            const cell = (key, label, def) =>
-              `<div style="display:flex;flex-direction:column;gap:3px">
-                 <span style="font-size:11px;color:var(--tx2)">${label}</span>
-                 <span style="display:inline-flex;align-items:center;gap:3px">
-                   <input type="number" class="settings-input" id="cfg-posprice-${key}" value="${P[key] ?? def}" min="0" step="500" style="width:88px"><span style="font-size:11px;color:var(--tx3)">円</span>
-                 </span>
-               </div>`;
-            const grp = (title, hint, cells) =>
-              `<div style="margin-bottom:14px">
-                 <div class="settings-label" style="font-weight:700;margin-bottom:2px">${title}</div>
-                 <div class="settings-sub" style="margin-bottom:8px">${hint}</div>
-                 <div style="display:flex;flex-wrap:wrap;gap:14px">${cells}</div>
-               </div>`;
-            return `<div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:6px;padding-bottom:14px;border-bottom:1px solid var(--bdr2);margin-bottom:14px">
-              <div class="settings-label" style="font-weight:700">🎟️ 指名系・ドリンクの単価<div class="settings-sub">POSのボタン金額（お客様の支払額）。店ごとに違うのでここで設定します。集計の「指名売上」にも反映されます。</div></div>
-              ${grp('延指（フリー席の延長指名）', '20分／40分／60分（60分は集計で延指40＋延指20に展開されます）',
-                  cell('enshi20','20分',1000) + cell('enshi40','40分',2000) + cell('enshi60','60分',3000))}
-              ${grp('本延（本指名卓の延長）', '20分／40分／60分（集計では20・40＝1pt、60＝2ptで本延に集約）',
-                  cell('honen20','20分',2000) + cell('honen40','40分',2000) + cell('honen60','60分',4000))}
-              ${grp('ドリンク（S／M／L）', 'S／M／L',
-                  cell('castS','S',1500) + cell('castM','M',2500) + cell('castL','L',3500))}
-            </div>`;
-          })()}
-          <div class="settings-row" style="padding-bottom:10px;margin-bottom:12px">
-            <div class="settings-label">金額の入力単位</div>
-            <div style="display:flex;gap:16px">
-              <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:13px">
-                <input type="radio" name="pos-menu-step" value="100" ${_posMenuStep === 100 ? 'checked' : ''} onchange="posMenuSetStep(100)"> 100円単位
-              </label>
-              <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:13px">
-                <input type="radio" name="pos-menu-step" value="10" ${_posMenuStep === 10 ? 'checked' : ''} onchange="posMenuSetStep(10)"> 10円単位
-              </label>
-              <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:13px">
-                <input type="radio" name="pos-menu-step" value="1" ${_posMenuStep === 1 ? 'checked' : ''} onchange="posMenuSetStep(1)"> 1円単位
-              </label>
-            </div>
-          </div>
-          <div class="settings-row" style="padding-bottom:10px;margin-bottom:12px;align-items:flex-start;flex-direction:column;gap:6px">
-            <div class="settings-label">新店オンボーディング<div class="settings-sub">下のショット／ボトル等のデフォルトメニューを一気に空にして、自店仕入れに合わせて入れ直すための操作。保存するまで反映されません。</div></div>
-            <button type="button" class="btn danger" onclick="posMenuClearAllDefaults()" style="font-size:12px">🗑 全カテゴリのデフォルトメニューを削除</button>
-          </div>
-          <div id="pos-menu-editors">
-            ${[
-              ['shot',    'ショット'],
-              ['bottle',  'ボトル'],
-              ['food',    'フード'],
-              ['bring',   '持込'],
-              ['discount','割引・割増'],
-              ...resolvePosCatLayout(cfg).filter(cat => cat.key.startsWith('cust_')).map(cat => [cat.key, cat.label]),
-            ].map(([key, label]) => _posMenuEditorHTML(key, label, posCategoryItems(key, null))).join('')}
-          </div>
-        </div>
-      </div>
-    </div>
-
     <!-- 🎨 表示テーマ（テーマ単一化中につきセクションごと非表示。中身は温存） -->
-    <div class="settings-section" style="display:none">
+    <div class="settings-section" data-setcat="system" style="display:none">
       <div class="settings-section-header"><span class="settings-section-title">🎨 表示テーマ</span></div>
       <div class="settings-section-body">
         <div class="settings-sub" style="display:none;margin-bottom:10px">右上の🌙ボタンで切替え／ここでは新店初期化時の既定テーマを指定します。</div>
@@ -17486,6 +17549,7 @@ function renderSettingsPanel() {
   `;
 
   _posMenuInitDndAll();
+  settingsSelectCategory(_settingsActiveCat);
 }
 
 async function usbSettingsActivate() {
@@ -18016,6 +18080,8 @@ function applySettings() {
   const doubanAsHonshimeiExt = !!(get('cfg-doubanAsHonshimeiExt')?.checked);
   const modoriHonshimeiAggValue = get('cfg-modoriHonshimeiAgg')?.value;
   const modoriHonshimeiAgg = ['honen','honshimei','none'].includes(modoriHonshimeiAggValue) ? modoriHonshimeiAggValue : 'honen';
+  const modoriEnchoshimeiAggValue = get('cfg-modoriEnchoshimeiAgg')?.value;
+  const modoriEnchoshimeiAgg = ['enchoshimei40','jounai','none'].includes(modoriEnchoshimeiAggValue) ? modoriEnchoshimeiAggValue : 'enchoshimei40';
   const drinkCounts = {
     S: parseInt(get('cfg-drinkCount-S')?.value) || 0,
     M: parseInt(get('cfg-drinkCount-M')?.value) || 0,
@@ -18140,7 +18206,7 @@ function applySettings() {
     extFeeHonshimeiAmt, extFeeJounaiAmt, extFeeEnchoshimeiAmt,
     extFeeHonshimeiAmts, extFeeJounaiAmts, extFeeEnchoshimeiAmts,
     extFeeOnHonshimei, extFeeOnJounai, extFeeOnEnchoshimei, extPrices,
-    extBasePerSeat, extFeePerSeat, doubanAsHonshimeiExt, modoriHonshimeiAgg, drinkCounts,
+    extBasePerSeat, extFeePerSeat, doubanAsHonshimeiExt, modoriHonshimeiAgg, modoriEnchoshimeiAgg, drinkCounts,
     taxRate, taxRound, discountAfterTax, cardFeeRate, cardFeeRound, tillFloat,
     showCountdown, posMenu, posCatLayout, posCustomCats, posPrices,
     receiptStoreName1, receiptStoreAddr, receiptStoreTel, receiptInvoiceNo, receiptNote,
@@ -20497,11 +20563,13 @@ document.addEventListener('compositionend', e => {
     'html[data-display="tablet"] .pos-slip-sheet-wrap .pos-slip-sheet{align-self:flex-start}',
     /* 設定パネル */
     'html[data-display="tablet"] .settings-input{min-height:40px;font-size:15px}',
+    'html[data-display="tablet"] .settings-nav-btn{min-height:44px;font-size:14px}',
     'html[data-display="tablet"] #settings-panel input[type="checkbox"]{width:20px;height:20px}',
     'html[data-display="tablet"] .pos-cat-manage-row{min-height:48px}',
     'html[data-display="tablet"] .pos-cat-manage-row td{padding-top:6px;padding-bottom:6px}',
     'html[data-display="tablet"] .pos-cat-visible{min-width:24px;min-height:24px}',
     'html[data-display="tablet"] .pos-cat-add-btn,html[data-display="tablet"] .pos-cat-delete-btn{min-height:44px;font-size:14px}',
+    'html[data-display="tablet"] .pos-me-acc > summary{min-height:44px;display:flex;align-items:center}',
     'html[data-display="tablet"] .vip-seat-name-input,html[data-display="tablet"] .vip-seat-fee-input,html[data-display="tablet"] .vip-seat-add-btn,html[data-display="tablet"] .vip-seat-delete-btn{min-height:44px;font-size:14px}',
     'html[data-display="tablet"] #bottle-panel button,html[data-display="tablet"] #bottle-panel input,html[data-display="tablet"] #bottle-panel select{min-height:42px;font-size:14px}',
     'html[data-display="tablet"] .bottle-edit-modal button,html[data-display="tablet"] .bottle-edit-modal input,html[data-display="tablet"] .bottle-edit-modal select,html[data-display="tablet"] .bottle-edit-modal textarea{min-height:42px;font-size:15px}',
