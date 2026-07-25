@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.31">
+<meta name="app-version" content="1.0.32">
 <title>リスト表 v4</title>
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
      フォントはOS内蔵にフォールバックする（--font/--monoのスタック参照）。 -->
@@ -564,6 +564,10 @@ select option { background: var(--sur2); }
 [data-theme="aurum"] .pos-nsm-rowlabel { color: var(--tx2); }
 [data-theme="aurum"] .pos-nsm-check { color: var(--tx); }
 [data-theme="aurum"] .pos-nsm-check input { accent-color: var(--gold2); }
+[data-theme="aurum"] .pos-nsm-castbtn { background: var(--sur2); color: var(--tx); border-color: var(--bdr2); }
+[data-theme="aurum"] .pos-nsm-castbtn:hover { background: var(--sur3); color: var(--gold2); border-color: var(--gold2); }
+[data-theme="aurum"] .pos-nsm-castbtn.selected { background: var(--gold); border-color: var(--gold); color: #17130a; }
+[data-theme="aurum"] .pos-nsm-castpick-empty { color: var(--tx3); }
 [data-theme="aurum"] .pos-cast-picker-option { background: var(--sur2); color: var(--tx); border-color: var(--bdr2); }
 [data-theme="aurum"] .pos-cast-picker-option:hover { background: var(--sur3); color: var(--gold2); border-color: var(--gold2); }
 [data-theme="aurum"] .pos-pill-btn { background: var(--sur2); color: var(--tx2); border-color: var(--bdr2); }
@@ -1026,6 +1030,18 @@ select option { background: var(--sur2); }
   cursor: pointer;
 }
 .pos-nsm-check input { width: 20px; height: 20px; margin: 0; accent-color: #2680e8; }
+/* 同伴キャストの一覧選択（＜＞で送るのが遅いので、出勤キャストを並べて1タップで選ぶ） */
+.pos-nsm-row.pos-nsm-row-pick { min-height: 0; align-items: start; padding: 14px 24px 16px; }
+.pos-nsm-row.pos-nsm-row-pick .pos-nsm-rowlabel { padding-top: 12px; }
+.pos-nsm-castpick { display: flex; flex-wrap: wrap; gap: 8px; }
+.pos-nsm-castbtn {
+  min-width: 96px; min-height: 48px; padding: 0 14px;
+  background: #f0f0f0; border: 2px solid #ddd; border-radius: 8px;
+  font-size: 15px; font-weight: 700; color: #333; cursor: pointer;
+}
+.pos-nsm-castbtn:hover { background: #e2e2e2; }
+.pos-nsm-castbtn.selected { background: #2680e8; border-color: #2680e8; color: #fff; }
+.pos-nsm-castpick-empty { color: #888; font-size: 13px; padding: 14px 0; }
 .pos-nsm-footer {
   padding: 16px 24px 20px;
   display: flex; justify-content: center;
@@ -3256,6 +3272,16 @@ table#customer-table { border-collapse: collapse; width: 100%; min-width: 800px;
 #print-summary { display: none; }
 #print-pages   { display: none; }
 @media print {
+  /* 用紙の下端が黒く塗られるのを防ぐ（2026-07-25）。
+     .print-page は min-height:257mm でA4(297mm)の下40mmを覆わない。ブラウザの印刷設定で
+     「背景のグラフィック」をONにすると、その帯にダークテーマの body 背景がそのまま刷られていた。
+     印刷中だけ用紙の下地を白に固定する。 */
+  html, body {
+    background: #fff !important;
+    background-image: none !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
   body > * { display: none !important; }
   #print-pages { display: block !important; }
   .print-page { margin: 0; }
@@ -4569,7 +4595,7 @@ html[data-display="tablet"] #list-table .col-ctrl-btn { min-width: 32px; min-hei
   <div id="cast-input-row">
     <button class="btn" onclick="setAllActive()">全員選択</button>
     <button class="btn danger" onclick="setAllInactive()">全員解除</button>
-    <span style="color:var(--tx3);font-size:11px;align-self:center">※ キャストの追加は下の「💴 キャスト管理」で</span>
+    <span style="color:var(--tx3);font-size:11px;align-self:center">※ キャストの追加・単価設定は「⚙ 設定 → 👥 キャスト・給与 → 💴 キャスト管理」で</span>
   </div>
   <div id="cast-list"></div>
 
@@ -4584,10 +4610,9 @@ html[data-display="tablet"] #list-table .col-ctrl-btn { min-width: 32px; min-hei
     <div id="timetable-body"></div>
   </div>
 
-  <!-- CAST PAY/BACK MASTER ACCORDION (キャスト管理：時給・バック単価) -->
-  <div id="castmgmt-section">
-    <style>
-      #castmgmt-section { margin-top:28px; }
+  <!-- キャスト管理（時給・バック単価）の本体は「設定 → 👥 キャスト・給与」へ移設済み（2026-07-25）。
+       描画先は 37-settings-panel.js のテンプレート、中身の描画は renderCastMgmt()。ここには共有スタイルだけ残す。 -->
+  <style>
       .castmgmt-toggle {
         width:100%; min-height:44px; padding:0; border:0; background:none;
         font:inherit; font-size:13px; font-weight:700; color:var(--tx2);
@@ -4622,23 +4647,6 @@ html[data-display="tablet"] #list-table .col-ctrl-btn { min-width: 32px; min-hei
     #castmgmt-retired-table th, #castmgmt-retired-table td { border:1px solid var(--bdr); padding:4px 6px; text-align:center; white-space:nowrap; }
     #castmgmt-retired-table thead th { background:var(--sur2); color:var(--tx3); }
     </style>
-    <button type="button" id="castmgmt-toggle" class="castmgmt-toggle" aria-expanded="false" aria-controls="castmgmt-panel" onclick="toggleCastMgmt()">
-      <span id="castmgmt-arrow" aria-hidden="true">▶</span> 💴 キャスト管理
-    </button>
-    <div id="castmgmt-panel" class="hidden">
-      <h2>キャスト管理（時給・バック単価）</h2>
-      <div class="castmgmt-hint">POSで数えた本数 × ここで設定した単価 ＝ バック自動計算。時給×労働時間（「出勤キャスト」タブのタイムテーブル）と合わせて日計表に集計する想定です。空欄は「未設定」、0は「0円」として扱います。</div>
-      <div id="castmgmt-payroll-rules"></div>
-      <div class="castmgmt-actions">
-        <button class="btn" onclick="openPayslipModal()">📄 給与明細</button>
-        <input type="text" id="new-cast-input" class="cm-add-input" placeholder="キャスト名を入力…" onkeydown="if(event.key==='Enter')addCast()">
-        <button class="btn primary" onclick="addCast()">＋ キャスト追加</button>
-        <button class="btn" onclick="applyCastDefaults(true)" title="単価が未設定（空）のキャストだけにデフォルトを入れる">デフォルトを未設定者に適用</button>
-        <button class="btn" onclick="applyCastDefaults(false)" title="全キャストにデフォルト単価を上書き">全員にデフォルトを上書き</button>
-      </div>
-      <div id="castmgmt-table-wrapper"></div>
-    </div>
-  </div>
 </div>
 
 <!-- タイムテーブル印刷ページ（print時のみ表示） -->
@@ -6507,7 +6515,13 @@ function checkAutoCloseDay() {
   // → 未精算客が残っていても ♻️復元 / 過去リストから戻せる。
   try { saveBackupForKey(prevKey); } catch (_) {}
   resetDayCore();
-  try { showToast('🕛 営業日が変わったため自動で営業終了しました'); } catch (_) {}
+  // 出勤状態も新しい営業日のまっさらな状態へ戻す（バックアップ後なので♻️復元で戻せる）
+  try {
+    clearAttendanceForNewBizDay();
+    renderCastPanel();
+    renderTimetable();
+  } catch (_) {}
+  try { showToast('🕛 営業日が変わったため自動で営業終了しました（出勤キャストもリセット）'); } catch (_) {}
 }
 let _lastTickMinute = -1;
 setInterval(() => {
@@ -6855,25 +6869,32 @@ function loadState() {
   state.rows.forEach(r => normalizeRow(r, { rotCols: state.rotCols, extCols: state.extCols }));
   // R5: 締め忘れ→翌日再起動の検知。保存営業日と現在営業日がズレ、かつ未精算客が残っていれば警告。
   // bizDayKey は saveState() が記録。Object.assign で state.bizDayKey に入る。
-  checkStaleBizDay(s.bizDayKey);
+  const staleHandled = checkStaleBizDay(s.bizDayKey);
+  // 締め忘れ警告に入らなかった＝正常に締めて日をまたいだケース。
+  // 出勤状態だけ新しい営業日のまっさらな状態へ戻す（前営業日分を退避してから）。
+  if (!staleHandled && s.bizDayKey && !state._restoredFromKey && s.bizDayKey !== getBizDayKey()) {
+    try { saveBackupForKey(s.bizDayKey); } catch (_) {}
+    try { clearAttendanceForNewBizDay(); } catch (_) {}
+  }
 }
 
 /* R5: 起動時1回だけ実行。前営業日の締め忘れデータが残っていないか判定し、
    残っていれば破壊的動作なしで警告（confirm）し、ユーザーの手動判断に委ねる。
    - 過去リスト復元中(_restoredFromKey)は対象外（誤発火防止）。
-   - 自動では絶対に締めない・消さない。「はい」を選んだ時のみ締める。 */
+   - 自動では絶対に締めない・消さない。「はい」を選んだ時のみ締める。
+   戻り値: true = この関数が締め処理を引き受けた（呼び出し側は出勤状態に触らない）。 */
 let _staleBizDayChecked = false;
 function checkStaleBizDay(savedKey) {
-  if (_staleBizDayChecked) return;   // 起動時1回のみ
+  if (_staleBizDayChecked) return false;   // 起動時1回のみ
   _staleBizDayChecked = true;
   // 過去日を復元中は判定しない（復元元キーで保存されるのは正常な挙動）
-  if (state._restoredFromKey) return;
-  if (!savedKey) return;             // 旧データ（bizDayKey 未記録）は判定不可 → 何もしない
+  if (state._restoredFromKey) return false;
+  if (!savedKey) return false;             // 旧データ（bizDayKey 未記録）は判定不可 → 何もしない
   const curKey = getBizDayKey();
-  if (savedKey === curKey) return;   // 同じ営業日 → 締め忘れではない
+  if (savedKey === curKey) return false;   // 同じ営業日 → 締め忘れではない
   // 未精算の初回(=入店)行が残っているか
   const hasUnsettled = state.rows.some(r => r.isFirst && !r.settled);
-  if (!hasUnsettled) return;         // 残っているのが精算済みのみなら警告不要
+  if (!hasUnsettled) return false;         // 残っているのが精算済みのみなら警告不要
   // confirm は init シーケンスを止めないよう、描画後に遅延実行
   setTimeout(() => {
     try {
@@ -6888,9 +6909,12 @@ function checkStaleBizDay(savedKey) {
       // 締める前の状態を「締め忘れた営業日キー」でバックアップしてから締める
       try { saveBackupForKey(savedKey); } catch (_) {}
       resetDayCore();                // 19-reset.js の締め処理本体（確認ダイアログなし）
-      try { showToast(`🕛 前営業日分をバックアップし、新しい営業日を開始しました`); } catch (_) {}
+      // 出勤状態も新しい営業日のまっさらな状態へ（バックアップ後なので♻️復元で戻せる）
+      try { clearAttendanceForNewBizDay(); renderCastPanel(); renderTimetable(); } catch (_) {}
+      try { showToast(`🕛 前営業日分をバックアップし、新しい営業日を開始しました（出勤キャストもリセット）`); } catch (_) {}
     } catch (_) {}
   }, 300);
+  return true;
 }
 
 function applySnapshot(snap) {
@@ -8104,7 +8128,6 @@ const CAST_PAY_FIELDS = [
   ['shimeiD',   '指D',    '円/本'],
   ['freeD',     'D',      '円/本'],
 ];
-let _castMgmtRendered = false;
 function toggleCastMgmt(){
   const panel = document.getElementById('castmgmt-panel');
   const toggle = document.getElementById('castmgmt-toggle');
@@ -8114,7 +8137,9 @@ function toggleCastMgmt(){
   panel.classList.toggle('hidden', !willOpen);
   if (toggle) toggle.setAttribute('aria-expanded', String(willOpen));
   if (arrow) arrow.textContent = willOpen ? '▼' : '▶';
-  if (willOpen && !_castMgmtRendered) renderCastMgmt();
+  // 設定パネルは renderSettingsPanel() が毎回まるごと描き直すため、
+  // 「一度描いたらもう描かない」キャッシュは持てない。開くたびに描き直す。
+  if (willOpen) renderCastMgmt();
 }
 function _cmq(s){ return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
 function ensureCastStores(){
@@ -8239,57 +8264,19 @@ function applyCastDefaults(onlyEmpty){
   renderCastMgmt();
   try { showToast('デフォルト単価を適用しました'); } catch(_){}
 }
-/* 給与計算ルール（丸め単位・遅刻罰金・SP参考率）。元は設定タブにあったが、
-   単価そのものを編集するこのページに置く方が運用上まとまりが良いため移設（2026-07-03）。
-   cfg直書き＋即saveState（このページの他の入力と同じ「即時保存」方式。設定タブの
-   dirty-flag方式は使わない）。 */
+/* 給与計算ルール（丸め単位・遅刻罰金・SP参考率）の入力欄そのものは
+   設定タブ「👥 キャスト・給与 → 💴 給与計算ルール」へ統合した（2026-07-25）。
+   保存方式は移設前と同じ cfg直書き＋即saveState のまま（設定タブの dirty-flag 方式は使わない）。 */
 function setPayrollCfgNum(key, value, fallback) {
   const v = (value === '' || value == null) ? null : Number(value);
   cfg[key] = (v == null || isNaN(v)) ? fallback : v;
   saveState();
 }
-function renderPayrollRulesSection() {
-  const box = document.getElementById('castmgmt-payroll-rules');
-  if (!box) return;
-  box.innerHTML = `
-    <div class="settings-section" style="margin-bottom:16px">
-      <div class="settings-section-header"><span class="settings-section-title">💰 給与計算ルール</span></div>
-      <div class="settings-section-body">
-        <div class="settings-sub" style="margin-bottom:10px">出退勤の丸め単位・遅刻罰金の計算式・SP参考値の率を店舗運用に合わせて変更できます。1円もズレない計算なので変更は慎重に。</div>
-        <div class="settings-row">
-          <div class="settings-label">出勤時刻の丸め単位<div class="settings-sub">N分ごとに切り上げ。例：30なら22:01→22:30</div></div>
-          <input type="number" class="settings-input" value="${cfg.payrollClockInRoundMin ?? 30}" min="1" max="60" step="1" style="width:90px" onchange="setPayrollCfgNum('payrollClockInRoundMin', this.value, 30)"> 分
-        </div>
-        <div class="settings-row">
-          <div class="settings-label">退勤時刻の丸め単位<div class="settings-sub">N分刻みで四捨五入</div></div>
-          <input type="number" class="settings-input" value="${cfg.payrollClockOutRoundMin ?? 30}" min="1" max="60" step="1" style="width:90px" onchange="setPayrollCfgNum('payrollClockOutRoundMin', this.value, 30)"> 分
-        </div>
-        <div class="settings-row">
-          <div class="settings-label">退勤丸めの四捨五入境界<div class="settings-sub">この分数未満は切り捨て・以上は切り上げ（30分単位なら通常15）</div></div>
-          <input type="number" class="settings-input" value="${cfg.payrollClockOutRoundThreshold ?? 15}" min="1" max="30" step="1" style="width:90px" onchange="setPayrollCfgNum('payrollClockOutRoundThreshold', this.value, 15)"> 分
-        </div>
-        <div class="settings-row">
-          <div class="settings-label">遅刻罰金の単位<div class="settings-sub">N分ごとに1段階。例：15なら1〜15分=1段階、16〜30分=2段階</div></div>
-          <input type="number" class="settings-input" value="${cfg.payrollLateFineUnitMin ?? 15}" min="1" max="60" step="1" style="width:90px" onchange="setPayrollCfgNum('payrollLateFineUnitMin', this.value, 15)"> 分
-        </div>
-        <div class="settings-row">
-          <div class="settings-label">遅刻罰金の単位額<div class="settings-sub">1段階あたりの金額</div></div>
-          <input type="number" class="settings-input" value="${cfg.payrollLateFineAmt ?? 1000}" min="0" step="100" style="width:110px" onchange="setPayrollCfgNum('payrollLateFineAmt', this.value, 1000)"> 円
-        </div>
-        <div class="settings-row">
-          <div class="settings-label">SP参考値の率（ボトルバック率）<div class="settings-sub">ボトル小計×この率。POSの「キャスト折半」のバック計算にも使用。SP最終額は手入力が優先（0.2 = 20%）</div></div>
-          <input type="number" class="settings-input" value="${cfg.payrollBottleSpRate ?? 0.2}" min="0" max="1" step="0.01" style="width:90px" onchange="setPayrollCfgNum('payrollBottleSpRate', this.value, 0.2)">
-        </div>
-      </div>
-    </div>`;
-}
 
 function renderCastMgmt(){
   ensureCastStores();
-  renderPayrollRulesSection();
   const wrap = document.getElementById('castmgmt-table-wrapper');
   if (!wrap) return;
-  _castMgmtRendered = true;
   const d = state.castDefaults;
   const PAYCOLS = CAST_PAY_FIELDS.length;
 
@@ -8690,6 +8677,18 @@ function resetDayCore() {
   state.manualSort=false;   // 新しい営業日は開始時刻順の自動ソートに戻す
   state._restoredFromKey=null;   // 締め＝通常運用へ復帰。過去日キーのまま新営業日に入る事故を防ぐ
   renderTable(); saveState();
+}
+
+/* 営業日が変わったので出勤状態を新しい日のまっさらな状態へ戻す（2026-07-25 オーナー要望）。
+   消すのは「その日限りの状態」＝出勤予定・出勤/退勤時刻・同伴・当欠・遅刻分だけ。
+   名簿(state.allCasts)・単価(state.castProfiles)・退店者(state.retiredCasts)は残す。
+   呼び出し側の責任: 直前に saveBackupForKey(前営業日キー) を通しておくこと。
+   バックアップは activeCasts と timetableSnap を含むため、♻️復元／過去のリストから元の出勤状態へ戻せる。
+   手動の「営業終了」からは呼ばない（同じ夜に開き直す運用を壊さないため）。 */
+function clearAttendanceForNewBizDay() {
+  state.activeCasts = [];
+  saveTimetableState({ clockIns: {}, checkouts: {}, douban: [], touketsu: [], plannedClockIns: {}, chikokuMins: {} });
+  saveState();
 }
 
 /* ================================================================
@@ -12533,7 +12532,7 @@ function posCatDelete(key) {
 }
 
 function posOpenNewSlipModal(tableIndex) {
-  _posNsmIdx = { source: 0, count: 0, table: 0, cast: 0, color: 0, waiting: false, startMin: getNowMin() };
+  _posNsmIdx = { source: 0, count: 0, table: 0, cast: 0, color: 0, waiting: false, douban: false, startMin: getNowMin() };
   const tableList = _posNsmLists().table;
   if (Number.isInteger(tableIndex) && tableIndex >= 0 && tableIndex < tableList.length) {
     _posNsmIdx.table = tableIndex;
@@ -12597,6 +12596,14 @@ function _renderPosNsm() {
             <span>ウェイト（席待ち）</span>
           </label>
         </div>
+        <div class="pos-nsm-row">
+          <div class="pos-nsm-rowlabel">同伴</div>
+          <label class="pos-nsm-check">
+            <input type="checkbox"${_posNsmIdx.douban ? ' checked' : ''} onchange="posNsmToggleDouban(this.checked)">
+            <span>🚗 同伴（${cfg.dohanStay || 60}分・${(Number(cfg.dohanFee) || 15000).toLocaleString()}円）</span>
+          </label>
+        </div>
+        ${_posNsmIdx.douban ? _posNsmCastPicker(L.cast) : ''}
       </div>
       <div class="pos-nsm-footer">
         <button class="pos-nsm-ok" onclick="posConfirmNewSlip()">作　成</button>
@@ -12609,9 +12616,77 @@ function _renderPosNsm() {
 function posNsmStep(key, delta) {
   const L = _posNsmLists();
   const list = L[key];
+  // 会計種別を手で動かしたら、同伴チェックを外したときの「元へ戻す」記憶は捨てる
+  if (key === 'source') _posNsmIdx.sourceBeforeDouban = undefined;
   if (!list) return;
   _posNsmIdx[key] = (_posNsmIdx[key] + delta + list.length) % list.length;
   _renderPosNsm();
+}
+
+/* 同伴キャストは＜＞送りではなく出勤キャストを並べて1タップで選ぶ（現場の速度優先）。
+   一覧は _posNsmLists().cast（[0]='なし' ＋ 出勤キャスト）。 */
+function _posNsmCastPicker(castList) {
+  const picks = (castList || []).slice(1);   // [0]='なし' は出さない（未選択は「どれも選ばれていない」で表す）
+  const body = picks.length
+    ? `<div class="pos-nsm-castpick">${picks.map((name, i) =>
+        `<button type="button" class="pos-nsm-castbtn${_posNsmIdx.cast === i + 1 ? ' selected' : ''}" onclick="posNsmPickCast(${i + 1})">${escHtml(name)}</button>`
+      ).join('')}</div>`
+    : `<div class="pos-nsm-castpick-empty">出勤キャストがいません。「出勤キャスト」タブで出勤予定にしてください。</div>`;
+  return `<div class="pos-nsm-row pos-nsm-row-pick"><div class="pos-nsm-rowlabel">同伴キャスト</div>${body}</div>`;
+}
+function posNsmPickCast(index) {
+  _posNsmIdx.cast = index;
+  _renderPosNsm();
+}
+
+/* 同伴チェックの切替。
+   - ONにした瞬間、キャスト未選択なら先頭の出勤キャストへ寄せる（1タップ減らす）
+   - 会計種別に「同伴」があれば自動で合わせる（オーナー要望 2026-07-25）。
+     OFFに戻したときは、同伴が理由で切り替えた場合だけ元の会計種別へ戻す。 */
+function posNsmToggleDouban(checked) {
+  const L = _posNsmLists();
+  _posNsmIdx.douban = !!checked;
+  if (checked) {
+    if (_posNsmIdx.cast === 0 && L.cast.length > 1) _posNsmIdx.cast = 1;   // [0]='なし'
+    // 店の入店経路リストに「同伴」が無いと、伝票に入れてもリスト表の経路プルダウンで
+    // 選択が外れてしまう。無ければリストへ足してから選ぶ（設定→顧客・入店 から消せる）。
+    if (!L.source.some(s => String(s).includes('同伴'))) {
+      if (!Array.isArray(cfg.sources)) cfg.sources = [];
+      cfg.sources.push('同伴');
+      saveState();
+    }
+    const doubanSrc = _posNsmLists().source.findIndex(s => String(s).includes('同伴'));
+    if (doubanSrc >= 0 && _posNsmIdx.source !== doubanSrc) {
+      _posNsmIdx.sourceBeforeDouban = _posNsmIdx.source;
+      _posNsmIdx.source = doubanSrc;
+    }
+  } else if (Number.isInteger(_posNsmIdx.sourceBeforeDouban)) {
+    _posNsmIdx.source = _posNsmIdx.sourceBeforeDouban;
+    _posNsmIdx.sourceBeforeDouban = undefined;
+  }
+  _renderPosNsm();
+}
+
+/* 同伴伝票の明細を組む。金額は作成時点の設定を明細へ焼く（以後に設定を変えても既存伝票は動かない）。
+   SETは dohanIncludesSet=false（既定=同伴料にセットが含まれる運用）なら0円で積む。
+   行自体は残すことで滞在時間の管理と延長計算が既存経路にそのまま乗る。 */
+function _posBuildDoubanOrders(row, cast, startMin) {
+  const orders = posOrders(row);
+  const stay = Number(cfg.dohanStay) || 60;
+  const mkId = () => 'po_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+  orders.push({
+    id: mkId(), name: 'SET',
+    amount: cfg.dohanIncludesSet ? (Number(cfg.setPrice) || 0) : 0,
+    qty: 1, category: 'set',
+    startMin, endMin: startMin + stay,
+    createdAt: Date.now(),
+  });
+  orders.push({
+    id: mkId(), name: '同:' + cast,
+    amount: Number(cfg.dohanFee) || 15000,
+    qty: 1, category: 'dohan',
+    createdAt: Date.now(),
+  });
 }
 
 function posConfirmNewSlip() {
@@ -12619,7 +12694,14 @@ function posConfirmNewSlip() {
   const source = L.source[_posNsmIdx.source] || '';
   const count  = L.count[_posNsmIdx.count]   || 1;
   const table  = L.table[_posNsmIdx.table]   || '';
-  const cast   = '';
+  const isDouban = !!_posNsmIdx.douban;
+  const castPick = L.cast[_posNsmIdx.cast] || L.cast[0];
+  const cast   = (isDouban && castPick && castPick !== 'なし') ? castPick : '';
+  // 誰の同伴か分からない伝票は作らせない
+  if (isDouban && !cast) {
+    if (typeof showToast === 'function') showToast('同伴のキャストを選んでください');
+    return;
+  }
 
   const colorObj = L.color[_posNsmIdx.color] || POS_CARD_COLORS[0];
   const color = colorObj.hex || '#FFFFFF';
@@ -12632,13 +12714,15 @@ function posConfirmNewSlip() {
     const grpRows = state.rows.filter(r => r.gid === newest.gid);
     grpRows.forEach(r => { r.tableNum = table.replace(/^T-/, ''); });
     newest.source   = source;
-    newest.mainType = 'free';
+    newest.mainType = isDouban ? 'douban' : 'free';
     newest.mainCast = cast;
     newest.posColor = color;
     newest.startMin = _posNsmIdx.startMin;
-    newest.endMin   = _posNsmIdx.startMin + (cfg.defStay || 40);
+    newest.endMin   = _posNsmIdx.startMin + (isDouban ? (Number(cfg.dohanStay) || 60) : (cfg.defStay || 40));
     newest.posManaged = true;
     if (_posNsmIdx.waiting) newest.isWaiting = true;
+    // 同伴一式（セット分数・同伴料・キャスト帰属）を明細へ自動投入
+    if (isDouban) _posBuildDoubanOrders(newest, cast, _posNsmIdx.startMin);
     syncVipFeeOrder(newest);
     saveState();
     renderTable();   // 卓・経路・時刻をリスト表へ即反映
@@ -17066,7 +17150,7 @@ function renderSettingsPanel() {
           ① <b style="color:var(--tx)">店舗名・領収書情報</b>を入力（この「🏪 店舗基本」カテゴリー）<br>
           ② <b style="color:var(--tx)">🏪 店舗基本の営業時間と、💴 料金・会計の料金／延長ルール／税サ・カード手数料</b>を自店に合わせて調整<br>
           ③ <b style="color:var(--tx)">🍶 POSレジ</b>でカスタムメニューを入れ替え（「🗑 全カテゴリのデフォルトメニューを削除」を押せばまっさらから組める）<br>
-          ④ <b style="color:var(--tx)">「👥 出勤キャスト」内の「💴 キャスト管理」</b>にある給与計算ルールで出退勤丸め単位・遅刻罰金・SP参考率を店舗運用に合わせる<br>
+          ④ <b style="color:var(--tx)">👥 キャスト・給与</b>の「💴 給与計算ルール」で出退勤丸め単位・遅刻罰金・SP参考率を店舗運用に合わせ、「💴 キャスト管理」でキャストと単価を登録する<br>
           ⑤ 最後に <b style="color:var(--tx)">保存</b>
         </div>
         <div class="settings-row">
@@ -17387,7 +17471,7 @@ function renderSettingsPanel() {
       <div class="settings-section-body">
         <div id="pos-menu-body">
           <div class="settings-group-head first">🗂 カテゴリ管理</div>
-          <div class="settings-sub" style="margin-bottom:8px">表示するカテゴリと並び順を店舗に合わせて変更できます。</div>
+          <div class="settings-sub" style="margin-bottom:8px">表示するカテゴリと並び順を店舗に合わせて変更できます。カテゴリの追加は下の「メニュー編集」の末尾から行えます。</div>
           ${(() => {
             const cats = resolvePosCatLayout(cfg);
             return `<div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:8px">
@@ -17395,7 +17479,6 @@ function renderSettingsPanel() {
                 <thead><tr><th style="width:28px"></th><th>カテゴリ名</th><th style="width:60px">表示</th><th style="width:90px">誰が飲んだか</th><th style="width:56px"></th></tr></thead>
                 <tbody id="cfg-pos-cat-layout">${cats.map(_posCatRowHTML).join('')}</tbody>
               </table>
-              <button type="button" class="pos-me-add-btn pos-cat-add-btn" onclick="posCatAdd()">＋ カテゴリを追加</button>
             </div>`;
           })()}
           <div class="settings-group-head">🎟 指名系・ドリンクの単価</div>
@@ -17453,6 +17536,9 @@ function renderSettingsPanel() {
               ['discount','割引・割増'],
               ...resolvePosCatLayout(cfg).filter(cat => cat.key.startsWith('cust_')).map(cat => [cat.key, cat.label]),
             ].map(([key, label]) => _posMenuEditorHTML(key, label, posCategoryItems(key, null))).join('')}
+          </div>
+          <div class="settings-row" style="padding-bottom:10px;margin-bottom:12px;align-items:flex-start;flex-direction:column;gap:8px">
+            <button type="button" class="pos-me-add-btn pos-cat-add-btn" onclick="posCatAdd()">＋ カテゴリを追加</button>
           </div>
           <div class="settings-row" style="padding-bottom:10px;margin-bottom:12px;align-items:flex-start;flex-direction:column;gap:6px">
             <div class="settings-label">新店オンボーディング<div class="settings-sub">下のショット／ボトル等のデフォルトメニューを一気に空にして、自店仕入れに合わせて入れ直すための操作。保存するまで反映されません。</div></div>
@@ -17516,6 +17602,63 @@ function renderSettingsPanel() {
             <tbody>${(Array.isArray(cfg.payrollDeductions) ? cfg.payrollDeductions : []).map(_payrollDeductionRowHTML).join('')}</tbody>
           </table>
           <button type="button" class="pos-me-add-btn" onclick="payrollDeductionAdd()">＋ 控除項目を追加</button>
+        </div>
+        <div class="settings-group-head">⏱ 出退勤の丸め・遅刻罰金・SP参考率</div>
+        <div class="settings-sub" style="margin-bottom:8px">1円もズレない計算なので変更は慎重に。この6項目は入力した時点で保存されます（保存ボタンを待ちません）。</div>
+        <div class="settings-row">
+          <div class="settings-label">出勤時刻の丸め単位<div class="settings-sub">N分ごとに切り上げ。例：30なら22:01→22:30</div></div>
+          <span style="display:flex;gap:6px;align-items:center">
+            <input type="number" class="settings-input" value="${cfg.payrollClockInRoundMin ?? 30}" min="1" max="60" step="1" style="width:90px" onchange="setPayrollCfgNum('payrollClockInRoundMin', this.value, 30)"><span style="font-size:11px;color:var(--tx3)">分</span>
+          </span>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">退勤時刻の丸め単位<div class="settings-sub">N分刻みで四捨五入</div></div>
+          <span style="display:flex;gap:6px;align-items:center">
+            <input type="number" class="settings-input" value="${cfg.payrollClockOutRoundMin ?? 30}" min="1" max="60" step="1" style="width:90px" onchange="setPayrollCfgNum('payrollClockOutRoundMin', this.value, 30)"><span style="font-size:11px;color:var(--tx3)">分</span>
+          </span>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">退勤丸めの四捨五入境界<div class="settings-sub">この分数未満は切り捨て・以上は切り上げ（30分単位なら通常15）</div></div>
+          <span style="display:flex;gap:6px;align-items:center">
+            <input type="number" class="settings-input" value="${cfg.payrollClockOutRoundThreshold ?? 15}" min="1" max="30" step="1" style="width:90px" onchange="setPayrollCfgNum('payrollClockOutRoundThreshold', this.value, 15)"><span style="font-size:11px;color:var(--tx3)">分</span>
+          </span>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">遅刻罰金の単位<div class="settings-sub">N分ごとに1段階。例：15なら1〜15分=1段階、16〜30分=2段階</div></div>
+          <span style="display:flex;gap:6px;align-items:center">
+            <input type="number" class="settings-input" value="${cfg.payrollLateFineUnitMin ?? 15}" min="1" max="60" step="1" style="width:90px" onchange="setPayrollCfgNum('payrollLateFineUnitMin', this.value, 15)"><span style="font-size:11px;color:var(--tx3)">分</span>
+          </span>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">遅刻罰金の単位額<div class="settings-sub">1段階あたりの金額</div></div>
+          <span style="display:flex;gap:6px;align-items:center">
+            <input type="number" class="settings-input" value="${cfg.payrollLateFineAmt ?? 1000}" min="0" step="100" style="width:110px" onchange="setPayrollCfgNum('payrollLateFineAmt', this.value, 1000)"><span style="font-size:11px;color:var(--tx3)">円</span>
+          </span>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">SP参考値の率（ボトルバック率）<div class="settings-sub">ボトル小計×この率。POSの「キャスト折半」のバック計算にも使用。SP最終額は手入力が優先（0.2 = 20%）</div></div>
+          <input type="number" class="settings-input" value="${cfg.payrollBottleSpRate ?? 0.2}" min="0" max="1" step="0.01" style="width:90px" onchange="setPayrollCfgNum('payrollBottleSpRate', this.value, 0.2)">
+        </div>
+      </div>
+    </div>
+
+    <!-- キャスト管理（時給・バック単価マスタ） -->
+    <div class="settings-section" data-setcat="cast">
+      <div class="settings-section-header"><span class="settings-section-title">💴 キャスト管理</span></div>
+      <div class="settings-section-body">
+        <button type="button" id="castmgmt-toggle" class="castmgmt-toggle" aria-expanded="false" aria-controls="castmgmt-panel" onclick="toggleCastMgmt()">
+          <span id="castmgmt-arrow" aria-hidden="true">▶</span> キャスト別の時給・バック単価
+        </button>
+        <div id="castmgmt-panel" class="hidden">
+          <div class="castmgmt-hint">POSで数えた本数 × ここで設定した単価 ＝ バック自動計算。時給×労働時間（「出勤キャスト」タブのタイムテーブル）と合わせて日計表に集計する想定です。空欄は「未設定」、0は「0円」として扱います。この表の編集は入力した時点で保存されます。</div>
+          <div class="castmgmt-actions">
+            <button class="btn" onclick="openPayslipModal()">📄 給与明細</button>
+            <input type="text" id="new-cast-input" class="cm-add-input" placeholder="キャスト名を入力…" onkeydown="if(event.key==='Enter')addCast()">
+            <button class="btn primary" onclick="addCast()">＋ キャスト追加</button>
+            <button class="btn" onclick="applyCastDefaults(true)" title="単価が未設定（空）のキャストだけにデフォルトを入れる">デフォルトを未設定者に適用</button>
+            <button class="btn" onclick="applyCastDefaults(false)" title="全キャストにデフォルト単価を上書き">全員にデフォルトを上書き</button>
+          </div>
+          <div id="castmgmt-table-wrapper"></div>
         </div>
       </div>
     </div>
@@ -19250,7 +19393,11 @@ function openCustomerDetail(name) {
         const shimei = visit.mainCast
           ? `${escHtml(visit.mainCast)}${_customerMainTypeLabel(visit.mainType) ? ` <small style="color:var(--tx3)">${escHtml(_customerMainTypeLabel(visit.mainType))}</small>` : ''}`
           : '—';
-        return `<tr><td>${visit.bizKey ? bizKeyToLabel(visit.bizKey) : '—'}</td><td>${escHtml(visit.tableNum || '—')}</td><td style="text-align:right">${Number(visit.gcount) || 0}</td><td>${_customerStayLabel(visit.stayMin)}</td><td>${_customerPaymentMethodLabel(visit.method)}</td><td>${shimei}</td><td style="text-align:right;white-space:nowrap">¥${(Number(visit.amount) || 0).toLocaleString()}</td><td style="min-width:180px;white-space:normal">${escHtml(visit.orderSummary || '—')}</td></tr>`;
+        // 各セルに余白を入れる（tdに padding が無く、右寄せの「人数」と左寄せの「滞在」が
+        // 隣り合って "3"+"40分" が "340分" に見えていた・2026-07-25 オーナー報告）。
+        // 人数には単位「名」を付けて、隣の滞在と数字が混ざらないようにする。
+        const cel = 'padding:6px 8px;white-space:nowrap';
+        return `<tr><td style="${cel}">${visit.bizKey ? bizKeyToLabel(visit.bizKey) : '—'}</td><td style="${cel}">${escHtml(visit.tableNum || '—')}</td><td style="${cel};text-align:right">${Number(visit.gcount) || 0}名</td><td style="${cel};text-align:right">${_customerStayLabel(visit.stayMin)}</td><td style="${cel}">${_customerPaymentMethodLabel(visit.method)}</td><td style="${cel}">${shimei}</td><td style="${cel};text-align:right">¥${(Number(visit.amount) || 0).toLocaleString()}</td><td style="padding:6px 8px;min-width:180px;white-space:normal">${escHtml(visit.orderSummary || '—')}</td></tr>`;
       }).join('')
     : '<tr><td colspan="8" style="color:var(--tx3);text-align:center;padding:12px">来店履歴はありません</td></tr>';
   const analyticsHistory = Array.isArray(cust.visitHistory) ? cust.visitHistory : [];
@@ -19331,7 +19478,7 @@ function openCustomerDetail(name) {
           <div style="margin-bottom:8px"><b>来店履歴（${(cust.visitHistory || []).length}件）</b></div>
           <div style="max-height:300px;overflow-y:auto;overflow-x:auto">
             <table style="width:100%;border-collapse:collapse;font-size:11px">
-              <thead style="position:sticky;top:0;background:var(--sur2);z-index:1"><tr style="color:var(--tx3);border-bottom:1px solid var(--bdr2)"><th style="text-align:left;padding:6px">日付</th><th style="text-align:left;padding:6px">卓</th><th style="text-align:right;padding:6px">人数</th><th style="text-align:left;padding:6px">滞在</th><th style="text-align:left;padding:6px">金種</th><th style="text-align:left;padding:6px">指名</th><th style="text-align:right;padding:6px">会計額</th><th style="text-align:left;padding:6px">注文要約</th></tr></thead>
+              <thead style="position:sticky;top:0;background:var(--sur2);z-index:1"><tr style="color:var(--tx3);border-bottom:1px solid var(--bdr2)"><th style="text-align:left;padding:6px">日付</th><th style="text-align:left;padding:6px">卓</th><th style="text-align:right;padding:6px 8px">人数</th><th style="text-align:right;padding:6px 8px">滞在</th><th style="text-align:left;padding:6px">金種</th><th style="text-align:left;padding:6px">指名</th><th style="text-align:right;padding:6px">会計額</th><th style="text-align:left;padding:6px">注文要約</th></tr></thead>
               <tbody>${visitHistoryRows}</tbody>
             </table>
           </div>
