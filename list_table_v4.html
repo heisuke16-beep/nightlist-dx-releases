@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.30">
+<meta name="app-version" content="1.0.31">
 <title>リスト表 v4</title>
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
      フォントはOS内蔵にフォールバックする（--font/--monoのスタック参照）。 -->
@@ -4947,6 +4947,17 @@ const LOGO_EMBELLIR_DATAURI = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAaQ
    USB STORE
    File System Access API を使い、Persist の同期APIをメモリキャッシュで支える。
 ================================================================ */
+const OWNER_FILE = 'owner.json';
+
+function createUsbOwnerTabId() {
+  try {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+  } catch (_) {}
+  return `nightlist-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
+}
+
 const UsbStore = {
   active: false,
   cache: {},
@@ -4958,6 +4969,9 @@ const UsbStore = {
   _dbName: 'nightlist-usb',
   _storeName: 'handles',
   _handleKey: 'dataDir',
+  _tabId: createUsbOwnerTabId(),
+  _fenced: false,
+  _ownerChannel: null,
   FILES: {
     listState: 'listState.json',
     backups:   'backups.json',
@@ -4980,6 +4994,7 @@ const UsbStore = {
 
   async init() {
     this._installFlushHooks();
+    this._installOwnerChannel();
     try {
       const handle = await this._loadHandle();
       if (!handle) return 'local';
@@ -5013,9 +5028,11 @@ const UsbStore = {
     this._dirHandle = handle;
     this._dirName = handle.name || '';
     this.cache = { ...current };
-    this.active = true;
+    this.active = false;
     try {
       await this._saveHandle(handle);
+      await this._takeOwnership();
+      this.active = true;
       await this.flush(Object.keys(Persist.KEYS));
       this._toast('以後のデータはUSB側に保存されます');
       return true;
@@ -5076,6 +5093,8 @@ const UsbStore = {
       next[name] = await this._readFile(name);
     }
     this.cache = next;
+    this.active = false;
+    await this._takeOwnership();
     this.active = true;
     return true;
   },
@@ -5091,11 +5110,13 @@ const UsbStore = {
   },
 
   async flush(names) {
-    if (!this.active || !this._dirHandle) return;
-    const targets = names ? Array.from(names) : Array.from(this._dirty);
-    if (!targets.length) return;
+    if (!this.active || this._fenced || !this._dirHandle) return;
     clearTimeout(this._flushTimer);
     this._flushTimer = null;
+    const ownsWrites = await this._checkOwnershipBeforeFlush();
+    if (!ownsWrites) return;
+    const targets = names ? Array.from(names) : Array.from(this._dirty);
+    if (!targets.length) return;
     const failed = [];
     for (const name of targets) {
       if (!Persist.KEYS[name]) continue;
@@ -5118,6 +5139,7 @@ const UsbStore = {
   async deactivate() {
     if (this.active) {
       await this.flush();
+      if (this._fenced) return;
       Object.keys(Persist.KEYS).forEach(name => {
         const raw = this.cache[name];
         try {
@@ -5148,6 +5170,7 @@ const UsbStore = {
   },
 
   _scheduleFlush() {
+    if (this._fenced) return;
     clearTimeout(this._flushTimer);
     this._flushTimer = setTimeout(() => { this.flush(); }, 500);
   },
@@ -5162,6 +5185,107 @@ const UsbStore = {
     window.addEventListener('beforeunload', () => {
       if (this.active && this._dirty.size) this.flush();
     });
+  },
+
+  _installOwnerChannel() {
+    try {
+      if (typeof BroadcastChannel !== 'function') return;
+      this._ownerChannel = new BroadcastChannel('nightlist-owner');
+      this._ownerChannel.onmessage = event => {
+        const incomingTabId = typeof event.data === 'string' ? event.data : event.data?.tabId;
+        if (this.active && !this._fenced && incomingTabId && incomingTabId !== this._tabId) {
+          this._enterFencedState();
+        }
+      };
+    } catch (_) {
+      this._ownerChannel = null;
+    }
+  },
+
+  async _takeOwnership() {
+    const token = { tabId: this._tabId, takenAt: Date.now() };
+    const text = JSON.stringify(token);
+    const fh = await this._dirHandle.getFileHandle(OWNER_FILE, { create: true });
+    const writable = await fh.createWritable();
+    await writable.write(text);
+    await writable.close();
+    const check = await (await fh.getFile()).text();
+    if (check !== text) throw new Error('USB owner write verification failed');
+    try {
+      this._ownerChannel?.postMessage(this._tabId);
+    } catch (_) {}
+  },
+
+  async _readOwner() {
+    try {
+      const fh = await this._dirHandle.getFileHandle(OWNER_FILE);
+      const text = await (await fh.getFile()).text();
+      return JSON.parse(text);
+    } catch (e) {
+      if (e && (e.name === 'NotFoundError' || e.name === 'NotFoundError DOMException')) return null;
+      throw e;
+    }
+  },
+
+  async _checkOwnershipBeforeFlush() {
+    let owner;
+    try {
+      owner = await this._readOwner();
+      if (owner === null) {
+        await this._takeOwnership();
+        return true;
+      }
+    } catch (e) {
+      console.error('[UsbStore] owner check failed:', e);
+      this._toast('USBへの保存に失敗しました。接続状態を確認してください');
+      return false;
+    }
+    if (owner.tabId !== this._tabId) {
+      this._enterFencedState();
+      return false;
+    }
+    return true;
+  },
+
+  _enterFencedState() {
+    if (this._fenced) return;
+    this._fenced = true;
+    this.active = false;
+    clearTimeout(this._flushTimer);
+    this._flushTimer = null;
+    clearInterval(this._flushInterval);
+    this._flushInterval = null;
+    const timestamp = Date.now();
+    for (const name of this._dirty) {
+      try {
+        const raw = this.cache[name];
+        localStorage.setItem(
+          `nightlist__fenced_${timestamp}_${name}`,
+          raw === null || raw === undefined ? 'null' : String(raw)
+        );
+      } catch (e) {
+        console.error(`[UsbStore] archive fenced '${name}' failed:`, e);
+      }
+    }
+    this._showFencedOverlay();
+  },
+
+  _showFencedOverlay() {
+    const overlay = document.createElement('div');
+    overlay.id = 'usb-owner-fenced';
+    overlay.style.cssText = [
+      'position:fixed', 'inset:0', 'z-index:30000', 'display:flex',
+      'align-items:center', 'justify-content:center', 'background:rgba(0,0,0,0.92)',
+      'color:#f1f4f9', 'font-family:var(--font, sans-serif)', 'backdrop-filter:blur(12px)'
+    ].join(';');
+    overlay.innerHTML = `
+      <div style="width:min(560px,92vw);padding:30px;border:1px solid rgba(216,184,108,0.35);border-radius:14px;background:#13161c;box-shadow:0 24px 80px rgba(0,0,0,0.65);text-align:center">
+        <div style="font-size:22px;font-weight:800;line-height:1.6;margin-bottom:22px">別のタブで営業が開始されたため、このタブは停止しました。<br>最新のタブをご利用ください</div>
+        <button id="usb-owner-reload" type="button" style="width:100%;padding:16px 18px;border-radius:10px;border:1px solid #d8b86c;background:#d8b86c;color:#17120a;font-size:18px;font-weight:900;cursor:pointer">このタブを最新として使い直す</button>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    overlay.querySelector('#usb-owner-reload').onclick = () => location.reload();
   },
 
   async _readFile(name) {
@@ -20475,6 +20599,7 @@ async function __boot() {
 
   // ブラウザを閉じる前に未保存警告（リスト表データ・設定パネルの両方をチェック）
   window.addEventListener('beforeunload', e => {
+    if (UsbStore._fenced) return;
     if ((_unsavedChanges && state.rows.length > 0) || _settingsDirty) {
       e.preventDefault();
       e.returnValue = '保存されていないデータがあります。閉じる前に💾保存ボタンを押してください。';
