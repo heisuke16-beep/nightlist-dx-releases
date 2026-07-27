@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.32">
+<meta name="app-version" content="1.0.33">
 <title>リスト表 v4</title>
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
      フォントはOS内蔵にフォールバックする（--font/--monoのスタック参照）。 -->
@@ -2091,6 +2091,10 @@ tr.grp-drag-over td { box-shadow: inset 0 2px 0 var(--gold) !important; }
 
 /* 卓 */
 .table-cell { min-width: 42px; text-align: center; }
+/* VIP席名を選択肢に並べると select が最長候補に合わせて広がり、卓列が横に伸びる。
+   横に長いリスト表では実害になるので上限を切る（2026-07-26。数字の卓=34px／「VIP A」=42px が収まる幅） */
+#list-table .table-cell select,
+#past-table .table-cell select { max-width: 64px; }
 
 /* 回し */
 .rot-cell { min-width: 62px; }
@@ -5025,7 +5029,7 @@ const UsbStore = {
     return this._dirName || this._dirHandle?.name || '';
   },
 
-  async activateWithPicker() {
+  async activateWithPicker(opts = {}) {
     if (!this.isSupported()) {
       this._toast('このブラウザは非対応です。Chrome/Edgeをご利用ください');
       return false;
@@ -5033,23 +5037,99 @@ const UsbStore = {
     const beforeActive = this.active;
     const current = Persist.exportAll();
     const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
+    const hasData = await this._probeHasData(handle);
     this._dirHandle = handle;
     this._dirName = handle.name || '';
     this.cache = { ...current };
     this.active = false;
     try {
+      if (hasData && opts.mode === 'boot') {
+        await this._saveHandle(handle);
+        await this.hydrate();
+        this._toast('このフォルダの保存データを読み込みました');
+        return true;
+      }
+      if (hasData) {
+        const proceed = confirm(`このフォルダには既にNightListのデータがあります。
+
+　フォルダ名: ${handle.name || ''}
+
+このまま進めると、フォルダの中のデータは
+いまこの画面のデータで置き換わります。
+
+置き換える前の状態は「消えた営業日を戻す」から戻せます。`);
+        if (!proceed) {
+          this.active = beforeActive;
+          return false;
+        }
+      }
       await this._saveHandle(handle);
       await this._takeOwnership();
+      if (hasData) {
+        try {
+          await this._archiveListStateForMigration(handle, current);
+        } catch (e) {
+          e.code = 'RECOVERY_ARCHIVE_FAILED';
+          throw e;
+        }
+      }
       this.active = true;
       await this.flush(Object.keys(Persist.KEYS));
       this._toast('以後のデータはUSB側に保存されます');
       return true;
     } catch (e) {
       this.active = beforeActive;
-      this._toast('USBフォルダへの移行に失敗しました');
+      this._toast(e?.code === 'RECOVERY_ARCHIVE_FAILED'
+        ? '退避に失敗したため中止しました'
+        : 'USBフォルダへの移行に失敗しました');
       console.error('[UsbStore] activate failed:', e);
       throw e;
     }
+  },
+
+  async _probeHasData(handle) {
+    for (const probe of ['listState', 'settings', 'customers']) {
+      try { await handle.getFileHandle(this.FILES[probe]); return true; }
+      catch (_) {}
+    }
+    return false;
+  },
+
+  async _readHandleFile(handle, name) {
+    try {
+      const fh = await handle.getFileHandle(this.FILES[name]);
+      return await (await fh.getFile()).text();
+    } catch (e) {
+      if (e && (e.name === 'NotFoundError' || e.name === 'NotFoundError DOMException')) return null;
+      throw e;
+    }
+  },
+
+  async _archiveListStateForMigration(handle, current) {
+    const listStateRaw = await this._readHandleFile(handle, 'listState');
+    if (listStateRaw === null) return;
+    const listState = JSON.parse(listStateRaw);
+    if (!listState || !Array.isArray(listState.rows)) throw new Error('invalid-list-state');
+    const parseRecovery = raw => {
+      if (raw === null || raw === undefined || raw === '') return [];
+      const parsed = JSON.parse(raw);
+      if (parsed === null) return [];
+      if (!Array.isArray(parsed)) throw new Error('invalid-recovery');
+      return parsed;
+    };
+    const targetRecovery = parseRecovery(await this._readHandleFile(handle, 'recovery'));
+    const currentRecovery = parseRecovery(current.recovery);
+    const archived = {
+      ...listState,
+      dayKey: listState.bizDayKey || getBizDayKey(),
+      savedAt: listState.savedAt || new Date().toLocaleString('ja-JP'),
+      archivedAt: new Date().toLocaleString('ja-JP'),
+    };
+    const recovery = [archived, ...targetRecovery, ...currentRecovery];
+    while (recovery.length > 90) recovery.pop();
+    const recoveryRaw = JSON.stringify(recovery);
+    await this._writeFileVerified('recovery', recoveryRaw);
+    this.cache.recovery = recoveryRaw;
   },
 
   /* 起動ゲートの「フォルダ選び直し」用。activateWithPicker と違い、
@@ -5062,11 +5142,7 @@ const UsbStore = {
       throw new Error('unsupported-browser');
     }
     const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
-    let hasData = false;
-    for (const probe of ['listState', 'settings', 'customers']) {
-      try { await handle.getFileHandle(this.FILES[probe]); hasData = true; break; }
-      catch (_) {}
-    }
+    const hasData = await this._probeHasData(handle);
     if (!hasData) {
       const err = new Error('no-data-in-folder');
       err.code = 'NO_DATA_IN_FOLDER';
@@ -5417,7 +5493,7 @@ const UsbBootGate = {
     if (!hasDirHandle) {
       overlay.querySelector('#usb-boot-select').onclick = async () => {
         try {
-          const ok = await UsbStore.activateWithPicker();
+          const ok = await UsbStore.activateWithPicker({ mode: 'boot' });
           if (ok) { overlay.remove(); resolve('usb'); return; }
           err.style.display = 'block';
           err.textContent = 'このブラウザは非対応です。Chrome / Edge で開いてください。';
@@ -6322,6 +6398,7 @@ function devSetNowTime() {
 function devClearNowTime() {
   _devNowMin = null;
   _devSetAt  = null;
+  Persist.write('devTime', null);
   try { localStorage.removeItem(Persist.KEYS.devTime); } catch(_) {}
   _lastAutoCheckMinute = -1;
   showToast('時刻オーバーライドを解除しました');
@@ -8037,18 +8114,6 @@ function calcBill(row) {
   return { subtotal: base, cash, card };
 }
 
-function autoBill(id) {
-  const row = state.rows.find(r => r.id === id);
-  if (!row) return;
-  const bill = calcBill(row);
-  pushUndo();
-  row.amountCash = String(bill.cash);
-  row.amountCard = String(bill.card);
-  renderTable();
-  saveState();
-  showToast(`計算: 小計¥${bill.subtotal.toLocaleString()} → 現金¥${bill.cash.toLocaleString()} / カード¥${bill.card.toLocaleString()}`);
-}
-
 function buildCumulMap() {
   const map = {}; let c = 0;
   state.rows.filter(r => r.isFirst).forEach(r => {
@@ -8565,10 +8630,32 @@ function payslipPrint(allCasts) {
    COLUMN OPERATIONS
 ================================================================ */
 function addRotCol()    { if (state.rotCols>=10) return; state.rotCols++; state.rows.forEach(r=>{ r.rotations.push(''); r.rotations2.push(''); }); renderTable(); saveState(); }
-function removeRotCol() { if (state.rotCols<=1)  return; state.rotCols--; state.rows.forEach(r=>{ r.rotations=r.rotations.slice(0,state.rotCols); r.rotations2=r.rotations2.slice(0,state.rotCols); }); renderTable(); saveState(); }
+function rotColHasData() {
+  const removedIdx = state.rotCols - 1;
+  return state.rows.some(r =>
+    (r.rotations?.[removedIdx] != null && r.rotations[removedIdx] !== '')
+    || (r.rotations2?.[removedIdx] != null && r.rotations2[removedIdx] !== ''));
+}
+function removeRotCol() {
+  if (state.rotCols <= 1) return;
+  if (rotColHasData()) { showToast('この列にデータが入っています。先に消してください'); return; }
+  pushUndo();
+  state.rotCols--;
+  state.rows.forEach(r => {
+    r.rotations = r.rotations.slice(0, state.rotCols);
+    r.rotations2 = r.rotations2.slice(0, state.rotCols);
+  });
+  renderTable(); saveState();
+}
 function addExtCol()    { if (state.extCols>=12) return; state.extCols++; state.rows.forEach(r=>r.extensions.push('')); renderTable(); saveState(); }
+function extColHasData() {
+  const removedIdx = state.extCols - 1;
+  return state.rows.some(r => r.extensions?.[removedIdx] != null && r.extensions[removedIdx] !== '');
+}
 function removeExtCol() {
   if (state.extCols <= 1) return;
+  if (extColHasData()) { showToast('この列にデータが入っています。先に消してください'); return; }
+  pushUndo();
   const removedIdx = state.extCols - 1;
   const changedFirstRows = state.rows.filter(r => r.isFirst && parseInt(r.extensions?.[removedIdx]) > 0);
   state.extCols--;
@@ -8576,10 +8663,19 @@ function removeExtCol() {
   changedFirstRows.forEach(syncVipFeeOrder);
   renderTable(); saveState();
 }
+/* 卓番号は「組の属性」。どの行から変えても同組全行へ適用し、undoとVIP席利用料の同期を通す。
+   （2026-07-26 修正前は触った行だけを書き換えていたため、多人数卓で卓がバラける／VIP席利用料が
+     付かない・残る／undoが1操作ぶん余計に戻る、の3症状が出ていた） */
 function updateRowTable(id, value) {
   const row = state.rows.find(r => r.id === id);
   if (!row) return;
-  row.tableNum = value;
+  if (String(row.tableNum ?? '') === String(value ?? '')) return;
+  // キャンセル時はDOM側のselectが既に動いているので、描き直して元の卓に戻す
+  if (!posConfirmTableOccupied(value, row.gid)) { renderTable(); return; }
+  pushUndo();
+  const first = state.rows.find(r => r.gid === row.gid && r.isFirst) || row;
+  state.rows.filter(r => r.gid === row.gid).forEach(r => { r.tableNum = value; });
+  syncVipFeeOrder(first);
   renderTable();
   saveState();
 }
@@ -8663,13 +8759,8 @@ function toggleHideSettled(hide) {
   if (chk) chk.checked = hide;
 }
 
-function resetDay() {
-  if (!confirm('リスト表をリセットしますか？（キャスト登録は保持）')) return;
-  resetDayCore();
-}
-
 /* 確認ダイアログを伴わない締め処理本体。
-   営業終了ボタン（resetDay）と、営業日境界をまたいだ時の自動締め（checkAutoCloseDay）から共用する */
+   営業日境界をまたいだ時の自動締め（checkAutoCloseDay）から呼ぶ */
 function resetDayCore() {
   pushUndo();
   commitSlipCounterOnClose();
@@ -8735,11 +8826,22 @@ function castOptions(sel) {
   }
   return h;
 }
+/* 卓のプルダウン。数字の卓 → VIP席 → （一覧に無い現在値）の順で並べる。
+   VIP席を出さないとリスト表からVIP席へ移動できない（2026-07-26 修正）。 */
 function tableOptions(sel) {
   let h = '<option value="">-</option>';
   for (let i=1; i<=cfg.tableMax; i++) h += `<option value="${i}"${i==sel?' selected':''}>${i}</option>`;
   const current = sel == null ? '' : String(sel);
-  if (current && !/^\d+$/.test(current)) h += `<option value="${escAttr(current)}" selected>${escHtml(current)}</option>`;
+  const vipNames = (cfg.vipEnabled && Array.isArray(cfg.vipSeats))
+    ? cfg.vipSeats.map(s => s?.name).filter(Boolean) : [];
+  vipNames.forEach(name => {
+    h += `<option value="${escAttr(name)}"${name === current ? ' selected' : ''}>${escHtml(name)}</option>`;
+  });
+  // 一覧に無い現在値（卓番号上限を下げた後の数字・廃止したVIP席名）は末尾に残して選択を維持する
+  const inRange = /^\d+$/.test(current) && Number(current) >= 1 && Number(current) <= cfg.tableMax;
+  if (current && !inRange && !vipNames.includes(current)) {
+    h += `<option value="${escAttr(current)}" selected>${escHtml(current)}</option>`;
+  }
   return h;
 }
 function extSelectHtml(id, ci, val) {
@@ -8850,14 +8952,14 @@ function rebuildHeader(visRot, visExt) {
     <th style="min-width:46px;vertical-align:middle">
       <div style="display:flex;flex-direction:column;gap:2px;align-items:center">
         <button class="col-ctrl-btn" onclick="addRotCol()">＋</button>
-        <button class="col-ctrl-btn" onclick="removeRotCol()">－</button>
+        <button class="col-ctrl-btn" onclick="removeRotCol()" ${rotColHasData() ? 'disabled title="この列にデータが入っています"' : ''}>－</button>
       </div>
     </th>
     ${extThs}
     <th style="min-width:46px;vertical-align:middle">
       <div style="display:flex;flex-direction:column;gap:2px;align-items:center">
         <button class="col-ctrl-btn" onclick="addExtCol()">＋</button>
-        <button class="col-ctrl-btn" onclick="removeExtCol()">－</button>
+        <button class="col-ctrl-btn" onclick="removeExtCol()" ${extColHasData() ? 'disabled title="この列にデータが入っています"' : ''}>－</button>
       </div>
     </th>
     <th class="gline" style="min-width:98px">料金</th>
@@ -10339,6 +10441,18 @@ function posTableDisplay(label) {
   const m = /^T-(\d+)$/.exec(String(label || ''));
   return m ? m[1] + '卓' : String(label || '');
 }
+/* 移動先の卓に別の組（未精算）がいたら確認する。相席・卓分けの運用があるためブロックはしない。
+   OK=そのまま移動 / キャンセル=移動しない を boolean で返す（2026-07-26 追加）。 */
+function posConfirmTableOccupied(tableValue, selfGid) {
+  const next = String(tableValue ?? '').trim();
+  if (!next) return true;   // 未設定（-）への変更は確認しない
+  const label = posTableLabel(next);
+  const others = state.rows.filter(r => r.isFirst && !r.settled && r.gid !== selfGid
+    && posTableLabel(r.tableNum) === label);
+  if (!others.length) return true;
+  const names = others.map(r => 'No.' + slipNoLabel(r)).join('・');
+  return confirm(posTableDisplay(label) + 'には既に ' + names + ' の伝票があります。\n同じ卓に入れますか？');
+}
 function vipFeeUnits(row, settings) {
   const src = settings || {};
   const extCount = (Array.isArray(row?.extensions) ? row.extensions : [])
@@ -10588,21 +10702,37 @@ const _SLIP_MAIN_TYPES = [
 let _posSeIdx = null;
 
 function posOpenSlipSettings() {
+  const askedGid = posBetaState.selectedGid;
   const row = posSelectedRow();
   if (!row) { showToast('伝票を選択してください'); return; }
+  // 選択していた伝票が精算済み・削除済みだと posSelectedRow() が別の伝票へ切り替える。
+  // 黙って別伝票の設定を開くと卓を取り違えるので、切り替わったことを知らせる（2026-07-26）
+  if (askedGid != null && String(askedGid) !== String(row.gid)) {
+    showToast('選択していた伝票は精算済みか削除されています。No.' + slipNoLabel(row) + ' の設定を開きます');
+  }
   const L      = _posNsmLists();
   const counts = [1,2,3,4,5,6,7,8];
   const tblStr = row.tableNum ? posTableLabel(row.tableNum) : L.table[0];
+  // 卓番号上限を下げた・VIP席名を変えた後の既存伝票は一覧に無い。
+  // そのまま indexOf すると -1→0（T-1）に潰れ、卓を触らず保存しただけでT-1へ移動してしまう。
+  const tblList = L.table.slice();
+  if (tblStr && !tblList.includes(tblStr)) tblList.push(tblStr);
   _posSeIdx = {
     gid:      row.gid,
     srcIdx:   Math.max(0, L.source.indexOf(row.source)),
     startMin: row.startMin || getNowMin(),
     cntIdx:   Math.max(0, counts.indexOf(row.gcount || 1)),
-    tblIdx:   Math.max(0, L.table.indexOf(tblStr)),
+    tblList,
+    tblIdx:   Math.max(0, tblList.indexOf(tblStr)),
     colorIdx: Math.max(0, POS_CARD_COLORS.findIndex(c => c.hex === row.posColor)),
     guestName: row.guestName || '',
   };
   _renderPosSlipEdit();
+}
+/* 伝票設定が使う卓一覧。開いた時点で作った _posSeIdx.tblList を全操作で共有する。 */
+function _posSeTableList() {
+  return (_posSeIdx && Array.isArray(_posSeIdx.tblList) && _posSeIdx.tblList.length)
+    ? _posSeIdx.tblList : _posNsmLists().table;
 }
 
 function _renderPosSlipEdit() {
@@ -10610,10 +10740,14 @@ function _renderPosSlipEdit() {
   if (!_posSeIdx) return;
   const L      = _posNsmLists();
   const counts = [1,2,3,4,5,6,7,8];
+  const tblList = _posSeTableList();
   const srcVal  = L.source[_posSeIdx.srcIdx]            || L.source[0];
   const cntVal  = counts[_posSeIdx.cntIdx]              || 1;
-  const tblVal  = L.table[_posSeIdx.tblIdx]             || L.table[0];
+  const tblVal  = tblList[_posSeIdx.tblIdx]             || tblList[0];
   const colVal  = POS_CARD_COLORS[_posSeIdx.colorIdx]   || POS_CARD_COLORS[0];
+  // どの伝票を編集中かを常時出す（取り違え防止・2026-07-26）
+  const editRow = state.rows.find(r => r.gid === _posSeIdx.gid && r.isFirst);
+  const title   = editRow ? '伝票設定　No.' + slipNoLabel(editRow) : '伝票設定';
 
   const sp = (key, label, val) =>
     `<div class="pos-nsm-row"><div class="pos-nsm-rowlabel">${escHtml(label)}</div>` +
@@ -10644,7 +10778,7 @@ function _renderPosSlipEdit() {
   ov.className = 'pos-nsm-overlay';
   ov.innerHTML =
     `<div class="pos-nsm">` +
-    `<div class="pos-nsm-header"><span>伝票設定</span>` +
+    `<div class="pos-nsm-header"><span>${escHtml(title)}</span>` +
     `<button class="pos-nsm-close" onclick="document.getElementById('pos-se-overlay').remove()">×</button></div>` +
     `<div class="pos-nsm-body">` +
       sp('src',  '会計種別',   srcVal) +
@@ -10666,7 +10800,7 @@ function posSeStep(key, delta) {
   const maps = {
     src:   [L.source,          'srcIdx'],
     cnt:   [counts,            'cntIdx'],
-    tbl:   [L.table,           'tblIdx'],
+    tbl:   [_posSeTableList(), 'tblIdx'],
     color: [POS_CARD_COLORS,   'colorIdx'],
   };
   const [list, prop] = maps[key] || [];
@@ -10687,17 +10821,21 @@ function posApplySlipEdit() {
   if (!row) return;
   const L      = _posNsmLists();
   const counts = [1,2,3,4,5,6,7,8];
+  const tblList  = _posSeTableList();
   const source   = L.source[_posSeIdx.srcIdx]           || '';
   const cnt      = counts[_posSeIdx.cntIdx]             || 1;
-  const tblStr   = L.table[_posSeIdx.tblIdx]            || '';
+  const tblStr   = tblList[_posSeIdx.tblIdx]            || '';
   const colorObj = POS_CARD_COLORS[_posSeIdx.colorIdx]  || POS_CARD_COLORS[0];
   const oldDur   = (row.endMin > row.startMin) ? (row.endMin - row.startMin) : (cfg.defStay || 40);
   const oldTableNum = String(row.tableNum ?? '');
   const oldGcount = Number(row.gcount) || 1;
+  const newTableNum = tblStr.replace(/^T-/, '');
+  // 移動先が埋まっているときだけ確認する。キャンセルならモーダルを閉じずに戻る（卓を選び直せる）
+  if (newTableNum !== oldTableNum && !posConfirmTableOccupied(newTableNum, row.gid)) return;
 
   pushUndo();
   state.rows.filter(r => r.gid === _posSeIdx.gid).forEach(r => {
-    r.tableNum = tblStr.replace(/^T-/, '');
+    r.tableNum = newTableNum;
     r.gcount   = cnt;
   });
   row.source   = source;
@@ -14359,7 +14497,7 @@ function posReportRestore(gid) {
     return;
   }
   pushUndo();
-  state.rows.filter(r => r.gid === gid).forEach(r => { r.settled = false; });
+  state.rows.filter(r => r.gid === gid).forEach(r => { r.settled = false; r.settledAt = 0; });
   saveState();
   renderTable();
   renderPOSPanel();
@@ -15534,55 +15672,6 @@ function posOrderEditSeatSet() {
 }
 
 /* ================================================================
-   POS 履歴・日報パネル（旧：オーバーレイ版、日報タブへ移行）
-================================================================ */
-function posOpenHistoryPanel() {
-  const settled = state.rows.filter(r => r.isFirst && r.settled);
-  const cashSum = settled.filter(r => r.amountMethod==='cash'||r.amountMethod==='both'||r.amountMethod==='urikake').reduce((s,r)=>s+(parseInt(r.amountCash)||0),0);
-  const cardSum = settled.filter(r => r.amountMethod==='card'||r.amountMethod==='both'||r.amountMethod==='urikake').reduce((s,r)=>s+(parseInt(r.amountCard)||0),0);
-  const urikakeSum = settled.filter(r => r.amountMethod==='urikake').reduce((s,r)=>s+(parseInt(r.amountUrikake)||0),0);
-  const total = cashSum + cardSum + urikakeSum;
-  const guests = settled.reduce((s,r)=>s+(r.gcount||1),0);
-
-  let rows = '<tr><td colspan="6" style="text-align:center;color:#5e6e90">本日の精算済み伝票はありません</td></tr>';
-  if (settled.length) {
-    rows = settled.map(r => {
-      const method = r.amountMethod || 'cash';
-      const amt = method==='card' ? (parseInt(r.amountCard)||0) : method==='urikake' ? rowSales(r) : (parseInt(r.amountCash)||0);
-      const time = minToHHMM(r.startMin) + '-' + minToHHMM(r.endMin);
-      return '<tr>'
-        + '<td>No.' + r.gid + '</td>'
-        + '<td>' + escHtml(r.source||'-') + '</td>'
-        + '<td>T-' + (r.tableNum||'?') + ' / ' + (r.gcount||1) + '名</td>'
-        + '<td>' + time + '</td>'
-        + '<td><span class="pos-hist-method ' + method + '">' + (method==='cash'?'現金':method==='card'?'カード':method==='urikake'?'売掛':'分割') + '</span></td>'
-        + '<td style="text-align:right;font-family:monospace">¥' + amt.toLocaleString() + '</td>'
-        + '</tr>';
-    }).join('');
-  }
-
-  const html = '<div class="pos-hist-overlay" id="pos-hist-overlay" onclick="if(event.target===this)document.getElementById(\'pos-hist-overlay\').remove()">'
-    + '<div class="pos-hist-panel">'
-    + '<div class="pos-hist-header">'
-    + '<div class="pos-hist-title">📊 本日の日報</div>'
-    + '<button class="pos-hist-close" onclick="document.getElementById(\'pos-hist-overlay\').remove()">×</button>'
-    + '</div>'
-    + '<div class="pos-hist-body">'
-    + '<div class="pos-hist-stats">'
-    + '<div class="pos-hist-stat"><div class="pos-hist-stat-label">来店組数</div><div class="pos-hist-stat-val">' + settled.length + '</div></div>'
-    + '<div class="pos-hist-stat"><div class="pos-hist-stat-label">来店人数</div><div class="pos-hist-stat-val">' + guests + '</div></div>'
-    + '<div class="pos-hist-stat"><div class="pos-hist-stat-label">現金</div><div class="pos-hist-stat-val">¥' + cashSum.toLocaleString() + '</div></div>'
-    + '<div class="pos-hist-stat"><div class="pos-hist-stat-label">カード</div><div class="pos-hist-stat-val">¥' + cardSum.toLocaleString() + '</div></div>'
-    + '</div>'
-    + '<div class="pos-hist-stat" style="margin-bottom:16px"><div class="pos-hist-stat-label">本日売上合計</div><div class="pos-hist-stat-val" style="color:#38cc80;font-size:28px">¥' + total.toLocaleString() + '</div></div>'
-    + '<table class="pos-hist-table"><thead><tr><th>No.</th><th>会計種別</th><th>テーブル</th><th>時刻</th><th>方法</th><th style="text-align:right">金額</th></tr></thead>'
-    + '<tbody>' + rows + '</tbody></table>'
-    + '</div></div></div>';
-  document.getElementById('pos-hist-overlay')?.remove();
-  document.body.insertAdjacentHTML('beforeend', html);
-}
-
-/* ================================================================
    POS レシート印刷（独立ウィンドウ）
 ================================================================ */
 /* 指名種別判定：オーダーの指名アイテムから本指名/場内/同伴を判定 */
@@ -16401,13 +16490,8 @@ function renderPastTable() {
     }
     return h;
   }
-  function pTableOpts(sel) {
-    let h = '<option value="">-</option>';
-    for (let i = 1; i <= cfg.tableMax; i++) h += `<option value="${i}"${i==sel?' selected':''}>${i}</option>`;
-    const current = sel == null ? '' : String(sel);
-    if (current && !/^\d+$/.test(current)) h += `<option value="${escAttr(current)}" selected>${escHtml(current)}</option>`;
-    return h;
-  }
+  // リスト表と同じ選択肢（数字の卓＋VIP席＋一覧に無い現在値）を使う（2026-07-26）
+  function pTableOpts(sel) { return tableOptions(sel); }
   function pExtSel(id, ci, val) {
     const opts = ['', ...cfg.extOptions].map(v =>
       `<option value="${v}"${String(v)===String(val)?' selected':''}>${v||'-'}</option>`).join('');
@@ -16634,11 +16718,15 @@ function onPastAmountBlur(id, field, input) {
   }
   renderPastTable();
 }
+/* 卓番号は組の属性なので同組全行へ適用する（2026-07-26 修正前は触った行だけだった）。
+   VIP席利用料の再同期はしない（過去リストは精算済みの確定データ。過去の会計を自動で書き換えない）。
+   undoは対象外（pushUndoの守備範囲は state.rows。ここは pastState）。戻すときは保存せずに閉じる。 */
 function pastUpdateRowTable(id, value) {
   if (!pastState) return;
   const row = pastState.rows.find(r => r.id === id);
   if (!row) return;
-  row.tableNum = value;
+  pastState.rows.filter(r => r.gid === row.gid).forEach(r => { r.tableNum = value; });
+  renderPastTable();
 }
 /* 過去リストの行データ更新（同組への波及含む） */
 function pastUpdateRow(id, field, value) {
@@ -16724,6 +16812,10 @@ function pastCancelSettle(id) {
   if (!pastState) return;
   const r = pastState.rows.find(r => r.id === id);
   if (!r) return;
+  if (r.amountMethod === 'urikake' && !urikakeRevokeByRowId(r.id)) {
+    showToast('売掛台帳の取消に失敗しました');
+    return;
+  }
   r.settled = false;
   r.settledAt = 0;
   renderPastTable();
@@ -16736,6 +16828,11 @@ function pastAddRotCol() {
 }
 function pastRemRotCol() {
   if (!pastState || pastState.rotCols <= 1) return;
+  const removedIdx = pastState.rotCols - 1;
+  const hasData = pastState.rows.some(r =>
+    (r.rotations?.[removedIdx] != null && r.rotations[removedIdx] !== '')
+    || (r.rotations2?.[removedIdx] != null && r.rotations2[removedIdx] !== ''));
+  if (hasData) { showToast('この列にデータが入っています。先に消してください'); return; }
   pastState.rotCols--;
   pastState.rows.forEach(r => {
     r.rotations = r.rotations.slice(0, pastState.rotCols);
@@ -16751,6 +16848,10 @@ function pastAddExtCol() {
 }
 function pastRemExtCol() {
   if (!pastState || pastState.extCols <= 1) return;
+  const removedIdx = pastState.extCols - 1;
+  const hasData = pastState.rows.some(r =>
+    r.extensions?.[removedIdx] != null && r.extensions[removedIdx] !== '');
+  if (hasData) { showToast('この列にデータが入っています。先に消してください'); return; }
   pastState.extCols--;
   pastState.rows.forEach(r => {
     r.extensions = r.extensions.slice(0, pastState.extCols);
@@ -17846,7 +17947,7 @@ function renderSettingsPanel() {
 
 async function usbSettingsActivate() {
   try {
-    await UsbStore.activateWithPicker();
+    await UsbStore.activateWithPicker({ mode: 'migrate' });
     renderSettingsPanel();
   } catch (e) {
     console.error('[settings] USB activate failed:', e);
