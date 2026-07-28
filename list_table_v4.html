@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.33">
+<meta name="app-version" content="1.0.34">
 <title>リスト表 v4</title>
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
      フォントはOS内蔵にフォールバックする（--font/--monoのスタック参照）。 -->
@@ -8663,19 +8663,34 @@ function removeExtCol() {
   changedFirstRows.forEach(syncVipFeeOrder);
   renderTable(); saveState();
 }
-/* 卓番号は「組の属性」。どの行から変えても同組全行へ適用し、undoとVIP席利用料の同期を通す。
-   （2026-07-26 修正前は触った行だけを書き換えていたため、多人数卓で卓がバラける／VIP席利用料が
-     付かない・残る／undoが1操作ぶん余計に戻る、の3症状が出ていた） */
+// 卓番号は組の属性。先頭行の変更は個別化されていない行へ伝播し、undoとVIP席利用料の同期を通す
+// （2026-07-26修正の3症状を再発させない）。_indivTable の行は個別卓として独立し、
+// 組と同じ卓を選ぶと自動で追従に戻る。
 function updateRowTable(id, value) {
   const row = state.rows.find(r => r.id === id);
   if (!row) return;
   if (String(row.tableNum ?? '') === String(value ?? '')) return;
-  // キャンセル時はDOM側のselectが既に動いているので、描き直して元の卓に戻す
-  if (!posConfirmTableOccupied(value, row.gid)) { renderTable(); return; }
-  pushUndo();
   const first = state.rows.find(r => r.gid === row.gid && r.isFirst) || row;
-  state.rows.filter(r => r.gid === row.gid).forEach(r => { r.tableNum = value; });
-  syncVipFeeOrder(first);
+  if (row.isFirst || !row._indivTable) {
+    // キャンセル時はDOM側のselectが既に動いているので、描き直して元の卓に戻す
+    if (!posConfirmTableOccupied(value, row.gid)) { renderTable(); return; }
+    pushUndo();
+    state.rows.filter(r => r.gid === row.gid && !r._indivTable)
+      .forEach(r => { r.tableNum = value; });
+    syncVipFeeOrder(first);
+  } else {
+    pushUndo();
+    row.tableNum = value;
+    row._indivTable = String(value ?? '') !== String(first.tableNum ?? '');
+  }
+  renderTable();
+  saveState();
+}
+function enableIndivTable(id) {
+  const row = state.rows.find(r => r.id === id);
+  if (!row || row.isFirst) return;
+  pushUndo();
+  row._indivTable = true;
   renderTable();
   saveState();
 }
@@ -9097,7 +9112,12 @@ function renderTable() {
           <button type="button" class="sub-del" onclick="removeSubCast('${row.id}',${si})">✕</button>
         </div>`;
     });
-    const tableCell = `<td class="table-cell"><select class="${row.tableNum ? '' : 'is-empty'}" onchange="updateRowTable('${row.id}',this.value)">${tableOptions(row.tableNum)}</select></td>`;
+    const hasDiffTable = !row.isFirst && grpFirstRow
+      && String(row.tableNum ?? '') !== String(grpFirstRow.tableNum ?? '');
+    const showTableSel = row.isFirst || row._indivTable || hasDiffTable;
+    const tableCell = showTableSel
+      ? `<td class="table-cell"><select class="${row.tableNum ? '' : 'is-empty'}" onchange="updateRowTable('${row.id}',this.value)">${tableOptions(row.tableNum)}</select></td>`
+      : `<td class="table-cell"><span class="vline" style="cursor:pointer;color:var(--bdr3)" title="クリックで個別卓を設定" onclick="enableIndivTable('${row.id}')">│</span></td>`;
 
     let rotCells = '';
     for (let ci=0; ci<visRot; ci++) {
@@ -10835,7 +10855,7 @@ function posApplySlipEdit() {
 
   pushUndo();
   state.rows.filter(r => r.gid === _posSeIdx.gid).forEach(r => {
-    r.tableNum = newTableNum;
+    if (!r._indivTable) r.tableNum = newTableNum;
     r.gcount   = cnt;
   });
   row.source   = source;
@@ -16718,14 +16738,20 @@ function onPastAmountBlur(id, field, input) {
   }
   renderPastTable();
 }
-/* 卓番号は組の属性なので同組全行へ適用する（2026-07-26 修正前は触った行だけだった）。
-   VIP席利用料の再同期はしない（過去リストは精算済みの確定データ。過去の会計を自動で書き換えない）。
-   undoは対象外（pushUndoの守備範囲は state.rows。ここは pastState）。戻すときは保存せずに閉じる。 */
+// VIP席利用料の再同期はしない（過去リストは精算済みの確定データ）。
+// undoは対象外（pushUndoの守備範囲はstate.rows。ここはpastState）。戻すときは保存せずに閉じる。
 function pastUpdateRowTable(id, value) {
   if (!pastState) return;
   const row = pastState.rows.find(r => r.id === id);
   if (!row) return;
-  pastState.rows.filter(r => r.gid === row.gid).forEach(r => { r.tableNum = value; });
+  const first = pastState.rows.find(r => r.gid === row.gid && r.isFirst) || row;
+  if (row.isFirst) {
+    pastState.rows.filter(r => r.gid === row.gid && !r._indivTable)
+      .forEach(r => { r.tableNum = value; });
+  } else {
+    row.tableNum = value;
+    row._indivTable = String(value ?? '') !== String(first.tableNum ?? '');
+  }
   renderPastTable();
 }
 /* 過去リストの行データ更新（同組への波及含む） */
