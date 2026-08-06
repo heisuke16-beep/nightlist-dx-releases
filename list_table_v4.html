@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.34">
+<meta name="app-version" content="1.0.35">
 <title>リスト表 v4</title>
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
      フォントはOS内蔵にフォールバックする（--font/--monoのスタック参照）。 -->
@@ -4033,7 +4033,16 @@ html[data-display="tablet"] #list-table .col-ctrl-btn { min-width: 32px; min-hei
   font-weight: 800;
   letter-spacing: .05em;
 }
-#pos-panel .pos-order-slip-people { color: var(--pos-tx2); font-size: 12px; }
+#pos-panel .pos-order-slip-table small { font-size: 14px; font-weight: 700; letter-spacing: 0; margin-left: 2px; }
+#pos-panel .pos-order-slip-people {
+  display: flex; flex-direction: column; align-items: center;
+  align-self: center; min-height: 42px; padding: 4px 12px;
+  background: var(--pos-panel2); border: 1px solid var(--pos-line); border-radius: 9px;
+  color: var(--pos-tx2); cursor: pointer; font: inherit;
+}
+#pos-panel .pos-order-slip-people small { font-size: 9px; font-weight: 500; letter-spacing: .08em; }
+#pos-panel .pos-order-slip-people b { font-family: var(--mono); font-size: 17px; letter-spacing: .04em; color: var(--pos-tx); }
+#pos-panel .pos-order-slip-people:active { border-color: var(--pos-amber); }
 #pos-panel .pos-order-slip-elapsed,
 #pos-panel .pos-order-slip-remain {
   display: flex;
@@ -5970,10 +5979,115 @@ const AuthGate = {
 ================================================================ */
 // 配信元は全店舗共通の単一チャンネル（店舗ごとに変える理由がないため内蔵化）
 const SELF_UPDATE_URL = 'https://raw.githubusercontent.com/heisuke16-beep/nightlist-dx-releases/main/version.json';
+const SELF_UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+let selfUpdateDismissedVersion = null;
 
 const SelfUpdate = {
   currentVersion() {
     return document.querySelector('meta[name="app-version"]')?.content || 'unknown';
+  },
+
+  startAutoCheck() {
+    if (this._autoCheckStarted) return;
+    this._autoCheckStarted = true;
+    const check = () => {
+      this._checkForUpdateNotification().catch(e => console.warn('[SelfUpdate] auto check failed:', e));
+    };
+    setTimeout(() => {
+      check();
+      setInterval(check, SELF_UPDATE_CHECK_INTERVAL_MS);
+    }, 5000);
+  },
+
+  async _checkForUpdateNotification() {
+    try {
+      const versionRes = await fetch(SELF_UPDATE_URL, { cache: 'no-store' });
+      if (!versionRes.ok) throw new Error('version.json fetch failed');
+      const info = this._validateVersionInfo(await versionRes.json());
+      const current = this.currentVersion();
+      if (this._shouldNotify(current, info, selfUpdateDismissedVersion)) {
+        this._showUpdateNotification(info.version, current);
+      }
+    } catch (e) {
+      console.warn('[SelfUpdate] auto check failed:', e);
+    }
+  },
+
+  _shouldNotify(currentVersion, remoteInfo, dismissedVersion) {
+    if (!remoteInfo || typeof remoteInfo !== 'object') return false;
+    if (!this._isSemver(currentVersion) || !this._isSemver(remoteInfo.version)) return false;
+    const current = this._parseSemver(currentVersion);
+    const remote = this._parseSemver(remoteInfo.version);
+    return this._compareSemver(remote, current) > 0 && remoteInfo.version !== dismissedVersion;
+  },
+
+  _showUpdateNotification(remoteVersion, currentVersion) {
+    const previous = document.getElementById('self-update-notification');
+    if (previous?.dataset.version === remoteVersion) return;
+    if (previous) previous.remove();
+
+    const banner = document.createElement('div');
+    banner.id = 'self-update-notification';
+    banner.dataset.version = remoteVersion;
+    banner.setAttribute('role', 'status');
+    banner.style.cssText = [
+      'position:fixed', 'right:16px', 'bottom:16px', 'z-index:9700',
+      'width:min(420px,calc(100vw - 32px))', 'box-sizing:border-box',
+      'padding:16px', 'border:1px solid var(--bdr2)', 'border-radius:12px',
+      'background:var(--sur2)', 'color:var(--tx)',
+      'box-shadow:0 12px 32px rgba(0,0,0,.28)',
+    ].join(';');
+
+    const message = document.createElement('div');
+    message.textContent = `🔄 新しいバージョン v${remoteVersion} が利用可能です（現在 v${currentVersion}）`;
+    message.style.cssText = 'font-size:14px;font-weight:700;line-height:1.6';
+
+    const progress = document.createElement('div');
+    progress.style.cssText = 'min-height:20px;margin-top:6px;color:var(--tx2);font-size:12px;line-height:1.5';
+
+    const actions = document.createElement('div');
+    actions.style.cssText = 'display:flex;justify-content:flex-end;gap:8px;margin-top:10px;flex-wrap:wrap';
+
+    const updateButton = document.createElement('button');
+    updateButton.type = 'button';
+    updateButton.textContent = '今すぐ更新';
+    updateButton.style.cssText = 'min-height:40px;padding:8px 16px;border:1px solid var(--gold);border-radius:8px;background:var(--gold);color:var(--bg);font:inherit;font-weight:700;cursor:pointer';
+
+    const laterButton = document.createElement('button');
+    laterButton.type = 'button';
+    laterButton.textContent = '後で';
+    laterButton.style.cssText = 'min-height:40px;padding:8px 16px;border:1px solid var(--bdr2);border-radius:8px;background:var(--sur2);color:var(--gold);font:inherit;font-weight:700;cursor:pointer';
+
+    updateButton.addEventListener('click', async () => {
+      updateButton.disabled = true;
+      updateButton.textContent = '更新中…';
+      progress.textContent = '確認中…';
+      try {
+        const result = await this.checkAndRun({
+          interactive: true,
+          onProgress: text => { progress.textContent = text; },
+        });
+        progress.textContent = result.message;
+        if (typeof showToast === 'function') showToast(result.message);
+        if (result.status === 'updated') banner.remove();
+      } catch (e) {
+        console.error('[SelfUpdate] notification update failed:', e);
+        progress.textContent = '更新に失敗しました';
+        if (typeof showToast === 'function') showToast('更新に失敗しました');
+      } finally {
+        updateButton.disabled = false;
+        updateButton.textContent = '今すぐ更新';
+      }
+    });
+
+    laterButton.addEventListener('click', () => {
+      selfUpdateDismissedVersion = remoteVersion;
+      banner.remove();
+    });
+
+    actions.append(updateButton, laterButton);
+    banner.append(message, progress, actions);
+    document.body.appendChild(banner);
   },
 
   async checkAndRun(options = {}) {
@@ -6266,6 +6380,13 @@ const CFG_DEFAULTS = {
   payrollLateFineUnitMin:        15,    // 遅刻罰金の単位（分。N分ごとに1段階）
   payrollLateFineAmt:            1000,  // 遅刻罰金の単位額（円・1段階あたり）
   payrollBottleSpRate:           0.2,   // SP参考値の率（ボトル小計×rate）。最終額は手入力優先。
+  // --- ポイント設定（キャスト評価用。給与計算とは独立） ---
+  pointsEnabled: false,
+  pointRules: {
+    本指: 0, 場内: 0, 同伴: 0, 本延: 0, en20: 0, en40: 0,
+  },
+  drinkPts: { castS: 0, castM: 0, castL: 0 },
+  rankingShowAmountToCast: true,
   // --- 給与明細の締め期間 ---
   payrollPeriod:                 'month', // 'month'(1日〜末日) | 'half'(1〜15日 / 16日〜末日)
   // --- スライド時給（期間の帰属売上合計で時給を判定。空=機能オフ） ---
@@ -7303,7 +7424,7 @@ function restoreFromRecovery(idx) {
 function ROW_DEFAULTS() {
   return {
     id: '', gid: 0, slipNo: 0, gidx: 0, gcount: 1,
-    isFirst: false,
+    isFirst: false, firstRepeat: false,
     startMin: 0, endMin: 0,
     mainCast: '', mainType: 'free',
     subCasts: [],
@@ -10411,7 +10532,7 @@ const POS_BETA_CATEGORIES = [
   ['set','セット'], ['extension','延長'], ['nominate','指名'], ['dohan','同伴'], ['jonai','場内'],
   ['enshi20','延指20'], ['enshi40','延指40'], ['enshi60','延指60'], ['honen20','本延20'], ['honen40','本延40'], ['honen60','本延60'],
   ['castS','ドリンクS'], ['castM','ドリンクM'], ['castL','ドリンクL'],
-  ['shot','ショット'], ['bottle','ボトル'], ['food','フード'], ['bring','持込'], ['discount','割引'], ['kitaku','退席']
+  ['shot','ショット'], ['bottle','ボトル'], ['food','フード'], ['bring','持込'], ['discount','割引']
 ];
 
 /* 保存済みlayoutを、現存する全カテゴリの一意な表示順へ解決する純関数。 */
@@ -10629,9 +10750,28 @@ function _posCalcTotal(row) {
   // よって extraTaxable には足さない（足すと二重計上）。
   return _posComputeTotals(calcBill(row).subtotal, posOrders(row), 0);
 }
+function _posAdvancePrincipalValue(advances, cardFeeRate, cardFeeRound) {
+  let cashAdv = 0, cardCutAdv = 0, cardAdvAmt = 0, cardAdvFee = 0;
+  (Array.isArray(advances) ? advances : []).forEach(a => {
+    const amt = Number(a.amount) || 0;
+    const fee = Number(a.fee) || 0;
+    if (a.method !== 'card') cashAdv += amt;
+    else if (a.feeCut === true || fee === 0) cardCutAdv += amt;
+    else {
+      cardAdvAmt += amt;
+      cardAdvFee += fee;
+    }
+  });
+  const feeOnSum = ceilAddRate(cardAdvAmt, cardFeeRate || 0, cardFeeRound || 100) - cardAdvAmt;
+  const extraFee = Math.max(0, cardAdvFee - feeOnSum);
+  return cashAdv + cardCutAdv + cardAdvAmt + extraFee;
+}
 function _posAdvancePrincipal(row) {
-  return (row && Array.isArray(row.advances) ? row.advances : [])
-    .reduce((s, a) => s + (Number(a.amount) || 0), 0);
+  return _posAdvancePrincipalValue(
+    row && Array.isArray(row.advances) ? row.advances : [],
+    cfg.cardFeeRate || 0,
+    cfg.cardFeeRound || 100
+  );
 }
 function _posDue(row) {
   if (!row) return 0;
@@ -10746,6 +10886,7 @@ function posOpenSlipSettings() {
     tblIdx:   Math.max(0, tblList.indexOf(tblStr)),
     colorIdx: Math.max(0, POS_CARD_COLORS.findIndex(c => c.hex === row.posColor)),
     guestName: row.guestName || '',
+    firstRepeat: row.firstRepeat === true,
   };
   _renderPosSlipEdit();
 }
@@ -10806,6 +10947,7 @@ function _renderPosSlipEdit() {
       sp('tbl',  'テーブル',   posTableDisplay(tblVal)) +
       spColor(colVal) +
       `<div class="pos-nsm-row"><div class="pos-nsm-rowlabel">顧客名</div><div style="padding-right:24px;width:100%"><button type="button" class="customer-picker-trigger customer-picker-trigger-pos" onclick="openCustomerPicker({current:_posSeIdx.guestName,onSelect:name=>{_posSeIdx.guestName=name;_renderPosSlipEdit();}})" title="顧客を選択">${escHtml(_posSeIdx.guestName || '＋ 顧客を追加')}</button></div></div>` +
+      `<div class="pos-nsm-row"><div class="pos-nsm-rowlabel">初リピ</div><label class="pos-nsm-check"><input type="checkbox"${_posSeIdx.firstRepeat ? ' checked' : ''} onchange="_posSeIdx.firstRepeat=this.checked"><span>⭐ 初リピ</span></label></div>` +
     `</div>` +
     `<div class="pos-nsm-footer"><button class="pos-nsm-ok" onclick="posApplySlipEdit()">保　存</button></div>` +
     `</div>`;
@@ -10861,6 +11003,7 @@ function posApplySlipEdit() {
   row.source   = source;
   row.posColor = colorObj.hex;
   row.guestName = String(_posSeIdx.guestName || '').trim();
+  row.firstRepeat = !!_posSeIdx.firstRepeat;
   row.startMin = _posSeIdx.startMin;
   row.endMin   = _posSeIdx.startMin + oldDur;
   if (String(row.tableNum ?? '') !== oldTableNum || (Number(row.gcount) || 1) !== oldGcount) syncVipFeeOrder(row);
@@ -11366,6 +11509,11 @@ function _posOrderSlipPanel(r) {
   const totals = _posComputeTotals(seatBill.subtotal, orders, 0);
   const tax = totals.cash - totals.subtotal;
   const table = r.tableNum ? posTableLabel(r.tableNum) : '-';
+  const tableDisplay = posTableDisplay(table);
+  const tableMatch = /^(\d+)卓$/.exec(tableDisplay);
+  const tableHTML = tableMatch
+    ? escHtml(tableMatch[1]) + '<small>卓</small>'
+    : escHtml(tableDisplay);
   const source = r.source || '-';
   const timer = _posDisplayTimerText(r);
   const status = _posFloorStatus(timer);
@@ -11415,8 +11563,8 @@ function _posOrderSlipPanel(r) {
   const castHistory = _posOrderCastHistory(r);
   return '<section class="pos-order-slip-panel">'
     + '<header class="pos-order-slip-head">'
-    + '<div class="pos-order-slip-headrow"><span class="pos-order-slip-table">' + escHtml(posTableDisplay(table)) + '</span>'
-    + '<span class="pos-order-slip-people">' + escHtml(String(r.gcount || 1)) + '名</span>'
+    + '<div class="pos-order-slip-headrow"><span class="pos-order-slip-table">' + tableHTML + '</span>'
+    + '<button type="button" class="pos-order-slip-people" onclick="posOpenDepartedModal()" aria-label="人数を調整"><small>人数 ±</small><b>' + escHtml(String(r.gcount || 1)) + '名</b></button>'
     + '<span class="pos-order-slip-elapsed"><small>経過</small><b data-pos-elapsed-gid="' + r.gid + '">' + _posElapsedText(r) + '</b></span>'
     + (timer.text ? '<button class="pos-order-slip-remain status-' + status + '" data-gid="' + r.gid + '" onclick="' + (r.isWaiting === true ? 'posStartFromWait(' + r.gid + ')' : 'posToggleWait()') + '">' + _posOrderTimerHtml(timer) + '</button>' : '')
     + '</div>'
@@ -12250,15 +12398,17 @@ function _posCategoryDrinkPick(category) {
   const custom = (cfg.posCustomCats || []).find(c => c && c.key === category);
   return !!(custom && custom.drinkPick);
 }
-/* 退席：グループの最後のアクティブ席（最大gidxで mainType≠departed、なるべくゲスト行）を退席にする。
-   延長の課金席数が1減る（既存の延長は不変、次の延長から減る）。リスト表トグルにも「退席」が出る。 */
-function posMarkDeparted() {   // 退席ボタン → 退席モーダルを開く（誰が退席したか選ぶ）
-  const row = posSelectedRow();
-  if (!row) { showToast('伝票を選択してください'); return; }
-  if ((row.gcount || 1) < 2) { showToast('1名の卓は退席にできません'); return; }
-  posOpenDepartedModal();
-}
 function posDepartedClose() { document.getElementById('pos-departed-overlay')?.remove(); }
+function _departedAdjustFree(departedCasts, delta, gcount) {
+  const next = Array.isArray(departedCasts) ? departedCasts.slice() : [];
+  if (delta > 0) {
+    if (next.length < Math.max(0, (Number(gcount) || 1) - 1)) next.push('');
+  } else if (delta < 0) {
+    const i = next.lastIndexOf('');
+    if (i >= 0) next.splice(i, 1);
+  }
+  return next;
+}
 function posOpenDepartedModal() {
   const row = posSelectedRow();
   if (!row) return;
@@ -12281,12 +12431,17 @@ function posOpenDepartedModal() {
       '課金人数 −1／' + escHtml(d.cast) + 'の延長指名料も停止');
   }).join('');
   const freeDep = departed.filter(d => !d).length;
-  const freeBtn = rowBtn('posToggleDeparted(&quot;&quot;)', ' special',
-    '指名なしのお客様' + (freeDep ? '　✓退席 ' + freeDep + '名' : ''),
-    '課金人数 −1 のみ（指名料は継続）');
+  const freeBtn = '<div class="pos-drink-cast-btn special" style="width:100%;height:auto;padding:14px 16px">'
+    + '<div style="display:grid;grid-template-columns:52px 1fr 52px;align-items:center;gap:10px">'
+    + '<button type="button" onclick="posAdjustDepartedFree(-1)" aria-label="指名なし退席を1名減らす"'
+    + ' style="height:46px;border-radius:8px;border:1px solid var(--bdr2);background:var(--sur3);color:var(--tx);font-size:24px;font-weight:800;cursor:pointer">−</button>'
+    + '<span style="font-size:16px;font-weight:800;text-align:center">指名なしのお客様の退席 ' + freeDep + '名</span>'
+    + '<button type="button" onclick="posAdjustDepartedFree(1)" aria-label="指名なし退席を1名増やす"'
+    + ' style="height:46px;border-radius:8px;border:1px solid var(--bdr2);background:var(--sur3);color:var(--tx);font-size:24px;font-weight:800;cursor:pointer">＋</button>'
+    + '</div><div style="margin-top:8px;font-size:12.5px;color:var(--tx3);font-weight:400;text-align:center">課金人数 −1 のみ（指名料は継続）</div></div>';
   const html = '<div class="pos-co-overlay" id="pos-departed-overlay" onclick="if(event.target===this)posDepartedClose()">'
     + '<div class="pos-drink-pick" style="max-width:500px;width:94%">'
-    + '<div class="pos-drink-pick-head"><span>どのお客様が帰りましたか？</span>'
+    + '<div class="pos-drink-pick-head"><span>👥 人数の調整</span>'
     + '<button class="pos-drink-pick-close" onclick="posDepartedClose()">×</button></div>'
     + '<div style="padding:18px 20px 16px">'
     + '<div style="display:flex;flex-direction:column;gap:12px">'
@@ -12294,11 +12449,33 @@ function posOpenDepartedModal() {
     + '<div style="margin-top:16px;padding:13px 16px;background:var(--sur3);border-radius:8px;font-size:13.5px;font-weight:700;line-height:1.5">'
     + '入店 ' + (row.gcount || 1) + '名 → 次の延長から <span style="color:var(--gold2)">' + _posExtSeats(row) + '名分</span>で課金'
     + (departed.length ? '（退席 ' + departed.length + '名）' : '') + '</div>'
-    + '<div style="margin-top:12px;color:var(--tx3);font-size:12px;line-height:1.7">指名料を取り続ける場合は「指名なしのお客様」を選択。<br>もう一度押すと退席を取り消せます</div>'
+    + '<div style="margin-top:12px;color:var(--tx3);font-size:12px;line-height:1.7">指名料を取り続ける場合は「指名なしのお客様」を＋で追加。−で退席を取り消せます</div>'
+    + '<button type="button" class="pos-drink-cast-btn special" onclick="posAddGuest()"'
+    + ' style="width:100%;height:auto;margin-top:18px;padding:16px 20px;font-size:16px;font-weight:800">➕ 来客追加（+1名）</button>'
+    + '<div style="margin-top:8px;color:var(--tx3);font-size:12px;line-height:1.6">セット料金は自動で追加されません。オーダーから追加してください</div>'
     + '</div>'
     + '</div></div>';
   document.getElementById('pos-departed-overlay')?.remove();
   document.body.insertAdjacentHTML('beforeend', html);
+}
+function posAdjustDepartedFree(delta) {
+  const row = posSelectedRow(); if (!row) return;
+  const first = state.rows.find(r => r.gid === row.gid && r.isFirst) || row;
+  if (!Array.isArray(first.departedCasts)) first.departedCasts = [];
+  pushUndo();
+  const before = first.departedCasts;
+  const next = _departedAdjustFree(before, delta, row.gcount || 1);
+  if (delta > 0 && next.length === before.length) showToast('これ以上は退席にできません（最低1席）');
+  first.departedCasts = next;
+  saveState(); renderTable(); renderPOSPanel(); posOpenDepartedModal();
+}
+function posAddGuest() {
+  const row = posSelectedRow(); if (!row) return;
+  const first = state.rows.find(r => r.gid === row.gid && r.isFirst) || row;
+  pushUndo();
+  first.gcount = (Number(first.gcount) || 1) + 1;
+  syncVipFeeOrder(first);
+  saveState(); renderTable(); renderPOSPanel(); posOpenDepartedModal();
 }
 function posToggleDeparted(cast) {
   const row = posSelectedRow(); if (!row) return;
@@ -12361,19 +12538,6 @@ function posOpenDesignatedDrinkCastPick(name, amount, category) {
 }
 
 function posProductHTML(item) {
-  // 退席は商品ではなく操作なので、価格表示をやめて説明付きボタンにする（¥0商品に見える誤解を防ぐ）
-  if (item.category === 'kitaku') {
-    const row = posSelectedRow();
-    const dep = row ? _posDepartedCount(row) : 0;
-    const stateLine = (row && dep > 0)
-      ? '<span style="font-size:12px;color:var(--gold2);font-weight:700">現在 退席' + dep + '名 → 次の延長から' + _posExtSeats(row) + '名分で課金</span>'
-      : '';
-    return '<button class="pos-product" onclick="posMarkDeparted()" style="grid-column:1/-1;min-height:88px;display:flex;flex-direction:column;gap:6px;align-items:flex-start;text-align:left;padding:14px 16px">'
-      + '<span style="font-size:15px;font-weight:800">退席（先帰り）を記録する</span>'
-      + '<span style="font-size:12px;color:var(--tx3);font-weight:400">お客様の一部が先に帰ったときに使います。次の延長から課金人数（と延長指名料）が減ります。</span>'
-      + stateLine
-      + '</button>';
-  }
   const onclick = _posCategoryDrinkPick(item.category)
     ? 'posOpenDesignatedDrinkCastPick(&quot;' + escAttr(item.name) + '&quot;,' + (Number(item.amount)||0) + ',&quot;' + escAttr(item.category) + '&quot;)'
     : 'posAddItem(&quot;' + escAttr(item.name) + '&quot;,' + (Number(item.amount)||0) + ',&quot;' + escAttr(item.category) + '&quot;)';
@@ -12437,7 +12601,6 @@ function posCategoryItems(category, row) {
     food: [{ name:'フード100', amount:100, category }, { name:'フード1000', amount:1000, category }],
     bring: [{ name:'持込100', amount:100, category }, { name:'持込500', amount:500, category }, { name:'持込1000', amount:1000, category }],
     discount: [{ name:'割引100', amount:-100, category }, { name:'割引1000', amount:-1000, category }, { name:'割増100', amount:100, category }, { name:'割増1000', amount:1000, category }, { name:'領収書', amount:0, category }],
-    kitaku: [{ name:'退席', amount:0, category }],
     cust_1: [{ name:'テーブルチャージ', amount:1000, category }, { name:'カラオケ1曲', amount:200, category }]
   };
   // カスタムメニューが設定されていればそちらを優先（静的5カテゴリ＋店舗独自カテゴリ）
@@ -12468,7 +12631,7 @@ function posCreateSlip(count) {
 }
 
 /* ---- 新規伝票モーダル（スピナー形式） ---- */
-let _posNsmIdx = { source: 0, count: 0, table: 0, cast: 0, color: 0, waiting: false };
+let _posNsmIdx = { source: 0, count: 0, table: 0, cast: 0, color: 0, waiting: false, firstRepeat: false };
 
 function _posNsmLists() {
   const casts = posActiveCastList();
@@ -12561,6 +12724,7 @@ function posMenuAddItem(key) {
     <td><input type="text" class="pos-me-name-input" value="" placeholder="メニュー名"></td>
     <td><input type="number" class="pos-me-price-input" value="" step="${_posMenuStep}" placeholder="金額"></td>
     <td><input type="text" class="pos-me-back-input" value="" placeholder="額 or %"></td>
+    <td><input type="number" class="pos-me-pt-input" value="" step="1" placeholder="0"></td>
     <td><button type="button" class="pos-me-del" onclick="posMenuDelItem(this)">削除</button></td>`;
   tbody.appendChild(tr);
   tr.querySelector('.pos-me-name-input').focus();
@@ -12642,6 +12806,7 @@ function _posMenuEditorHTML(key, label, items, open = false) {
     <td><input type="text" class="pos-me-name-input" value="${escAttr(item.name)}" placeholder="メニュー名"></td>
     <td><input type="number" class="pos-me-price-input" value="${Number(item.amount) || 0}" step="${_posMenuStep}" placeholder="金額"></td>
     <td><input type="text" class="pos-me-back-input" value="${escAttr(item.back || '')}" placeholder="額 or %"></td>
+    <td><input type="number" class="pos-me-pt-input" value="${Number.isFinite(Number(item.pt)) && Number(item.pt) !== 0 ? Math.trunc(Number(item.pt)) : ''}" step="1" placeholder="0"></td>
     <td><button type="button" class="pos-me-del" onclick="posMenuDelItem(this)">削除</button></td>
   </tr>`).join('');
   const openAttr = open ? ' open' : '';
@@ -12649,7 +12814,7 @@ function _posMenuEditorHTML(key, label, items, open = false) {
     <details class="pos-me-acc"${openAttr}>
       <summary><span class="settings-label pos-menu-editor-label" style="font-weight:700">${escHtml(label)}</span></summary>
       <table class="pos-me-table" id="cfg-posMenu-${escAttr(key)}-tbl">
-        <thead><tr><th style="width:28px"></th><th>メニュー名</th><th style="width:110px">金額（円）</th><th style="width:90px">バック</th><th style="width:56px"></th></tr></thead>
+        <thead><tr><th style="width:28px"></th><th>メニュー名</th><th style="width:110px">金額（円）</th><th style="width:90px">バック</th><th style="width:70px">pt</th><th style="width:56px"></th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
       <button type="button" class="pos-me-add-btn" onclick="posMenuAddItem('${key}')">＋ 追加</button>
@@ -12690,7 +12855,7 @@ function posCatDelete(key) {
 }
 
 function posOpenNewSlipModal(tableIndex) {
-  _posNsmIdx = { source: 0, count: 0, table: 0, cast: 0, color: 0, waiting: false, douban: false, startMin: getNowMin() };
+  _posNsmIdx = { source: 0, count: 0, table: 0, cast: 0, color: 0, waiting: false, firstRepeat: false, douban: false, startMin: getNowMin() };
   const tableList = _posNsmLists().table;
   if (Number.isInteger(tableIndex) && tableIndex >= 0 && tableIndex < tableList.length) {
     _posNsmIdx.table = tableIndex;
@@ -12759,6 +12924,13 @@ function _renderPosNsm() {
           <label class="pos-nsm-check">
             <input type="checkbox"${_posNsmIdx.douban ? ' checked' : ''} onchange="posNsmToggleDouban(this.checked)">
             <span>🚗 同伴（${cfg.dohanStay || 60}分・${(Number(cfg.dohanFee) || 15000).toLocaleString()}円）</span>
+          </label>
+        </div>
+        <div class="pos-nsm-row">
+          <div class="pos-nsm-rowlabel">初リピ</div>
+          <label class="pos-nsm-check">
+            <input type="checkbox"${_posNsmIdx.firstRepeat ? ' checked' : ''} onchange="_posNsmIdx.firstRepeat=this.checked">
+            <span>⭐ 初リピ</span>
           </label>
         </div>
         ${_posNsmIdx.douban ? _posNsmCastPicker(L.cast) : ''}
@@ -12878,6 +13050,7 @@ function posConfirmNewSlip() {
     newest.startMin = _posNsmIdx.startMin;
     newest.endMin   = _posNsmIdx.startMin + (isDouban ? (Number(cfg.dohanStay) || 60) : (cfg.defStay || 40));
     newest.posManaged = true;
+    newest.firstRepeat = !!_posNsmIdx.firstRepeat;
     if (_posNsmIdx.waiting) newest.isWaiting = true;
     // 同伴一式（セット分数・同伴料・キャスト帰属）を明細へ自動投入
     if (isDouban) _posBuildDoubanOrders(newest, cast, _posNsmIdx.startMin);
@@ -13035,7 +13208,7 @@ function posOpenCheckoutPanel() {
     + '</div>'
     + '<div class="pos-co-actions">'
     + '<button class="pos-co-btn cash" onclick="posExecCheckout(\'cash\')">現金で精算<small>¥' + due.toLocaleString() + '</small></button>'
-    + '<button class="pos-co-btn card" onclick="posExecCheckout(\'card\')">カードで精算<small>¥' + dueCard.toLocaleString() + '</small></button>'
+    + '<button class="pos-co-btn card" onclick="posOpenCardSplitModal()">カードで精算<small>¥' + dueCard.toLocaleString() + '</small></button>'
     + '<button class="pos-co-btn both" onclick="posOpenSplitModal()">分割で精算</button>'
     + '<button class="pos-co-btn urikake" onclick="posOpenUrikakeModal()">売掛で精算<small>¥' + due.toLocaleString() + '</small></button>'
     + '</div>'
@@ -13044,7 +13217,7 @@ function posOpenCheckoutPanel() {
   document.body.insertAdjacentHTML('beforeend', html);
 }
 
-function posExecCheckout(method, urikakePayment) {
+function posExecCheckout(method, urikakePayment, cardAmounts) {
   const row = posSelectedRow();
   if (!row) return;
   // 併用(both)は分割精算モーダル経由が唯一の正しい経路。
@@ -13067,6 +13240,17 @@ function posExecCheckout(method, urikakePayment) {
     showToast('売掛にできる未収金がありません');
     return;
   }
+  let cardSplit = null;
+  if (method === 'card' && Array.isArray(cardAmounts)) {
+    cardSplit = cardAmounts.map(amount => Number(amount));
+    const adv = _posAdvanceTotals(row);
+    const cardDue = bd.amountCard - adv.card;
+    if (!cardSplit.length || cardSplit.some(amount => !Number.isFinite(amount) || amount <= 0)
+      || cardSplit.reduce((sum, amount) => sum + amount, 0) !== cardDue) {
+      showToast('カードの合計が請求額と一致しません');
+      return;
+    }
+  }
   // 「元に戻す」経由の再精算で旧chargeが台帳に残らないよう、この伝票の既存chargeを先に取り除く（冪等化）
   urikakeRevokeByRowId(row.id);
   if (method === 'urikake' && !urikakeAppend(_posUrikakeChargeEntry(row, bd.amountUrikake))) {
@@ -13076,7 +13260,18 @@ function posExecCheckout(method, urikakePayment) {
   pushUndo();
   row.amountMethod = bd.amountMethod;
   row.amountCash = bd.amountCash ? String(bd.amountCash) : '';
-  row.amountCard = bd.amountCard ? String(bd.amountCard) : '';
+  if (method === 'card') {
+    const adv = _posAdvanceTotals(row);
+    const firstCard = cardSplit ? cardSplit[0] : (bd.amountCard - adv.card);
+    row.amountCard = (adv.card + firstCard) ? String(adv.card + firstCard) : '';
+    row.cardEntries = cardSplit ? cardSplit.slice(1).map((amount, i) => ({
+      label: 'カード' + (i + 2),
+      amount: String(amount),
+    })) : [];
+  } else {
+    row.amountCard = bd.amountCard ? String(bd.amountCard) : '';
+    row.cardEntries = [];
+  }
   row.amountUrikake = bd.amountUrikake ? String(bd.amountUrikake) : '';
   row.settled = true;
   // グループ全員を精算済みに
@@ -13207,6 +13402,140 @@ function posUrikakeApply(allUrikake) {
   posExecCheckout('urikake', { paid, paidMethod: _posUrikake.paidMethod });
 }
 
+/* カード分割モーダル（今回のカード請求額を複数枚へ配分） */
+let _posCardSplit = null;
+function posOpenCardSplitModal() {
+  const row = posSelectedRow();
+  if (!row) { showToast('伝票を選択してください'); return; }
+  const bd = _posSettlementBreakdown(row, 'card');
+  const adv = _posAdvanceTotals(row);
+  const total = Math.max(0, bd.amountCard - adv.card);
+  if (total === 0) { posExecCheckout('card'); return; }
+  _posCardSplit = { gid: row.gid, total, amounts: [total], active: 0 };
+  document.getElementById('pos-card-split-overlay')?.remove();
+  document.body.insertAdjacentHTML('beforeend',
+    '<div class="pos-co-overlay" id="pos-card-split-overlay" onclick="if(event.target===this)posCardSplitClose()"></div>');
+  document.addEventListener('keydown', _posCardSplitKeydown);
+  _posCardSplitRender();
+}
+
+function posCardSplitClose() {
+  document.getElementById('pos-card-split-overlay')?.remove();
+  document.removeEventListener('keydown', _posCardSplitKeydown);
+  _posCardSplit = null;
+}
+
+function _posCardSplitKeydown(e) {
+  if (!_posCardSplit) return;
+  if (e.key >= '0' && e.key <= '9') { posCardSplitKey(e.key); e.preventDefault(); }
+  else if (e.key === 'Backspace') { posCardSplitKey('back'); e.preventDefault(); }
+  else if (e.key === 'Delete') { posCardSplitKey('clear'); e.preventDefault(); }
+  else if (e.key === 'Enter') { posCardSplitApply(); e.preventDefault(); }
+  else if (e.key === 'Escape') { posCardSplitClose(); e.preventDefault(); }
+}
+
+function _posCardSplitRecalc() {
+  if (!_posCardSplit || !_posCardSplit.amounts.length) return;
+  const last = _posCardSplit.amounts.length - 1;
+  const used = _posCardSplit.amounts.slice(0, last).reduce((sum, amount) => sum + (Number(amount) || 0), 0);
+  _posCardSplit.amounts[last] = _posCardSplit.total - used;
+}
+
+function _posCardSplitValid() {
+  if (!_posCardSplit || !_posCardSplit.amounts.length) return false;
+  const amounts = _posCardSplit.amounts;
+  return amounts.every(amount => Number(amount) > 0)
+    && amounts.reduce((sum, amount) => sum + Number(amount), 0) === _posCardSplit.total;
+}
+
+function _posCardSplitRender() {
+  const ov = document.getElementById('pos-card-split-overlay');
+  if (!ov || !_posCardSplit) return;
+  const last = _posCardSplit.amounts.length - 1;
+  const valid = _posCardSplitValid();
+  const key = (k, lbl, cls) => '<button class="pos-split-key' + (cls ? ' ' + cls : '') + '" onclick="posCardSplitKey(\'' + k + '\')">' + lbl + '</button>';
+  const rows = _posCardSplit.amounts.map((amount, i) => {
+    const isLast = i === last;
+    const active = i === _posCardSplit.active;
+    return '<div class="pos-split-field card' + (active ? ' active' : '') + '" onclick="posCardSplitSelect(' + i + ')" style="position:relative">'
+      + '<div class="pos-split-field-label">カード' + (i + 1) + (active ? ' ●' : '') + (isLast ? '（残額・自動）' : '') + '</div>'
+      + '<div class="pos-split-field-val">¥' + Number(amount).toLocaleString() + '</div>'
+      + (_posCardSplit.amounts.length > 1 ? '<button class="pos-co-close" style="position:absolute;right:8px;top:6px" onclick="event.stopPropagation();posCardSplitRemove(' + i + ')">×</button>' : '')
+      + '</div>';
+  }).join('');
+  ov.innerHTML = '<div class="pos-co-panel">'
+    + '<div class="pos-co-header"><div class="pos-co-title">💳 カード分割 — 請求額 ¥' + _posCardSplit.total.toLocaleString() + '</div>'
+    + '<button class="pos-co-close" onclick="posCardSplitClose()">×</button></div>'
+    + '<div class="pos-co-body">'
+    + '<div class="pos-split-fields" style="display:grid;grid-template-columns:1fr">' + rows + '</div>'
+    + '<div class="pos-co-actions"><button class="pos-co-btn both" onclick="posCardSplitAdd()">＋ カードを追加</button></div>'
+    + '<div class="pos-split-keypad">'
+    + key('7','7') + key('8','8') + key('9','9')
+    + key('4','4') + key('5','5') + key('6','6')
+    + key('1','1') + key('2','2') + key('3','3')
+    + key('00','00') + key('0','0') + key('back','⌫','fn')
+    + '</div>'
+    + '<div class="pos-split-keypad" style="grid-template-columns:1fr"><button class="pos-split-key fn" onclick="posCardSplitKey(\'clear\')">クリア</button></div>'
+    + '<div class="pos-co-actions">'
+    + '<button class="pos-co-btn card" onclick="posCardSplitApply()"' + (valid ? '' : ' disabled') + '>精算する</button>'
+    + '<button class="pos-co-btn cancel" onclick="posCardSplitClose()">キャンセル</button>'
+    + '</div></div></div>';
+}
+
+function posCardSplitSelect(index) {
+  if (!_posCardSplit || index < 0 || index >= _posCardSplit.amounts.length) return;
+  _posCardSplit.active = index;
+  _posCardSplitRender();
+}
+
+function posCardSplitAdd() {
+  if (!_posCardSplit) return;
+  const previousLast = _posCardSplit.amounts.length - 1;
+  _posCardSplit.amounts.push(0);
+  _posCardSplit.active = previousLast;
+  _posCardSplitRecalc();
+  _posCardSplitRender();
+}
+
+function posCardSplitRemove(index) {
+  if (!_posCardSplit || _posCardSplit.amounts.length <= 1 || index < 0 || index >= _posCardSplit.amounts.length) return;
+  _posCardSplit.amounts.splice(index, 1);
+  _posCardSplit.active = Math.min(_posCardSplit.active, _posCardSplit.amounts.length - 1);
+  _posCardSplitRecalc();
+  _posCardSplitRender();
+}
+
+function posCardSplitKey(k) {
+  if (!_posCardSplit) return;
+  const index = _posCardSplit.active;
+  const last = _posCardSplit.amounts.length - 1;
+  if (index === last) { showToast('最終行は残額を自動計算します'); return; }
+  let v = Number(_posCardSplit.amounts[index]) || 0;
+  if (k === 'back') v = Math.floor(v / 10);
+  else if (k === 'clear') v = 0;
+  else if (k === '00') v = v * 100;
+  else v = v * 10 + Number(k);
+  v = Math.min(v, 99999999);
+  const other = _posCardSplit.amounts.slice(0, last)
+    .reduce((sum, amount, i) => sum + (i === index ? 0 : (Number(amount) || 0)), 0);
+  if (v > _posCardSplit.total - other) {
+    showToast('カード請求額を超える金額は入力できません');
+    return;
+  }
+  _posCardSplit.amounts[index] = v;
+  _posCardSplitRecalc();
+  _posCardSplitRender();
+}
+
+function posCardSplitApply() {
+  const row = posSelectedRow();
+  if (!row || !_posCardSplit) return;
+  if (!_posCardSplitValid()) { showToast('各カードの金額を確認してください'); return; }
+  const amounts = _posCardSplit.amounts.slice();
+  posExecCheckout('card', null, amounts);
+  posCardSplitClose();
+}
+
 /* 分割精算モーダル（現金／カード入力＋テンキー） */
 let _posSplit = null;
 function posOpenSplitModal() {
@@ -13310,6 +13639,7 @@ function posSplitApply() {
   row.amountMethod = (totalCash > 0 && totalCard > 0) ? 'both' : (totalCard > 0 ? 'card' : 'cash');
   row.amountCash = totalCash ? String(totalCash) : '';
   row.amountCard = totalCard ? String(totalCard) : '';
+  row.cardEntries = [];
   row.amountUrikake = '';
   // 「元に戻す」経由の再精算（分割）でも旧chargeを台帳に残さない（posExecCheckoutと同じ冪等化）
   urikakeRevokeByRowId(row.id);
@@ -13544,6 +13874,134 @@ function _posReportSorted(rows) {
 
 let reportPeriod = 'day';   // 'day' | 'week' | 'month'
 function setReportPeriod(p) { reportPeriod = p; renderReportPanel(); }
+
+let castRankingMonth = null;       // YYYYMM。nullは当月
+let castRankingSalesBase = 'total'; // subtotal | total（既存の帰属売上定義を初期値にする）
+let castRankingSort = 'sales';     // sales | points
+
+function _castRankingCurrentMonth() { return String(getLoadedDayKey() || '').slice(0, 6); }
+function _castRankingMonthKey() { return castRankingMonth || _castRankingCurrentMonth(); }
+function _castRankingShiftMonth(key, delta) {
+  const y = Number(String(key).slice(0, 4));
+  const m = Number(String(key).slice(4, 6));
+  const d = new Date(y, m - 1 + delta, 1);
+  return String(d.getFullYear()) + String(d.getMonth() + 1).padStart(2, '0');
+}
+function castRankingMoveMonth(delta) {
+  castRankingMonth = _castRankingShiftMonth(_castRankingMonthKey(), Number(delta) || 0);
+  renderReportPanel();
+}
+function castRankingSetSalesBase(value) {
+  castRankingSalesBase = value === 'total' ? 'total' : 'subtotal';
+  renderReportPanel();
+  _castRankingRefreshOverlay();
+}
+function castRankingSetSort(value) {
+  castRankingSort = value === 'points' ? 'points' : 'sales';
+  renderReportPanel();
+  _castRankingRefreshOverlay();
+}
+
+function _castRankingStoreWithLiveToday() {
+  const store = loadDailyClose();
+  const dayKey = getLoadedDayKey();
+  const record = _dailyCloseNormalizeRecord(store[dayKey]);
+  const src = {
+    dayKey,
+    rows: (state && Array.isArray(state.rows)) ? state.rows : [],
+    tt: (typeof loadTimetableState === 'function') ? loadTimetableState() : {},
+  };
+  const settled = src.rows.filter(row => row.isFirst && row.settled);
+  const agg = computeReportAgg(settled);
+  const payrollRows = computePayrollTable(settled, { dayKey, tt: src.tt });
+  const liveAuto = _dailyCloseLiveAuto(src, agg, payrollRows);
+  const auto = _dailyCloseEffectiveAuto(record, liveAuto, false);
+  return _dailyCloseStoreWithToday(store, dayKey, record, auto);
+}
+
+function _castRankingData(monthKey) {
+  return castRankingMonthTotals(_castRankingStoreWithLiveToday(), monthKey);
+}
+
+function _castRankingSortedRows(data) {
+  const salesField = castRankingSalesBase === 'total' ? 'sales' : 'salesSubtotal';
+  return (data.rows || []).slice().sort((a, b) => {
+    const primary = castRankingSort === 'points'
+      ? (Number(b.pointsTotal) || 0) - (Number(a.pointsTotal) || 0)
+      : (Number(b[salesField]) || 0) - (Number(a[salesField]) || 0);
+    if (primary) return primary;
+    return String(a.castName).localeCompare(String(b.castName), 'ja');
+  });
+}
+
+function _castRankingToggleHtml() {
+  return `<div class="cr-toggle">
+    <button type="button" class="${castRankingSalesBase === 'subtotal' ? 'active' : ''}" onclick="castRankingSetSalesBase('subtotal')">小計</button>
+    <button type="button" class="${castRankingSalesBase === 'total' ? 'active' : ''}" onclick="castRankingSetSalesBase('total')">総計</button>
+  </div><div class="cr-toggle">
+    <button type="button" class="${castRankingSort === 'sales' ? 'active' : ''}" onclick="castRankingSetSort('sales')">売上順</button>
+    <button type="button" class="${castRankingSort === 'points' ? 'active' : ''}" onclick="castRankingSetSort('points')">pt順</button>
+  </div>`;
+}
+
+function _castRankingTableHtml(data, castMode) {
+  const salesField = castRankingSalesBase === 'total' ? 'sales' : 'salesSubtotal';
+  const showAmount = !castMode || cfg.rankingShowAmountToCast !== false;
+  const rows = _castRankingSortedRows(data);
+  if (!rows.length) return '<div class="cr-empty">この月のランキングデータはありません</div>';
+  return `<div class="cr-table-wrap"><table class="cr-table"><thead><tr>
+    <th>順位</th><th>キャスト名</th>${showAmount ? '<th>売上</th>' : ''}<th>ポイント</th><th>初リピ</th>
+  </tr></thead><tbody>${rows.map((row, index) => `<tr>
+    <td class="cr-rank">${index + 1}</td><td class="cr-name">${escHtml(row.castName)}</td>
+    ${showAmount ? `<td class="cr-amount">¥${(Number(row[salesField]) || 0).toLocaleString('ja-JP')}</td>` : ''}
+    <td class="cr-points">${(Number(row.pointsTotal) || 0).toLocaleString('ja-JP')}pt</td>
+    <td>${(Number(row.firstRepeatCount) || 0).toLocaleString('ja-JP')}</td>
+  </tr>`).join('')}</tbody></table></div>`;
+}
+
+function _castRankingNoteHtml(data) {
+  return (!data.hasSubtotalData || !data.hasPointData)
+    ? '<div class="cr-note">この月のデータには小計・ポイントが記録されていません</div>' : '';
+}
+
+function _castRankingSectionHtml() {
+  if (!(typeof cfg !== 'undefined' && cfg.pointsEnabled)) return '';
+  const monthKey = _castRankingMonthKey();
+  const data = _castRankingData(monthKey);
+  const monthLabel = monthKey.slice(0, 4) + '年' + Number(monthKey.slice(4, 6)) + '月';
+  return `<section class="agg-box cr-section">
+    <style>
+      .cr-section{margin-top:18px}.cr-head,.cr-actions,.cr-month-nav,.cr-toggle{display:flex;align-items:center;gap:8px}.cr-head{justify-content:space-between;flex-wrap:wrap;margin-bottom:12px}.cr-head h3{margin:0}.cr-actions{flex-wrap:wrap}.cr-month-nav strong{min-width:100px;text-align:center}.cr-section button,.cr-overlay button{border:1px solid var(--bdr2);border-radius:7px;background:var(--sur2);color:var(--tx2);padding:6px 10px;cursor:pointer}.cr-toggle{border:1px solid var(--bdr2);border-radius:7px;overflow:hidden;gap:0}.cr-toggle button{border:0;border-radius:0}.cr-toggle button.active{background:linear-gradient(180deg,var(--gold),var(--gold2));color:#1a1410}.cr-table-wrap{overflow-x:auto}.cr-table{width:100%;border-collapse:collapse}.cr-table th,.cr-table td{border-bottom:1px solid var(--bdr);padding:10px;text-align:right}.cr-table th{font-size:12px;color:var(--tx3);background:var(--sur2)}.cr-table th:nth-child(2),.cr-table td.cr-name{text-align:left}.cr-rank{text-align:center!important;font-size:18px;font-weight:800;color:var(--gold)}.cr-points{font-weight:800;color:var(--gold)}.cr-note{margin-top:10px;color:#e5a84b;font-size:12px}.cr-empty{text-align:center;color:var(--tx3);padding:28px}
+    </style>
+    <div class="cr-head"><div><h3>🏆 月間ランキング</h3><div class="cr-month-nav"><button type="button" onclick="castRankingMoveMonth(-1)">◀ 前月</button><strong>${monthLabel}</strong><button type="button" onclick="castRankingMoveMonth(1)">翌月 ▶</button></div></div>
+      <div class="cr-actions">${_castRankingToggleHtml()}<button type="button" onclick="castRankingOpenOverlay()">📺 キャスト表示</button></div>
+    </div>
+    ${_castRankingTableHtml(data, false)}${_castRankingNoteHtml(data)}
+  </section>`;
+}
+
+function _castRankingOverlayHtml() {
+  const monthKey = _castRankingCurrentMonth();
+  const data = _castRankingData(monthKey);
+  const monthLabel = monthKey.slice(0, 4) + '年' + Number(monthKey.slice(4, 6)) + '月';
+  return `<div id="cast-ranking-overlay" class="cr-overlay" onclick="if(event.target===this)castRankingCloseOverlay()">
+    <style>
+      .cr-overlay{position:fixed;inset:0;z-index:99999;background:rgba(7,8,14,.96);color:var(--tx);padding:4vh 5vw;overflow:auto}.cr-overlay-card{max-width:1100px;margin:0 auto}.cr-overlay-head{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:22px}.cr-overlay-title h2{font-size:30px;margin:0 0 5px}.cr-overlay-title div{color:var(--tx3)}.cr-overlay-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.cr-overlay .cr-table{font-size:22px}.cr-overlay .cr-table th{font-size:15px}.cr-overlay .cr-table th,.cr-overlay .cr-table td{padding:16px}.cr-overlay .cr-rank{font-size:28px}.cr-overlay .cr-empty{font-size:20px;padding:70px}.cr-overlay .cr-note{font-size:14px;margin-top:18px}
+    </style><div class="cr-overlay-card"><div class="cr-overlay-head"><div class="cr-overlay-title"><h2>🏆 月間キャストランキング</h2><div>${monthLabel}</div></div>
+      <div class="cr-overlay-actions">${_castRankingToggleHtml()}<button type="button" onclick="castRankingCloseOverlay()">閉じる</button></div></div>
+      ${_castRankingTableHtml(data, true)}${_castRankingNoteHtml(data)}
+    </div></div>`;
+}
+
+function castRankingOpenOverlay() {
+  if (!(typeof cfg !== 'undefined' && cfg.pointsEnabled) || document.getElementById('cast-ranking-overlay')) return;
+  document.body.insertAdjacentHTML('beforeend', _castRankingOverlayHtml());
+}
+function castRankingCloseOverlay() { document.getElementById('cast-ranking-overlay')?.remove(); }
+function _castRankingRefreshOverlay() {
+  const current = document.getElementById('cast-ranking-overlay');
+  if (current) current.outerHTML = _castRankingOverlayHtml();
+}
 
 /* #15 日報で閲覧する営業日キー。null = 当日(ライブ)。過去日選択時のみ非null。 */
 let reportSelectedDay = null;
@@ -13803,11 +14261,12 @@ function computeReportAgg(settled) {
   const modoriEnchoshimeiAgg = ['enchoshimei40','jounai','none'].includes(cfg?.modoriEnchoshimeiAgg) ? cfg.modoriEnchoshimeiAgg : 'enchoshimei40';
   const prodByCast = {};
   const prodBackByCast = {};
+  const prodPointsByCast = {};
   const ensureP = c => (prodByCast[c] = prodByCast[c] || { '指':0,'同':0,'場':0,'延指20':0,'延指40':0,'本延':0,'S':0,'M':0,'L':0,'指D':0,'D':0 });
   // 指名売上：本指名/同伴で付いた卓の税込総計を、指名キャストの頭数で等分して計上（R2・卓単位）。
   // lines は卓ごとの寄与（No.X 会計種別 → その卓の税込総計）。total はその合計。
-  const nameGroups = {};   // cast -> { total, lines:{label:{qty,amt}} }
-  const ensureN = c => (nameGroups[c] = nameGroups[c] || { total:0, lines:{} });
+  const nameGroups = {};   // cast -> { total, totalSub, lines:{label:{qty,amt}} }
+  const ensureN = c => (nameGroups[c] = nameGroups[c] || { total:0, totalSub:0, lines:{} });
   // 指名売上の対象タイプ。場内(jounai)・延長指名(enchoshimei)は除外。
   const SHIMEI_NOMINATE = ['honshimei', 'douban'];
   if (modoriAgg !== 'none') SHIMEI_NOMINATE.push('modori_honshimei');
@@ -13830,6 +14289,9 @@ function computeReportAgg(settled) {
 
     // --- 指名売上：本指名/同伴で付いた卓の税込総計(現金+カード)を、指名キャストの頭数で等分して計上（R2） ---
     const tableTotal = rowSales(r);
+    const tableSubtotal = (typeof _posCalcTotal === 'function')
+      ? (Number(_posCalcTotal(r).subtotal) || 0)
+      : (Number(calcBill(r).subtotal) || 0);
     const nominators = new Set();
     if (r.mainCast && SHIMEI_NOMINATE.indexOf(r.mainType) >= 0) nominators.add(r.mainCast);
     (r.subCasts || []).forEach(sc => {
@@ -13851,6 +14313,7 @@ function computeReportAgg(settled) {
     const nomList = Array.from(nominators);
     const nomCount = nomList.length;
     let _allocated = 0;
+    let _allocatedSub = 0;
     nomList.forEach((cast, idx) => {
       nominatedCasts[cast] = true;
       const g = ensureN(cast);
@@ -13860,8 +14323,13 @@ function computeReportAgg(settled) {
       const share = (idx === nomCount - 1)
         ? (tableTotal - _allocated)
         : Math.floor(tableTotal / nomCount);
+      const shareSub = (idx === nomCount - 1)
+        ? (tableSubtotal - _allocatedSub)
+        : Math.floor(tableSubtotal / nomCount);
       _allocated += share;
+      _allocatedSub += shareSub;
       ln.qty += 1; ln.amt += share; g.total += share;
+      g.totalSub += shareSub;
     });
 
     posOrders(r).forEach(o => {
@@ -13877,8 +14345,13 @@ function computeReportAgg(settled) {
       const isDrinkCat = Object.prototype.hasOwnProperty.call(DRINK_COUNT, o.category);
       const isExcludedDrinker = (!cast || cast === 'ボーイ' || cast === 'ゲスト');
       const backYen = Number(o.back) || 0;
+      const rawPoint = Number(o.pt);
+      const pointValue = cfg.pointsEnabled && Number.isFinite(rawPoint) ? Math.trunc(rawPoint) : 0;
       if (cast && !isExcludedDrinker && !o.spShares && backYen > 0) {
         prodBackByCast[cast] = (prodBackByCast[cast] || 0) + backYen * qty;
+      }
+      if (cast && !isExcludedDrinker && !o.spShares && pointValue) {
+        prodPointsByCast[cast] = (prodPointsByCast[cast] || 0) + pointValue * qty;
       }
       if (isDrinkCat && isExcludedDrinker) {
         // ボーイ/ゲスト/指定なしのドリンクは指D/D・S/M/L 全てに計上しない（バック対象外）
@@ -13938,7 +14411,7 @@ function computeReportAgg(settled) {
 
   const total = cashSum + cardSum + urikakeSum;
   return {
-    prodByCast, prodBackByCast, nameGroups, nominatedCasts, byCategory, bySource,
+    prodByCast, prodBackByCast, prodPointsByCast, nameGroups, nominatedCasts, byCategory, bySource,
     cashCount, cardCount, urikakeCount, cashSum, cardSum, urikakeSum,
     guests, total, avg: guests ? Math.round(total/guests) : 0, count: settled.length
   };
@@ -14234,7 +14707,8 @@ function _payrollTableInnerHtml(src) {
   const CNT_COLS = [['本指','本指'],['本延','本延'],['en20','20延'],['en40','40延'],['場内','場内'],['同伴','同伴'],['指D','指D'],['D','D']];
   const deductionItems = (typeof cfg !== 'undefined' && Array.isArray(cfg.payrollDeductions)) ? cfg.payrollDeductions : [];
 
-  const tot = { prodBack: 0, back: 0, late: 0, nibarai: 0, daily: 0, deduction: 0, net: 0 };
+  const showPoints = typeof cfg !== 'undefined' && cfg.pointsEnabled === true;
+  const tot = { firstRepeat: 0, points: 0, prodBack: 0, back: 0, late: 0, nibarai: 0, daily: 0, deduction: 0, net: 0 };
   const body = rows.map(r => {
     const c = r.castName;
     const cj = escHtml(c).replace(/'/g, "\\'");
@@ -14275,6 +14749,8 @@ function _payrollTableInnerHtml(src) {
     }).join('');
 
     tot.prodBack += r.prodBack || 0;
+    tot.firstRepeat += r.firstRepeatCount || 0;
+    tot.points += r.pointsTotal || 0;
     tot.back += r.backTotal || 0;
     tot.late += r.lateFee || 0;
     tot.nibarai += r.nibarai || 0;
@@ -14295,6 +14771,8 @@ function _payrollTableInnerHtml(src) {
       + '<td>' + _payWorkLabel(r.workMinutes) + '</td>'
       + hourlyCell
       + cntCells
+      + '<td class="pay-total">' + (r.firstRepeatCount || 0).toLocaleString('ja-JP') + '</td>'
+      + (showPoints ? '<td class="pay-total">' + (r.pointsTotal || 0).toLocaleString('ja-JP') + 'pt</td>' : '')
       + '<td class="pay-amt' + (r.prodBack ? '' : ' pay-muted') + '">' + (r.prodBack ? _payYen(r.prodBack) : '—') + '</td>'
       + '<td><input type="number" class="pay-in" value="' + (r.sp || '') + '" placeholder="0" '
         + 'onchange="payrollSetSP(\'' + cj + '\', this.value)"></td>'
@@ -14312,6 +14790,8 @@ function _payrollTableInnerHtml(src) {
     + '<td class="pay-name">合計</td>'
     + '<td></td><td></td><td></td><td></td>'
     + CNT_COLS.map(() => '<td></td>').join('')
+    + '<td class="pay-total">' + tot.firstRepeat.toLocaleString('ja-JP') + '</td>'
+    + (showPoints ? '<td class="pay-total">' + tot.points.toLocaleString('ja-JP') + 'pt</td>' : '')
     + '<td class="pay-amt">' + (tot.prodBack ? _payYen(tot.prodBack) : '—') + '</td>'
     + '<td></td>'
     + '<td class="pay-total">' + _payYen(tot.back) + '</td>'
@@ -14330,6 +14810,8 @@ function _payrollTableInnerHtml(src) {
     + '<th class="pay-name">社交名</th>'
     + '<th>出勤</th><th>退勤</th><th>勤務</th><th>時間給</th>'
     + CNT_COLS.map(([, label]) => '<th>' + label + '</th>').join('')
+    + '<th>初リピ</th>'
+    + (showPoints ? '<th>ポイント</th>' : '')
     + '<th>商品B</th><th>SP</th><th>バック合計</th><th>遅刻</th><th>日払い</th><th>日給</th>'
     + (deductionItems.length
       ? deductionItems.map(item => '<th>' + escHtml(item.label || '') + '</th>').join('') + '<th>控除計</th><th>差引支給</th>'
@@ -14489,6 +14971,7 @@ function _renderReportDay() {
     ${dash}
     ${_payrollSectionHtml(src)}
     ${_dailyCloseSectionHtml(src, agg, _payRows, isPast)}
+    ${_castRankingSectionHtml()}
     <div class="pos-report-bar" style="margin-top:24px">
       <h3 class="pos-report-subtitle">
         <span style="display:block;width:3px;height:14px;background:linear-gradient(180deg,var(--gold),var(--gold2));border-radius:2px"></span>
@@ -14572,6 +15055,7 @@ function _dailyCloseNormalizeCastRows(rows) {
   const numberFields = [
     'wage', 'workMinutes', 'hourlyPay', 'sp', 'backTotal', 'lateFee', 'nibarai',
     'dailyPay', 'deductionTotal', 'netPay', 'sales', 'kyuuritsu',
+    'salesSubtotal', 'pointsTotal', 'firstRepeatCount',
   ];
   return (Array.isArray(rows) ? rows : []).map(row => {
     const src = row || {};
@@ -14692,6 +15176,39 @@ function dailyCloseMonthTotals(store, bizKey, tillFloat = 60000) {
   });
   totals.profitRate = totals.totalSales ? totals.grossProfit / totals.totalSales : null;
   return totals;
+}
+
+/* 純関数。指定した暦月の凍結済みcastRowsをキャスト名ごとに合算する。 */
+function castRankingMonthTotals(store, bizKey) {
+  const month = String(bizKey || '').slice(0, 6);
+  const byCast = {};
+  let hasSubtotalData = false;
+  let hasPointData = false;
+  Object.entries(store && typeof store === 'object' ? store : {}).forEach(([key, raw]) => {
+    if (String(key).slice(0, 6) !== month) return;
+    const rawRows = Array.isArray(raw?.frozen?.castRows) ? raw.frozen.castRows : [];
+    rawRows.forEach(row => {
+      if (Object.prototype.hasOwnProperty.call(row || {}, 'salesSubtotal')) hasSubtotalData = true;
+      if (Object.prototype.hasOwnProperty.call(row || {}, 'pointsTotal')) hasPointData = true;
+    });
+    _dailyCloseNormalizeCastRows(rawRows).forEach(row => {
+      const castName = String(row.castName || '').trim();
+      if (!castName) return;
+      const total = byCast[castName] || (byCast[castName] = {
+        castName, sales: 0, salesSubtotal: 0, pointsTotal: 0, firstRepeatCount: 0,
+      });
+      total.sales += _dailyCloseNum(row.sales);
+      total.salesSubtotal += _dailyCloseNum(row.salesSubtotal);
+      total.pointsTotal += _dailyCloseNum(row.pointsTotal);
+      total.firstRepeatCount += _dailyCloseNum(row.firstRepeatCount);
+    });
+  });
+  return {
+    month,
+    rows: Object.values(byCast).sort((a, b) => a.castName.localeCompare(b.castName, 'ja')),
+    hasSubtotalData,
+    hasPointData,
+  };
 }
 
 function loadDailyClose() {
@@ -15119,6 +15636,49 @@ function _bizAnalyticsPayments(row) {
   return { cash, card, urikake, sales: cash + card + urikake };
 }
 
+function _bizAnalyticsHonshimeiType(type) {
+  if (type === 'honshimei' || type === 'douban') return true;
+  return type === 'modori_honshimei'
+    && typeof cfg !== 'undefined' && cfg && cfg.modoriHonshimeiAgg !== 'none';
+}
+
+function _bizAnalyticsJounaiType(type) {
+  if (type === 'jounai' || type === 'enchoshimei') return true;
+  return type === 'modori_enchoshimei'
+    && typeof cfg !== 'undefined' && cfg && cfg.modoriEnchoshimeiAgg !== 'none';
+}
+
+function _bizAnalyticsRowOrders(row) {
+  return typeof posOrders === 'function'
+    ? posOrders(row)
+    : (Array.isArray(row && row.posOrders) ? row.posOrders : []);
+}
+
+function _bizAnalyticsOrderCast(order) {
+  const parts = String(order && order.name || '').split(/[:：]/);
+  return parts.length > 1 ? parts.slice(1).join(':').trim() : '';
+}
+
+/* computeReportAgg の nominatedCasts 検出と同じ3経路を、経営分析の対象卓判定にも使う。 */
+function _bizAnalyticsHasHonshimei(row) {
+  if (_bizAnalyticsHonshimeiType(row && row.mainType)) return true;
+  if ((Array.isArray(row && row.subCasts) ? row.subCasts : [])
+    .some(item => _bizAnalyticsHonshimeiType(item && item.type))) return true;
+  return _bizAnalyticsRowOrders(row).some(order => {
+    if (!/^(nominate|dohan|honen)/.test(String(order && order.category || ''))) return false;
+    const cast = _bizAnalyticsOrderCast(order);
+    return !!cast && cast !== 'ボーイ' && cast !== 'ゲスト';
+  });
+}
+
+function _bizAnalyticsSubtotal(row) {
+  const hasPosOrders = _bizAnalyticsRowOrders(row).length > 0;
+  const total = hasPosOrders && typeof _posCalcTotal === 'function'
+    ? _posCalcTotal(row)
+    : (typeof calcBill === 'function' ? calcBill(row) : null);
+  return Number(total && total.subtotal) || 0;
+}
+
 function _bizAnalyticsDay(snap) {
   const rows = _bizAnalyticsSettled(snap);
   const result = { bizKey: snap.dayKey, sales: 0, cash: 0, card: 0, urikake: 0, guests: 0, groups: rows.length };
@@ -15136,7 +15696,8 @@ function _bizAnalyticsDay(snap) {
 function bizKpiSummary(snapshots, range) {
   const snaps = _bizAnalyticsSnaps(snapshots, range);
   const rows = snaps.flatMap(_bizAnalyticsSettled);
-  let sales = 0, cash = 0, card = 0, urikake = 0, guests = 0, named = 0;
+  let sales = 0, cash = 0, card = 0, urikake = 0, guests = 0;
+  let honshimeiGroups = 0, jounaiGroups = 0, shimeiSalesTotal = 0, shimeiSalesSubtotal = 0;
   rows.forEach(row => {
     const pay = _bizAnalyticsPayments(row);
     sales += pay.sales;
@@ -15144,11 +15705,18 @@ function bizKpiSummary(snapshots, range) {
     card += pay.card;
     urikake += pay.urikake;
     guests += Number(row.gcount) || 1;
-    if ((row.mainType || 'free') !== 'free') named++;
+    if (_bizAnalyticsHonshimeiType(row.mainType)) honshimeiGroups++;
+    if (_bizAnalyticsJounaiType(row.mainType)) jounaiGroups++;
+    if (_bizAnalyticsHasHonshimei(row)) {
+      shimeiSalesTotal += pay.sales;
+      shimeiSalesSubtotal += _bizAnalyticsSubtotal(row);
+    }
   });
   const groups = rows.length;
   return {
     総売上: sales,
+    本指名売上総計: shimeiSalesTotal,
+    本指名売上小計: shimeiSalesSubtotal,
     現金計: cash,
     カード計: card,
     売掛計: urikake,
@@ -15156,11 +15724,31 @@ function bizKpiSummary(snapshots, range) {
     入客数: guests,
     組単価: groups ? Math.round(sales / groups) : 0,
     客単価: guests ? Math.round(sales / guests) : 0,
-    指名率: groups ? Math.round(named / groups * 1000) / 10 : 0,
+    本指名率: groups ? Math.round(honshimeiGroups / groups * 1000) / 10 : 0,
+    場内率: groups ? Math.round(jounaiGroups / groups * 1000) / 10 : 0,
     // スナップショットには日別のキャスト単価・給与手入力が無く、純関数では正確に再計算できない。
     キャスト給与計: null,
     給率: null,
   };
+}
+
+function bizGrossProfit(store, range, tillFloat) {
+  const start = _bizAnalyticsKey(range && range.start);
+  const end = _bizAnalyticsKey(range && range.end);
+  const entries = Array.isArray(store)
+    ? store.map((rec, index) => [String(index), rec])
+    : Object.entries(store && typeof store === 'object' ? store : {});
+  let grossProfit = 0;
+  let days = 0;
+  entries.forEach(([storeKey, rec]) => {
+    if (!rec || !rec.frozen || !(Number(rec.frozen.closedAt) > 0)) return;
+    const key = _bizAnalyticsKey(rec.dayKey || rec.bizKey || rec.date || storeKey);
+    if (!key || (start && key < start) || (end && key > end)) return;
+    const calculated = dailyCloseCalc(rec, rec.frozen, tillFloat);
+    grossProfit += Number(calculated && calculated.grossProfit) || 0;
+    days++;
+  });
+  return { grossProfit: days ? grossProfit : null, days };
 }
 
 function bizDailyTrend(snapshots, range) {
@@ -15230,6 +15818,7 @@ let analyticsPreset = '30';
 let analyticsCompare = 'off';
 let analyticsCustomStart = '';
 let analyticsCustomEnd = '';
+let analyticsShimeiBase = 'total';
 
 function _analyticsDateFromKey(key) {
   const value = _bizAnalyticsKey(key);
@@ -15313,6 +15902,11 @@ function analyticsSetCompare(mode) {
   renderBusinessAnalyticsPanel();
 }
 
+function analyticsSetShimeiBase(base) {
+  analyticsShimeiBase = base === 'subtotal' ? 'subtotal' : 'total';
+  renderBusinessAnalyticsPanel();
+}
+
 function _analyticsMoney(value) { return value == null ? '—' : `¥${Math.round(value).toLocaleString()}`; }
 
 function _analyticsBadge(current, previous, hasPrevious) {
@@ -15328,18 +15922,24 @@ function _analyticsKpiHtml(summary, previous, hasPrevious) {
   // 数値そのものは色で区別しない（数字は文字色で読む）。強調は総売上＝この画面の見出し数字のみ。
   // 良し悪しを示す色は前期比バッジ（緑↑/赤↓）だけが持つ。（2026-07-20 見直し）
   const cards = [
-    ['総売上', '総売上', 'money', 'k-hero'], ['現金', '現金計', 'money', ''], ['カード', 'カード計', 'money', ''], ['売掛', '売掛計', 'money', ''],
+    ['総売上', '総売上', 'money', 'k-hero'], ['本指名売上', '本指名売上総計', 'shimei-money', ''], ['現金', '現金計', 'money', ''], ['カード', 'カード計', 'money', ''], ['売掛', '売掛計', 'money', ''],
     ['組数', '組数', 'count', ''], ['入客数', '入客数', 'people', ''], ['組単価', '組単価', 'money', ''], ['客単価', '客単価', 'money', ''],
-    ['指名率', '指名率', 'percent', ''], ['キャスト給与計', 'キャスト給与計', 'money', ''], ['給率', '給率', 'percent', ''],
+    ['本指名率', '本指名率', 'percent', ''], ['場内率', '場内率', 'percent', ''], ['粗利', '粗利', 'money', ''],
+    ['キャスト給与計', 'キャスト給与計', 'money', ''], ['給率', '給率', 'percent', ''],
   ];
   return cards.map(([label, key, kind, cls]) => {
+    if (kind === 'shimei-money') key = analyticsShimeiBase === 'subtotal' ? '本指名売上小計' : '本指名売上総計';
     const value = summary[key];
     const display = value == null ? '—' : kind === 'money' ? _analyticsMoney(value)
+      : kind === 'shimei-money' ? _analyticsMoney(value)
       : kind === 'percent' ? `${value.toLocaleString()}%`
       : `${value.toLocaleString()}${kind === 'people' ? '名' : '組'}`;
     // 値が無いカードは沈める（枠と数字を弱め、面積で主張させない）
     const emptyCls = value == null ? ' is-blank' : '';
-    return `<div class="analytics-kpi-card ${cls}${emptyCls}"><div class="analytics-kpi-head"><span>${label}</span>${_analyticsBadge(value, previous[key], hasPrevious)}</div><strong>${display}</strong></div>`;
+    const labelTitle = label === '粗利' ? ` title="日次締めロック済み ${summary.粗利日数 || 0}日分"` : '';
+    const toggle = kind === 'shimei-money' ? `<span class="analytics-kpi-base-toggle"><button class="analytics-preset${analyticsShimeiBase === 'subtotal' ? ' active' : ''}" onclick="analyticsSetShimeiBase('subtotal')">小計</button><button class="analytics-preset${analyticsShimeiBase === 'total' ? ' active' : ''}" onclick="analyticsSetShimeiBase('total')">総計</button></span>` : '';
+    const shimeiAttr = kind === 'shimei-money' ? ` data-analytics-shimei-base="${analyticsShimeiBase}"` : '';
+    return `<div class="analytics-kpi-card ${cls}${emptyCls}"${shimeiAttr}><div class="analytics-kpi-head"><span${labelTitle}>${label}</span>${toggle}${_analyticsBadge(value, previous[key], hasPrevious)}</div><strong>${display}</strong></div>`;
   }).join('');
 }
 
@@ -15391,7 +15991,14 @@ function renderBusinessAnalyticsPanel() {
   const summary = bizKpiSummary(snapshots, range);
   const compareRange = _analyticsCompareRange(range);
   const previous = compareRange ? bizKpiSummary(snapshots, compareRange) : bizKpiSummary([], null);
-  const hasPrevious = !!(compareRange && previous.組数 > 0);
+  const dailyCloseStore = typeof loadDailyClose === 'function' ? loadDailyClose() : {};
+  const currentGrossProfit = bizGrossProfit(dailyCloseStore, range, cfg.tillFloat);
+  const previousGrossProfit = compareRange ? bizGrossProfit(dailyCloseStore, compareRange, cfg.tillFloat) : { grossProfit: null, days: 0 };
+  summary.粗利 = currentGrossProfit.grossProfit;
+  summary.粗利日数 = currentGrossProfit.days;
+  previous.粗利 = previousGrossProfit.grossProfit;
+  previous.粗利日数 = previousGrossProfit.days;
+  const hasPrevious = !!(compareRange && (previous.組数 > 0 || previousGrossProfit.days > 0));
   if (!summary.組数) {
     panel.innerHTML = `<div class="analytics-title"><h2>📈 経営分析</h2><span>${_analyticsInputDate(range.start)} 〜 ${_analyticsInputDate(range.end)}</span></div>${controls}<div class="analytics-empty">対象期間に精算データがありません</div>`;
     return;
@@ -16021,6 +16628,9 @@ function posAddItem(name, amount, category, spShares) {
   const label = String(name).indexOf(':') >= 0 ? String(name).slice(0, String(name).indexOf(':')) : String(name);
   const item = ((cfg.posMenu && cfg.posMenu[category]) || []).find(v => v.name === label);
   const backYen = (!spShares && item) ? posMenuBackYen(item.back, amt) : 0;
+  const drinkPointCategory = ['castS', 'castM', 'castL'].includes(category);
+  const rawPoint = Number(drinkPointCategory ? cfg.drinkPts?.[category] : item?.pt);
+  const pointValue = (cfg.pointsEnabled && !spShares && (drinkPointCategory || item) && Number.isFinite(rawPoint)) ? Math.trunc(rawPoint) : 0;
   // 延長(extension)はオーダー明細を作らない。延長は row.extensions を単一ソースとして
   // calcBill・_posSeatLineItems・リスト表・endMin が計上するため、オーダー明細も足すと
   // 延長料が二重計上（伝票に延長が2行・金額も倍）になる。延長は下の extensions 反映のみ行う。
@@ -16028,7 +16638,7 @@ function posAddItem(name, amount, category, spShares) {
     // 同じ明細（カテゴリ・名称・単価が一致）は数量をまとめる（SETは別経路のため対象外）
     const existing = category !== 'set' && orders.find(o =>
       o.category === category && o.name === name && (Number(o.amount) || 0) === amt &&
-      (Number(o.back) || 0) === backYen && !o.taxIncluded);
+      (Number(o.back) || 0) === backYen && (Number(o.pt) || 0) === pointValue && !o.taxIncluded);
     if (existing) {
       existing.qty = (Number(existing.qty) || 1) + 1;
       if (spShares) {
@@ -16041,6 +16651,7 @@ function posAddItem(name, amount, category, spShares) {
       const order = { id: 'po_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7), name, amount: amt, qty:1, category, createdAt:Date.now() };
       if (spShares) order.spShares = { ...spShares };
       if (backYen > 0) order.back = backYen;
+      if (pointValue) order.pt = pointValue;
       orders.push(order);
     }
   }
@@ -17612,11 +18223,20 @@ function renderSettingsPanel() {
           <div class="settings-sub" style="margin-bottom:8px">POSのボタン金額（お客様の支払額）。店ごとに違うのでここで設定します。集計の「指名売上」にも反映されます。</div>
           ${(() => {
             const P = cfg.posPrices || {};
+            const DP = cfg.drinkPts || {};
             const cell = (key, label, def) =>
               `<div style="display:flex;flex-direction:column;gap:3px">
                  <span style="font-size:11px;color:var(--tx2)">${label}</span>
                  <span style="display:inline-flex;align-items:center;gap:3px">
                    <input type="number" class="settings-input" id="cfg-posprice-${key}" value="${P[key] ?? def}" min="0" step="500" style="width:88px"><span style="font-size:11px;color:var(--tx3)">円</span>
+                 </span>
+               </div>`;
+            const drinkCell = (key, label, def) =>
+              `<div style="display:flex;flex-direction:column;gap:3px">
+                 <span style="font-size:11px;color:var(--tx2)">${label}</span>
+                 <span style="display:inline-flex;align-items:center;gap:3px">
+                   <input type="number" class="settings-input" id="cfg-posprice-${key}" value="${P[key] ?? def}" min="0" step="500" style="width:88px"><span style="font-size:11px;color:var(--tx3)">円</span>
+                   <input type="number" class="settings-input" id="cfg-drinkpt-${key}" value="${Math.trunc(Number(DP[key])) || 0}" step="1" style="width:70px"><span style="font-size:11px;color:var(--tx3)">pt</span>
                  </span>
                </div>`;
             const grp = (title, hint, cells) =>
@@ -17630,8 +18250,8 @@ function renderSettingsPanel() {
                   cell('enshi20','20分',1000) + cell('enshi40','40分',2000) + cell('enshi60','60分',3000))}
               ${grp('本延（本指名卓の延長）', '20分／40分／60分（集計では20・40＝1pt、60＝2ptで本延に集約）',
                   cell('honen20','20分',2000) + cell('honen40','40分',2000) + cell('honen60','60分',4000))}
-              ${grp('ドリンク（S／M／L）', 'S／M／L',
-                  cell('castS','S',1500) + cell('castM','M',2500) + cell('castL','L',3500))}
+              ${grp('ドリンク（S／M／L）', 'S／M／L。ポイント機能ON時のみ集計されます。',
+                  drinkCell('castS','S',1500) + drinkCell('castM','M',2500) + drinkCell('castL','L',3500))}
             </div>`;
           })()}
           <div class="settings-group-head">🍾 メニュー編集</div>
@@ -17671,6 +18291,30 @@ function renderSettingsPanel() {
             <div class="settings-label">新店オンボーディング<div class="settings-sub">下のショット／ボトル等のデフォルトメニューを一気に空にして、自店仕入れに合わせて入れ直すための操作。保存するまで反映されません。</div></div>
             <button type="button" class="btn danger" onclick="posMenuClearAllDefaults()" style="font-size:12px">🗑 全カテゴリのデフォルトメニューを削除</button>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ポイント設定 -->
+    <div class="settings-section" data-setcat="cast">
+      <div class="settings-section-header"><span class="settings-section-title">⭐ ポイント設定</span></div>
+      <div class="settings-section-body">
+        <div class="settings-row">
+          <div class="settings-label">ポイント機能<div class="settings-sub">キャスト評価用。給与計算には影響しません</div></div>
+          <label><input type="checkbox" id="cfg-pointsEnabled" ${cfg.pointsEnabled ? 'checked' : ''}> 有効にする</label>
+        </div>
+        <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:8px">
+          <div class="settings-label">指名系1回あたりのpt</div>
+          <div style="display:grid;grid-template-columns:repeat(3,minmax(130px,1fr));gap:8px;width:100%">
+            ${[['本指','本指'],['場内','場内'],['同伴','同伴'],['本延','本延'],['en20','20分延長'],['en40','40分延長']].map(([key,label]) => `
+              <label class="settings-label" style="display:flex;align-items:center;justify-content:space-between;gap:8px">${label}
+                <input type="number" class="settings-input point-rule-input" data-key="${key}" value="${Math.trunc(Number(cfg.pointRules?.[key])) || 0}" step="1" style="width:80px">
+              </label>`).join('')}
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">キャスト表示の売上額<div class="settings-sub">OFFなら順位・キャスト名・ポイントだけを表示</div></div>
+          <label><input type="checkbox" id="cfg-rankingShowAmountToCast" ${cfg.rankingShowAmountToCast !== false ? 'checked' : ''}> 売上額を表示する</label>
         </div>
       </div>
     </div>
@@ -18539,7 +19183,14 @@ function applySettings() {
       const amount = parseInt(tr.querySelector('.pos-me-price-input')?.value);
       const backRaw = tr.querySelector('.pos-me-back-input')?.value.trim();
       const back = (backRaw && /^(\d+|\d+(\.\d+)?%)$/.test(backRaw)) ? backRaw : null;
-      return (name && !isNaN(amount)) ? (back ? { name, amount, back } : { name, amount }) : null;
+      const pointInput = tr.querySelector('.pos-me-pt-input');
+      const rawPt = pointInput && pointInput.value !== '' ? Number(pointInput.value) : 0;
+      const pt = Number.isFinite(rawPt) ? Math.trunc(rawPt) : 0;
+      if (!name || isNaN(amount)) return null;
+      const item = { name, amount };
+      if (back) item.back = back;
+      if (pt) item.pt = pt;
+      return item;
     }).filter(Boolean);
     posMenu[key] = items;
   }
@@ -18549,6 +19200,11 @@ function applySettings() {
   ['enshi20','enshi40','enshi60','honen20','honen40','honen60','castS','castM','castL'].forEach(key => {
     const el = get('cfg-posprice-' + key);
     if (el && el.value !== '') { const v = parseInt(el.value); if (!isNaN(v)) posPrices[key] = v; }
+  });
+  const drinkPts = { castS:0, castM:0, castL:0 };
+  Object.keys(drinkPts).forEach(key => {
+    const value = Number(get('cfg-drinkpt-' + key)?.value);
+    drinkPts[key] = Number.isFinite(value) ? Math.trunc(value) : 0;
   });
 
   // 店舗情報
@@ -18604,6 +19260,15 @@ function applySettings() {
       value: mode === 'manual' ? 0 : (Number.isFinite(rawValue) ? rawValue : 0),
     };
   });
+  const pointsEnabled = !!get('cfg-pointsEnabled')?.checked;
+  const pointRules = { 本指:0, 場内:0, 同伴:0, 本延:0, en20:0, en40:0 };
+  document.querySelectorAll('.point-rule-input[data-key]').forEach(input => {
+    if (Object.prototype.hasOwnProperty.call(pointRules, input.dataset.key)) {
+      const value = Number(input.value);
+      pointRules[input.dataset.key] = Number.isFinite(value) ? Math.trunc(value) : 0;
+    }
+  });
+  const rankingShowAmountToCast = get('cfg-rankingShowAmountToCast')?.checked !== false;
   const defaultTheme                  = (get('cfg-defaultTheme')?.value || cfg.defaultTheme || 'aurum');
 
   // 領収書設定（文字列。空欄ならデフォルト保持）
@@ -18635,6 +19300,7 @@ function applySettings() {
     payrollLateFineUnitMin, payrollLateFineAmt, payrollBottleSpRate, payrollPeriod,
     payrollSlideTable, payrollSlideSource, payrollPeriodDeductions, payrollRoundMode, payrollRoundUnit,
     payrollDeductions,
+    pointsEnabled, pointRules, drinkPts, rankingShowAmountToCast,
     defaultTheme,
     // 伝票ロゴ: 下書きがあれば確定、なければ既存値を引き継ぐ（cfg丸ごと再構築のため明示しないと保存で消える）
     shopLogo: (_shopLogoDraft !== undefined ? _shopLogoDraft : (cfg.shopLogo || '')),
@@ -18949,6 +19615,7 @@ function syncCustomers() {
         })(),
         tags: _customerStringList(c.tags),
         birthMonth: c.birthMonth || 0, birthDay: c.birthDay || 0, birthYear: c.birthYear || 0,
+        ageBand: c.ageBand || '', occupation: c.occupation || '',
         phone: c.phone || '', workplace: c.workplace || '', referrer: c.referrer || '', holidays: c.holidays || '',
       };
     });
@@ -19203,6 +19870,8 @@ function syncCustomers() {
       birthMonth:        existing[name]?.birthMonth || 0,
       birthDay:          existing[name]?.birthDay || 0,
       birthYear:         existing[name]?.birthYear || 0,
+      ageBand:           existing[name]?.ageBand || '',
+      occupation:        existing[name]?.occupation || '',
       phone:             existing[name]?.phone || '',
       workplace:         existing[name]?.workplace || '',
       referrer:          existing[name]?.referrer || '',
@@ -19435,7 +20104,7 @@ function saveMemo(name, value) {
 }
 
 function saveCustomerProfileField(name, field, value) {
-  const allowed = ['birthMonth', 'birthDay', 'birthYear', 'phone', 'workplace', 'referrer', 'holidays', 'receiptName', 'memo'];
+  const allowed = ['birthMonth', 'birthDay', 'birthYear', 'ageBand', 'occupation', 'phone', 'workplace', 'referrer', 'holidays', 'receiptName', 'memo'];
   if (!allowed.includes(field)) return;
   const data = loadCustomers();
   if (!data[name]) return;
@@ -19493,7 +20162,8 @@ function _customerMainTypeLabel(type) {
 }
 
 function openCustomerDetail(name) {
-  const cust = loadCustomers()[name];
+  const customers = loadCustomers();
+  const cust = customers[name];
   if (!cust) return;
   const urikakeEntries = loadUrikake().filter(entry => entry.customerName === name);
   const urikakeCurrent = urikakeBalance(urikakeEntries, name);
@@ -19510,6 +20180,12 @@ function openCustomerDetail(name) {
     ? keepBottles.map(b => `<div style="padding:7px 0;border-bottom:1px solid var(--bdr);display:flex;gap:10px;justify-content:space-between"><span>${escHtml(b.brand || '—')} <small style="color:var(--tx3)">${escHtml(b.tagNo || '')}</small></span><span>${escHtml(bottleDisplayStatus(b, getBizDayKey(), cfg).label)}</span></div>`).join('')
     : '<div style="color:var(--tx3);font-size:12px">キープ中のボトルはありません</div>';
   const age = cust.birthYear ? Math.max(0, new Date().getFullYear() - cust.birthYear - ((new Date().getMonth() + 1 < cust.birthMonth || (new Date().getMonth() + 1 === cust.birthMonth && new Date().getDate() < cust.birthDay)) ? 1 : 0)) : null;
+  const ageBandOptions = ['', '10代', '20代前半', '20代後半', '30代前半', '30代後半', '40代', '50代', '60代以上'].map(value =>
+    `<option value="${escAttr(value)}"${cust.ageBand === value ? ' selected' : ''}>${value || '（未設定）'}</option>`
+  ).join('');
+  const occupationOptions = _customerStringList(Object.values(customers).map(customer => customer.occupation)).map(value =>
+    `<option value="${escAttr(value)}"></option>`
+  ).join('');
   const receiptNames = _customerStringList(cust.receiptNames);
   if (!receiptNames.length && cust.receiptName) receiptNames.push(cust.receiptName);
   const tagEditor = (cust.tags || []).map((tag, index) =>
@@ -19588,9 +20264,11 @@ function openCustomerDetail(name) {
           <label class="customer-detail-field">誕生月<input type="number" min="1" max="12" value="${cust.birthMonth || ''}" onchange="saveCustomerProfileField('${escAttr(name)}','birthMonth',this.value)"></label>
           <label class="customer-detail-field">誕生日<input type="number" min="1" max="31" value="${cust.birthDay || ''}" onchange="saveCustomerProfileField('${escAttr(name)}','birthDay',this.value)"></label>
           <label class="customer-detail-field">誕生年（任意）${age != null ? `・${age}歳` : ''}<input type="number" min="1900" max="2100" value="${cust.birthYear || ''}" onchange="saveCustomerProfileField('${escAttr(name)}','birthYear',this.value)"></label>
+          <label class="customer-detail-field">年齢層${age != null ? `・実年齢${age}歳` : ''}<select onchange="saveCustomerProfileField('${escAttr(name)}','ageBand',this.value)">${ageBandOptions}</select></label>
           <label class="customer-detail-field">電話<input type="text" value="${escAttr(cust.phone || '')}" onchange="saveCustomerProfileField('${escAttr(name)}','phone',this.value)"></label>
-          <label class="customer-detail-field">勤務先・役職<input type="text" value="${escAttr(cust.workplace || '')}" onchange="saveCustomerProfileField('${escAttr(name)}','workplace',this.value)"></label>
           <label class="customer-detail-field">紹介者<input type="text" value="${escAttr(cust.referrer || '')}" onchange="saveCustomerProfileField('${escAttr(name)}','referrer',this.value)"></label>
+          <label class="customer-detail-field">勤務先・役職<input type="text" value="${escAttr(cust.workplace || '')}" onchange="saveCustomerProfileField('${escAttr(name)}','workplace',this.value)"></label>
+          <label class="customer-detail-field">職業<input type="text" list="customer-occupation-options" value="${escAttr(cust.occupation || '')}" onchange="saveCustomerProfileField('${escAttr(name)}','occupation',this.value)"><datalist id="customer-occupation-options">${occupationOptions}</datalist></label>
           <label class="customer-detail-field">休日<input type="text" value="${escAttr(cust.holidays || '')}" onchange="saveCustomerProfileField('${escAttr(name)}','holidays',this.value)"></label>
           <label class="customer-detail-field" style="grid-column:span 2">領収書宛名（1行1件・先頭が既定）<textarea rows="3" onchange="saveCustomerReceiptNames('${escAttr(name)}',this.value)">${escHtml(receiptNames.join('\n'))}</textarea></label>
           <label class="customer-detail-field" style="grid-column:1/-1">タグ
@@ -20879,6 +21557,8 @@ async function __boot() {
       e.returnValue = '保存されていないデータがあります。閉じる前に💾保存ボタンを押してください。';
     }
   });
+
+  try { SelfUpdate.startAutoCheck(); } catch (e) { console.warn('[SelfUpdate] auto check setup failed:', e); }
 }
 __boot();
 /* ================================================================
@@ -21310,6 +21990,17 @@ function computePayrollForCast(castName, prodByCast, opts) {
   const derivedSp = spSharesTotal(opts.rows || ((typeof state !== 'undefined' && state.rows) || []), dayKey, castName);
   const sp = manualSp + derivedSp;
   const prodBack = Number((opts.prodBackByCast || {})[castName]) || 0;
+  const pointsProd = (typeof cfg !== 'undefined' && cfg.pointsEnabled)
+    ? (Number((opts.prodPointsByCast || {})[castName]) || 0) : 0;
+  const pointRules = (typeof cfg !== 'undefined' && cfg.pointRules) || {};
+  const pointKeys = ['本指','場内','同伴','本延','en20','en40'];
+  const pointsCount = (typeof cfg !== 'undefined' && cfg.pointsEnabled)
+    ? pointKeys.reduce((sum, key) => {
+        const value = Number(pointRules[key]);
+        return sum + (Number(backCounts[key]) || 0) * (Number.isFinite(value) ? Math.trunc(value) : 0);
+      }, 0)
+    : 0;
+  const pointsTotal = pointsProd + pointsCount;
   const nibarai = (opts.nibarai != null) ? (Number(opts.nibarai) || 0) : (Number(manualRec.nibarai) || 0);
 
   /* --- バック合計（SP含む。SPは円をそのまま加算） --- */
@@ -21333,9 +22024,11 @@ function computePayrollForCast(castName, prodByCast, opts) {
   /* --- 売上（給率の分母）。総計/小計フラグは将来の税サ用に保持、現状はキャスト帰属売上合計 --- */
   const nameGroups = opts.nameGroups || null;
   let sales = 0;
+  let salesSubtotal = 0;
   if (nameGroups && nameGroups[castName]) {
     const g = nameGroups[castName];
     sales = (Number(g.total) || 0) + (Number(g._setAmt) || 0); // 帰属売上（セット込み）
+    salesSubtotal = (Number(g.totalSub) || 0) + (Number(g._setAmt) || 0);
   }
   // c.kyuuritsuBase ('total'|'subtotal') は現状どちらも上記 sales を採用（厳密区別は未管理のため）。
 
@@ -21350,13 +22043,14 @@ function computePayrollForCast(castName, prodByCast, opts) {
     roundedOut: outHHMM ? roundClockOut(outHHMM) : '',
     backCounts, autoCounts, manualCounts, backAmounts,
     sp, prodBack, backTotal,
+    pointsProd, pointsCount, pointsTotal,
     lateFee, chikokuMin,
     nibarai,
     dailyPay,
     deductions: deductionResult.list,
     deductionTotal,
     netPay,
-    sales,
+    sales, salesSubtotal,
     kyuuritsu,
     kyuuritsuBase: c.kyuuritsuBase,
   };
@@ -21375,10 +22069,18 @@ function computePayrollTable(settled, opts) {
   const agg = (typeof computeReportAgg === 'function') ? computeReportAgg(settled) : { prodByCast:{}, nameGroups:{} };
   const prodByCast = agg.prodByCast || {};
   const prodBackByCast = agg.prodBackByCast || {};
+  const prodPointsByCast = agg.prodPointsByCast || {};
   const nameGroups = agg.nameGroups || {};
   const dayKey = opts.dayKey || (typeof getBizDayKey === 'function' ? getBizDayKey() : '');
   const tt = opts.tt || (typeof loadTimetableState === 'function' ? loadTimetableState() : {});
   const manual = (state.payrollManual && state.payrollManual[dayKey]) || {};
+  const firstRepeatByCast = {};
+  (settled || []).forEach(row => {
+    const castName = String(row && row.mainCast || '').trim();
+    if (row && row.isFirst && row.settled && row.firstRepeat === true && castName) {
+      firstRepeatByCast[castName] = (firstRepeatByCast[castName] || 0) + 1;
+    }
+  });
 
   // 対象キャスト集合（出勤中 + 売上/商品データに出現 + 出退勤入力あり）
   const set = {};
@@ -21394,8 +22096,11 @@ function computePayrollTable(settled, opts) {
   if (typeof castsSortedByClockIn === 'function') casts = castsSortedByClockIn(casts, tt);
   else if (typeof castsSortedByNo === 'function') casts = castsSortedByNo(casts);
 
-  const baseOpts = Object.assign({}, opts, { dayKey, tt, manual, nameGroups, prodBackByCast, rows: settled });
-  return casts.map(name => computePayrollForCast(name, prodByCast, baseOpts));
+  const baseOpts = Object.assign({}, opts, { dayKey, tt, manual, nameGroups, prodBackByCast, prodPointsByCast, rows: settled });
+  return casts.map(name => ({
+    ...computePayrollForCast(name, prodByCast, baseOpts),
+    firstRepeatCount: firstRepeatByCast[name] || 0,
+  }));
 }
 /* ================================================================
    PAYSLIP AGGREGATION
@@ -21786,6 +22491,62 @@ function _receiptSlipNo(row) {
   return base + '-' + tail;
 }
 
+const _RECEIPT_CARD_SUFFIX = '(カード決済)';
+
+function _receiptCardPaymentOn(amountValue, noteValue, rate, round) {
+  const originalAmount = String(amountValue ?? '');
+  const baseAmount = Math.max(0, Number(originalAmount) || 0);
+  const note = String(noteValue ?? '');
+  return {
+    originalAmount,
+    amount: ceilAddRate(baseAmount, rate || 0, round || 100),
+    note: note.endsWith(_RECEIPT_CARD_SUFFIX) ? note : note + _RECEIPT_CARD_SUFFIX,
+  };
+}
+
+function _receiptCardPaymentOff(originalAmount, noteValue) {
+  const note = String(noteValue ?? '');
+  return {
+    amount: String(originalAmount ?? ''),
+    note: note.endsWith(_RECEIPT_CARD_SUFFIX)
+      ? note.slice(0, -_RECEIPT_CARD_SUFFIX.length)
+      : note,
+  };
+}
+
+function _receiptToggleCardPayment() {
+  const button = document.getElementById('receipt-edit-card');
+  const amountEl = document.getElementById('receipt-edit-amount');
+  const noteEl = document.getElementById('receipt-edit-note');
+  if (!button || !amountEl || !noteEl) return;
+
+  if (button.dataset.active === '1') {
+    const result = _receiptCardPaymentOff(amountEl.dataset.receiptOriginalAmount, noteEl.value);
+    amountEl.value = result.amount;
+    noteEl.value = result.note;
+    delete amountEl.dataset.receiptOriginalAmount;
+    button.dataset.active = '0';
+    button.style.background = 'var(--sur3)';
+    button.style.borderColor = 'var(--bdr2)';
+    button.style.color = 'var(--tx)';
+    return;
+  }
+
+  const result = _receiptCardPaymentOn(
+    amountEl.value,
+    noteEl.value,
+    cfg.cardFeeRate || 0,
+    cfg.cardFeeRound || 100,
+  );
+  amountEl.dataset.receiptOriginalAmount = result.originalAmount;
+  amountEl.value = result.amount;
+  noteEl.value = result.note;
+  button.dataset.active = '1';
+  button.style.background = '#2a5a3a';
+  button.style.borderColor = '#2a5a3a';
+  button.style.color = '#fff';
+}
+
 /* 領収書印刷：確認・修正モーダルを表示 */
 function printReceipt(rowId, opts) {
   opts = opts || {};
@@ -21829,6 +22590,8 @@ function printReceipt(rowId, opts) {
     + '<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--tx2)">金額（円）'
     + '<input type="number" id="receipt-edit-amount" value="' + (Number(amount) || 0) + '" min="0" step="1"'
     + ' style="padding:9px 11px;font-size:18px;font-weight:700;background:var(--sur3);border:1px solid var(--bdr2);color:var(--tx);border-radius:6px;outline:none"></label>'
+    + '<button type="button" id="receipt-edit-card" data-active="0" onclick="_receiptToggleCardPayment()"'
+    + ' style="padding:9px 11px;font-size:13px;font-weight:700;background:var(--sur3);border:1px solid var(--bdr2);color:var(--tx);border-radius:6px;cursor:pointer">💳 カード決済（手数料上乗せ）</button>'
     + '<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--tx2)">但し書き'
     + '<input type="text" id="receipt-edit-note" value="' + escAttr(note) + '"'
     + ' style="padding:9px 11px;font-size:14px;background:var(--sur3);border:1px solid var(--bdr2);color:var(--tx);border-radius:6px;outline:none"></label>'
