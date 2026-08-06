@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.35">
+<meta name="app-version" content="1.0.36">
 <title>リスト表 v4</title>
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
      フォントはOS内蔵にフォールバックする（--font/--monoのスタック参照）。 -->
@@ -6295,6 +6295,70 @@ const SelfUpdate = {
    SETTINGS (cfg)
 ================================================================ */
 const SETTINGS_KEY = 'nightlist__cfg_v1';
+const SHIMEI_EXT_DEFAULTS = {
+  enshi: [
+    { key:'enshi20', label:'延指20', amount:1000, pt:0 },
+    { key:'enshi40', label:'延指40', amount:2000, pt:0 },
+    { key:'enshi60', label:'延指60', amount:3000, pt:0 },
+  ],
+  honen: [
+    { key:'honen20', label:'本延20', amount:2000, pt:0 },
+    { key:'honen40', label:'本延40', amount:2000, pt:0 },
+    { key:'honen60', label:'本延60', amount:4000, pt:0 },
+  ],
+};
+const SHIMEI_EXT_OLD_LABELS = { en20:'20延', en40:'40延', 本延:'本延' };
+const DRINK_ITEM_DEFAULTS = [
+  { key:'castS', label:'S', amount:1500, pt:0 },
+  { key:'castM', label:'M', amount:2500, pt:0 },
+  { key:'castL', label:'L', amount:3500, pt:0 },
+];
+
+function shimeiExtDefaultItems() {
+  return {
+    enshi: SHIMEI_EXT_DEFAULTS.enshi.map(item => ({ ...item })),
+    honen: SHIMEI_EXT_DEFAULTS.honen.map(item => ({ ...item })),
+  };
+}
+function shimeiExtGroup(type, settings) {
+  const source = settings || (typeof cfg !== 'undefined' ? cfg : null);
+  const items = source && source.shimeiExtItems && source.shimeiExtItems[type];
+  return Array.isArray(items) ? items : SHIMEI_EXT_DEFAULTS[type].map(item => ({ ...item }));
+}
+function shimeiExtItems(settings) {
+  return [...shimeiExtGroup('honen', settings), ...shimeiExtGroup('enshi', settings)];
+}
+function shimeiExtItem(key, settings) {
+  return shimeiExtItems(settings).find(item => item.key === key) || null;
+}
+function shimeiExtLabel(key, settings) {
+  return shimeiExtItem(key, settings)?.label || SHIMEI_EXT_OLD_LABELS[key] || key;
+}
+function shimeiExtKeys(settings) {
+  return shimeiExtItems(settings).map(item => item.key);
+}
+function drinkItemDefaults() {
+  return DRINK_ITEM_DEFAULTS.map(item => ({ ...item }));
+}
+function drinkItemList(settings) {
+  const source = settings || (typeof cfg !== 'undefined' ? cfg : null);
+  return Array.isArray(source?.drinkItems) && source.drinkItems.length
+    ? source.drinkItems : drinkItemDefaults();
+}
+function drinkItemByKey(key, settings) {
+  return drinkItemList(settings).find(item => item.key === key) || null;
+}
+function drinkItemLabel(key, settings) {
+  return drinkItemByKey(key, settings)?.label || key;
+}
+function drinkBackKeys(item) {
+  const key = typeof item === 'string' ? item : item?.key;
+  return { shimei:key + '_shimeiD', free:key + '_freeD' };
+}
+function isDrinkItemKey(key, settings) {
+  return !!drinkItemByKey(key, settings) || key === 'castS' || key === 'castM' || key === 'castL' || /^drink_/.test(key);
+}
+
 const CFG_DEFAULTS = {
   shopName: '',              // 店舗の通称・表示名（ヘッダー/印刷見出し用）
   timeStartH:   20,          // 営業開始時
@@ -6350,7 +6414,6 @@ const CFG_DEFAULTS = {
   doubanAsHonshimeiExt: true, // 同伴を本指名扱いで延長指名料を取る（false=同伴は延長指名料なし）
   modoriHonshimeiAgg: 'honen', // 出戻り本指の集計扱い: 'honen'=延長扱い(本延+1・既定) | 'honshimei'=本指名扱い(本指+1) | 'none'=カウントしない
   modoriEnchoshimeiAgg: 'enchoshimei40', // 出戻り延指（元:場内/延長指名）の集計扱い: 'enchoshimei40'=延指40+1(既定) | 'jounai'=場内+1 | 'none'=カウントしない
-  drinkCounts:     { S: 1, M: 2, L: 3 }, // ドリンク本数換算（指D/D集計の重み。ショットは常に1本）
   extPrices:       [4000, 7000, 11000], // 延長料金（extOptionsと順番対応）
   taxRate:         20,      // 税サービス料率（%）
   taxRound:        100,     // 税サ端数単位（円、切り上げ）
@@ -6364,6 +6427,8 @@ const CFG_DEFAULTS = {
   posCustomCats:   [        // 店舗独自のPOSカテゴリ（keyはラベル変更後も不変）
     { key: 'cust_1', label: 'その他' },
   ],
+  shimeiExtItems: shimeiExtDefaultItems(),
+  drinkItems: drinkItemDefaults(),
   // --- 領収書設定（印刷時の店舗固定情報） ---
   // 新規導入店舗にそのまま出荷されるデフォルト値なので、特定店舗の実データを置かない
   // （2026-07-03: 他店舗展開の洗い出しで「旧店舗の名義がそのまま領収書に出る」リスクとして指摘）。
@@ -6383,9 +6448,8 @@ const CFG_DEFAULTS = {
   // --- ポイント設定（キャスト評価用。給与計算とは独立） ---
   pointsEnabled: false,
   pointRules: {
-    本指: 0, 場内: 0, 同伴: 0, 本延: 0, en20: 0, en40: 0,
+    本指: 0, 場内: 0, 同伴: 0,
   },
-  drinkPts: { castS: 0, castM: 0, castL: 0 },
   rankingShowAmountToCast: true,
   // --- 給与明細の締め期間 ---
   payrollPeriod:                 'month', // 'month'(1日〜末日) | 'half'(1〜15日 / 16日〜末日)
@@ -6404,20 +6468,27 @@ const CFG_DEFAULTS = {
   defaultTheme:                  'aurum', // 'night' | 'light' | 'summer' | 'aurum'
   // --- POS指名系・ドリンクのボタン単価（店ごとに可変） ---
   posPrices: {
-    enshi20: 1000, enshi40: 2000, enshi60: 3000,  // フリー席延長指名（延指）
-    honen20: 2000, honen40: 2000, honen60: 4000,  // 本指名卓の延長（本延）
-    castS:   1500, castM:   2500, castL:   3500,  // ドリンク（S/M/L）— 集計時に指D/Dへ役割分類
     freeS:   1500, freeM:   2500, freeL:   3500,  // [互換用・廃止] 旧フリードリンク。UI・カテゴリからは削除済み
   },
 };
 
 let cfg = { ...CFG_DEFAULTS };
+let _cfgNeedsShimeiExtMigration = false;
+let _cfgNeedsDrinkItemsMigration = false;
 
 function loadCfg() {
   const s = Persist.read('settings', {
     onError: () => setTimeout(() => { try { showToast('⚠ 設定の読込に失敗。デフォルト設定で起動しています'); } catch(_){} }, 100)
   });
-  if (s) cfg = { ...CFG_DEFAULTS, ...s };
+  if (s) {
+    _cfgNeedsShimeiExtMigration = !Object.prototype.hasOwnProperty.call(s, 'shimeiExtItems');
+    _cfgNeedsDrinkItemsMigration = !Object.prototype.hasOwnProperty.call(s, 'drinkItems');
+    cfg = { ...CFG_DEFAULTS, ...s };
+  } else {
+    _cfgNeedsShimeiExtMigration = false;
+    _cfgNeedsDrinkItemsMigration = false;
+    cfg = { ...CFG_DEFAULTS, shimeiExtItems: shimeiExtDefaultItems(), drinkItems:drinkItemDefaults() };
+  }
 }
 function saveCfg() {
   Persist.write('settings', cfg);
@@ -6427,6 +6498,110 @@ function saveCfg() {
 function getTimeMin() { return cfg.timeStartH * 60; }
 function getTimeMax() { return cfg.timeEndH   * 60; }
 function getDefStay() { return cfg.defStay; }
+
+function _shimeiExtNumeric(value) {
+  if (value === '' || value === null || value === undefined) return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+function _migrateShimeiExtBackRecord(record, fallback) {
+  if (!record || typeof record !== 'object') return;
+  const en20 = _shimeiExtNumeric(record.en20);
+  const en40 = _shimeiExtNumeric(record.en40);
+  const honen = _shimeiExtNumeric(record.honen);
+  if (en20 !== null) record.enshi20 = en20;
+  if (en40 !== null) record.enshi40 = en40;
+  if (en20 !== null || en40 !== null) {
+    const fallbackEn20 = _shimeiExtNumeric(fallback?.en20) || 0;
+    const fallbackEn40 = _shimeiExtNumeric(fallback?.en40) || 0;
+    record.enshi60 = (en20 !== null ? en20 : fallbackEn20) + (en40 !== null ? en40 : fallbackEn40);
+  }
+  if (honen !== null) {
+    record.honen20 = honen;
+    record.honen40 = honen;
+    record.honen60 = honen * 2;
+  }
+}
+
+function _migrateDrinkBackRecord(record, weights) {
+  if (!record || typeof record !== 'object') return;
+  DRINK_ITEM_DEFAULTS.forEach((item, index) => {
+    const weight = weights[index];
+    [['shimeiD', 'shimei'], ['freeD', 'free']].forEach(([legacyKey, side]) => {
+      if (!Object.prototype.hasOwnProperty.call(record, legacyKey)) return;
+      const value = record[legacyKey];
+      const target = drinkBackKeys(item)[side];
+      if (value === '' || value === null || value === undefined) record[target] = value;
+      else {
+        const numeric = Number(value);
+        if (Number.isFinite(numeric)) record[target] = numeric * weight;
+      }
+    });
+  });
+}
+
+function _migrateDrinkItemsModel() {
+  if (!_cfgNeedsDrinkItemsMigration) return false;
+  const legacyPrices = { ...(cfg.posPrices || {}) };
+  const legacyPoints = cfg.drinkPts || {};
+  const legacyCounts = cfg.drinkCounts || {};
+  const weights = [legacyCounts.S ?? 1, legacyCounts.M ?? 2, legacyCounts.L ?? 3].map((value, index) => {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : index + 1;
+  });
+  cfg.drinkItems = DRINK_ITEM_DEFAULTS.map(item => ({
+    ...item,
+    amount: _shimeiExtNumeric(legacyPrices[item.key]) ?? item.amount,
+    pt: Math.trunc(_shimeiExtNumeric(legacyPoints[item.key]) ?? item.pt),
+  }));
+  DRINK_ITEM_DEFAULTS.forEach(item => { delete legacyPrices[item.key]; });
+  cfg.posPrices = legacyPrices;
+  delete cfg.drinkPts;
+  delete cfg.drinkCounts;
+  if (typeof state !== 'undefined') {
+    _migrateDrinkBackRecord(state.castDefaults, weights);
+    Object.values(state.castProfiles || {}).forEach(profile => _migrateDrinkBackRecord(profile, weights));
+  }
+  _cfgNeedsDrinkItemsMigration = false;
+  return true;
+}
+
+/* 旧換算モデルから項目別モデルへ一度だけ移行する。旧キャスト単価キーはロールバック用に残す。 */
+function migrateShimeiExtModel() {
+  let migrated = _migrateDrinkItemsModel();
+  if (_cfgNeedsShimeiExtMigration) {
+    const items = shimeiExtDefaultItems();
+    const legacyPrices = cfg.posPrices || {};
+    items.enshi.concat(items.honen).forEach(item => {
+      const legacy = _shimeiExtNumeric(legacyPrices[item.key]);
+      if (legacy !== null) item.amount = legacy;
+      delete legacyPrices[item.key];
+    });
+    const rules = cfg.pointRules || {};
+    const en20Pt = _shimeiExtNumeric(rules.en20) || 0;
+    const en40Pt = _shimeiExtNumeric(rules.en40) || 0;
+    const honenPt = _shimeiExtNumeric(rules['本延']) || 0;
+    items.enshi[0].pt = en20Pt;
+    items.enshi[1].pt = en40Pt;
+    items.enshi[2].pt = en20Pt + en40Pt;
+    items.honen[0].pt = honenPt;
+    items.honen[1].pt = honenPt;
+    items.honen[2].pt = honenPt * 2;
+    cfg.shimeiExtItems = items;
+    cfg.pointRules = { 本指:Number(rules['本指']) || 0, 場内:Number(rules['場内']) || 0, 同伴:Number(rules['同伴']) || 0 };
+    cfg.posPrices = legacyPrices;
+    if (typeof state !== 'undefined') {
+      _migrateShimeiExtBackRecord(state.castDefaults);
+      Object.values(state.castProfiles || {}).forEach(profile => _migrateShimeiExtBackRecord(profile, state.castDefaults));
+    }
+    _cfgNeedsShimeiExtMigration = false;
+    migrated = true;
+  }
+  if (!migrated) return false;
+  saveCfg();
+  if (typeof saveState === 'function') saveState();
+  return true;
+}
 
 /* ================================================================
    STATE
@@ -8303,17 +8478,22 @@ function setAllInactive() {
    POSで数えた本数 × ここの単価 ＝ バック自動計算の"単価"マスタ。
    日計表の上段列（本指/本延/20延/40延/場内/同伴/指D/D/SP）に対応。
 ================================================================ */
-const CAST_PAY_FIELDS = [
-  ['wage',      '時給',   '円/時'],
-  ['honshimei', '本指名', '円/本'],
-  ['honen',     '本延',   '円/本'],
-  ['en20',      '20延',   '円/本'],
-  ['en40',      '40延',   '円/本'],
-  ['jonai',     '場内',   '円/本'],
-  ['douhan',    '同伴',   '円/本'],
-  ['shimeiD',   '指D',    '円/本'],
-  ['freeD',     'D',      '円/本'],
-];
+function castPayFields() {
+  return [
+    ['wage',      '時給',   '円/時'],
+    ['honshimei', '本指名', '円/本'],
+    ...shimeiExtGroup('honen').map(item => [item.key, item.label, '円/本']),
+    ...shimeiExtGroup('enshi').map(item => [item.key, item.label, '円/本']),
+    ['jonai',     '場内',   '円/本'],
+    ['douhan',    '同伴',   '円/本'],
+    ...drinkItemList().flatMap(item => {
+      const keys = drinkBackKeys(item);
+      return [[keys.shimei, '指D(' + item.label + ')', '円/本'], [keys.free, 'D(' + item.label + ')', '円/本']];
+    }),
+    ['shimeiD',   '指D(ショット)', '円/本'],
+    ['freeD',     'D(ショット)',   '円/本'],
+  ];
+}
 function toggleCastMgmt(){
   const panel = document.getElementById('castmgmt-panel');
   const toggle = document.getElementById('castmgmt-toggle');
@@ -8348,9 +8528,9 @@ function setCastSlideWage(name, enabled){
 }
 /* 時給(wage)以外の単価項目だけを一括クリアする */
 function clearCastPayExceptWage(name){
-  if (!confirm('「' + name + '」の時給以外の単価をすべてクリアしますか？')) return;
+  if (!confirm('「' + name + '」の時給以外の単価をすべてクリアして標準額に戻しますか？')) return;
   const p = getCastProfile(name);
-  CAST_PAY_FIELDS.forEach(([f]) => { if (f !== 'wage') p[f] = ''; });
+  castPayFields().forEach(([f]) => { if (f !== 'wage') p[f] = ''; });
   saveState();
   renderCastMgmt();
   try { showToast('「' + name + '」の単価（時給以外）をクリアしました'); } catch(_){}
@@ -8431,25 +8611,6 @@ function setCastDefault(field, value){
   state.castDefaults[field] = (value === '' ? '' : (Number(value) || 0));
   saveState();
 }
-function applyCastDefaults(onlyEmpty){
-  ensureCastStores();
-  const d = state.castDefaults;
-  const label = onlyEmpty ? '未設定者にデフォルト単価を適用しますか？' : '全キャストにデフォルト単価を上書きします。よろしいですか？';
-  if (!confirm(label)) return;
-  state.allCasts.forEach(name => {
-    const p = getCastProfile(name);
-    CAST_PAY_FIELDS.forEach(([f]) => {
-      if (f === 'wage') return;   // 時給は子ごとに違うのでデフォルト適用しない
-      if (d[f] === undefined || d[f] === '') return;
-      const cur = p[f];
-      const isEmpty = (cur === undefined || cur === '');
-      if (!onlyEmpty || isEmpty) p[f] = d[f];
-    });
-  });
-  saveState();
-  renderCastMgmt();
-  try { showToast('デフォルト単価を適用しました'); } catch(_){}
-}
 /* 給与計算ルール（丸め単位・遅刻罰金・SP参考率）の入力欄そのものは
    設定タブ「👥 キャスト・給与 → 💴 給与計算ルール」へ統合した（2026-07-25）。
    保存方式は移設前と同じ cfg直書き＋即saveState のまま（設定タブの dirty-flag 方式は使わない）。 */
@@ -8464,7 +8625,8 @@ function renderCastMgmt(){
   const wrap = document.getElementById('castmgmt-table-wrapper');
   if (!wrap) return;
   const d = state.castDefaults;
-  const PAYCOLS = CAST_PAY_FIELDS.length;
+  const payFields = castPayFields();
+  const PAYCOLS = payFields.length;
 
   // ---- 在籍キャスト（編集テーブル） ----
   let activeHtml;
@@ -8472,14 +8634,14 @@ function renderCastMgmt(){
     activeHtml = '<div style="padding:30px;color:var(--tx3)">まだキャストが登録されていません。上の入力欄から追加してください。</div>';
   } else {
     let head = '<th style="width:48px">No.</th><th style="min-width:90px;text-align:left">名前</th>';
-    CAST_PAY_FIELDS.forEach(([f,lbl,unit]) => {
+    payFields.forEach(([f,lbl,unit]) => {
       head += `<th>${lbl}<br><span style="font-weight:400;color:var(--tx3);font-size:9px">${unit}</span></th>`;
     });
     head += '<th>スライド<br><span style="font-weight:400;color:var(--tx3);font-size:9px">適用</span></th>';
     head += '<th>保証時給<br><span style="font-weight:400;color:var(--tx3);font-size:9px">円/時</span></th>';
     head += '<th style="min-width:120px">操作</th>';
-    let defRow = '<tr class="cm-default"><td>—</td><td style="text-align:left">デフォルト単価</td>';
-    CAST_PAY_FIELDS.forEach(([f]) => {
+    let defRow = '<tr class="cm-default"><td>—</td><td style="text-align:left">デフォルト単価<br><span style="font-weight:400;color:var(--tx3);font-size:9px;white-space:nowrap">空欄のキャストにはこの標準額が自動で適用されます</span></td>';
+    payFields.forEach(([f]) => {
       if (f === 'wage') { defRow += '<td title="時給は子ごとに違うためデフォルトなし">—</td>'; return; }
       defRow += `<td><input type="number" class="cm-input" value="${d[f] ?? ''}" onchange="setCastDefault('${f}',this.value)"></td>`;
     });
@@ -8491,8 +8653,9 @@ function renderCastMgmt(){
       const q = _cmq(name);
       body += `<tr><td><input type="number" class="cm-no" value="${p.no ?? ''}" onchange="setCastNo('${q}',this.value)"></td>`;
       body += `<td style="text-align:left;font-weight:600">${escHtml(name)}</td>`;
-      CAST_PAY_FIELDS.forEach(([f]) => {
-        body += `<td><input type="number" class="cm-input" value="${p[f] ?? ''}" onchange="setCastPay('${q}','${f}',this.value)"></td>`;
+      payFields.forEach(([f]) => {
+        const placeholder = f === 'wage' ? '' : (d[f] ?? '');
+        body += `<td><input type="number" class="cm-input" value="${p[f] ?? ''}" placeholder="${placeholder}" onchange="setCastPay('${q}','${f}',this.value)"></td>`;
       });
       body += `<td><input type="checkbox" ${p.slideWage ? 'checked' : ''} onchange="setCastSlideWage('${q}',this.checked)"></td>`;
       body += `<td><input type="number" class="cm-input" value="${p.guaranteeWage ?? 0}" min="0" step="100" onchange="setCastPay('${q}','guaranteeWage',this.value)"></td>`;
@@ -8508,7 +8671,7 @@ function renderCastMgmt(){
   let retiredHtml = '';
   if (state.retiredCasts && state.retiredCasts.length){
     let rhead = '<th style="width:48px">No.</th><th style="min-width:90px;text-align:left">名前</th>';
-    CAST_PAY_FIELDS.forEach(([f,lbl,unit]) => { rhead += `<th>${lbl}</th>`; });
+    payFields.forEach(([f,lbl,unit]) => { rhead += `<th>${lbl}</th>`; });
     rhead += '<th>スライド</th><th>保証時給</th>';
     rhead += '<th style="min-width:120px">操作</th>';
     let rbody = '';
@@ -8516,7 +8679,7 @@ function renderCastMgmt(){
       const p = getCastProfile(name);
       const q = _cmq(name);
       rbody += `<tr><td>${p.no ?? ''}</td><td style="text-align:left">${escHtml(name)}</td>`;
-      CAST_PAY_FIELDS.forEach(([f]) => { rbody += `<td>${(p[f] === '' || p[f] === undefined) ? '—' : p[f]}</td>`; });
+      payFields.forEach(([f]) => { rbody += `<td>${(p[f] === '' || p[f] === undefined) ? '—' : p[f]}</td>`; });
       rbody += `<td>${p.slideWage ? '適用' : '—'}</td><td>${Number(p.guaranteeWage) || '—'}</td>`;
       rbody += `<td><button class="cm-act cm-restore" onclick="restoreCast('${q}')">復帰</button>`
              + `<button class="cm-act cm-del" onclick="deleteCastMaster('${q}')">削除</button></td>`;
@@ -8553,7 +8716,12 @@ function _payslipMd(key) {
   return s.length === 8 ? Number(s.slice(4, 6)) + '/' + Number(s.slice(6, 8)) : s;
 }
 function _payslipBackLabel(key) {
-  return ({ 本指:'本指名', 本延:'本延', en20:'20延', en40:'40延', 場内:'場内', 同伴:'同伴', 指D:'指D', D:'D' })[key] || key;
+  const drink = drinkItemList().find(item => {
+    const keys = drinkBackKeys(item);
+    return key === keys.shimei || key === keys.free;
+  });
+  if (drink) return (key.endsWith('_shimeiD') ? '指D(' : 'D(') + drink.label + ')';
+  return shimeiExtItem(key)?.label || ({ 本指:'本指名', 本延:'本延', en20:'20延', en40:'40延', 場内:'場内', 同伴:'同伴', 指D:'指D', D:'D' })[key] || key;
 }
 
 function _payslipWarningHtml(days) {
@@ -10528,19 +10696,22 @@ function restoreActiveTab() {
 /* ================================================================
    POS PANEL (β) - 現場向けフィールドUI
 ================================================================ */
-const POS_BETA_CATEGORIES = [
-  ['set','セット'], ['extension','延長'], ['nominate','指名'], ['dohan','同伴'], ['jonai','場内'],
-  ['enshi20','延指20'], ['enshi40','延指40'], ['enshi60','延指60'], ['honen20','本延20'], ['honen40','本延40'], ['honen60','本延60'],
-  ['castS','ドリンクS'], ['castM','ドリンクM'], ['castL','ドリンクL'],
-  ['shot','ショット'], ['bottle','ボトル'], ['food','フード'], ['bring','持込'], ['discount','割引']
-];
+function posBetaCategories(settings) {
+  return [
+    ['set','セット'], ['extension','延長'], ['nominate','指名'], ['dohan','同伴'], ['jonai','場内'],
+    ...shimeiExtGroup('enshi', settings).map(item => [item.key, item.label]),
+    ...shimeiExtGroup('honen', settings).map(item => [item.key, item.label]),
+    ...drinkItemList(settings).map(item => [item.key, 'ドリンク' + item.label]),
+    ['shot','ショット'], ['bottle','ボトル'], ['food','フード'], ['bring','持込'], ['discount','割引']
+  ];
+}
 
 /* 保存済みlayoutを、現存する全カテゴリの一意な表示順へ解決する純関数。 */
 function resolvePosCatLayout(settings) {
   const src = settings || {};
   const all = [];
   const known = new Set();
-  POS_BETA_CATEGORIES.forEach(([key, label]) => {
+  posBetaCategories(src).forEach(([key, label]) => {
     if (known.has(key)) return;
     known.add(key);
     all.push({ key, label });
@@ -12571,12 +12742,16 @@ function posMenuBackYen(back, amount) {
 
 function posCategoryItems(category, row) {
   const casts = posActiveCastList();
-  const pp = (key, fallback) => { const v = cfg.posPrices && cfg.posPrices[key]; return (v === 0 || (v != null && !isNaN(v))) ? Number(v) : fallback; };
   const castItems = (prefix, amount, cat) => casts.map(name => ({ name: prefix ? prefix + ':' + name : name, amount, category: cat || category }));
-  // ドリンク（S/M/L）: 出勤キャスト名のボタンをその場に並べ、末尾にボーイを足す。
-  // 押すと name="S:キャスト名" 形式で1タップ追加（モーダル不要）。集計の指D/D判定もこの形式で効く。
-  const drinkItems = (prefix, amount, cat) => casts.map(name => ({ name: prefix + ':' + name, amount, category: cat || category }))
-    .concat([{ name: prefix + ':ボーイ', amount, category: cat || category }]);
+  const shimeiExt = shimeiExtItem(category);
+  if (shimeiExt) return castItems(shimeiExt.label, Number(shimeiExt.amount) || 0, shimeiExt.key);
+  // 店舗定義ドリンク: 出勤キャスト名のボタンを並べ、末尾にボーイを足す。
+  const drink = drinkItemByKey(category);
+  if (drink) {
+    const amount = Number(drink.amount) || 0;
+    return casts.map(name => ({ name:drink.label + ':' + name, amount, category:drink.key }))
+      .concat([{ name:drink.label + ':ボーイ', amount, category:drink.key }]);
+  }
   const extPrice = (min, fallback) => {
     const opts = cfg.extOptions || [];
     const idx = opts.findIndex(v => Number(v) === Number(min));
@@ -12588,9 +12763,6 @@ function posCategoryItems(category, row) {
     nominate: castItems('指', Number(cfg.nominateFee || 2000)),
     dohan: castItems('同', Number(cfg.dohanFee || 15000)),
     jonai: castItems('場', Number(cfg.jonaiFee || 2000)),
-    enshi20: castItems('延指20', pp('enshi20',1000)), enshi40: castItems('延指40', pp('enshi40',2000)), enshi60: castItems('延指60', pp('enshi60',3000)),
-    honen20: castItems('本延20', pp('honen20',2000)), honen40: castItems('本延40', pp('honen40',2000)), honen60: castItems('本延60', pp('honen60',4000)),
-    castS: drinkItems('S', pp('castS',1500), 'castS'), castM: drinkItems('M', pp('castM',2500), 'castM'), castL: drinkItems('L', pp('castL',3500), 'castL'),
     // shot/bottleは店ごとに仕入れ銘柄が全く異なるため、新規導入店舗にそのまま実在商品名を
     // 出荷しないようダミー名にしてある（2026-07-03: 他店舗展開の洗い出しで指摘）。
     // 「設定→POSレジ→カスタムメニュー」で自店の商品に置き換える運用（cfg.posMenuで上書きされる）。
@@ -14203,7 +14375,7 @@ function _renderReportRange(period) {
 /* ================================================================
    集計エンジン（キャスト別商品集計／指名売上／サイドバー）
    データ源は posOrders（リアルタイム帰属）。name は "prefix:cast" 形式。
-   ルール: 延指60 → 延指40×1 + 延指20×1 / 本延20・40=1pt, 本延60=2pt
+   延長指名・本延は店舗定義の項目keyを分解せず、そのまま集計する。
 ================================================================ */
 let reportCardSort = 'salesDesc';   // salesDesc | salesAsc | nameAsc | no
 let reportInclSet  = true;          // 指名売上カードにセットを含めるか
@@ -14211,32 +14383,84 @@ function setReportCardSort(v) { reportCardSort = v; renderReportPanel(); }
 function toggleReportInclSet(v) { reportInclSet = !!v; renderReportPanel(); }
 
 // 商品集計の列＝日計表のバック本数に合わせる（同伴→本指/本延へ昇格後の数字）。
-// 本指=指+同伴 / 本延=本延+同伴 / 場内=場 / 延指=延指。S/M/L は素のドリンクサイズ本数を併記。
-const AGG_PROD_COLS = ['本指','本延','延指20','延指40','場内','同伴','S','M','L','指D','D'];
+// 本指=指+同伴 / 本延=本延+同伴 / 場内=場 / 延指=延指。店舗定義ドリンクは生本数と指名/通常本数を併記。
+function _aggMissingShimeiKeys(...sources) {
+  const known = new Set(shimeiExtKeys());
+  const found = [];
+  sources.forEach(source => Object.values(source || {}).forEach(row => Object.keys(row || {}).forEach(key => {
+    const isLegacy = Object.prototype.hasOwnProperty.call(SHIMEI_EXT_OLD_LABELS, key);
+    if ((/^(enshi|honen)/.test(key) || isLegacy) && !known.has(key) && !found.includes(key) && Number(row[key])) found.push(key);
+  })));
+  return found;
+}
+function _aggMissingDrinkKeys(...sources) {
+  const known = new Set(drinkItemList().map(item => item.key));
+  const found = [];
+  sources.forEach(source => Object.values(source || {}).forEach(row => Object.keys(row || {}).forEach(rawKey => {
+    const key = rawKey.replace(/_(shimeiD|freeD)$/, '');
+    if (isDrinkItemKey(key) && !known.has(key) && !found.includes(key) && Number(row[rawKey])) found.push(key);
+  })));
+  return found;
+}
+function aggProdCols(prodByCast, backByCast, stampedLabels) {
+  const labelOf = key => stampedLabels?.[key] || shimeiExtLabel(key);
+  const drinkBackCols = item => {
+    const keys = drinkBackKeys(item);
+    const label = stampedLabels?.[item.key] || item.label || item.key;
+    return [[keys.shimei, '指D(' + label + ')'], [keys.free, 'D(' + label + ')']];
+  };
+  const currentDrinks = drinkItemList();
+  const missingDrinks = _aggMissingDrinkKeys(prodByCast, backByCast).map(key => ({ key, label:stampedLabels?.[key] || key }));
+  return [
+    ['本指','本指'],
+    ...shimeiExtGroup('honen').map(item => [item.key, labelOf(item.key)]),
+    ...shimeiExtGroup('enshi').map(item => [item.key, labelOf(item.key)]),
+    ['場内','場内'], ['同伴','同伴'],
+    ...currentDrinks.map(item => [item.key, stampedLabels?.[item.key] || item.label]),
+    ...currentDrinks.flatMap(drinkBackCols),
+    ['指D','指D(ショット)'], ['D','D(ショット)'],
+    ..._aggMissingShimeiKeys(prodByCast, backByCast).map(key => [key, labelOf(key)]),
+    ...missingDrinks.flatMap(item => [[item.key, item.label], ...drinkBackCols(item)]),
+  ];
+}
+function _payrollCountCols(rows, stampedLabels) {
+  const keys = payrollCountKeys(...(rows || []).map(row => row.backCounts || {}));
+  const labels = { 本指:'本指', 場内:'場内', 同伴:'同伴', 指D:'指D(ショット)', D:'D(ショット)' };
+  return keys.map(key => {
+    const match = /^(.*)_(shimeiD|freeD)$/.exec(key);
+    if (match && isDrinkItemKey(match[1])) {
+      const label = stampedLabels?.[match[1]] || drinkItemLabel(match[1]);
+      return [key, (match[2] === 'shimeiD' ? '指D(' : 'D(') + label + ')'];
+    }
+    return [key, labels[key] || stampedLabels?.[key] || shimeiExtLabel(key)];
+  });
+}
 
 function _aggCastOf(name) { name = String(name||''); const i = name.indexOf(':'); return i >= 0 ? name.slice(i+1) : ''; }
 function _aggLabelOf(name) { name = String(name||''); const i = name.indexOf(':'); return i >= 0 ? name.slice(0,i) : name; }
 function _slipPaid(r) { return (parseInt(r.amountCash)||0) + (parseInt(r.amountCard)||0); }
 function _aggCastNo(c) { const p = state.castProfiles && state.castProfiles[c]; const n = p ? parseInt(p.no) : NaN; return isNaN(n) ? Infinity : n; }
 
-/* 商品集計の1キャスト行（AGG_PROD_COLS 準拠）。
+/* 商品集計の1キャスト行（店舗定義から導出した動的列に準拠）。
    日計表と必ず一致させるため backCounts(48-payroll, 同伴昇格＋手修正反映済み)を源泉にする。
    backByCast が無い場合のみ prodByCast から同じ昇格式でフォールバック算出。
-   S/M/L だけは backCounts に無いので prodByCast（素のドリンクサイズ本数）から。 */
+   ドリンクの生本数だけは backCounts に無いので prodByCast から。 */
 function _reportProdRow(cast, prodByCast, backByCast) {
   const p  = prodByCast[cast] || {};
   const bc = backByCast && backByCast[cast];
-  if (bc) {
-    return { '本指':bc.本指||0, '本延':bc.本延||0, '延指20':bc.en20||0, '延指40':bc.en40||0,
-             '場内':bc.場内||0, '同伴':bc.同伴||0,
-             'S':p.S||0, 'M':p.M||0, 'L':p.L||0, '指D':bc.指D||0, 'D':bc.D||0 };
-  }
   const douhan = Number(p['同'])||0;  // フォールバック：48-payroll の autoCounts と同じ昇格
-  return { '本指':(Number(p['指'])||0)+douhan, '本延':(Number(p['本延'])||0)+douhan,
-           '延指20':Number(p['延指20'])||0, '延指40':Number(p['延指40'])||0,
-           '場内':Number(p['場'])||0, '同伴':douhan,
-           'S':Number(p['S'])||0, 'M':Number(p['M'])||0, 'L':Number(p['L'])||0,
-           '指D':Number(p['指D'])||0, 'D':Number(p['D'])||0 };
+  const honenFirst = shimeiExtGroup('honen')[0]?.key;
+  const row = {};
+  aggProdCols(prodByCast, backByCast).forEach(([key]) => {
+    if (isDrinkItemKey(key)) row[key] = Number(p[key]) || 0;
+    else if (bc) row[key] = Number(bc[key]) || 0;
+    else if (key === '本指') row[key] = (Number(p['指']) || 0) + douhan;
+    else if (key === '場内') row[key] = Number(p['場']) || 0;
+    else if (key === '同伴') row[key] = douhan;
+    else if (key === '指D' || key === 'D') row[key] = Number(p[key]) || 0;
+    else row[key] = (Number(p[key]) || 0) + (key === honenFirst ? douhan : 0);
+  });
+  return row;
 }
 
 function _aggApplyProd(p, category, qty) {
@@ -14244,15 +14468,8 @@ function _aggApplyProd(p, category, qty) {
     case 'nominate': p['指']    += qty; break;
     case 'dohan':    p['同']    += qty; break;
     case 'jonai':    p['場']    += qty; break;
-    case 'enshi20':  p['延指20'] += qty; break;
-    case 'enshi40':  p['延指40'] += qty; break;
-    case 'enshi60':  p['延指40'] += qty; p['延指20'] += qty; break;  // 60分 = 40+20
-    case 'honen20':  p['本延']   += qty; break;       // 1pt
-    case 'honen40':  p['本延']   += qty; break;       // 1pt
-    case 'honen60':  p['本延']   += qty * 2; break;   // 2pt
-    case 'castS':    p['S']      += qty; break;
-    case 'castM':    p['M']      += qty; break;
-    case 'castL':    p['L']      += qty; break;
+    default:
+      if (/^(enshi|honen)/.test(category) || isDrinkItemKey(category)) p[category] = (Number(p[category]) || 0) + qty;
   }
 }
 
@@ -14262,7 +14479,19 @@ function computeReportAgg(settled) {
   const prodByCast = {};
   const prodBackByCast = {};
   const prodPointsByCast = {};
-  const ensureP = c => (prodByCast[c] = prodByCast[c] || { '指':0,'同':0,'場':0,'延指20':0,'延指40':0,'本延':0,'S':0,'M':0,'L':0,'指D':0,'D':0 });
+  const ensureP = c => {
+    if (!prodByCast[c]) {
+      prodByCast[c] = { '指':0,'同':0,'場':0,'指D':0,'D':0 };
+      shimeiExtKeys().forEach(key => { prodByCast[c][key] = 0; });
+      drinkItemList().forEach(item => {
+        const keys = drinkBackKeys(item);
+        prodByCast[c][item.key] = 0;
+        prodByCast[c][keys.shimei] = 0;
+        prodByCast[c][keys.free] = 0;
+      });
+    }
+    return prodByCast[c];
+  };
   // 指名売上：本指名/同伴で付いた卓の税込総計を、指名キャストの頭数で等分して計上（R2・卓単位）。
   // lines は卓ごとの寄与（No.X 会計種別 → その卓の税込総計）。total はその合計。
   const nameGroups = {};   // cast -> { total, totalSub, lines:{label:{qty,amt}} }
@@ -14272,6 +14501,7 @@ function computeReportAgg(settled) {
   if (modoriAgg !== 'none') SHIMEI_NOMINATE.push('modori_honshimei');
   const byCategory = {};
   const bySource = {};
+  const shimeiLabels = {};
   // 「指名が来た子」: 本指名/同伴で卓に付いたキャスト（main または subCasts）。
   const nominatedCasts = {};
   let cashCount=0, cardCount=0, urikakeCount=0, cashSum=0, cardSum=0, urikakeSum=0, guests=0;
@@ -14336,13 +14566,14 @@ function computeReportAgg(settled) {
       const qty = Number(o.qty)||1;
       const lineAmt = (Number(o.amount)||0) * qty;
       byCategory[o.category] = (byCategory[o.category]||0) + lineAmt;
+      if ((/^(enshi|honen)/.test(o.category || '') || isDrinkItemKey(o.category)) && !shimeiLabels[o.category]) {
+        const stampedLabel = _aggLabelOf(o.name);
+        if (stampedLabel) shimeiLabels[o.category] = stampedLabel;
+      }
       if (o.category === 'set') return;   // セットは商品集計・ドリンク本数の対象外
       const cast = _aggCastOf(o.name);
-      // ドリンク本数の重み: フリードリンク S=1本 / M=2本 / L=3本、ショット系=1本。
-      // 指D/Dの「本数」はこの重みで数える（本数×単価でバックになるため給料に直結）。ボトルはSP手入力のため対象外。
-      const _dc = (typeof cfg !== 'undefined' && cfg.drinkCounts) || { S: 1, M: 2, L: 3 };
-      const DRINK_COUNT = { castS: _dc.S ?? 1, castM: _dc.M ?? 2, castL: _dc.L ?? 3, shot: 1 };
-      const isDrinkCat = Object.prototype.hasOwnProperty.call(DRINK_COUNT, o.category);
+      const isSizeDrinkCat = isDrinkItemKey(o.category);
+      const isDrinkCat = isSizeDrinkCat || o.category === 'shot';
       const isExcludedDrinker = (!cast || cast === 'ボーイ' || cast === 'ゲスト');
       const backYen = Number(o.back) || 0;
       const rawPoint = Number(o.pt);
@@ -14366,11 +14597,14 @@ function computeReportAgg(settled) {
            (r.subCasts || []).some(sc => sc.cast === cast && sc.type === 'modori_honshimei'));
         if (!_isModoriNominateLine) _aggApplyProd(p, o.category, qty);
         if (isDrinkCat && !(backYen > 0)) {
-          const cnt = qty * DRINK_COUNT[o.category]; // サイズ重みを掛けた本数
           // 指D = その卓の本指名/同伴キャスト本人のドリンク。メイン枠だけでなくサブ指名・
           // 指名系オーダー由来も含む（nominators）。指名売上と同じ判定。場内・延指は対象外。
           const isHonshimei = nominators.has(cast);
-          if (isHonshimei) p['指D'] += cnt; else p['D'] += cnt;
+          if (isSizeDrinkCat) {
+            const keys = drinkBackKeys(o.category);
+            p[isHonshimei ? keys.shimei : keys.free] = (Number(p[isHonshimei ? keys.shimei : keys.free]) || 0) + qty;
+          } else if (isHonshimei) p['指D'] += qty;
+          else p['D'] += qty;
         }
       }
     });
@@ -14386,8 +14620,8 @@ function computeReportAgg(settled) {
     const _STRUCT_CAT = { honshimei:'nominate', douban:'dohan', jounai:'jonai' };  // 構造種別→オーダーカテゴリ
     const _PROD_OF    = { nominate:'指', dohan:'同', jonai:'場' };                  // オーダーカテゴリ→集計列
     const _MODORI_COL = {
-      modori_honshimei: modoriAgg === 'honen' ? '本延' : (modoriAgg === 'honshimei' ? '指' : null),
-      modori_enchoshimei: modoriEnchoshimeiAgg === 'jounai' ? '場' : (modoriEnchoshimeiAgg === 'none' ? null : '延指40')
+      modori_honshimei: modoriAgg === 'honen' ? shimeiExtGroup('honen')[0]?.key : (modoriAgg === 'honshimei' ? '指' : null),
+      modori_enchoshimei: modoriEnchoshimeiAgg === 'jounai' ? '場' : (modoriEnchoshimeiAgg === 'none' ? null : (shimeiExtKeys().includes('enshi40') ? 'enshi40' : shimeiExtGroup('enshi')[0]?.key))
     };  // 出戻り→振替先列
     const _hasOrderCat     = cat => posOrders(r).some(o => o.category === cat);
     const _hasOrderCatCast = (cat, c) => posOrders(r).some(o => o.category === cat && _aggCastOf(o.name) === c);
@@ -14411,27 +14645,28 @@ function computeReportAgg(settled) {
 
   const total = cashSum + cardSum + urikakeSum;
   return {
-    prodByCast, prodBackByCast, prodPointsByCast, nameGroups, nominatedCasts, byCategory, bySource,
+    prodByCast, prodBackByCast, prodPointsByCast, nameGroups, nominatedCasts, byCategory, bySource, shimeiLabels,
     cashCount, cardCount, urikakeCount, cashSum, cardSum, urikakeSum,
     guests, total, avg: guests ? Math.round(total/guests) : 0, count: settled.length
   };
 }
 
-function _aggProdTableHtml(prodByCast, backByCast) {
+function _aggProdTableHtml(prodByCast, backByCast, stampedLabels) {
   const casts = Object.keys(prodByCast);
   if (!casts.length) return '<div class="agg-side-empty" style="padding:24px;text-align:center">商品データはまだありません</div>';
   const sorted = (typeof castsSortedByNo === 'function') ? castsSortedByNo(casts) : casts.sort((a,b)=>a.localeCompare(b,'ja'));
-  const tot = {}; AGG_PROD_COLS.forEach(c => tot[c] = 0);
+  const cols = aggProdCols(prodByCast, backByCast, stampedLabels);
+  const tot = {}; cols.forEach(([key]) => tot[key] = 0);
   const body = sorted.map(c => {
     const row = _reportProdRow(c, prodByCast, backByCast);
     return '<tr><td class="agg-name">' + escHtml(c) + '</td>'
-      + AGG_PROD_COLS.map(col => { tot[col] += row[col]||0; return '<td>' + (row[col]||0) + '</td>'; }).join('')
+      + cols.map(([key]) => { tot[key] += row[key]||0; return '<td>' + (row[key]||0) + '</td>'; }).join('')
       + '</tr>';
   }).join('');
   const totRow = '<tr class="agg-total"><td class="agg-name">合計</td>'
-    + AGG_PROD_COLS.map(col => '<td>' + tot[col] + '</td>').join('') + '</tr>';
+    + cols.map(([key]) => '<td>' + tot[key] + '</td>').join('') + '</tr>';
   return '<div style="overflow-x:auto"><table class="agg-prod-table"><thead><tr><th>キャスト名</th>'
-    + AGG_PROD_COLS.map(c => '<th>' + c + '</th>').join('')
+    + cols.map(([, label]) => '<th>' + escHtml(label) + '</th>').join('')
     + '</tr></thead><tbody>' + body + totRow + '</tbody></table></div>';
 }
 
@@ -14500,8 +14735,9 @@ function exportCastProdCSV() {
   const backByCast = {};
   _payRows.forEach(r => { backByCast[r.castName] = r.backCounts; });
   const sorted = (typeof castsSortedByNo === 'function') ? castsSortedByNo(Object.keys(a.prodByCast)) : Object.keys(a.prodByCast);
-  const rows = [['キャスト名', ...AGG_PROD_COLS]];
-  sorted.forEach(c => { const row = _reportProdRow(c, a.prodByCast, backByCast); rows.push([c, ...AGG_PROD_COLS.map(col => row[col]||0)]); });
+  const cols = aggProdCols(a.prodByCast, backByCast, a.shimeiLabels);
+  const rows = [['キャスト名', ...cols.map(([, label]) => label)]];
+  sorted.forEach(c => { const row = _reportProdRow(c, a.prodByCast, backByCast); rows.push([c, ...cols.map(([key]) => row[key]||0)]); });
   const csv = rows.map(r => r.map(v => '"' + String(v).replace(/"/g,'""') + '"').join(',')).join('\r\n');
   const blob = new Blob(['﻿' + csv], { type:'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
@@ -14522,6 +14758,7 @@ function printReport() {
   const nameGroups = agg.nameGroups || {};
   const checkouts = (src.tt && src.tt.checkouts) || {};
   const deductionItems = (typeof cfg !== 'undefined' && Array.isArray(cfg.payrollDeductions)) ? cfg.payrollDeductions : [];
+  const countCols = _payrollCountCols(rows, agg.shimeiLabels);
 
   const key = src.dayKey || '';
   const y = key.slice(0,4), mo = +key.slice(4,6), da = +key.slice(6,8);
@@ -14549,16 +14786,13 @@ function printReport() {
       + '<td class="nm">' + escHtml(r.castName) + '</td>'
       + '<td>' + (r.roundedIn || '') + '</td><td>' + (r.roundedOut || '') + '</td>'
       + '<td>' + hm(r.workMinutes) + '</td><td>' + (hasOut ? yen(r.hourlyPay) : '') + '</td>'
-      + '<td>' + cntV(r,'本指') + '</td><td>' + cntV(r,'本延') + '</td>'
-      + '<td>' + cntV(r,'en20') + '</td><td>' + cntV(r,'en40') + '</td>'
-      + '<td>' + cntV(r,'場内') + '</td><td>' + cntV(r,'同伴') + '</td>'
-      + '<td>' + cntV(r,'指D') + '</td><td>' + cntV(r,'D') + '</td>'
+      + countCols.map(([countKey]) => '<td>' + cntV(r, countKey) + '</td>').join('')
       + '<td>' + yen(r.sp) + '</td><td></td>'
       + '<td>' + (hasOut ? yen(r.dailyPay) : '') + '</td>' + deductionCells + '<td>' + yen(r.nibarai) + '</td>'
       + '</tr>';
   });
   for (let i = rows.length; i < MIN_ROWS; i++) {
-    body += '<tr><td class="n">' + (i+1) + '</td>' + '<td></td>'.repeat(18 + (deductionItems.length ? deductionItems.length + 2 : 0)) + '</tr>';
+    body += '<tr><td class="n">' + (i+1) + '</td>' + '<td></td>'.repeat(10 + countCols.length + (deductionItems.length ? deductionItems.length + 2 : 0)) + '</tr>';
   }
 
   const nameItems = Object.keys(nameGroups)
@@ -14567,14 +14801,10 @@ function printReport() {
     .map(x => '<div class="nb-item"><span>' + escHtml(x.c) + '</span><span class="a">¥' + x.t.toLocaleString() + '</span></div>').join('')
     || '<div style="color:#888;padding:6px">指名売上なし</div>';
 
-  const baseHeads = ['1h','社交名','出勤','退勤','時間','時間給','本指','本延','20延','40延','場内','同伴','指D','D','SP','サービス給','日給','日払い'];
-  const heads = deductionItems.length
-    ? [...baseHeads.slice(0, 17), ...deductionItems.map(item => String(item.label || '')), '控除計', '差引支給', ...baseHeads.slice(17)]
-    : baseHeads;
-  const baseColW = [16,18,52,34,34,30,40,24,24,24,24,24,24,24,24,30,40,44,40]; // No + 18列（比率）
-  const colW = deductionItems.length
-    ? [...baseColW.slice(0, -1), ...deductionItems.map(() => 36), 38, 42, baseColW[baseColW.length - 1]]
-    : baseColW;
+  const heads = ['1h','社交名','出勤','退勤','時間','時間給', ...countCols.map(([, label]) => label), 'SP','サービス給','日給',
+    ...deductionItems.map(item => String(item.label || '')), ...(deductionItems.length ? ['控除計','差引支給'] : []), '日払い'];
+  const colW = [16,18,52,34,34,30,40, ...countCols.map(() => 24), 30,40,44,
+    ...deductionItems.map(() => 36), ...(deductionItems.length ? [38,42] : []), 40];
   const _colTot = colW.reduce((a, b) => a + b, 0);
   const cols = colW.map(w => '<col style="width:' + (w / _colTot * 100).toFixed(3) + '%">').join('');
 
@@ -14703,8 +14933,8 @@ function _payrollTableInnerHtml(src) {
   }
   const tt = src.tt || {};
   const checkouts = tt.checkouts || {};
-  // backCounts のキー順（表示列順）
-  const CNT_COLS = [['本指','本指'],['本延','本延'],['en20','20延'],['en40','40延'],['場内','場内'],['同伴','同伴'],['指D','指D'],['D','D']];
+  const agg = (typeof computeReportAgg === 'function') ? computeReportAgg(settled) : { shimeiLabels:{} };
+  const CNT_COLS = _payrollCountCols(rows, agg.shimeiLabels);
   const deductionItems = (typeof cfg !== 'undefined' && Array.isArray(cfg.payrollDeductions)) ? cfg.payrollDeductions : [];
 
   const showPoints = typeof cfg !== 'undefined' && cfg.pointsEnabled === true;
@@ -14832,25 +15062,24 @@ function exportPayrollCSV() {
   const tt = src.tt || {};
   const checkouts = tt.checkouts || {};
   const deductionItems = (typeof cfg !== 'undefined' && Array.isArray(cfg.payrollDeductions)) ? cfg.payrollDeductions : [];
-  const baseHeader = ['社交名','出勤','退勤','勤務(分)','時間給','本指','本延','20延','40延','場内','同伴','指D','D','SP','バック合計','遅刻','日払い','日給','給率(%)'];
-  const header = deductionItems.length
-    ? [...baseHeader.slice(0, 18), ...deductionItems.map(item => String(item.label || '')), '控除計', '差引支給', ...baseHeader.slice(18)]
-    : baseHeader;
+  const agg = (typeof computeReportAgg === 'function') ? computeReportAgg(settled) : { shimeiLabels:{} };
+  const countCols = _payrollCountCols(rows, agg.shimeiLabels);
+  const header = ['社交名','出勤','退勤','勤務(分)','時間給', ...countCols.map(([, label]) => label),
+    'SP','バック合計','遅刻','日払い','日給', ...deductionItems.map(item => String(item.label || '')),
+    ...(deductionItems.length ? ['控除計','差引支給'] : []), '給率(%)'];
   const out = [header];
   rows.forEach(r => {
     const hasOut = !!checkouts[r.castName];
     const baseRow = [
       r.castName, r.roundedIn || '', r.roundedOut || '', r.workMinutes,
       hasOut ? r.hourlyPay : '',
-      r.backCounts.本指||0, r.backCounts.本延||0, r.backCounts.en20||0, r.backCounts.en40||0,
-      r.backCounts.場内||0, r.backCounts.同伴||0, r.backCounts.指D||0, r.backCounts.D||0,
+      ...countCols.map(([key]) => r.backCounts[key] || 0),
       r.sp||0, r.backTotal||0, r.lateFee||0, r.nibarai||0,
       hasOut ? r.dailyPay : '',
-      r.kyuuritsu == null ? '' : r.kyuuritsu.toFixed(1),
     ];
-    out.push(deductionItems.length
-      ? [...baseRow.slice(0, 18), ...(r.deductions || []).map(item => item.amount), r.deductionTotal, hasOut ? r.netPay : '', ...baseRow.slice(18)]
-      : baseRow);
+    out.push([...baseRow, ...(r.deductions || []).map(item => item.amount),
+      ...(deductionItems.length ? [r.deductionTotal, hasOut ? r.netPay : ''] : []),
+      r.kyuuritsu == null ? '' : r.kyuuritsu.toFixed(1)]);
   });
   const csv = out.map(r => r.map(v => '"' + String(v).replace(/"/g,'""') + '"').join(',')).join('\r\n');
   const blob = new Blob(['﻿' + csv], { type:'text/csv;charset=utf-8' });
@@ -14944,7 +15173,7 @@ function _renderReportDay() {
             <button onclick="exportCastProdCSV()">💾 CSV保存</button>
           </div>
         </div>
-        ${_aggProdTableHtml(agg.prodByCast, backByCast)}
+        ${_aggProdTableHtml(agg.prodByCast, backByCast, agg.shimeiLabels)}
       </div>
       <div class="agg-box">
         <div class="agg-box-head">
@@ -16628,9 +16857,9 @@ function posAddItem(name, amount, category, spShares) {
   const label = String(name).indexOf(':') >= 0 ? String(name).slice(0, String(name).indexOf(':')) : String(name);
   const item = ((cfg.posMenu && cfg.posMenu[category]) || []).find(v => v.name === label);
   const backYen = (!spShares && item) ? posMenuBackYen(item.back, amt) : 0;
-  const drinkPointCategory = ['castS', 'castM', 'castL'].includes(category);
-  const rawPoint = Number(drinkPointCategory ? cfg.drinkPts?.[category] : item?.pt);
-  const pointValue = (cfg.pointsEnabled && !spShares && (drinkPointCategory || item) && Number.isFinite(rawPoint)) ? Math.trunc(rawPoint) : 0;
+  const drinkItem = drinkItemByKey(category);
+  const rawPoint = Number(drinkItem ? drinkItem.pt : item?.pt);
+  const pointValue = (cfg.pointsEnabled && !spShares && (drinkItem || item) && Number.isFinite(rawPoint)) ? Math.trunc(rawPoint) : 0;
   // 延長(extension)はオーダー明細を作らない。延長は row.extensions を単一ソースとして
   // calcBill・_posSeatLineItems・リスト表・endMin が計上するため、オーダー明細も足すと
   // 延長料が二重計上（伝票に延長が2行・金額も倍）になる。延長は下の extensions 反映のみ行う。
@@ -17771,6 +18000,168 @@ function settingsSelectCategory(cat) {
     b.classList.toggle('active', b.dataset.setcat === cat));
 }
 
+function collectFeeMasterValues(rows, base = {}) {
+  const sourceRows = Array.isArray(rows) ? rows : [];
+  const numberOr = (value, fallback = 0) => {
+    if (value === '' || value === null || value === undefined) return fallback;
+    const number = Number(value);
+    return Number.isFinite(number) ? number : fallback;
+  };
+  const numberOrZero = value => numberOr(value, 0);
+  const intOr = (value, fallback = 0) => Math.trunc(numberOr(value, fallback));
+  const intOrZero = value => intOr(value, 0);
+  const castDefaults = base.castDefaults || {};
+  const result = {
+    nominateFee: intOrZero(base.nominateFee),
+    jonaiFee: intOrZero(base.jonaiFee),
+    dohanFee: intOrZero(base.dohanFee),
+    pointRules: {
+      本指: intOrZero(base.pointRules?.本指),
+      場内: intOrZero(base.pointRules?.場内),
+      同伴: intOrZero(base.pointRules?.同伴),
+    },
+    shimeiExtItems: { honen: [], enshi: [] },
+    drinkItems: [],
+    castDefaults: {
+      honshimei: numberOrZero(castDefaults.honshimei),
+      jonai: numberOrZero(castDefaults.jonai),
+      douhan: numberOrZero(castDefaults.douhan),
+      shimeiD: numberOrZero(castDefaults.shimeiD),
+      freeD: numberOrZero(castDefaults.freeD),
+    },
+  };
+  const fixed = {
+    honshimei: ['nominateFee', '本指'],
+    jonai: ['jonaiFee', '場内'],
+    douhan: ['dohanFee', '同伴'],
+  };
+  const extSeen = { honen: new Set(), enshi: new Set() };
+  const drinkSeen = new Set();
+
+  sourceRows.forEach(row => {
+    const group = String(row?.group || '');
+    const key = String(row?.key || '');
+    if (group === 'fixed' && fixed[key]) {
+      const [amountKey, pointKey] = fixed[key];
+      result[amountKey] = intOr(row.amount, result[amountKey]);
+      result.pointRules[pointKey] = intOrZero(row.pt);
+      result.castDefaults[key] = numberOrZero(row.back);
+      return;
+    }
+    if ((group === 'honen' || group === 'enshi') && key.startsWith(group) && !extSeen[group].has(key)) {
+      extSeen[group].add(key);
+      result.shimeiExtItems[group].push({
+        key,
+        label: String(row.label || '').trim() || key,
+        amount: numberOrZero(row.amount),
+        pt: intOrZero(row.pt),
+      });
+      result.castDefaults[key] = numberOrZero(row.back);
+      return;
+    }
+    if (group === 'drink' && isDrinkItemKey(key, base) && !drinkSeen.has(key)) {
+      drinkSeen.add(key);
+      result.drinkItems.push({
+        key,
+        label: String(row.label || '').trim() || key,
+        amount: numberOrZero(row.amount),
+        pt: intOrZero(row.pt),
+      });
+      const keys = drinkBackKeys(key);
+      result.castDefaults[keys.shimei] = numberOrZero(row.backShimei);
+      result.castDefaults[keys.free] = numberOrZero(row.backFree);
+      return;
+    }
+    if (group === 'drinkBack' && (key === 'shimeiD' || key === 'freeD')) {
+      result.castDefaults[key] = numberOrZero(row.back);
+    }
+  });
+
+  ['honen', 'enshi'].forEach(type => {
+    if (result.shimeiExtItems[type].length) return;
+    const fallback = (base.shimeiExtItems?.[type] || []).find(item => String(item?.key || '').startsWith(type));
+    const key = String(fallback?.key || `${type}_base`);
+    result.shimeiExtItems[type].push({
+      key,
+      label: String(fallback?.label || '').trim() || key,
+      amount: numberOrZero(fallback?.amount),
+      pt: intOrZero(fallback?.pt),
+    });
+    result.castDefaults[key] = numberOrZero(castDefaults[key]);
+  });
+  if (!result.drinkItems.length) {
+    const fallback = drinkItemList(base)[0] || drinkItemDefaults()[0];
+    result.drinkItems.push({
+      key:fallback.key,
+      label:String(fallback.label || '').trim() || fallback.key,
+      amount:numberOrZero(fallback.amount),
+      pt:intOrZero(fallback.pt),
+    });
+    const keys = drinkBackKeys(fallback);
+    result.castDefaults[keys.shimei] = numberOrZero(castDefaults[keys.shimei]);
+    result.castDefaults[keys.free] = numberOrZero(castDefaults[keys.free]);
+  }
+  return result;
+}
+
+function _readFeeMasterRows() {
+  return Array.from(document.querySelectorAll('#cfg-fee-master-table tr.fee-master-row')).map(row => ({
+    group: row.dataset.group,
+    key: row.dataset.key,
+    label: row.querySelector('.shimei-ext-label')?.value,
+    amount: row.querySelector('.fee-master-amount')?.value,
+    back: row.querySelector('.fee-master-back')?.value,
+    backShimei: row.querySelector('.fee-master-back-shimei')?.value,
+    backFree: row.querySelector('.fee-master-back-free')?.value,
+    pt: row.querySelector('.fee-master-pt')?.value,
+  }));
+}
+
+function _feeMasterNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function _feeMasterGroupHeadHTML(label, type = '') {
+  const add = type
+    ? `<button type="button" class="pos-me-add-btn" onclick="${type === 'drink' ? 'drinkItemAddRow()' : `shimeiExtAddRow('${type}')`}" style="margin:0">＋ 行を追加</button>`
+    : '';
+  return `<tr><td colspan="5" style="padding:8px 6px 4px"><div style="display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12px;font-weight:700;color:var(--tx2)"><span>${label}</span>${add}</div></td></tr>`;
+}
+
+function _feeMasterFixedRowHTML(key, label, amount, back, pt) {
+  const amountId = { honshimei:'cfg-nominateFee', jonai:'cfg-jonaiFee', douhan:'cfg-dohanFee' }[key];
+  return `<tr class="fee-master-row" data-group="fixed" data-key="${key}">
+    <td>${label}</td>
+    <td><span style="display:inline-flex;align-items:center;gap:4px"><input type="number" class="settings-input fee-master-amount" id="${amountId}" value="${_feeMasterNumber(amount)}" min="0" step="500" style="width:90px"> 円</span></td>
+    <td><span style="display:inline-flex;align-items:center;gap:4px"><input type="number" class="settings-input fee-master-back" value="${_feeMasterNumber(back)}" min="0" step="100" style="width:90px"> 円</span></td>
+    <td style="text-align:center;color:var(--tx3)">—</td>
+    <td><span style="display:inline-flex;align-items:center;gap:4px"><input type="number" class="settings-input fee-master-pt" value="${Math.trunc(_feeMasterNumber(pt))}" step="1" style="width:70px"> pt</span></td>
+  </tr>`;
+}
+
+function _feeMasterDrinkRowHTML(item) {
+  const value = item || {};
+  const keys = drinkBackKeys(value);
+  return `<tr class="fee-master-row drink-item-row" data-group="drink" data-key="${escAttr(value.key || '')}">
+    <td><div style="display:flex;align-items:center;gap:6px"><input type="text" class="settings-input shimei-ext-label" value="${escAttr(value.label || '')}" placeholder="項目名" style="width:100%;box-sizing:border-box"><button type="button" class="pos-me-del" onclick="drinkItemDelRow(this)">削除</button></div></td>
+    <td><span style="display:inline-flex;align-items:center;gap:4px"><input type="number" class="settings-input fee-master-amount" value="${_feeMasterNumber(value.amount)}" min="0" step="500" style="width:90px"> 円</span></td>
+    <td><span style="display:inline-flex;align-items:center;gap:4px"><input type="number" class="settings-input fee-master-back-shimei" value="${_feeMasterNumber(state.castDefaults?.[keys.shimei])}" min="0" step="100" style="width:90px"> 円</span></td>
+    <td><span style="display:inline-flex;align-items:center;gap:4px"><input type="number" class="settings-input fee-master-back-free" value="${_feeMasterNumber(state.castDefaults?.[keys.free])}" min="0" step="100" style="width:90px"> 円</span></td>
+    <td><span style="display:inline-flex;align-items:center;gap:4px"><input type="number" class="settings-input fee-master-pt" value="${Math.trunc(_feeMasterNumber(value.pt))}" step="1" style="width:70px"> pt</span></td>
+  </tr>`;
+}
+
+function _feeMasterDrinkBackRowHTML(key, label, back) {
+  return `<tr class="fee-master-row" data-group="drinkBack" data-key="${key}">
+    <td>${label}</td>
+    <td style="text-align:center;color:var(--tx3)">—</td>
+    <td>${key === 'shimeiD' ? `<span style="display:inline-flex;align-items:center;gap:4px"><input type="number" class="settings-input fee-master-back" value="${_feeMasterNumber(back)}" min="0" step="100" style="width:90px"> 円</span>` : '<span style="color:var(--tx3)">—</span>'}</td>
+    <td>${key === 'freeD' ? `<span style="display:inline-flex;align-items:center;gap:4px"><input type="number" class="settings-input fee-master-back" value="${_feeMasterNumber(back)}" min="0" step="100" style="width:90px"> 円</span>` : '<span style="color:var(--tx3)">—</span>'}</td>
+    <td style="text-align:center;color:var(--tx3)">—</td>
+  </tr>`;
+}
+
 function renderSettingsPanel() {
   // 設定欄を触ったら未保存フラグを立てる→タブ離脱時に showTab() が自動保存(applySettings)する
   if (!renderSettingsPanel._dirtyBound) {
@@ -17951,7 +18342,33 @@ function renderSettingsPanel() {
     <div class="settings-section" data-setcat="fees">
       <div class="settings-section-header"><span class="settings-section-title">💴 料金設定</span></div>
       <div class="settings-section-body">
-        <div class="settings-group-head first">🍸 セット</div>
+        <div class="settings-group-head first">📋 料金マスター</div>
+        <div class="settings-sub" style="margin-bottom:8px">バック標準は空欄キャストに自動適用。個別交渉は キャスト・給与 で上書き</div>
+        ${(() => {
+          const CD = state.castDefaults || {};
+          const fixedRows = [
+            ['honshimei', '本指名', cfg.nominateFee ?? 2000, CD.honshimei, cfg.pointRules?.本指],
+            ['jonai', '場内', cfg.jonaiFee ?? 2000, CD.jonai, cfg.pointRules?.場内],
+            ['douhan', '同伴', cfg.dohanFee ?? 15000, CD.douhan, cfg.pointRules?.同伴],
+          ].map(row => _feeMasterFixedRowHTML(...row)).join('');
+          return `<div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:6px;padding:8px 0 12px">
+            <table class="pos-me-table" id="cfg-fee-master-table">
+              <thead><tr><th>項目名</th><th>金額(円)</th><th>指名バック／バック標準(円)</th><th>通常バック(円)</th><th>pt</th></tr></thead>
+              <tbody>${_feeMasterGroupHeadHTML('指名・同伴')}${fixedRows}</tbody>
+              <tbody>${_feeMasterGroupHeadHTML('本延', 'honen')}</tbody>
+              <tbody id="cfg-shimei-honen">${shimeiExtGroup('honen').map(item => _shimeiExtSettingsRowHTML('honen', item)).join('')}</tbody>
+              <tbody>${_feeMasterGroupHeadHTML('延指', 'enshi')}</tbody>
+              <tbody id="cfg-shimei-enshi">${shimeiExtGroup('enshi').map(item => _shimeiExtSettingsRowHTML('enshi', item)).join('')}</tbody>
+              <tbody>${_feeMasterGroupHeadHTML('ドリンク', 'drink')}</tbody>
+              <tbody id="cfg-drink-items">${drinkItemList().map(item => _feeMasterDrinkRowHTML(item)).join('')}</tbody>
+              <tbody>${_feeMasterGroupHeadHTML('指D／D（ショットなどサイズ外）')}
+                ${_feeMasterDrinkBackRowHTML('shimeiD', '指D(ショット)', CD.shimeiD)}
+                ${_feeMasterDrinkBackRowHTML('freeD', 'D(ショット)', CD.freeD)}
+              </tbody>
+            </table>
+          </div>`;
+        })()}
+        <div class="settings-group-head">🍸 セット</div>
         <div class="settings-row">
           <div class="settings-label">基本セット料金<div class="settings-sub">1セットの時間と料金。セット追加の初期値と終了時刻の計算に使われます</div></div>
           <input type="number" class="settings-input" id="cfg-defStay" value="${cfg.defStay}" min="10" max="120" step="10" style="width:70px"> 分
@@ -17968,19 +18385,7 @@ function renderSettingsPanel() {
             <input type="number" class="settings-input" id="cfg-earlySetPrice" value="${cfg.earlySetPrice ?? 5000}" min="0" step="500" style="width:72px"> 円
           </div>
         </div>
-        <div class="settings-group-head">💁 指名・同伴</div>
-        <div class="settings-row">
-          <div class="settings-label">本指名料<div class="settings-sub">入店時からの指名。1指名あたりの料金</div></div>
-          <input type="number" class="settings-input" id="cfg-nominateFee" value="${cfg.nominateFee ?? 2000}" min="0" step="500"> 円
-        </div>
-        <div class="settings-row">
-          <div class="settings-label">場内指名料<div class="settings-sub">席についてからの指名。1指名あたりの料金</div></div>
-          <input type="number" class="settings-input" id="cfg-jonaiFee" value="${cfg.jonaiFee ?? 2000}" min="0" step="500"> 円
-        </div>
-        <div class="settings-row">
-          <div class="settings-label">同伴料</div>
-          <input type="number" class="settings-input" id="cfg-dohanFee" value="${cfg.dohanFee ?? 15000}" min="0" step="1000"> 円
-        </div>
+        <div class="settings-group-head">💁 同伴ルール</div>
         <div class="settings-row">
           <div class="settings-label">同伴時のセット料金<div class="settings-sub">ON: セット料金 + 同伴料 / OFF: セット0円 + 同伴料</div></div>
           <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px"><input type="checkbox" id="cfg-dohanIncludesSet" ${cfg.dohanIncludesSet ? 'checked' : ''}> セット料金も加算する</label>
@@ -18095,13 +18500,6 @@ function renderSettingsPanel() {
               <option value="none" ${cfg.modoriEnchoshimeiAgg === 'none' ? 'selected' : ''}>カウントしない</option>
             </select>
           </label>
-          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px">
-            <b>ドリンクの本数換算</b>
-            <span style="color:var(--tx3);font-size:11px">指D/D集計の重み</span>
-            <span>S<input type="number" class="settings-input" id="cfg-drinkCount-S" value="${(cfg.drinkCounts||{}).S ?? 1}" min="0" step="1" style="width:54px"></span>
-            <span>M<input type="number" class="settings-input" id="cfg-drinkCount-M" value="${(cfg.drinkCounts||{}).M ?? 2}" min="0" step="1" style="width:54px"></span>
-            <span>L<input type="number" class="settings-input" id="cfg-drinkCount-L" value="${(cfg.drinkCounts||{}).L ?? 3}" min="0" step="1" style="width:54px"></span>
-          </div>
         </div>
         <div class="settings-group-head">🧾 税サ・カード</div>
         <div class="settings-row">
@@ -18219,41 +18617,7 @@ function renderSettingsPanel() {
               </table>
             </div>`;
           })()}
-          <div class="settings-group-head">🎟 指名系・ドリンクの単価</div>
-          <div class="settings-sub" style="margin-bottom:8px">POSのボタン金額（お客様の支払額）。店ごとに違うのでここで設定します。集計の「指名売上」にも反映されます。</div>
-          ${(() => {
-            const P = cfg.posPrices || {};
-            const DP = cfg.drinkPts || {};
-            const cell = (key, label, def) =>
-              `<div style="display:flex;flex-direction:column;gap:3px">
-                 <span style="font-size:11px;color:var(--tx2)">${label}</span>
-                 <span style="display:inline-flex;align-items:center;gap:3px">
-                   <input type="number" class="settings-input" id="cfg-posprice-${key}" value="${P[key] ?? def}" min="0" step="500" style="width:88px"><span style="font-size:11px;color:var(--tx3)">円</span>
-                 </span>
-               </div>`;
-            const drinkCell = (key, label, def) =>
-              `<div style="display:flex;flex-direction:column;gap:3px">
-                 <span style="font-size:11px;color:var(--tx2)">${label}</span>
-                 <span style="display:inline-flex;align-items:center;gap:3px">
-                   <input type="number" class="settings-input" id="cfg-posprice-${key}" value="${P[key] ?? def}" min="0" step="500" style="width:88px"><span style="font-size:11px;color:var(--tx3)">円</span>
-                   <input type="number" class="settings-input" id="cfg-drinkpt-${key}" value="${Math.trunc(Number(DP[key])) || 0}" step="1" style="width:70px"><span style="font-size:11px;color:var(--tx3)">pt</span>
-                 </span>
-               </div>`;
-            const grp = (title, hint, cells) =>
-              `<div style="margin-bottom:14px">
-                 <div class="settings-label" style="font-weight:700;margin-bottom:2px">${title}</div>
-                 <div class="settings-sub" style="margin-bottom:8px">${hint}</div>
-                 <div style="display:flex;flex-wrap:wrap;gap:14px">${cells}</div>
-               </div>`;
-            return `<div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:6px">
-              ${grp('延指（フリー席の延長指名）', '20分／40分／60分（60分は集計で延指40＋延指20に展開されます）',
-                  cell('enshi20','20分',1000) + cell('enshi40','40分',2000) + cell('enshi60','60分',3000))}
-              ${grp('本延（本指名卓の延長）', '20分／40分／60分（集計では20・40＝1pt、60＝2ptで本延に集約）',
-                  cell('honen20','20分',2000) + cell('honen40','40分',2000) + cell('honen60','60分',4000))}
-              ${grp('ドリンク（S／M／L）', 'S／M／L。ポイント機能ON時のみ集計されます。',
-                  drinkCell('castS','S',1500) + drinkCell('castM','M',2500) + drinkCell('castL','L',3500))}
-            </div>`;
-          })()}
+          <div class="settings-sub" style="margin:12px 0">単価・バック・ptは 料金・会計 → 料金マスター で設定します</div>
           <div class="settings-group-head">🍾 メニュー編集</div>
           <div class="settings-sub" style="margin-bottom:12px;line-height:1.7">
             各カテゴリのメニューを自由に編集できます。行を追加・削除して保存してください。<br>
@@ -18303,15 +18667,7 @@ function renderSettingsPanel() {
           <div class="settings-label">ポイント機能<div class="settings-sub">キャスト評価用。給与計算には影響しません</div></div>
           <label><input type="checkbox" id="cfg-pointsEnabled" ${cfg.pointsEnabled ? 'checked' : ''}> 有効にする</label>
         </div>
-        <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:8px">
-          <div class="settings-label">指名系1回あたりのpt</div>
-          <div style="display:grid;grid-template-columns:repeat(3,minmax(130px,1fr));gap:8px;width:100%">
-            ${[['本指','本指'],['場内','場内'],['同伴','同伴'],['本延','本延'],['en20','20分延長'],['en40','40分延長']].map(([key,label]) => `
-              <label class="settings-label" style="display:flex;align-items:center;justify-content:space-between;gap:8px">${label}
-                <input type="number" class="settings-input point-rule-input" data-key="${key}" value="${Math.trunc(Number(cfg.pointRules?.[key])) || 0}" step="1" style="width:80px">
-              </label>`).join('')}
-          </div>
-        </div>
+        <div class="settings-sub" style="margin:12px 0">指名系のptは 料金・会計 → 料金マスター で設定します</div>
         <div class="settings-row">
           <div class="settings-label">キャスト表示の売上額<div class="settings-sub">OFFなら順位・キャスト名・ポイントだけを表示</div></div>
           <label><input type="checkbox" id="cfg-rankingShowAmountToCast" ${cfg.rankingShowAmountToCast !== false ? 'checked' : ''}> 売上額を表示する</label>
@@ -18426,8 +18782,6 @@ function renderSettingsPanel() {
             <button class="btn" onclick="openPayslipModal()">📄 給与明細</button>
             <input type="text" id="new-cast-input" class="cm-add-input" placeholder="キャスト名を入力…" onkeydown="if(event.key==='Enter')addCast()">
             <button class="btn primary" onclick="addCast()">＋ キャスト追加</button>
-            <button class="btn" onclick="applyCastDefaults(true)" title="単価が未設定（空）のキャストだけにデフォルトを入れる">デフォルトを未設定者に適用</button>
-            <button class="btn" onclick="applyCastDefaults(false)" title="全キャストにデフォルト単価を上書き">全員にデフォルトを上書き</button>
           </div>
           <div id="castmgmt-table-wrapper"></div>
         </div>
@@ -18787,6 +19141,63 @@ async function authSettingsClear() {
 
 /* タグ操作（設定パネル内のタグエディタ） */
 const _settingsTags = {};
+function _shimeiExtSettingsRowHTML(type, item) {
+  const value = item || {};
+  const back = state.castDefaults?.[value.key];
+  return `<tr class="fee-master-row shimei-ext-row" data-group="${type}" data-key="${escAttr(value.key || '')}">
+    <td><div style="display:flex;align-items:center;gap:6px"><input type="text" class="settings-input shimei-ext-label" value="${escAttr(value.label || '')}" placeholder="項目名" style="width:100%;box-sizing:border-box"><button type="button" class="pos-me-del" onclick="shimeiExtDelRow(this)">削除</button></div></td>
+    <td><span style="display:inline-flex;align-items:center;gap:4px"><input type="number" class="settings-input fee-master-amount shimei-ext-amount" value="${_feeMasterNumber(value.amount)}" min="0" step="500" style="width:90px"> 円</span></td>
+    <td><span style="display:inline-flex;align-items:center;gap:4px"><input type="number" class="settings-input fee-master-back" value="${_feeMasterNumber(back)}" min="0" step="100" style="width:90px"> 円</span></td>
+    <td style="text-align:center;color:var(--tx3)">—</td>
+    <td><span style="display:inline-flex;align-items:center;gap:4px"><input type="number" class="settings-input fee-master-pt shimei-ext-pt" value="${Math.trunc(_feeMasterNumber(value.pt))}" step="1" style="width:70px"> pt</span></td>
+  </tr>`;
+}
+function shimeiExtAddRow(type) {
+  if (!['enshi','honen'].includes(type)) return;
+  const tbody = document.getElementById('cfg-shimei-' + type);
+  if (!tbody) return;
+  const used = new Set(Array.from(document.querySelectorAll('.shimei-ext-row[data-key]')).map(row => row.dataset.key));
+  let key = '';
+  do { key = type + '_' + Math.random().toString(36).slice(2, 7); } while (used.has(key));
+  tbody.insertAdjacentHTML('beforeend', _shimeiExtSettingsRowHTML(type, { key, label:'', amount:0, pt:0 }));
+  tbody.querySelector('tr:last-child .shimei-ext-label')?.focus();
+  _settingsMarkDirty();
+}
+function shimeiExtDelRow(button) {
+  const row = button?.closest('tr.shimei-ext-row');
+  const tbody = row?.parentElement;
+  if (!row || !tbody) return;
+  if (tbody.querySelectorAll('tr.shimei-ext-row').length <= 1) {
+    showToast('延長系の項目は最低1行必要です');
+    return;
+  }
+  if (!confirm('過去の集計・給与データは消えませんが、POSボタンと今後の集計列から外れます')) return;
+  row.remove();
+  _settingsMarkDirty();
+}
+function drinkItemAddRow() {
+  const tbody = document.getElementById('cfg-drink-items');
+  if (!tbody) return;
+  const used = new Set(Array.from(document.querySelectorAll('.drink-item-row[data-key]')).map(row => row.dataset.key));
+  let key = '';
+  do { key = 'drink_' + Math.random().toString(36).slice(2, 7); } while (used.has(key));
+  tbody.insertAdjacentHTML('beforeend', _feeMasterDrinkRowHTML({ key, label:'', amount:0, pt:0 }));
+  tbody.querySelector('tr:last-child .shimei-ext-label')?.focus();
+  _settingsMarkDirty();
+}
+function drinkItemDelRow(button) {
+  const row = button?.closest('tr.drink-item-row');
+  const tbody = row?.parentElement;
+  if (!row || !tbody) return;
+  if (tbody.querySelectorAll('tr.drink-item-row').length <= 1) {
+    showToast('ドリンク項目は最低1行必要です');
+    return;
+  }
+  if (!confirm('過去の集計・給与データは消えませんが、POSボタンと今後の集計列から外れます')) return;
+  row.remove();
+  _settingsMarkDirty();
+}
+
 function settingTagDel(id, idx) {
   // 現在の値をDOMから読んで削除
   const container = document.getElementById(`tag-${id}`);
@@ -19105,10 +19516,11 @@ function applySettings() {
   const earlySetFromH   = _int('cfg-earlySetFromH', cfg.earlySetFromH);
   const earlySetToH     = _int('cfg-earlySetToH', cfg.earlySetToH);
   const earlySetPrice   = _int('cfg-earlySetPrice', cfg.earlySetPrice);
-  const nominateFee     = _int('cfg-nominateFee', cfg.nominateFee);
-  const dohanFee        = _int('cfg-dohanFee', cfg.dohanFee);
+  const feeMasterValues = collectFeeMasterValues(_readFeeMasterRows(), { ...cfg, castDefaults: state.castDefaults || {} });
+  const nominateFee     = feeMasterValues.nominateFee;
+  const dohanFee        = feeMasterValues.dohanFee;
   const dohanIncludesSet = !!(get('cfg-dohanIncludesSet')?.checked);
-  const jonaiFee        = _int('cfg-jonaiFee', cfg.jonaiFee);
+  const jonaiFee        = feeMasterValues.jonaiFee;
   const enchoshimeiFee        = cfg.enchoshimeiFee; // kept for legacy initial-seat-fee reference
   const extFeeHonshimeiAmt   = cfg.extFeeHonshimeiAmt   || 2000; // スカラーはフォールバック保持
   const extFeeJounaiAmt      = cfg.extFeeJounaiAmt      || 2000;
@@ -19145,11 +19557,6 @@ function applySettings() {
   const modoriHonshimeiAgg = ['honen','honshimei','none'].includes(modoriHonshimeiAggValue) ? modoriHonshimeiAggValue : 'honen';
   const modoriEnchoshimeiAggValue = get('cfg-modoriEnchoshimeiAgg')?.value;
   const modoriEnchoshimeiAgg = ['enchoshimei40','jounai','none'].includes(modoriEnchoshimeiAggValue) ? modoriEnchoshimeiAggValue : 'enchoshimei40';
-  const drinkCounts = {
-    S: parseInt(get('cfg-drinkCount-S')?.value) || 0,
-    M: parseInt(get('cfg-drinkCount-M')?.value) || 0,
-    L: parseInt(get('cfg-drinkCount-L')?.value) || 0,
-  };
   const showCountdown   = !!(get('cfg-showCountdown')?.checked);
 
   // POSカテゴリ: DOM順を保存。削除済みキーは採番の欠番を再利用しないためlayout末尾に保持する。
@@ -19195,17 +19602,13 @@ function applySettings() {
     posMenu[key] = items;
   }
 
-  // POS指名系・ドリンク単価
+  // 料金マスター（DOM読取と保存先マッピングは分離）
+  const shimeiExtItems = feeMasterValues.shimeiExtItems;
+  const drinkItems = feeMasterValues.drinkItems;
   const posPrices = { ...(cfg.posPrices || {}) };
-  ['enshi20','enshi40','enshi60','honen20','honen40','honen60','castS','castM','castL'].forEach(key => {
-    const el = get('cfg-posprice-' + key);
-    if (el && el.value !== '') { const v = parseInt(el.value); if (!isNaN(v)) posPrices[key] = v; }
-  });
-  const drinkPts = { castS:0, castM:0, castL:0 };
-  Object.keys(drinkPts).forEach(key => {
-    const value = Number(get('cfg-drinkpt-' + key)?.value);
-    drinkPts[key] = Number.isFinite(value) ? Math.trunc(value) : 0;
-  });
+  shimeiExtKeys().forEach(key => { delete posPrices[key]; });
+  drinkItemList().forEach(item => { delete posPrices[item.key]; });
+  ['castS','castM','castL'].forEach(key => { delete posPrices[key]; });
 
   // 店舗情報
   const shopName = (get('cfg-shopName')?.value ?? '').trim();
@@ -19261,13 +19664,7 @@ function applySettings() {
     };
   });
   const pointsEnabled = !!get('cfg-pointsEnabled')?.checked;
-  const pointRules = { 本指:0, 場内:0, 同伴:0, 本延:0, en20:0, en40:0 };
-  document.querySelectorAll('.point-rule-input[data-key]').forEach(input => {
-    if (Object.prototype.hasOwnProperty.call(pointRules, input.dataset.key)) {
-      const value = Number(input.value);
-      pointRules[input.dataset.key] = Number.isFinite(value) ? Math.trunc(value) : 0;
-    }
-  });
+  const pointRules = feeMasterValues.pointRules;
   const rankingShowAmountToCast = get('cfg-rankingShowAmountToCast')?.checked !== false;
   const defaultTheme                  = (get('cfg-defaultTheme')?.value || cfg.defaultTheme || 'aurum');
 
@@ -19292,20 +19689,22 @@ function applySettings() {
     extFeeHonshimeiAmt, extFeeJounaiAmt, extFeeEnchoshimeiAmt,
     extFeeHonshimeiAmts, extFeeJounaiAmts, extFeeEnchoshimeiAmts,
     extFeeOnHonshimei, extFeeOnJounai, extFeeOnEnchoshimei, extPrices,
-    extBasePerSeat, extFeePerSeat, doubanAsHonshimeiExt, modoriHonshimeiAgg, modoriEnchoshimeiAgg, drinkCounts,
+    extBasePerSeat, extFeePerSeat, doubanAsHonshimeiExt, modoriHonshimeiAgg, modoriEnchoshimeiAgg,
     taxRate, taxRound, discountAfterTax, cardFeeRate, cardFeeRound, tillFloat,
-    showCountdown, posMenu, posCatLayout, posCustomCats, posPrices,
+    showCountdown, posMenu, posCatLayout, posCustomCats, posPrices, shimeiExtItems, drinkItems,
     receiptStoreName1, receiptStoreAddr, receiptStoreTel, receiptInvoiceNo, receiptNote,
     payrollClockInRoundMin, payrollClockOutRoundMin, payrollClockOutRoundThreshold,
     payrollLateFineUnitMin, payrollLateFineAmt, payrollBottleSpRate, payrollPeriod,
     payrollSlideTable, payrollSlideSource, payrollPeriodDeductions, payrollRoundMode, payrollRoundUnit,
     payrollDeductions,
-    pointsEnabled, pointRules, drinkPts, rankingShowAmountToCast,
+    pointsEnabled, pointRules, rankingShowAmountToCast,
     defaultTheme,
     // 伝票ロゴ: 下書きがあれば確定、なければ既存値を引き継ぐ（cfg丸ごと再構築のため明示しないと保存で消える）
     shopLogo: (_shopLogoDraft !== undefined ? _shopLogoDraft : (cfg.shopLogo || '')),
   };
+  state.castDefaults = { ...(state.castDefaults || {}), ...feeMasterValues.castDefaults };
   saveCfg();
+  saveState();
 
   // ビュー全体を即時再描画
   renderTable();
@@ -19581,13 +19980,12 @@ function summarizeCustomerOrders(orders) {
 
 function customerVisitOrders(orders) {
   // 注文傾向の対象は「商品」のみ。席料・延長・指名系フィー・退席・VIP自動明細は除く
-  const FEE_CATS = new Set(['set','extension','vip','kitaku','nominate','dohan','jonai',
-    'enshi20','enshi40','enshi60','honen20','honen40','honen60']);
-  // ドリンクS/M/Lの注文名は「S:キャスト名」形式でコロン前がサイズ記号のため、カテゴリ名で表示する
-  const DRINK_LABEL = { castS: 'ドリンクS', castM: 'ドリンクM', castL: 'ドリンクL' };
+  const FEE_CATS = new Set(['set','extension','vip','kitaku','nominate','dohan','jonai']);
+  // 店舗定義ドリンクの注文名は「項目名:キャスト名」形式のため、カテゴリ定義から表示する
+  const DRINK_LABEL = Object.fromEntries(drinkItemList().map(item => [item.key, 'ドリンク' + item.label]));
   return (Array.isArray(orders) ? orders : []).filter(order => {
     const category = String(order?.category || '');
-    return !FEE_CATS.has(category.toLowerCase()) && String(order?.name || '').trim();
+    return !FEE_CATS.has(category.toLowerCase()) && !/^(enshi|honen)/.test(category) && String(order?.name || '').trim();
   }).map(order => ({
     name: DRINK_LABEL[String(order?.category || '')] || String(order.name).split(/[:：]/, 1)[0].trim(),
     qty: Math.max(1, Number(order.qty) || 1),
@@ -21538,6 +21936,7 @@ async function __boot() {
 
   loadCfg();
   loadState();
+  migrateShimeiExtModel();
   renderTable();
   renderCastPanel();
   refreshHistoryBtns();
@@ -21712,7 +22111,7 @@ function initDisplayModeFromPersist() {
      - clockInToMin(t)        : "HH:MM" → 営業日内通算分（深夜跨ぎ補正、12時前は+24h）
      - loadTimetableState()   : { clockIns, checkouts, chikokuMins, ... }
      - computeReportAgg(set)  : { prodByCast, nameGroups, ... }
-     - state.castProfiles     : { name: { wage, honshimei, honen, en20, en40, jonai, douhan, shimeiD, freeD } }
+     - state.castProfiles     : { name: { wage, honshimei, ...shimeiExtKeys, jonai, douhan, shimeiD, freeD } }
      - saveState()            : state を localStorage へ（payrollManual は persist 側で永続化対象に追加済み）
 
    手入力（SP / 日払い / 本数 / 控除）は state.payrollManual[dayKey][castName] に保存。
@@ -21811,6 +22210,13 @@ function _payNum(profile, field) {
   return (v === '' || v == null) ? 0 : (Number(v) || 0);
 }
 
+function _castBackUnit(profile, defaults, field) {
+  const v = profile && profile[field];
+  if (v !== '' && v != null) return Number(v) || 0;
+  const fallback = defaults && defaults[field];
+  return (fallback === '' || fallback == null) ? 0 : (Number(fallback) || 0);
+}
+
 /* ================================================================
    手入力（SP / 日払い / 本数 / 控除）ストア: state.payrollManual[dayKey][castName]
 ================================================================ */
@@ -21820,20 +22226,38 @@ function _ensurePayrollManual(dayKey) {
   return state.payrollManual[dayKey];
 }
 
-/* 手修正可能なバック本数列のキー（日計表 CNT_COLS と一致） */
-const PAYROLL_COUNT_KEYS = ['本指','本延','en20','en40','場内','同伴','指D','D'];
+/* 手修正可能なバック本数列のキー（日計表の動的列と一致）。削除済み延長キーは末尾へ残す。 */
+function payrollCountKeys(...sources) {
+  const drinkKeys = drinkItemList().flatMap(item => {
+    const keys = drinkBackKeys(item);
+    return [keys.shimei, keys.free];
+  });
+  const keys = ['本指', ...shimeiExtKeys(), '場内','同伴', ...drinkKeys, '指D','D'];
+  const seen = new Set(keys);
+  sources.forEach(source => Object.keys(source || {}).forEach(key => {
+    const deletedDrink = /_(shimeiD|freeD)$/.test(key) && isDrinkItemKey(key.replace(/_(shimeiD|freeD)$/, ''));
+    if ((/^(enshi|honen)/.test(key) || deletedDrink) && !seen.has(key)) { seen.add(key); keys.push(key); }
+  }));
+  return keys;
+}
+function _payrollManualCounts(raw, keys) {
+  const source = raw && typeof raw === 'object' ? raw : {};
+  const counts = {};
+  keys.forEach(key => {
+    let value = source[key];
+    if (value == null && key === 'enshi20') value = source.en20;
+    if (value == null && key === 'enshi40') value = source.en40;
+    if (value != null) counts[key] = Number(value) || 0;
+  });
+  return counts;
+}
 
 /* dayKey/castName の手入力を取得（無ければ既定 {sp:0,nibarai:0,counts:{},deductions:{}}）。state は変更しない。
    counts/deductions は「手修正されたキーのみ」を持つ（欠落＝自動値を使う合図）。 */
 function getPayrollManual(dayKey, castName) {
   const day = (state.payrollManual && state.payrollManual[dayKey]) || null;
   const rec = (day && day[castName]) || null;
-  const counts = {};
-  if (rec && rec.counts) {
-    PAYROLL_COUNT_KEYS.forEach(k => {
-      if (rec.counts[k] != null) counts[k] = Number(rec.counts[k]) || 0;
-    });
-  }
+  const counts = _payrollManualCounts(rec?.counts, payrollCountKeys(rec?.counts));
   const deductions = {};
   if (rec && rec.deductions) {
     Object.keys(rec.deductions).forEach(k => {
@@ -21866,7 +22290,7 @@ function setPayrollNibarai(dayKey, castName, amount) {
 
 /* #12 バック本数の手修正を保存。value が空文字なら手修正を解除（自動集計に戻す）。 */
 function setPayrollCount(dayKey, castName, colKey, value) {
-  if (PAYROLL_COUNT_KEYS.indexOf(colKey) < 0) return;
+  if (payrollCountKeys({ [colKey]:0 }).indexOf(colKey) < 0) return;
   const day = _ensurePayrollManual(dayKey);
   const rec = day[castName] = day[castName] || {};
   if (!rec.counts) rec.counts = {};
@@ -21940,6 +22364,7 @@ function computePayrollForCast(castName, prodByCast, opts) {
   const dayKey = opts.dayKey || (typeof getBizDayKey === 'function' ? getBizDayKey() : '');
   const tt = opts.tt || (typeof loadTimetableState === 'function' ? loadTimetableState() : {});
   const profile = (state.castProfiles && state.castProfiles[castName]) || null;
+  const castDefaults = ((opts.castDefaults !== undefined) ? opts.castDefaults : state.castDefaults) || {};
 
   /* --- 時間給 --- */
   const wage = _payNum(profile, 'wage');
@@ -21951,22 +22376,21 @@ function computePayrollForCast(castName, prodByCast, opts) {
 
   /* --- 手入力（SP / 日払い / 本数手修正）を先に取得 --- */
   const manualRec = (opts.manual && opts.manual[castName]) || getPayrollManual(dayKey, castName);
-  const manualCounts = (manualRec && manualRec.counts) || {};
-
-  /* --- バック本数（同伴3点展開はローカルで実施。元データ prodByCast は書き換えない） --- */
   const p = (prodByCast && prodByCast[castName]) || {};
+  const countKeys = payrollCountKeys(p, manualRec?.counts);
+  const manualCounts = _payrollManualCounts(manualRec?.counts, countKeys);
+
+  /* --- バック本数（同伴昇格はローカルで実施。元データ prodByCast は書き換えない） --- */
   const douhanCnt = Number(p['同']) || 0;
-  // 自動集計値（手修正前）
-  const autoCounts = {
-    本指:  (Number(p['指'])    || 0) + douhanCnt,  // 同伴1本につき本指+1
-    本延:  (Number(p['本延'])  || 0) + douhanCnt,  // 同伴1本につき本延+1
-    en20:  Number(p['延指20']) || 0,
-    en40:  Number(p['延指40']) || 0,
-    場内:  Number(p['場'])     || 0,
-    同伴:  douhanCnt,
-    指D:   Number(p['指D'])    || 0,
-    D:     Number(p['D'])      || 0,
-  };
+  const honenFirst = shimeiExtGroup('honen')[0]?.key;
+  const autoCounts = {};
+  countKeys.forEach(key => {
+    if (key === '本指') autoCounts[key] = (Number(p['指']) || 0) + douhanCnt;
+    else if (key === '場内') autoCounts[key] = Number(p['場']) || 0;
+    else if (key === '同伴') autoCounts[key] = douhanCnt;
+    else if (key === '指D' || key === 'D' || /_(shimeiD|freeD)$/.test(key)) autoCounts[key] = Number(p[key]) || 0;
+    else autoCounts[key] = (Number(p[key]) || 0) + (key === honenFirst ? douhanCnt : 0);
+  });
   // #12 手修正があれば優先、なければ自動集計。空欄で自動値に戻る（manualCounts に欠落＝自動）。
   const backCounts = {};
   for (const k in autoCounts) {
@@ -21974,16 +22398,12 @@ function computePayrollForCast(castName, prodByCast, opts) {
   }
 
   /* --- バック金額（本数 × 単価）。手修正後の backCounts を使うので金額・合計・日給が追従 --- */
-  const backAmounts = {
-    本指:  backCounts.本指 * _payNum(profile, 'honshimei'),
-    本延:  backCounts.本延 * _payNum(profile, 'honen'),
-    en20:  backCounts.en20 * _payNum(profile, 'en20'),
-    en40:  backCounts.en40 * _payNum(profile, 'en40'),
-    場内:  backCounts.場内 * _payNum(profile, 'jonai'),
-    同伴:  backCounts.同伴 * _payNum(profile, 'douhan'),
-    指D:   backCounts.指D  * _payNum(profile, 'shimeiD'),
-    D:     backCounts.D    * _payNum(profile, 'freeD'),
-  };
+  const backField = { 本指:'honshimei', 場内:'jonai', 同伴:'douhan', 指D:'shimeiD', D:'freeD' };
+  const backAmounts = {};
+  countKeys.forEach(key => {
+    const field = backField[key] || key;
+    backAmounts[key] = (Number(backCounts[key]) || 0) * _castBackUnit(profile, castDefaults, field);
+  });
 
   /* --- SP / 日払い（手入力。manualRec は上で取得済み） --- */
   const manualSp = (opts.sp != null) ? (Number(opts.sp) || 0) : (Number(manualRec.sp) || 0);
@@ -21993,11 +22413,13 @@ function computePayrollForCast(castName, prodByCast, opts) {
   const pointsProd = (typeof cfg !== 'undefined' && cfg.pointsEnabled)
     ? (Number((opts.prodPointsByCast || {})[castName]) || 0) : 0;
   const pointRules = (typeof cfg !== 'undefined' && cfg.pointRules) || {};
-  const pointKeys = ['本指','場内','同伴','本延','en20','en40'];
   const pointsCount = (typeof cfg !== 'undefined' && cfg.pointsEnabled)
-    ? pointKeys.reduce((sum, key) => {
+    ? ['本指','場内','同伴'].reduce((sum, key) => {
         const value = Number(pointRules[key]);
         return sum + (Number(backCounts[key]) || 0) * (Number.isFinite(value) ? Math.trunc(value) : 0);
+      }, 0) + shimeiExtItems().reduce((sum, item) => {
+        const value = Number(item.pt);
+        return sum + (Number(backCounts[item.key]) || 0) * (Number.isFinite(value) ? Math.trunc(value) : 0);
       }, 0)
     : 0;
   const pointsTotal = pointsProd + pointsCount;
