@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.37">
+<meta name="app-version" content="1.0.38">
 <title>リスト表 v4</title>
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
      フォントはOS内蔵にフォールバックする（--font/--monoのスタック参照）。 -->
@@ -5720,8 +5720,11 @@ const AuthGate = {
     const record = AuthStore.read();
     if (record && record.hash) {
       const session = this._readSession();
-      if (session && session.username === record.username && session.bizDate === this._todayBizDateStr()) {
-        return true; // 同じ営業日内の再起動・再訪問はログイン済み扱い
+      if (session && session.username === record.username) {
+        if (session.remember === true && session.authUpdatedAt === record.updatedAt) return true;
+        if (session.remember !== true && session.bizDate === this._todayBizDateStr()) {
+          return true; // 同じ営業日内の再起動・再訪問はログイン済み扱い
+        }
       }
       return new Promise(resolve => this._render(resolve, record));
     }
@@ -5748,9 +5751,20 @@ const AuthGate = {
     }
   },
 
-  _writeSession(username) {
+  _writeSession(username, opts = {}) {
     try {
-      localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify({ username, bizDate: this._todayBizDateStr() }));
+      localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify({
+        username,
+        bizDate: this._todayBizDateStr(),
+        remember: opts.remember === true,
+        authUpdatedAt: AuthStore.read()?.updatedAt,
+      }));
+    } catch (_) {}
+  },
+
+  forgetRemember() {
+    try {
+      localStorage.removeItem(AUTH_SESSION_KEY);
     } catch (_) {}
   },
 
@@ -5950,6 +5964,10 @@ const AuthGate = {
             パスワード
             <input id="auth-gate-password" type="password" autocomplete="current-password" style="display:block;width:100%;box-sizing:border-box;margin-top:6px;padding:11px 12px;border-radius:7px;border:1px solid rgba(201,168,76,0.28);background:#0d0c0a;color:#fff;font-size:15px">
           </label>
+          <label style="display:flex;gap:8px;align-items:flex-start;margin-bottom:14px;font-size:13px;color:#d8d0bd">
+            <input id="auth-gate-remember" type="checkbox" style="margin-top:3px">
+            次回からパスワード入力を省略する（この端末）
+          </label>
           <div id="auth-gate-error" style="display:none;margin:0 0 12px;color:#ff6b6b;font-size:13px"></div>
           <button id="auth-gate-submit" type="submit" style="width:100%;border:0;border-radius:7px;background:#c9a84c;color:#14110a;font-weight:800;font-size:15px;padding:12px;cursor:pointer">ログイン</button>
           <div style="margin-top:14px;color:#847c68;font-size:11px;line-height:1.7">パスワードを忘れた場合は管理者（製作者）に連絡してください。</div>
@@ -5961,6 +5979,7 @@ const AuthGate = {
     const form = overlay.querySelector('#auth-gate-form');
     const user = overlay.querySelector('#auth-gate-username');
     const pass = overlay.querySelector('#auth-gate-password');
+    const remember = overlay.querySelector('#auth-gate-remember');
     const err = overlay.querySelector('#auth-gate-error');
     const btn = overlay.querySelector('#auth-gate-submit');
 
@@ -5981,7 +6000,7 @@ const AuthGate = {
       try {
         const ok = await AuthStore.verify(user.value, pass.value);
         if (ok) {
-          this._writeSession(record.username);
+          this._writeSession(record.username, { remember: remember.checked });
           overlay.remove();
           resolve(true);
           return;
