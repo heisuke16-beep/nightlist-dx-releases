@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.39">
+<meta name="app-version" content="1.0.40">
 <title>リスト表 v4</title>
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
      フォントはOS内蔵にフォールバックする（--font/--monoのスタック参照）。 -->
@@ -2736,6 +2736,36 @@ table#customer-table { border-collapse: collapse; width: 100%; min-width: 800px;
 .pos-me-add { display:flex; align-items:center; gap:8px; margin-top:4px; }
 .pos-me-add-btn { background:#27ae60; color:#fff; border:0; border-radius:6px; padding:6px 16px; cursor:pointer; font-size:14px; font-weight:700; }
 .pos-me-add-btn:hover { background:#219a52; }
+/* POSメニュー編集: 操作列を固定し、数値・バック入力の可読幅を保つ */
+.pos-menu-editor .pos-me-table { table-layout:fixed; }
+.pos-menu-editor .pos-me-table th,
+.pos-menu-editor .pos-me-table td { padding-left:2px; padding-right:2px; }
+.pos-menu-editor .pos-me-name-input,
+.pos-menu-editor .pos-me-price-input,
+.pos-menu-editor .pos-me-back-input,
+.pos-menu-editor .pos-me-back-free-input,
+.pos-menu-editor .pos-me-pt-input {
+  width:100%; min-width:0; box-sizing:border-box; padding:5px 8px;
+  border:1px solid var(--bdr2); border-radius:4px; background:var(--sur3);
+  color:var(--tx); font-size:14px; font-family:var(--font); outline:none;
+}
+.pos-menu-editor .pos-me-price-input,
+.pos-menu-editor .pos-me-back-input,
+.pos-menu-editor .pos-me-back-free-input,
+.pos-menu-editor .pos-me-pt-input { text-align:right; }
+.pos-menu-editor .pos-me-table input:focus { border-color:var(--gold); }
+.pos-menu-editor .pos-me-del { width:100%; padding-left:2px; padding-right:2px; }
+/* 料金マスター: グループ帯・ゼブラ縞・統一行高で多列の追従を助ける */
+#cfg-fee-master-table { table-layout:fixed; }
+#cfg-fee-master-table .fee-master-group-head > td {
+  padding:8px 6px 6px; border-top:8px solid var(--sur2); background:var(--sur4);
+}
+#cfg-fee-master-table tr.fee-master-row { height:40px; }
+#cfg-fee-master-table tr.fee-master-row td { border-bottom:0; }
+#cfg-fee-master-table tr.fee-master-row td:last-child { padding-left:3px; padding-right:3px; }
+#cfg-fee-master-table tbody tr.fee-master-row:nth-child(even) td { background:var(--sur3); }
+#cfg-fee-master-table tr.fee-master-row .settings-input { width:100%; min-width:0; box-sizing:border-box; }
+#cfg-fee-master-table tr.fee-master-row input[type="number"] { text-align:right; }
 .settings-section {
   background: var(--sur2); border: 1px solid var(--bdr);
   border-radius: 10px; margin-bottom: 18px; overflow: hidden;
@@ -6290,6 +6320,10 @@ function drinkItemByKey(key, settings) {
 function drinkItemLabel(key, settings) {
   return drinkItemByKey(key, settings)?.label || key;
 }
+function shotLabel(settings) {
+  const src = settings || cfg;
+  return String(src.shotLabel || '').trim() || 'ショット';
+}
 function drinkBackKeys(item) {
   const key = typeof item === 'string' ? item : item?.key;
   return { shimei:key + '_shimeiD', free:key + '_freeD' };
@@ -6369,6 +6403,7 @@ const CFG_DEFAULTS = {
   ],
   shimeiExtItems: shimeiExtDefaultItems(),
   drinkItems: drinkItemDefaults(),
+  shotLabel: 'ショット',       // ショット計数グループの表示名（保存キーは不変）
   // --- 領収書設定（印刷時の店舗固定情報） ---
   // 新規導入店舗にそのまま出荷されるデフォルト値なので、特定店舗の実データを置かない
   // （2026-07-03: 他店舗展開の洗い出しで「旧店舗の名義がそのまま領収書に出る」リスクとして指摘）。
@@ -8423,8 +8458,8 @@ function castPayFields() {
       const keys = drinkBackKeys(item);
       return [[keys.shimei, '指D(' + item.label + ')', '円/本'], [keys.free, 'D(' + item.label + ')', '円/本']];
     }),
-    ['shimeiD',   '指D(ショット)', '円/本'],
-    ['freeD',     'D(ショット)',   '円/本'],
+    ['shimeiD',   '指D(' + shotLabel() + ')', '円/本'],
+    ['freeD',     'D(' + shotLabel() + ')',   '円/本'],
   ];
 }
 function toggleCastMgmt(){
@@ -8654,7 +8689,7 @@ function _payslipBackLabel(key) {
     return key === keys.shimei || key === keys.free;
   });
   if (drink) return (key.endsWith('_shimeiD') ? '指D(' : 'D(') + drink.label + ')';
-  return shimeiExtItem(key)?.label || ({ 本指:'本指名', 本延:'本延', en20:'20延', en40:'40延', 場内:'場内', 同伴:'同伴', 指D:'指D', D:'D' })[key] || key;
+  return shimeiExtItem(key)?.label || ({ 本指:'本指名', 本延:'本延', en20:'20延', en40:'40延', 場内:'場内', 同伴:'同伴', 指D:'指D(' + shotLabel() + ')', D:'D(' + shotLabel() + ')' })[key] || key;
 }
 
 function _payslipWarningHtml(days) {
@@ -10598,7 +10633,7 @@ function posBetaCategories(settings) {
     ...shimeiExtGroup('enshi', settings).map(item => [item.key, item.label]),
     ...shimeiExtGroup('honen', settings).map(item => [item.key, item.label]),
     ...drinkItemList(settings).map(item => [item.key, 'ドリンク' + item.label]),
-    ['shot','ショット'], ['bottle','ボトル'], ['food','フード'], ['bring','持込'], ['discount','割引']
+    ['shot',shotLabel(settings)], ['bottle','ボトル'], ['food','フード'], ['bring','持込'], ['discount','割引']
   ];
 }
 
@@ -12366,6 +12401,13 @@ function _posCategoryDrinkPick(category) {
   const custom = (cfg.posCustomCats || []).find(c => c && c.key === category);
   return !!(custom && custom.drinkPick);
 }
+
+function posMenuUsesSplitBack(category, settings) {
+  if (POS_DRINK_CATS.includes(category)) return true;
+  const src = settings || cfg;
+  const custom = (src.posCustomCats || []).find(c => c && c.key === category);
+  return !!(custom && custom.drinkPick);
+}
 function posDepartedClose() { document.getElementById('pos-departed-overlay')?.remove(); }
 function _departedAdjustFree(departedCasts, delta, gcount) {
   const next = Array.isArray(departedCasts) ? departedCasts.slice() : [];
@@ -12680,12 +12722,14 @@ function extOptDelRow(btn) {
 function posMenuAddItem(key) {
   const tbody = document.querySelector(`#cfg-posMenu-${key}-tbl tbody`);
   if (!tbody) return;
+  const splitBack = posMenuUsesSplitBack(key);
   const tr = document.createElement('tr');
   tr.draggable = true;
   tr.innerHTML = `<td class="pos-me-drag" title="ドラッグして並び替え">⠿</td>
     <td><input type="text" class="pos-me-name-input" value="" placeholder="メニュー名"></td>
     <td><input type="number" class="pos-me-price-input" value="" step="${_posMenuStep}" placeholder="金額"></td>
     <td><input type="text" class="pos-me-back-input" value="" placeholder="額 or %"></td>
+    ${splitBack ? '<td><input type="text" class="pos-me-back-free-input" value="" placeholder="空欄=同額"></td>' : ''}
     <td><input type="number" class="pos-me-pt-input" value="" step="1" placeholder="0"></td>
     <td><button type="button" class="pos-me-del" onclick="posMenuDelItem(this)">削除</button></td>`;
   tbody.appendChild(tr);
@@ -12763,11 +12807,16 @@ function _posCatRowHTML(cat) {
 }
 
 function _posMenuEditorHTML(key, label, items, open = false) {
+  const splitBack = posMenuUsesSplitBack(key);
+  const columns = splitBack
+    ? '<colgroup><col style="width:28px"><col><col style="width:96px"><col style="width:88px"><col style="width:88px"><col style="width:64px"><col style="width:44px"></colgroup>'
+    : '<colgroup><col style="width:28px"><col><col style="width:96px"><col style="width:96px"><col style="width:64px"><col style="width:44px"></colgroup>';
   const rows = (items || []).map(item => `<tr draggable="true">
     <td class="pos-me-drag" title="ドラッグして並び替え">⠿</td>
     <td><input type="text" class="pos-me-name-input" value="${escAttr(item.name)}" placeholder="メニュー名"></td>
     <td><input type="number" class="pos-me-price-input" value="${Number(item.amount) || 0}" step="${_posMenuStep}" placeholder="金額"></td>
     <td><input type="text" class="pos-me-back-input" value="${escAttr(item.back || '')}" placeholder="額 or %"></td>
+    ${splitBack ? `<td><input type="text" class="pos-me-back-free-input" value="${escAttr(item.backFree == null ? '' : String(item.backFree))}" placeholder="空欄=同額"></td>` : ''}
     <td><input type="number" class="pos-me-pt-input" value="${Number.isFinite(Number(item.pt)) && Number(item.pt) !== 0 ? Math.trunc(Number(item.pt)) : ''}" step="1" placeholder="0"></td>
     <td><button type="button" class="pos-me-del" onclick="posMenuDelItem(this)">削除</button></td>
   </tr>`).join('');
@@ -12776,7 +12825,8 @@ function _posMenuEditorHTML(key, label, items, open = false) {
     <details class="pos-me-acc"${openAttr}>
       <summary><span class="settings-label pos-menu-editor-label" style="font-weight:700">${escHtml(label)}</span></summary>
       <table class="pos-me-table" id="cfg-posMenu-${escAttr(key)}-tbl">
-        <thead><tr><th style="width:28px"></th><th>メニュー名</th><th style="width:110px">金額（円）</th><th style="width:90px">バック</th><th style="width:70px">pt</th><th style="width:56px"></th></tr></thead>
+        ${columns}
+        <thead><tr><th></th><th>メニュー名</th><th>金額（円）</th>${splitBack ? '<th>指名バック</th><th title="空欄なら指名バックと同額が適用されます">通常バック</th>' : '<th>バック</th>'}<th>pt</th><th></th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
       <button type="button" class="pos-me-add-btn" onclick="posMenuAddItem('${key}')">＋ 追加</button>
@@ -14208,14 +14258,14 @@ function aggProdCols(prodByCast, backByCast, stampedLabels) {
     ['場内','場内'], ['同伴','同伴'],
     ...currentDrinks.map(item => [item.key, stampedLabels?.[item.key] || item.label]),
     ...currentDrinks.flatMap(drinkBackCols),
-    ['指D','指D(ショット)'], ['D','D(ショット)'],
+    ['指D','指D(' + shotLabel() + ')'], ['D','D(' + shotLabel() + ')'],
     ..._aggMissingShimeiKeys(prodByCast, backByCast).map(key => [key, labelOf(key)]),
     ...missingDrinks.flatMap(item => [[item.key, item.label], ...drinkBackCols(item)]),
   ];
 }
 function _payrollCountCols(rows, stampedLabels) {
   const keys = payrollCountKeys(...(rows || []).map(row => row.backCounts || {}));
-  const labels = { 本指:'本指', 場内:'場内', 同伴:'同伴', 指D:'指D(ショット)', D:'D(ショット)' };
+  const labels = { 本指:'本指', 場内:'場内', 同伴:'同伴', 指D:'指D(' + shotLabel() + ')', D:'D(' + shotLabel() + ')' };
   return keys.map(key => {
     const match = /^(.*)_(shimeiD|freeD)$/.exec(key);
     if (match && isDrinkItemKey(match[1])) {
@@ -14261,6 +14311,13 @@ function _aggApplyProd(p, category, qty) {
     default:
       if (/^(enshi|honen)/.test(category) || isDrinkItemKey(category)) p[category] = (Number(p[category]) || 0) + qty;
   }
+}
+
+function _aggProductBack(order, isNominator) {
+  const hasBackFree = Object.prototype.hasOwnProperty.call(order || {}, 'backFree');
+  const back = Number(order?.back) || 0;
+  const amount = hasBackFree && !isNominator ? (Number(order.backFree) || 0) : back;
+  return { isProductBack: back > 0 || hasBackFree, amount };
 }
 
 function computeReportAgg(settled) {
@@ -14365,11 +14422,12 @@ function computeReportAgg(settled) {
       const isSizeDrinkCat = isDrinkItemKey(o.category);
       const isDrinkCat = isSizeDrinkCat || o.category === 'shot';
       const isExcludedDrinker = (!cast || cast === 'ボーイ' || cast === 'ゲスト');
-      const backYen = Number(o.back) || 0;
+      const isNominator = !!cast && nominators.has(cast);
+      const productBack = _aggProductBack(o, isNominator);
       const rawPoint = Number(o.pt);
       const pointValue = cfg.pointsEnabled && Number.isFinite(rawPoint) ? Math.trunc(rawPoint) : 0;
-      if (cast && !isExcludedDrinker && !o.spShares && backYen > 0) {
-        prodBackByCast[cast] = (prodBackByCast[cast] || 0) + backYen * qty;
+      if (cast && !isExcludedDrinker && !o.spShares && productBack.amount > 0) {
+        prodBackByCast[cast] = (prodBackByCast[cast] || 0) + productBack.amount * qty;
       }
       if (cast && !isExcludedDrinker && !o.spShares && pointValue) {
         prodPointsByCast[cast] = (prodPointsByCast[cast] || 0) + pointValue * qty;
@@ -14386,14 +14444,13 @@ function computeReportAgg(settled) {
           ((r.mainCast === cast && r.mainType === 'modori_honshimei') ||
            (r.subCasts || []).some(sc => sc.cast === cast && sc.type === 'modori_honshimei'));
         if (!_isModoriNominateLine) _aggApplyProd(p, o.category, qty);
-        if (isDrinkCat && !(backYen > 0)) {
+        if (isDrinkCat && !productBack.isProductBack) {
           // 指D = その卓の本指名/同伴キャスト本人のドリンク。メイン枠だけでなくサブ指名・
           // 指名系オーダー由来も含む（nominators）。指名売上と同じ判定。場内・延指は対象外。
-          const isHonshimei = nominators.has(cast);
           if (isSizeDrinkCat) {
             const keys = drinkBackKeys(o.category);
-            p[isHonshimei ? keys.shimei : keys.free] = (Number(p[isHonshimei ? keys.shimei : keys.free]) || 0) + qty;
-          } else if (isHonshimei) p['指D'] += qty;
+            p[isNominator ? keys.shimei : keys.free] = (Number(p[isNominator ? keys.shimei : keys.free]) || 0) + qty;
+          } else if (isNominator) p['指D'] += qty;
           else p['D'] += qty;
         }
       }
@@ -16638,6 +16695,9 @@ function posAddItem(name, amount, category, spShares) {
   const label = String(name).indexOf(':') >= 0 ? String(name).slice(0, String(name).indexOf(':')) : String(name);
   const item = ((cfg.posMenu && cfg.posMenu[category]) || []).find(v => v.name === label);
   const backYen = (!spShares && item) ? posMenuBackYen(item.back, amt) : 0;
+  const backFreeYen = (!spShares && item && Object.prototype.hasOwnProperty.call(item, 'backFree'))
+    ? posMenuBackYen(item.backFree, amt)
+    : undefined;
   const drinkItem = drinkItemByKey(category);
   const rawPoint = Number(drinkItem ? drinkItem.pt : item?.pt);
   const pointValue = (cfg.pointsEnabled && !spShares && (drinkItem || item) && Number.isFinite(rawPoint)) ? Math.trunc(rawPoint) : 0;
@@ -16648,7 +16708,10 @@ function posAddItem(name, amount, category, spShares) {
     // 同じ明細（カテゴリ・名称・単価が一致）は数量をまとめる（SETは別経路のため対象外）
     const existing = category !== 'set' && orders.find(o =>
       o.category === category && o.name === name && (Number(o.amount) || 0) === amt &&
-      (Number(o.back) || 0) === backYen && (Number(o.pt) || 0) === pointValue && !o.taxIncluded);
+      (Number(o.back) || 0) === backYen &&
+      Object.prototype.hasOwnProperty.call(o, 'backFree') === (backFreeYen !== undefined) &&
+      (backFreeYen === undefined || (Number(o.backFree) || 0) === backFreeYen) &&
+      (Number(o.pt) || 0) === pointValue && !o.taxIncluded);
     if (existing) {
       existing.qty = (Number(existing.qty) || 1) + 1;
       if (spShares) {
@@ -16661,6 +16724,7 @@ function posAddItem(name, amount, category, spShares) {
       const order = { id: 'po_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7), name, amount: amt, qty:1, category, createdAt:Date.now() };
       if (spShares) order.spShares = { ...spShares };
       if (backYen > 0) order.back = backYen;
+      if (backFreeYen !== undefined) order.backFree = backFreeYen;
       if (pointValue) order.pt = pointValue;
       orders.push(order);
     }
@@ -17773,6 +17837,7 @@ function collectFeeMasterValues(rows, base = {}) {
     },
     shimeiExtItems: { honen: [], enshi: [] },
     drinkItems: [],
+    shotLabel: String(base.shotLabel || '').trim() || 'ショット',
     castDefaults: {
       honshimei: numberOrZero(castDefaults.honshimei),
       jonai: numberOrZero(castDefaults.jonai),
@@ -17823,8 +17888,10 @@ function collectFeeMasterValues(rows, base = {}) {
       result.castDefaults[keys.free] = numberOrZero(row.backFree);
       return;
     }
-    if (group === 'drinkBack' && (key === 'shimeiD' || key === 'freeD')) {
-      result.castDefaults[key] = numberOrZero(row.back);
+    if (group === 'shotGroup' && key === 'shot') {
+      result.shotLabel = String(row.label || '').trim() || 'ショット';
+      result.castDefaults.shimeiD = numberOrZero(row.backShimei);
+      result.castDefaults.freeD = numberOrZero(row.backFree);
     }
   });
 
@@ -17877,17 +17944,18 @@ function _feeMasterGroupHeadHTML(label, type = '') {
   const add = type
     ? `<button type="button" class="pos-me-add-btn" onclick="${type === 'drink' ? 'drinkItemAddRow()' : `shimeiExtAddRow('${type}')`}" style="margin:0">＋ 行を追加</button>`
     : '';
-  return `<tr><td colspan="5" style="padding:8px 6px 4px"><div style="display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12px;font-weight:700;color:var(--tx2)"><span>${label}</span>${add}</div></td></tr>`;
+  return `<tr class="fee-master-group-head"><td colspan="6"><div style="display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12px;font-weight:700;color:var(--tx2)"><span>${label}</span>${add}</div></td></tr>`;
 }
 
 function _feeMasterFixedRowHTML(key, label, amount, back, pt) {
   const amountId = { honshimei:'cfg-nominateFee', jonai:'cfg-jonaiFee', douhan:'cfg-dohanFee' }[key];
   return `<tr class="fee-master-row" data-group="fixed" data-key="${key}">
     <td>${label}</td>
-    <td><span style="display:inline-flex;align-items:center;gap:4px"><input type="number" class="settings-input fee-master-amount" id="${amountId}" value="${_feeMasterNumber(amount)}" min="0" step="500" style="width:90px"> 円</span></td>
-    <td><span style="display:inline-flex;align-items:center;gap:4px"><input type="number" class="settings-input fee-master-back" value="${_feeMasterNumber(back)}" min="0" step="100" style="width:90px"> 円</span></td>
+    <td><input type="number" class="settings-input fee-master-amount" id="${amountId}" value="${_feeMasterNumber(amount)}" min="0" step="500"></td>
+    <td><input type="number" class="settings-input fee-master-back" value="${_feeMasterNumber(back)}" min="0" step="100"></td>
     <td style="text-align:center;color:var(--tx3)">—</td>
-    <td><span style="display:inline-flex;align-items:center;gap:4px"><input type="number" class="settings-input fee-master-pt" value="${Math.trunc(_feeMasterNumber(pt))}" step="1" style="width:70px"> pt</span></td>
+    <td><input type="number" class="settings-input fee-master-pt" value="${Math.trunc(_feeMasterNumber(pt))}" step="1"></td>
+    <td></td>
   </tr>`;
 }
 
@@ -17895,21 +17963,24 @@ function _feeMasterDrinkRowHTML(item) {
   const value = item || {};
   const keys = drinkBackKeys(value);
   return `<tr class="fee-master-row drink-item-row" data-group="drink" data-key="${escAttr(value.key || '')}">
-    <td><div style="display:flex;align-items:center;gap:6px"><input type="text" class="settings-input shimei-ext-label" value="${escAttr(value.label || '')}" placeholder="項目名" style="width:100%;box-sizing:border-box"><button type="button" class="pos-me-del" onclick="drinkItemDelRow(this)">削除</button></div></td>
-    <td><span style="display:inline-flex;align-items:center;gap:4px"><input type="number" class="settings-input fee-master-amount" value="${_feeMasterNumber(value.amount)}" min="0" step="500" style="width:90px"> 円</span></td>
-    <td><span style="display:inline-flex;align-items:center;gap:4px"><input type="number" class="settings-input fee-master-back-shimei" value="${_feeMasterNumber(state.castDefaults?.[keys.shimei])}" min="0" step="100" style="width:90px"> 円</span></td>
-    <td><span style="display:inline-flex;align-items:center;gap:4px"><input type="number" class="settings-input fee-master-back-free" value="${_feeMasterNumber(state.castDefaults?.[keys.free])}" min="0" step="100" style="width:90px"> 円</span></td>
-    <td><span style="display:inline-flex;align-items:center;gap:4px"><input type="number" class="settings-input fee-master-pt" value="${Math.trunc(_feeMasterNumber(value.pt))}" step="1" style="width:70px"> pt</span></td>
+    <td><input type="text" class="settings-input shimei-ext-label" value="${escAttr(value.label || '')}" placeholder="項目名"></td>
+    <td><input type="number" class="settings-input fee-master-amount" value="${_feeMasterNumber(value.amount)}" min="0" step="500"></td>
+    <td><input type="number" class="settings-input fee-master-back-shimei" value="${_feeMasterNumber(state.castDefaults?.[keys.shimei])}" min="0" step="100"></td>
+    <td><input type="number" class="settings-input fee-master-back-free" value="${_feeMasterNumber(state.castDefaults?.[keys.free])}" min="0" step="100"></td>
+    <td><input type="number" class="settings-input fee-master-pt" value="${Math.trunc(_feeMasterNumber(value.pt))}" step="1"></td>
+    <td><button type="button" class="pos-me-del" onclick="drinkItemDelRow(this)">削除</button></td>
   </tr>`;
 }
 
-function _feeMasterDrinkBackRowHTML(key, label, back) {
-  return `<tr class="fee-master-row" data-group="drinkBack" data-key="${key}">
-    <td>${label}</td>
-    <td style="text-align:center;color:var(--tx3)">—</td>
-    <td>${key === 'shimeiD' ? `<span style="display:inline-flex;align-items:center;gap:4px"><input type="number" class="settings-input fee-master-back" value="${_feeMasterNumber(back)}" min="0" step="100" style="width:90px"> 円</span>` : '<span style="color:var(--tx3)">—</span>'}</td>
-    <td>${key === 'freeD' ? `<span style="display:inline-flex;align-items:center;gap:4px"><input type="number" class="settings-input fee-master-back" value="${_feeMasterNumber(back)}" min="0" step="100" style="width:90px"> 円</span>` : '<span style="color:var(--tx3)">—</span>'}</td>
-    <td style="text-align:center;color:var(--tx3)">—</td>
+function _feeMasterShotRowHTML(label, backShimei, backFree) {
+  const menuNote = '銘柄ごとの金額・ptはPOSメニュー編集で設定します';
+  return `<tr class="fee-master-row" data-group="shotGroup" data-key="shot">
+    <td><input type="text" class="settings-input shimei-ext-label" value="${escAttr(label)}" placeholder="項目名"></td>
+    <td style="text-align:center;color:var(--tx3)" title="${menuNote}">—</td>
+    <td><input type="number" class="settings-input fee-master-back-shimei" value="${_feeMasterNumber(backShimei)}" min="0" step="100"></td>
+    <td><input type="number" class="settings-input fee-master-back-free" value="${_feeMasterNumber(backFree)}" min="0" step="100"></td>
+    <td style="text-align:center;color:var(--tx3)" title="${menuNote}">—</td>
+    <td></td>
   </tr>`;
 }
 
@@ -18094,7 +18165,7 @@ function renderSettingsPanel() {
       <div class="settings-section-header"><span class="settings-section-title">💴 料金設定</span></div>
       <div class="settings-section-body">
         <div class="settings-group-head first">📋 料金マスター</div>
-        <div class="settings-sub" style="margin-bottom:8px">バック標準は空欄キャストに自動適用。個別交渉は キャスト・給与 で上書き</div>
+        <div class="settings-sub" style="margin-bottom:8px">バック標準は空欄キャストに自動適用。個別交渉は キャスト・給与 で上書き。本指名・場内・同伴・延長系のバックは指名/通常の区別なし（指名バック列のみ使用）</div>
         ${(() => {
           const CD = state.castDefaults || {};
           const fixedRows = [
@@ -18104,18 +18175,15 @@ function renderSettingsPanel() {
           ].map(row => _feeMasterFixedRowHTML(...row)).join('');
           return `<div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:6px;padding:8px 0 12px">
             <table class="pos-me-table" id="cfg-fee-master-table">
-              <thead><tr><th>項目名</th><th>金額(円)</th><th>指名バック／バック標準(円)</th><th>通常バック(円)</th><th>pt</th></tr></thead>
+              <colgroup><col style="width:180px"><col style="width:110px"><col style="width:120px"><col style="width:120px"><col style="width:80px"><col style="width:52px"></colgroup>
+              <thead><tr><th>項目名</th><th>金額（円）</th><th>指名バック（円）</th><th>通常バック（円）</th><th>pt</th><th></th></tr></thead>
               <tbody>${_feeMasterGroupHeadHTML('指名・同伴')}${fixedRows}</tbody>
               <tbody>${_feeMasterGroupHeadHTML('本延', 'honen')}</tbody>
               <tbody id="cfg-shimei-honen">${shimeiExtGroup('honen').map(item => _shimeiExtSettingsRowHTML('honen', item)).join('')}</tbody>
               <tbody>${_feeMasterGroupHeadHTML('延指', 'enshi')}</tbody>
               <tbody id="cfg-shimei-enshi">${shimeiExtGroup('enshi').map(item => _shimeiExtSettingsRowHTML('enshi', item)).join('')}</tbody>
               <tbody>${_feeMasterGroupHeadHTML('ドリンク', 'drink')}</tbody>
-              <tbody id="cfg-drink-items">${drinkItemList().map(item => _feeMasterDrinkRowHTML(item)).join('')}</tbody>
-              <tbody>${_feeMasterGroupHeadHTML('指D／D（ショットなどサイズ外）')}
-                ${_feeMasterDrinkBackRowHTML('shimeiD', '指D(ショット)', CD.shimeiD)}
-                ${_feeMasterDrinkBackRowHTML('freeD', 'D(ショット)', CD.freeD)}
-              </tbody>
+              <tbody id="cfg-drink-items">${drinkItemList().map(item => _feeMasterDrinkRowHTML(item)).join('')}${_feeMasterShotRowHTML(shotLabel(), CD.shimeiD, CD.freeD)}</tbody>
             </table>
           </div>`;
         })()}
@@ -18391,13 +18459,14 @@ function renderSettingsPanel() {
           </div>
           <div id="pos-menu-editors">
             ${[
-              ['shot',    'ショット'],
+              ['shot',    shotLabel()],
               ['bottle',  'ボトル'],
               ['food',    'フード'],
               ['bring',   '持込'],
               ['discount','割引・割増'],
               ...resolvePosCatLayout(cfg).filter(cat => cat.key.startsWith('cust_')).map(cat => [cat.key, cat.label]),
-            ].map(([key, label]) => _posMenuEditorHTML(key, label, posCategoryItems(key, null))).join('')}
+            ].map(([key, label]) => _posMenuEditorHTML(key, label, posCategoryItems(key, null))
+              + (key === 'shot' ? '<div class="settings-sub" style="margin:-8px 0 12px 8px">バック（円/%）を入れた銘柄は商品バックになり、指D/D（計数グループ）の対象外になります</div>' : '')).join('')}
           </div>
           <div class="settings-row" style="padding-bottom:10px;margin-bottom:12px;align-items:flex-start;flex-direction:column;gap:8px">
             <button type="button" class="pos-me-add-btn pos-cat-add-btn" onclick="posCatAdd()">＋ カテゴリを追加</button>
@@ -18913,11 +18982,12 @@ function _shimeiExtSettingsRowHTML(type, item) {
   const value = item || {};
   const back = state.castDefaults?.[value.key];
   return `<tr class="fee-master-row shimei-ext-row" data-group="${type}" data-key="${escAttr(value.key || '')}">
-    <td><div style="display:flex;align-items:center;gap:6px"><input type="text" class="settings-input shimei-ext-label" value="${escAttr(value.label || '')}" placeholder="項目名" style="width:100%;box-sizing:border-box"><button type="button" class="pos-me-del" onclick="shimeiExtDelRow(this)">削除</button></div></td>
-    <td><span style="display:inline-flex;align-items:center;gap:4px"><input type="number" class="settings-input fee-master-amount shimei-ext-amount" value="${_feeMasterNumber(value.amount)}" min="0" step="500" style="width:90px"> 円</span></td>
-    <td><span style="display:inline-flex;align-items:center;gap:4px"><input type="number" class="settings-input fee-master-back" value="${_feeMasterNumber(back)}" min="0" step="100" style="width:90px"> 円</span></td>
+    <td><input type="text" class="settings-input shimei-ext-label" value="${escAttr(value.label || '')}" placeholder="項目名"></td>
+    <td><input type="number" class="settings-input fee-master-amount shimei-ext-amount" value="${_feeMasterNumber(value.amount)}" min="0" step="500"></td>
+    <td><input type="number" class="settings-input fee-master-back" value="${_feeMasterNumber(back)}" min="0" step="100"></td>
     <td style="text-align:center;color:var(--tx3)">—</td>
-    <td><span style="display:inline-flex;align-items:center;gap:4px"><input type="number" class="settings-input fee-master-pt shimei-ext-pt" value="${Math.trunc(_feeMasterNumber(value.pt))}" step="1" style="width:70px"> pt</span></td>
+    <td><input type="number" class="settings-input fee-master-pt shimei-ext-pt" value="${Math.trunc(_feeMasterNumber(value.pt))}" step="1"></td>
+    <td><button type="button" class="pos-me-del" onclick="shimeiExtDelRow(this)">削除</button></td>
   </tr>`;
 }
 function shimeiExtAddRow(type) {
@@ -18949,8 +19019,10 @@ function drinkItemAddRow() {
   const used = new Set(Array.from(document.querySelectorAll('.drink-item-row[data-key]')).map(row => row.dataset.key));
   let key = '';
   do { key = 'drink_' + Math.random().toString(36).slice(2, 7); } while (used.has(key));
-  tbody.insertAdjacentHTML('beforeend', _feeMasterDrinkRowHTML({ key, label:'', amount:0, pt:0 }));
-  tbody.querySelector('tr:last-child .shimei-ext-label')?.focus();
+  const shotRow = tbody.querySelector('tr[data-group="shotGroup"][data-key="shot"]');
+  if (shotRow) shotRow.insertAdjacentHTML('beforebegin', _feeMasterDrinkRowHTML({ key, label:'', amount:0, pt:0 }));
+  else tbody.insertAdjacentHTML('beforeend', _feeMasterDrinkRowHTML({ key, label:'', amount:0, pt:0 }));
+  (shotRow ? shotRow.previousElementSibling : tbody.lastElementChild)?.querySelector('.shimei-ext-label')?.focus();
   _settingsMarkDirty();
 }
 function drinkItemDelRow(button) {
@@ -19359,12 +19431,15 @@ function applySettings() {
       const amount = parseInt(tr.querySelector('.pos-me-price-input')?.value);
       const backRaw = tr.querySelector('.pos-me-back-input')?.value.trim();
       const back = (backRaw && /^(\d+|\d+(\.\d+)?%)$/.test(backRaw)) ? backRaw : null;
+      const backFreeRaw = tr.querySelector('.pos-me-back-free-input')?.value.trim();
+      const backFree = (backFreeRaw && /^(\d+|\d+(\.\d+)?%)$/.test(backFreeRaw)) ? backFreeRaw : null;
       const pointInput = tr.querySelector('.pos-me-pt-input');
       const rawPt = pointInput && pointInput.value !== '' ? Number(pointInput.value) : 0;
       const pt = Number.isFinite(rawPt) ? Math.trunc(rawPt) : 0;
       if (!name || isNaN(amount)) return null;
       const item = { name, amount };
       if (back) item.back = back;
+      if (posMenuUsesSplitBack(key, { posCustomCats }) && backFree) item.backFree = backFree;
       if (pt) item.pt = pt;
       return item;
     }).filter(Boolean);
@@ -19374,6 +19449,7 @@ function applySettings() {
   // 料金マスター（DOM読取と保存先マッピングは分離）
   const shimeiExtItems = feeMasterValues.shimeiExtItems;
   const drinkItems = feeMasterValues.drinkItems;
+  const shotLabel = feeMasterValues.shotLabel;
   const posPrices = { ...(cfg.posPrices || {}) };
   shimeiExtKeys().forEach(key => { delete posPrices[key]; });
   drinkItemList().forEach(item => { delete posPrices[item.key]; });
@@ -19460,7 +19536,7 @@ function applySettings() {
     extFeeOnHonshimei, extFeeOnJounai, extFeeOnEnchoshimei, extPrices,
     extBasePerSeat, extFeePerSeat, doubanAsHonshimeiExt, modoriHonshimeiAgg, modoriEnchoshimeiAgg,
     taxRate, taxRound, discountAfterTax, cardFeeRate, cardFeeRound, tillFloat,
-    showCountdown, fullscreenOnBoot, posMenu, posCatLayout, posCustomCats, posPrices, shimeiExtItems, drinkItems,
+    showCountdown, fullscreenOnBoot, posMenu, posCatLayout, posCustomCats, posPrices, shimeiExtItems, drinkItems, shotLabel,
     receiptStoreName1, receiptStoreAddr, receiptStoreTel, receiptInvoiceNo, receiptNote,
     payrollClockInRoundMin, payrollClockOutRoundMin, payrollClockOutRoundThreshold,
     payrollLateFineUnitMin, payrollLateFineAmt, payrollBottleSpRate, payrollPeriod,
