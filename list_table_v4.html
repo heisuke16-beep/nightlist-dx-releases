@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.40">
+<meta name="app-version" content="1.0.41">
 <title>リスト表 v4</title>
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
      フォントはOS内蔵にフォールバックする（--font/--monoのスタック参照）。 -->
@@ -6439,6 +6439,7 @@ const CFG_DEFAULTS = {
   // --- 控除項目（店舗定義。空=控除機能オフ＝日計表の表示は従来どおり） ---
   // key はラベル変更後も不変。mode: fixed=固定額 / rate=日給×率% / manual=都度手入力
   payrollDeductions:             [],
+  payrollHiddenCols:             [],     // 日計表で非表示にする列ID（空=全列表示）
   // --- テーマ既定値（端末別。アプリ起動時に Persist.theme が無ければこれを使う） ---
   defaultTheme:                  'aurum', // 'night' | 'light' | 'summer' | 'aurum'
   // --- POS指名系・ドリンクのボタン単価（店ごとに可変） ---
@@ -14076,6 +14077,17 @@ function _reportPeriodSwitchHtml() {
     + '.agg-box-head h3{font-size:14px;color:var(--tx2);margin:0}'
     + '.agg-box-actions{display:flex;gap:8px;align-items:center}'
     + '.agg-box-actions button,.agg-box-actions select{font-size:12px;padding:5px 10px;background:var(--sur2);color:var(--tx2);border:1px solid var(--bdr2);border-radius:6px;cursor:pointer}'
+    + '.payroll-cols-wrap{position:relative}'
+    + '.payroll-cols-toggle{min-width:34px}'
+    + '.payroll-cols-picker{position:absolute;z-index:12;right:0;top:calc(100% + 6px);width:min(440px,calc(100vw - 40px));padding:12px;background:var(--sur);color:var(--tx);border:1px solid var(--bdr2);border-radius:8px}'
+    + '.payroll-cols-picker[hidden]{display:none}'
+    + '.payroll-cols-grid{display:grid;grid-template-columns:repeat(2,minmax(160px,1fr));gap:12px}'
+    + '.payroll-cols-group h4{margin:0 0 6px;color:var(--tx2);font-size:11px}'
+    + '.payroll-cols-option{display:flex;align-items:flex-start;gap:6px;padding:3px 0;color:var(--tx2);font-size:12px;cursor:pointer}'
+    + '.payroll-cols-option input{margin:2px 0 0;accent-color:var(--gold)}'
+    + '.payroll-cols-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px;padding-top:10px;border-top:1px solid var(--bdr)}'
+    + '.payroll-cols-note{color:var(--tx3);font-size:11px}'
+    + '@media(max-width:560px){.payroll-cols-grid{grid-template-columns:1fr}}'
     + '.agg-incl{font-size:12px;color:var(--tx2);display:flex;align-items:center;gap:5px;cursor:pointer}'
     + '.agg-prod-table{border-collapse:collapse;font-size:13px;width:100%}'
     + '.agg-prod-table th,.agg-prod-table td{border-bottom:1px solid var(--bdr);padding:9px 8px;text-align:center;white-space:nowrap}'
@@ -14103,11 +14115,19 @@ function _reportPeriodSwitchHtml() {
     + '.agg-side-empty{color:var(--tx3);font-size:12px}'
     /* ---- 日計表（給料一覧） ---- */
     + '.payroll-note{font-size:11px;color:var(--tx3);font-weight:400}'
-    + '.payroll-table{border-collapse:collapse;font-size:11px;width:100%}'
+    + '.payroll-scroll{overflow-x:auto;scrollbar-gutter:stable;border:1px solid var(--bdr);border-radius:8px}'
+    + '.payroll-scroll:focus-visible{outline:2px solid var(--gold);outline-offset:2px}'
+    + '.payroll-table{border-collapse:collapse;font-size:11px;width:max-content;min-width:100%;font-variant-numeric:tabular-nums}'
     + '.payroll-table th,.payroll-table td{border-bottom:1px solid var(--bdr);padding:5px 1px;text-align:center;white-space:nowrap}'
-    + '.payroll-table th{color:var(--tx3);font-weight:600;font-size:11px;background:var(--sur2)}'
+    + '.payroll-table th{color:var(--tx3);font-weight:600;font-size:11px;background:var(--sur2);position:sticky;z-index:2}'
+    + '.payroll-table thead tr.pay-group-row th{top:0;height:26px;padding-top:4px;padding-bottom:4px}'
+    + '.payroll-table thead tr.pay-column-row th{top:26px}'
+    + '.payroll-table th.pay-group-head{color:var(--tx2);font-size:10px;letter-spacing:.04em;border-bottom:1px solid var(--bdr2)}'
+    + '.payroll-table .pay-group-start{border-left:2px solid var(--bdr2)}'
+    + '.payroll-table tbody td:nth-child(2){border-left:2px solid var(--bdr2)}'
     + '.payroll-table td.pay-name,.payroll-table th.pay-name{text-align:left;color:var(--tx);font-weight:600;position:sticky;left:0;background:var(--sur);z-index:1}'
-    + '.payroll-table th.pay-name{background:var(--sur2)}'
+    + '.payroll-table th.pay-name{background:var(--sur2);z-index:4}'
+    + '.payroll-table tbody tr:nth-child(even):not(.pay-totalrow) td{background:var(--sur2)}'
     + '.payroll-table td.pay-amt{color:var(--tx2);text-align:right}'
     + '.payroll-table td.pay-muted{color:var(--tx3)}'
     + '.payroll-table td.pay-total{color:var(--tx);font-weight:600;text-align:right}'
@@ -14274,6 +14294,95 @@ function _payrollCountCols(rows, stampedLabels) {
     }
     return [key, labels[key] || stampedLabels?.[key] || shimeiExtLabel(key)];
   });
+}
+function _payrollCountGroup(key) {
+  const match = /^(.*)_(shimeiD|freeD)$/.exec(key);
+  return key === '指D' || key === 'D' || (match && isDrinkItemKey(match[1])) ? 'drink' : 'shimei';
+}
+function _payrollCountGroups(cols) {
+  const labels = { shimei:'指名内訳', drink:'ドリンク内訳' };
+  return (cols || []).reduce((groups, col) => {
+    const key = _payrollCountGroup(col[0]);
+    const last = groups[groups.length - 1];
+    if (last && last.key === key) last.span += 1;
+    else groups.push({ key, label:labels[key], span:1 });
+    return groups;
+  }, []);
+}
+function _payrollCountGroupStart(cols, index) {
+  return index === 0 || _payrollCountGroup(cols[index][0]) !== _payrollCountGroup(cols[index - 1][0]);
+}
+const _PAYROLL_GROUP_LABELS = { work:'勤務', shimei:'指名内訳', drink:'ドリンク内訳', pay:'給与' };
+function _payrollTd(content, className, groupStart) {
+  const classes = [className || '', groupStart ? 'pay-group-start' : ''].filter(Boolean).join(' ');
+  return '<td' + (classes ? ' class="' + classes + '"' : '') + '>' + content + '</td>';
+}
+function _payrollTableColumns(countCols, deductionItems, showPoints) {
+  const deductionOptionLabel = deductionItems.map(item => item.label || '').concat(['控除計', '差引支給']).join('・');
+  const cols = [
+    { id:'clockin', group:'work', label:'出勤', cell:(x, start) => _payrollTd(_payrollClockSelectHtml(x.r.inHHMM, roundClockIn, "payrollSetClockIn('" + x.cj + "', this.value)"), '', start), total:(x, start) => _payrollTd('', '', start) },
+    { id:'clockout', group:'work', label:'退勤', cell:(x, start) => _payrollTd(_payrollClockSelectHtml(x.r.outHHMM, roundClockOut, "payrollSetClockOut('" + x.cj + "', this.value)"), '', start), total:(x, start) => _payrollTd('', '', start) },
+    { id:'work', group:'work', label:'勤務', cell:(x, start) => _payrollTd(_payWorkLabel(x.r.workMinutes), '', start), total:(x, start) => _payrollTd('', '', start) },
+    { id:'hourly', group:'work', label:'時間給', cell:(x, start) => _payrollTd(x.hasOut ? _payYen(x.r.hourlyPay) : '—', 'pay-amt' + (x.hasOut ? '' : ' pay-muted'), start), total:(x, start) => _payrollTd('', '', start) },
+    ...countCols.map(([id, label]) => ({
+      id, group:_payrollCountGroup(id), label,
+      cell:(x, start) => {
+        const auto = x.autoCounts[id] || 0;
+        const hasMan = x.manCounts[id] != null;
+        return _payrollTd('<input type="number" class="pay-in' + (hasMan ? ' pay-edited' : '') + '" value="' + (hasMan ? x.manCounts[id] : '') + '" placeholder="' + auto + '" onchange="payrollSetCount(\'' + x.cj + '\', \'' + id + '\', this.value)">', '', start);
+      },
+      total:(x, start) => _payrollTd('', '', start),
+    })),
+    { id:'firstRepeat', group:'pay', label:'初リピ', cell:(x, start) => _payrollTd((x.r.firstRepeatCount || 0).toLocaleString('ja-JP'), 'pay-total', start), total:(x, start) => _payrollTd(x.tot.firstRepeat.toLocaleString('ja-JP'), 'pay-total', start) },
+    ...(showPoints ? [{ id:'points', group:'pay', label:'ポイント', cell:(x, start) => _payrollTd((x.r.pointsTotal || 0).toLocaleString('ja-JP') + 'pt', 'pay-total', start), total:(x, start) => _payrollTd(x.tot.points.toLocaleString('ja-JP') + 'pt', 'pay-total', start) }] : []),
+    { id:'prodBack', group:'pay', label:'商品B', cell:(x, start) => _payrollTd(x.r.prodBack ? _payYen(x.r.prodBack) : '—', 'pay-amt' + (x.r.prodBack ? '' : ' pay-muted'), start), total:(x, start) => _payrollTd(x.tot.prodBack ? _payYen(x.tot.prodBack) : '—', 'pay-amt', start) },
+    { id:'sp', group:'pay', label:'SP', cell:(x, start) => _payrollTd('<input type="number" class="pay-in" value="' + (x.r.sp || '') + '" placeholder="0" onchange="payrollSetSP(\'' + x.cj + '\', this.value)">', '', start), total:(x, start) => _payrollTd('', '', start) },
+    { id:'backTotal', group:'pay', label:'バック合計', cell:(x, start) => _payrollTd(_payYen(x.r.backTotal), 'pay-total', start), total:(x, start) => _payrollTd(_payYen(x.tot.back), 'pay-total', start) },
+    { id:'late', group:'pay', label:'遅刻', cell:(x, start) => _payrollTd(x.r.lateFee ? '-' + _payYen(x.r.lateFee) : '—', 'pay-amt' + (x.r.lateFee ? '' : ' pay-muted'), start), total:(x, start) => _payrollTd(x.tot.late ? '-' + _payYen(x.tot.late) : '—', 'pay-amt', start) },
+    { id:'nibarai', group:'pay', label:'日払い', cell:(x, start) => _payrollTd('<input type="number" class="pay-in" value="' + (x.r.nibarai || '') + '" placeholder="0" onchange="payrollSetNibarai(\'' + x.cj + '\', this.value)">', '', start), total:(x, start) => _payrollTd(_payYen(x.tot.nibarai), 'pay-amt', start) },
+    { id:'dailyPay', group:'pay', label:'日給', cell:(x, start) => _payrollTd(x.hasOut ? _payYen(x.r.dailyPay) : '（時給未確定）', 'pay-daily' + (x.hasOut ? '' : ' pay-muted'), start), total:(x, start) => _payrollTd(_payYen(x.tot.daily), 'pay-daily', start) },
+    ...deductionItems.map((item, index) => ({
+      id:'deductions', group:'pay', label:item.label || '', optionLabel:deductionOptionLabel,
+      cell:(x, start) => {
+        const calculated = (x.r.deductions || [])[index] || {};
+        const hasMan = Object.prototype.hasOwnProperty.call(x.manualDeductions, item.key);
+        return _payrollTd('<input type="number" class="pay-in' + (hasMan ? ' pay-edited' : '') + '" value="' + (hasMan ? x.manualDeductions[item.key] : '') + '" placeholder="' + (calculated.auto || 0) + '" onchange="payrollSetDeduction(\'' + x.cj + '\', \'' + item.key + '\', this.value)">', '', start);
+      },
+      total:(x, start) => _payrollTd('', '', start),
+    })),
+    ...(deductionItems.length ? [
+      { id:'deductions', group:'pay', label:'控除計', optionLabel:deductionOptionLabel, cell:(x, start) => _payrollTd(x.hasOut ? _payYen(x.r.deductionTotal) : '—', 'pay-total' + (x.hasOut ? '' : ' pay-muted'), start), total:(x, start) => _payrollTd(_payYen(x.tot.deduction), 'pay-total', start) },
+      { id:'deductions', group:'pay', label:'差引支給', optionLabel:deductionOptionLabel, cell:(x, start) => _payrollTd(x.hasOut ? _payYen(x.r.netPay) : '（時給未確定）', 'pay-net' + (x.hasOut ? '' : ' pay-muted'), start), total:(x, start) => _payrollTd(_payYen(x.tot.net), 'pay-net', start) },
+    ] : []),
+    { id:'rate', group:'pay', label:'給率', cell:(x, start) => _payrollTd(x.r.kyuuritsu == null ? '—' : x.r.kyuuritsu.toFixed(1) + '%', 'pay-rate' + (x.r.kyuuritsu == null ? ' pay-muted' : ''), start), total:(x, start) => _payrollTd('', '', start) },
+  ];
+  return cols;
+}
+function _payrollVisibleColumns(columns, hiddenCols) {
+  const hidden = new Set(Array.isArray(hiddenCols) ? hiddenCols : []);
+  return columns.filter(col => !hidden.has(col.id));
+}
+function _payrollColumnGroups(columns) {
+  return columns.reduce((groups, col) => {
+    const last = groups[groups.length - 1];
+    if (last && last.key === col.group) last.span += 1;
+    else groups.push({ key:col.group, label:_PAYROLL_GROUP_LABELS[col.group], span:1 });
+    return groups;
+  }, []);
+}
+function _payrollTableHeaderFromColumns(columns) {
+  const groups = _payrollColumnGroups(columns);
+  const groupHeads = groups.map(group => '<th scope="colgroup" class="pay-group-head pay-group-start" colspan="' + group.span + '">' + group.label + '</th>').join('');
+  const columnHeads = columns.map((col, index) => '<th scope="col"' + (index === 0 || col.group !== columns[index - 1].group ? ' class="pay-group-start"' : '') + '>' + escHtml(col.label) + '</th>').join('');
+  return '<thead><tr class="pay-group-row">'
+    + '<th scope="col" class="pay-name pay-group-head" rowspan="2">社交名</th>'
+    + groupHeads
+    + '</tr><tr class="pay-column-row">'
+    + columnHeads
+    + '</tr></thead>';
+}
+function _payrollTableHeaderHtml(countCols, deductionItems, showPoints, hiddenCols) {
+  return _payrollTableHeaderFromColumns(_payrollVisibleColumns(_payrollTableColumns(countCols, deductionItems, showPoints), hiddenCols));
 }
 
 function _aggCastOf(name) { name = String(name||''); const i = name.indexOf(':'); return i >= 0 ? name.slice(i+1) : ''; }
@@ -14763,28 +14872,37 @@ function _payrollClockSelectHtml(curHHMM, rounder, onchangeCall) {
     const s = minToStr(t);
     opts += '<option value="' + s + '"' + (s === cur ? ' selected' : '') + '>' + s + '</option>';
   }
-  return '<td><select class="pay-in pay-time" onchange="' + onchangeCall + '">' + opts + '</select></td>';
+  return '<select class="pay-in pay-time" onchange="' + onchangeCall + '">' + opts + '</select>';
 }
 function payrollSetClockIn(castName, value)  { _payrollSetClock('clockIns', castName, value); }
 function payrollSetClockOut(castName, value) { _payrollSetClock('checkouts', castName, value); }
 
-/* テーブル本体（再描画対象）。computePayrollTable を呼び直して最新化。
-   src = #15 の { dayKey, rows, tt }（省略時は当日ライブを内部解決）。 */
-function _payrollTableInnerHtml(src) {
+function _payrollTableModel(src) {
   src = src || _reportDaySource();
   const settled = (src.rows || []).filter(r => r.isFirst && r.settled);
   const rows = (typeof computePayrollTable === 'function')
     ? computePayrollTable(settled, { dayKey: src.dayKey, tt: src.tt }) : [];
+  const agg = (typeof computeReportAgg === 'function') ? computeReportAgg(settled) : { shimeiLabels:{} };
+  const countCols = _payrollCountCols(rows, agg.shimeiLabels);
+  const deductionItems = (typeof cfg !== 'undefined' && Array.isArray(cfg.payrollDeductions)) ? cfg.payrollDeductions : [];
+  const showPoints = typeof cfg !== 'undefined' && cfg.pointsEnabled === true;
+  const columns = _payrollTableColumns(countCols, deductionItems, showPoints);
+  const hiddenCols = (typeof cfg !== 'undefined' && Array.isArray(cfg.payrollHiddenCols)) ? cfg.payrollHiddenCols : [];
+  return { src, rows, columns, visibleColumns:_payrollVisibleColumns(columns, hiddenCols) };
+}
+
+/* テーブル本体（再描画対象）。computePayrollTable を呼び直して最新化。
+   src = #15 の { dayKey, rows, tt }（省略時は当日ライブを内部解決）。 */
+function _payrollTableInnerHtml(src, model) {
+  model = model || _payrollTableModel(src);
+  src = model.src;
+  const rows = model.rows;
   if (!rows.length) {
     return '<div class="agg-side-empty" style="padding:24px;text-align:center">出勤キャストがいません</div>';
   }
   const tt = src.tt || {};
   const checkouts = tt.checkouts || {};
-  const agg = (typeof computeReportAgg === 'function') ? computeReportAgg(settled) : { shimeiLabels:{} };
-  const CNT_COLS = _payrollCountCols(rows, agg.shimeiLabels);
-  const deductionItems = (typeof cfg !== 'undefined' && Array.isArray(cfg.payrollDeductions)) ? cfg.payrollDeductions : [];
-
-  const showPoints = typeof cfg !== 'undefined' && cfg.pointsEnabled === true;
+  const visibleColumns = model.visibleColumns;
   const tot = { firstRepeat: 0, points: 0, prodBack: 0, back: 0, late: 0, nibarai: 0, daily: 0, deduction: 0, net: 0 };
   const body = rows.map(r => {
     const c = r.castName;
@@ -14792,38 +14910,9 @@ function _payrollTableInnerHtml(src) {
     const hasOut = !!checkouts[c];            // 退勤入力の有無（workMinutes=0 と区別）
     const manualDeductions = (typeof getPayrollManual === 'function')
       ? getPayrollManual(src.dayKey, c).deductions : {};
-    const hourlyCell = hasOut
-      ? '<td class="pay-amt">' + _payYen(r.hourlyPay) + '</td>'
-      : '<td class="pay-amt pay-muted">—</td>';
-    const dailyCell = hasOut
-      ? '<td class="pay-daily">' + _payYen(r.dailyPay) + '</td>'
-      : '<td class="pay-daily pay-muted" title="退勤未入力のため時給未確定">（時給未確定）</td>';
-    const deductionCells = deductionItems.length ? (r.deductions || []).map(item => {
-      const hasMan = Object.prototype.hasOwnProperty.call(manualDeductions, item.key);
-      return '<td><input type="number" class="pay-in' + (hasMan ? ' pay-edited' : '') + '"'
-        + ' value="' + (hasMan ? manualDeductions[item.key] : '') + '" placeholder="' + item.auto + '"'
-        + ' onchange="payrollSetDeduction(\'' + cj + '\', \'' + item.key + '\', this.value)"></td>';
-    }).join('') : '';
-    const deductionTotalCell = deductionItems.length
-      ? (hasOut ? '<td class="pay-total">' + _payYen(r.deductionTotal) + '</td>'
-        : '<td class="pay-total pay-muted">—</td>') : '';
-    const netCell = deductionItems.length
-      ? (hasOut ? '<td class="pay-net">' + _payYen(r.netPay) + '</td>'
-        : '<td class="pay-net pay-muted">（時給未確定）</td>') : '';
-    const rateCell = (r.kyuuritsu == null)
-      ? '<td class="pay-rate pay-muted">—</td>'
-      : '<td class="pay-rate">' + r.kyuuritsu.toFixed(1) + '%</td>';
     // #12 バック本数は編集可能。手修正(manualCounts)があればその値、なければ自動集計値(autoCounts)を placeholder 表示。
     const autoCounts = r.autoCounts || r.backCounts || {};
     const manCounts = r.manualCounts || {};
-    const cntCells = CNT_COLS.map(([k]) => {
-      const auto = autoCounts[k] || 0;
-      const hasMan = manCounts[k] != null;
-      const val = hasMan ? manCounts[k] : '';
-      return '<td><input type="number" class="pay-in' + (hasMan ? ' pay-edited' : '') + '"'
-        + ' value="' + val + '" placeholder="' + auto + '"'
-        + ' onchange="payrollSetCount(\'' + cj + '\', \'' + k + '\', this.value)"></td>';
-    }).join('');
 
     tot.prodBack += r.prodBack || 0;
     tot.firstRepeat += r.firstRepeatCount || 0;
@@ -14837,68 +14926,76 @@ function _payrollTableInnerHtml(src) {
       tot.net += r.netPay || 0;
     }
 
-    // 出勤/退勤：当日も過去日も30分刻みドロップダウンで編集可（過去分も修正できる）。
-    const inCell  = _payrollClockSelectHtml(r.inHHMM,  roundClockIn,  "payrollSetClockIn('"  + cj + "', this.value)");
-    const outCell = _payrollClockSelectHtml(r.outHHMM, roundClockOut, "payrollSetClockOut('" + cj + "', this.value)");
-
+    const ctx = { r, cj, hasOut, manualDeductions, autoCounts, manCounts, tot };
     return '<tr>'
       + '<td class="pay-name">' + escHtml(c) + '</td>'
-      + inCell
-      + outCell
-      + '<td>' + _payWorkLabel(r.workMinutes) + '</td>'
-      + hourlyCell
-      + cntCells
-      + '<td class="pay-total">' + (r.firstRepeatCount || 0).toLocaleString('ja-JP') + '</td>'
-      + (showPoints ? '<td class="pay-total">' + (r.pointsTotal || 0).toLocaleString('ja-JP') + 'pt</td>' : '')
-      + '<td class="pay-amt' + (r.prodBack ? '' : ' pay-muted') + '">' + (r.prodBack ? _payYen(r.prodBack) : '—') + '</td>'
-      + '<td><input type="number" class="pay-in" value="' + (r.sp || '') + '" placeholder="0" '
-        + 'onchange="payrollSetSP(\'' + cj + '\', this.value)"></td>'
-      + '<td class="pay-total">' + _payYen(r.backTotal) + '</td>'
-      + '<td class="pay-amt' + (r.lateFee ? '' : ' pay-muted') + '">' + (r.lateFee ? '-' + _payYen(r.lateFee) : '—') + '</td>'
-      + '<td><input type="number" class="pay-in" value="' + (r.nibarai || '') + '" placeholder="0" '
-        + 'onchange="payrollSetNibarai(\'' + cj + '\', this.value)"></td>'
-      + dailyCell
-      + deductionCells + deductionTotalCell + netCell
-      + rateCell
+      + visibleColumns.map((col, index) => col.cell(ctx, index === 0 || col.group !== visibleColumns[index - 1].group)).join('')
       + '</tr>';
   }).join('');
 
+  const totalCtx = { tot };
   const totRow = '<tr class="pay-totalrow">'
     + '<td class="pay-name">合計</td>'
-    + '<td></td><td></td><td></td><td></td>'
-    + CNT_COLS.map(() => '<td></td>').join('')
-    + '<td class="pay-total">' + tot.firstRepeat.toLocaleString('ja-JP') + '</td>'
-    + (showPoints ? '<td class="pay-total">' + tot.points.toLocaleString('ja-JP') + 'pt</td>' : '')
-    + '<td class="pay-amt">' + (tot.prodBack ? _payYen(tot.prodBack) : '—') + '</td>'
-    + '<td></td>'
-    + '<td class="pay-total">' + _payYen(tot.back) + '</td>'
-    + '<td class="pay-amt">' + (tot.late ? '-' + _payYen(tot.late) : '—') + '</td>'
-    + '<td class="pay-amt">' + _payYen(tot.nibarai) + '</td>'
-    + '<td class="pay-daily">' + _payYen(tot.daily) + '</td>'
-    + (deductionItems.length
-      ? deductionItems.map(() => '<td></td>').join('')
-        + '<td class="pay-total">' + _payYen(tot.deduction) + '</td>'
-        + '<td class="pay-net">' + _payYen(tot.net) + '</td>'
-      : '')
-    + '<td></td>'
+    + visibleColumns.map((col, index) => col.total(totalCtx, index === 0 || col.group !== visibleColumns[index - 1].group)).join('')
     + '</tr>';
 
-  const head = '<thead><tr>'
-    + '<th class="pay-name">社交名</th>'
-    + '<th>出勤</th><th>退勤</th><th>勤務</th><th>時間給</th>'
-    + CNT_COLS.map(([, label]) => '<th>' + label + '</th>').join('')
-    + '<th>初リピ</th>'
-    + (showPoints ? '<th>ポイント</th>' : '')
-    + '<th>商品B</th><th>SP</th><th>バック合計</th><th>遅刻</th><th>日払い</th><th>日給</th>'
-    + (deductionItems.length
-      ? deductionItems.map(item => '<th>' + escHtml(item.label || '') + '</th>').join('') + '<th>控除計</th><th>差引支給</th>'
-      : '')
-    + '<th>給率</th>'
-    + '</tr></thead>';
+  const head = _payrollTableHeaderFromColumns(visibleColumns);
 
-  return '<div style="overflow-x:auto"><table class="payroll-table">'
+  return '<div class="payroll-scroll" tabindex="0" role="region" aria-label="日計表。横にスクロールできます"><table class="payroll-table">'
     + head + '<tbody>' + body + totRow + '</tbody></table></div>';
 }
+
+function _payrollColumnPickerHtml(columns) {
+  const hidden = new Set((typeof cfg !== 'undefined' && Array.isArray(cfg.payrollHiddenCols)) ? cfg.payrollHiddenCols : []);
+  const seen = new Set();
+  const options = columns.filter(col => {
+    if (seen.has(col.id)) return false;
+    seen.add(col.id);
+    return true;
+  });
+  const groups = ['work', 'shimei', 'drink', 'pay'].map(group => ({
+    key:group, label:_PAYROLL_GROUP_LABELS[group], options:options.filter(col => col.group === group),
+  })).filter(group => group.options.length);
+  return '<div id="payroll-column-picker" class="payroll-cols-picker" hidden onclick="event.stopPropagation()">'
+    + '<div class="payroll-cols-grid">'
+    + groups.map(group => '<div class="payroll-cols-group"><h4>' + group.label + '</h4>'
+      + group.options.map(col => '<label class="payroll-cols-option"><input type="checkbox" data-col-id="' + encodeURIComponent(col.id) + '" onchange="setPayrollColumnVisible(decodeURIComponent(this.dataset.colId),this.checked)"' + (hidden.has(col.id) ? '' : ' checked') + '><span>' + escHtml(col.optionLabel || col.label) + '</span></label>').join('')
+      + '</div>').join('')
+    + '</div><div class="payroll-cols-foot"><button type="button" onclick="resetPayrollColumnVisibility()">すべて表示</button>'
+    + '<span class="payroll-cols-note">CSV・印刷にはすべての列が出ます</span></div></div>';
+}
+function _setPayrollColumnPickerOpen(open) {
+  const picker = document.getElementById('payroll-column-picker');
+  const button = document.querySelector('.payroll-cols-toggle');
+  if (!picker) return;
+  picker.hidden = !open;
+  if (button) button.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+function togglePayrollColumnPicker(event) {
+  if (event) event.stopPropagation();
+  const picker = document.getElementById('payroll-column-picker');
+  if (picker) _setPayrollColumnPickerOpen(picker.hidden);
+}
+function setPayrollColumnVisible(colId, visible) {
+  const hidden = new Set(Array.isArray(cfg.payrollHiddenCols) ? cfg.payrollHiddenCols : []);
+  if (visible) hidden.delete(colId); else hidden.add(colId);
+  cfg.payrollHiddenCols = Array.from(hidden);
+  saveCfg();
+  _rerenderPayrollTable();
+}
+function resetPayrollColumnVisibility() {
+  cfg.payrollHiddenCols = [];
+  saveCfg();
+  document.querySelectorAll('#payroll-column-picker input[type="checkbox"]').forEach(input => { input.checked = true; });
+  _rerenderPayrollTable();
+}
+function _closePayrollColumnPickerOnOutside(event) {
+  const picker = document.getElementById('payroll-column-picker');
+  if (!picker || picker.hidden || picker.contains(event.target)) return;
+  if (event.target && typeof event.target.closest === 'function' && event.target.closest('.payroll-cols-toggle')) return;
+  _setPayrollColumnPickerOpen(false);
+}
+document.addEventListener('click', _closePayrollColumnPickerOnOutside);
 
 /* 日計表 CSV（時給wageは出さない）。閲覧中の営業日(#15)を対象にする。 */
 function exportPayrollCSV() {
@@ -14940,17 +15037,20 @@ function exportPayrollCSV() {
 
 /* 日計表セクション全体（見出し+ホスト）。src = #15 の { dayKey, rows, tt }（省略時は当日） */
 function _payrollSectionHtml(src) {
+  const model = _payrollTableModel(src);
   const hasDeductions = typeof cfg !== 'undefined' && Array.isArray(cfg.payrollDeductions) && cfg.payrollDeductions.length > 0;
   const deductionNote = hasDeductions
     ? '<span class="payroll-note">控除は店舗設定の額・率による参考計算です（税務判断は行いません）</span>' : '';
   return '<div class="agg-box" style="margin-top:18px">'
     + '<div class="agg-box-head">'
-    + '<h3>日計表 <span class="payroll-note">※時給は表示されません（キャスト管理で管理）</span>' + deductionNote + '</h3>'
+    + '<h3>日計表 <span class="payroll-note">※時給は表示されません（キャスト管理で管理）／社交名を固定して横にスクロールできます</span>' + deductionNote + '</h3>'
     + '<div class="agg-box-actions">'
     + '<button onclick="printReport()">🖨 印刷</button>'
     + '<button onclick="exportPayrollCSV()">💾 CSV保存</button>'
+    + '<div class="payroll-cols-wrap"><button type="button" class="payroll-cols-toggle" aria-label="日計表の表示列を設定" aria-expanded="false" onclick="togglePayrollColumnPicker(event)">⚙</button>'
+    + _payrollColumnPickerHtml(model.columns) + '</div>'
     + '</div></div>'
-    + '<div id="payroll-table-host">' + _payrollTableInnerHtml(src) + '</div>'
+    + '<div id="payroll-table-host">' + _payrollTableInnerHtml(src, model) + '</div>'
     + '</div>';
 }
 
@@ -19542,6 +19642,7 @@ function applySettings() {
     payrollLateFineUnitMin, payrollLateFineAmt, payrollBottleSpRate, payrollPeriod,
     payrollSlideTable, payrollSlideSource, payrollPeriodDeductions, payrollRoundMode, payrollRoundUnit,
     payrollDeductions,
+    payrollHiddenCols: Array.isArray(cfg.payrollHiddenCols) ? cfg.payrollHiddenCols : [],
     pointsEnabled, pointRules, rankingShowAmountToCast,
     defaultTheme,
     // 伝票ロゴ: 下書きがあれば確定、なければ既存値を引き継ぐ（cfg丸ごと再構築のため明示しないと保存で消える）
