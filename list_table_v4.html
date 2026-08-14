@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.41">
+<meta name="app-version" content="1.0.42">
 <title>リスト表 v4</title>
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
      フォントはOS内蔵にフォールバックする（--font/--monoのスタック参照）。 -->
@@ -56,7 +56,6 @@ input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
   --pos-order-main-color: #222222;
   --pos-order-cat-bg: #787878;
   --pos-order-cat-active: #4bbfbd;
-  --pos-bottom-nav-bg: #333333;
   --pos-slip-wrap-bg: #0d0d0d;
   --pos-order-slip-bg: #111111;
   --pos-order-shell-bg: #000000;
@@ -108,7 +107,6 @@ input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
   --pos-order-main-color: #222222;
   --pos-order-cat-bg: #9daec4;
   --pos-order-cat-active: #3aaaa8;
-  --pos-bottom-nav-bg: #2a3858;
   --pos-slip-wrap-bg: #e8edf8;
   --pos-order-slip-bg: #d4e0f5;
   --pos-order-shell-bg: #eef2fc;
@@ -259,7 +257,6 @@ select option { background: var(--sur2); }
   --pos-order-main-color: #4A3A2A;
   --pos-order-cat-bg: rgba(168,208,188,0.9);
   --pos-order-cat-active: #68B984;
-  --pos-bottom-nav-bg: rgba(255,255,255,0.88);
   --pos-slip-wrap-bg: #EEF2EA;
   --pos-order-slip-bg: rgba(242,248,240,0.96);
   --pos-order-shell-bg: #F5F7F2;
@@ -381,7 +378,6 @@ select option { background: var(--sur2); }
   color: #1a4a2a;
 }
 [data-theme="summer"] #pos-panel { color: var(--tx); }
-[data-theme="summer"] .pos-stats { color: #4A3A2A; }
 [data-theme="summer"] .pos-bottom-btn.active {
   background: rgba(104,185,132,0.2);
   color: #1a6a3a;
@@ -461,7 +457,7 @@ select option { background: var(--sur2); }
   --pos-slip-rail-bdr:#d8b86c;
   --pos-order-main-bg:#0f1217; --pos-order-main-color:#f1f4f9;
   --pos-order-cat-bg:#191d25; --pos-order-cat-active:#d8b86c;
-  --pos-bottom-nav-bg:#191d25; --pos-slip-wrap-bg:#0d0f14;
+  --pos-slip-wrap-bg:#0d0f14;
   --pos-order-slip-bg:#0f1217; --pos-order-shell-bg:#070809;
   --gc0-bg:#13161c; --gc0-hbg:#191d25; --gc1-bg:#121a22; --gc1-hbg:#172430;
   --gc2-bg:#101a16; --gc2-hbg:#16241d; --gc3-bg:#1a1320; --gc3-hbg:#221829;
@@ -711,16 +707,17 @@ select option { background: var(--sur2); }
   background: var(--pos-bg);
   color: #f5f7fb;
   min-height: calc(100vh - 106px);
+  padding-bottom: 48px;
 }
 .pos-shell {
   display: grid;
-  grid-template-rows: 56px minmax(0, 1fr) 76px;
-  min-height: calc(100vh - 106px);
+  grid-template-rows: 56px minmax(0, 1fr);
+  height: calc(100vh - 106px);
   background: var(--pos-shell-bg);
 }
 .pos-empty-shell {
   display: grid;
-  grid-template-rows: minmax(0, 1fr) 76px;
+  grid-template-rows: minmax(0, 1fr);
   height: calc(100vh - 106px);
   overflow: hidden;
   background: var(--pos-empty-bg);
@@ -813,29 +810,6 @@ select option { background: var(--sur2); }
 .pos-product-name { align-self: stretch; text-align: left; line-height: 1.35; }
 .pos-product-price { align-self: stretch; margin-top: auto; color: var(--gold2); font-size: 20px; font-weight: 900; text-align: left; }
 .pos-empty-state { color: #777; background: #f0f2f4; padding: 26px; text-align: center; font-weight: 800; }
-.pos-bottom-nav {
-  background: var(--pos-bottom-nav-bg);
-  display: flex;
-  align-items: center;
-  gap: 20px;
-  padding: 10px 20px;
-}
-.pos-bottom-btn { min-width: 148px; height: 50px; font-size: 16px; }
-.pos-bottom-btn.active { background: #253141; color: #fff; }
-.pos-stats {
-  margin-left: auto;
-  display: inline-flex; align-items: center; gap: 16px;
-  padding: 7px 16px; border-radius: 12px;
-  background: rgba(0,0,0,0.26);
-  border: 1px solid var(--bdr2);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
-  line-height: 1;
-}
-.pos-stat { display: inline-flex; align-items: baseline; gap: 5px; white-space: nowrap; }
-.pos-stat-label { color: var(--tx3); font-size: 11px; font-weight: 400; letter-spacing: 0.04em; }
-.pos-stat-value { color: var(--tx); font-family: var(--mono); font-size: 16px; font-weight: 800; font-variant-numeric: tabular-nums; }
-.pos-stat.sales .pos-stat-value { color: var(--green); }
-.pos-stat.unsettled .pos-stat-value { color: var(--gold2); }
 .pos-clock-dot {
   width: 7px; height: 7px; border-radius: 50%;
   background: var(--green); box-shadow: 0 0 8px var(--green);
@@ -855,13 +829,11 @@ select option { background: var(--sur2); }
   .pos-product-grid { grid-template-columns: repeat(3, minmax(140px, 1fr)); }
 }
 @media (max-width: 980px) {
-  .pos-shell { grid-template-rows: auto minmax(0, 1fr) auto; }
+  .pos-shell { grid-template-rows: auto minmax(0, 1fr); }
   .pos-workspace { grid-template-columns: 1fr; overflow-y: auto; }
   .pos-main { overflow: visible; }
   .pos-cat-btn { min-height: 52px; margin: 0; }
   .pos-product-grid { grid-template-columns: repeat(2, minmax(130px, 1fr)); }
-  .pos-bottom-nav { flex-wrap: wrap; }
-  .pos-stats { margin-left: 0; width: 100%; justify-content: center; }
 }
 
 /* ================================================================
@@ -981,8 +953,9 @@ select option { background: var(--sur2); }
 ================================================================ */
 .pos-order-shell {
   display: grid;
-  grid-template-rows: minmax(0, 1fr) 76px;
+  grid-template-rows: minmax(0, 1fr);
   height: calc(100vh - 106px);
+  padding-bottom: 48px;
   background: var(--pos-order-shell-bg);
   overflow: hidden;
 }
@@ -2465,9 +2438,56 @@ tr.row-waiting     { outline: 1px solid rgba(255,160,0,0.25); }
   z-index: 100; height: 48px;
   box-shadow: var(--sum-bar-shadow);
 }
-/* 統計をPOSフッターと同じ右下位置に揃える（タブ切替時の視線移動を無くす）。ブランドだけ左に残す */
+/* ブランドを左、統計を右に配置する */
 #summary-bar { justify-content: flex-end; }
 #summary-bar .sum-brand { margin-right: auto; }
+#summary-pos-actions { display: none; }
+#summary-bar.has-pos-actions {
+  gap: 10px;
+  padding-inline: 10px;
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+#summary-bar.has-pos-actions .sum-brand { display: none; }
+#summary-bar.has-pos-actions #summary-pos-actions {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  gap: 4px;
+  align-items: center;
+  flex-wrap: nowrap;
+}
+#summary-pos-actions .pos-bottom-btn {
+  flex: 1 1 0;
+  min-width: 64px;
+  max-width: 96px;
+  height: 36px;
+  padding: 0 5px;
+  border: 1px solid var(--bdr2);
+  border-radius: 8px;
+  background: var(--sur2);
+  color: var(--tx2);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+#summary-pos-actions .pos-bottom-btn:hover { transform: none; border-color: var(--gold2); box-shadow: none; }
+#summary-pos-actions .pos-bottom-btn:active { transform: scale(.96); }
+#summary-pos-actions .pos-bottom-btn.back { color: var(--tx); }
+#summary-pos-actions .pos-bottom-btn.active { color: var(--gold2); background: rgba(232,163,61,.1); border-color: rgba(232,163,61,.4); }
+#summary-pos-actions .pos-bottom-btn.pay {
+  min-width: 72px;
+  max-width: 104px;
+  border: 0;
+  color: #17130a;
+  background: linear-gradient(160deg, var(--gold2), var(--gold));
+  box-shadow: 0 4px 16px -4px rgba(232,163,61,.5);
+  font-size: 12px;
+  font-weight: 800;
+}
+#summary-bar.has-pos-actions .sum-item,
+#summary-bar.has-pos-actions .sum-divider { flex: 0 0 auto; }
+#summary-bar.has-pos-actions .sum-sales-breakdown { display: none; }
 .sum-divider { width: 1px; height: 20px; background: var(--bdr); }
 .sum-item  { display: flex; gap: 6px; align-items: baseline; }
 .sum-label { color: var(--tx3); font-size: 11px; font-weight: 400; letter-spacing: 0.05em; }
@@ -3719,7 +3739,6 @@ html[data-display="tablet"] #list-table .col-ctrl-btn { min-width: 32px; min-hei
   --pos-order-main-bg: var(--pos-bg);
   --pos-order-main-color: var(--pos-tx);
   --pos-order-cat-bg: rgba(28,30,35,.7);
-  --pos-bottom-nav-bg: rgba(19,20,23,.97);
   color: var(--pos-tx);
   background-color: var(--pos-bg);
   background-image:
@@ -3732,7 +3751,7 @@ html[data-display="tablet"] #list-table .col-ctrl-btn { min-width: 32px; min-hei
 /* 紙伝票ビューは印刷イメージのため従来モノスペースを維持 */
 #pos-panel .pos-slip-sheet-wrap { --mono: 'JetBrains Mono', Consolas, 'Courier New', monospace; }
 #pos-panel .pos-empty-shell,
-#pos-panel .pos-order-shell { grid-template-rows: minmax(0, 1fr) 68px; }
+#pos-panel .pos-order-shell { grid-template-rows: minmax(0, 1fr); }
 
 /* Floor view */
 #pos-panel .pos-slip-view-head {
@@ -4222,59 +4241,6 @@ html[data-display="tablet"] #list-table .col-ctrl-btn { min-width: 32px; min-hei
   line-height: 1;
 }
 
-/* Bottom action bar: keep all eight actions and stats. */
-#pos-panel .pos-bottom-nav {
-  gap: 8px;
-  padding: 9px 12px;
-  overflow-x: auto;
-  border-top: 1px solid var(--pos-line);
-  background: rgba(19,20,23,.97);
-}
-#pos-panel .pos-bottom-btn {
-  flex: 0 1 92px;
-  min-width: 78px;
-  height: 48px;
-  border: 1px solid var(--pos-line);
-  border-radius: 10px;
-  background: var(--pos-panel2);
-  color: var(--pos-tx2);
-  font-size: 12px;
-  font-weight: 500;
-}
-#pos-panel .pos-bottom-btn:hover { transform: none; border-color: var(--pos-amber); box-shadow: none; }
-#pos-panel .pos-bottom-btn:active { transform: scale(.96); }
-#pos-panel .pos-bottom-btn.back { color: var(--pos-tx); }
-#pos-panel .pos-bottom-btn.active { color: var(--pos-amber); background: rgba(232,163,61,.1); border-color: rgba(232,163,61,.4); }
-#pos-panel .pos-bottom-btn.pay {
-  flex-basis: 118px;
-  min-width: 108px;
-  border: 0;
-  color: #17130a;
-  background: linear-gradient(160deg, var(--pos-amber), var(--pos-amber-deep));
-  box-shadow: 0 4px 16px -4px rgba(232,163,61,.5);
-  font-size: 14px;
-  font-weight: 800;
-}
-#pos-panel .pos-stats {
-  flex: none;
-  gap: 12px;
-  padding: 7px 12px;
-  border-color: var(--pos-line);
-  background: rgba(0,0,0,.22);
-}
-#pos-panel .pos-stat-label { color: var(--pos-tx2); }
-/* フッターの数字だけはPOS用のBebas Neue（--mono上書き）を使わず、他タブのフッターと同じ書体に揃える
-   （2026-07-20 オーナー指摘: 卓ビュー/伝票ビュー/他タブで表記が変わる） */
-#pos-panel .pos-stat-value {
-  color: var(--pos-tx);
-  font-family: 'JetBrains Mono', Consolas, 'Courier New', monospace;
-}
-#pos-panel .pos-stat.sales .pos-stat-value { color: var(--pos-ok); }
-#pos-panel .pos-stat.unsettled .pos-stat-value { color: var(--pos-amber); }
-#pos-panel .pos-bottom-nav.pos-bottom-nav-stats-only { justify-content: flex-end; overflow: hidden; padding-block: 7px; }
-/* 統計ボックスは卓ビュー・伝票ビューで同じ見た目にする（padding縮小の上書きを廃止・2026-07-20） */
-#pos-panel .pos-bottom-nav-stats-only .pos-stats { margin-left: auto; }
-
 /* --- リスト表：備考1行化・組セル圧縮 --- */
 #list-table td.group-num {
   min-width: 66px;
@@ -4378,7 +4344,6 @@ html[data-display="tablet"] #list-table .col-ctrl-btn { min-width: 32px; min-hei
 @media (max-width: 1100px) {
   #pos-panel .pos-order-workspace { grid-template-columns: 300px 96px minmax(0, 1fr); }
   #pos-panel .pos-order-main-body { padding-inline: 12px; }
-  #pos-panel .pos-stats { gap: 8px; }
 }
 @media (max-width: 760px) {
   #pos-panel .pos-order-workspace { grid-template-columns: minmax(260px, 42%) 86px minmax(320px, 1fr); overflow-x: auto; }
@@ -4693,12 +4658,14 @@ html[data-display="tablet"] #list-table .col-ctrl-btn { min-width: 32px; min-hei
 </div>
 <div id="summary-bar">
   <span class="sum-brand">NightList</span>
+  <div id="summary-pos-actions" aria-label="POS操作" hidden></div>
   <div class="sum-divider"></div>
   <div class="sum-item"><span class="sum-label">入客</span><span class="sum-val" id="s-guests">0</span><span class="sum-label">人</span></div>
   <div class="sum-item"><span class="sum-label">組</span><span class="sum-val" id="s-groups">0</span><span class="sum-label">組</span></div>
   <div class="sum-divider"></div>
   <div class="sum-item"><span class="sum-label">総売上</span><span class="sum-val green" id="s-sales">¥0</span></div>
   <div class="sum-item"><span class="sum-label">未精算</span><span class="sum-val gold" id="s-unsettled">¥0</span></div>
+  <div class="sum-item"><span class="sum-label">見込み</span><span class="sum-val" id="s-forecast">¥0</span></div>
   <div class="sum-item"><span class="sum-label">客単価</span><span class="sum-val" id="s-avg">—</span></div>
 </div>
 
@@ -9572,23 +9539,30 @@ function updateCountdowns() {
 /* ================================================================
    SUMMARY BAR
 ================================================================ */
-function updateSummary() {
+function summaryStats() {
   const guests  = state.rows.length;
   const groups  = state.rows.filter(r => r.isFirst).length;
-  const settled = state.rows.filter(r => r.isFirst && r.settled).length;
   const sales   = calcTotalSales();
   const settledGids = new Set(state.rows.filter(r => r.isFirst && r.settled).map(r => r.gid));
   const settledGuests = state.rows.filter(r => settledGids.has(r.gid)).length;
   const avg     = settledGuests > 0 ? Math.round(sales / settledGuests) : 0;
   const unsettled = typeof _posUnsettledTotal === 'function' ? _posUnsettledTotal() : 0;
   const { cash, card } = calcCashCardSales();
+  return { guests, groups, sales, cash, card, unsettled, forecast: sales + unsettled, avg };
+}
+
+function updateSummary() {
+  const { guests, groups, sales, cash, card, unsettled, forecast, avg } = summaryStats();
   document.getElementById('s-guests').textContent = guests;
   document.getElementById('s-groups').textContent = groups;
   const breakdown = (cash > 0 || card > 0)
-    ? ` <span style="color:var(--tx3);font-size:10px">(現 ¥${cash.toLocaleString()} / カード ¥${card.toLocaleString()})</span>`
+    ? ` <span class="sum-sales-breakdown" style="color:var(--tx3);font-size:10px">(現 ¥${cash.toLocaleString()} / カード ¥${card.toLocaleString()})</span>`
     : '';
-  document.getElementById('s-sales').innerHTML = '¥' + sales.toLocaleString() + breakdown;
+  const salesEl = document.getElementById('s-sales');
+  salesEl.innerHTML = '¥' + sales.toLocaleString() + breakdown;
+  salesEl.title = breakdown ? `現金 ¥${cash.toLocaleString()} / カード ¥${card.toLocaleString()}` : '';
   document.getElementById('s-unsettled').textContent = '¥' + unsettled.toLocaleString();
+  document.getElementById('s-forecast').textContent = '¥' + forecast.toLocaleString();
   document.getElementById('s-avg').textContent  = avg > 0 ? '¥' + avg.toLocaleString() : '—';
 
   // ヘッダーの店内状況バッジを更新
@@ -10598,10 +10572,10 @@ function showTab(tab) {
   document.getElementById('past-panel').classList.toggle('hidden', tab !== 'past');
   document.getElementById('settings-panel').classList.toggle('hidden', tab !== 'settings');
   document.getElementById('toolbar').style.display = tab === 'list' ? '' : 'none';
-  document.getElementById('summary-bar').style.display = tab === 'pos' ? 'none' : '';
   document.body.dataset.activeTab = tab;
   if (tab === 'pos') { document.body.style.overflow = 'hidden'; renderPOSPanel(); _posStartTimer(); }
   else { document.body.style.overflow = ''; _posStopTimer(); }
+  if (typeof _renderSummaryPosActions === 'function') _renderSummaryPosActions();
   // 他タブでの変更（卓移動・伝票編集等）を取りこぼさないよう、戻ってきたら再描画。
   // ただし前回描画から state に変化が無ければ描き直さない（行数が多い日の体感速度のため・2026-07-20）
   if (tab === 'list' && _listRenderedRev !== _stateRev) renderTable();
@@ -11114,41 +11088,22 @@ function posApplySlipEdit() {
   showToast('伝票設定を保存しました');
 }
 
-function _posFooterStatsHTML() {
-  const guests = state.rows.length;
-  const groups = state.rows.filter(row => row.isFirst).length;
-  return '<div class="pos-stats" aria-label="POS統計">'
-    + '<span class="pos-stat"><span class="pos-stat-label">入客</span><span class="pos-stat-value" data-pos-stat="guests">' + guests + '</span><span class="pos-stat-label">人</span></span>'
-    + '<span class="pos-stat"><span class="pos-stat-label">組</span><span class="pos-stat-value" data-pos-stat="groups">' + groups + '</span><span class="pos-stat-label">組</span></span>'
-    + '<span class="pos-stat sales"><span class="pos-stat-label">総売上</span><span class="pos-stat-value" data-pos-stat="sales">¥' + posMoney(calcTotalSales()) + '</span></span>'
-    + '<span class="pos-stat unsettled"><span class="pos-stat-label">未精算</span><span class="pos-stat-value" data-pos-stat="unsettled">¥' + posMoney(_posUnsettledTotal()) + '</span></span>'
-    + '</div>';
-}
-
-function _posUpdateFooterStats(root) {
-  const values = {
-    guests: String(state.rows.length),
-    groups: String(state.rows.filter(row => row.isFirst).length),
-    sales: '¥' + posMoney(calcTotalSales()),
-    unsettled: '¥' + posMoney(_posUnsettledTotal()),
-  };
-  root.querySelectorAll('[data-pos-stat]').forEach(el => {
-    const value = values[el.dataset.posStat];
-    if (value !== undefined && el.textContent !== value) el.textContent = value;
-  });
-}
-
-/* 伝票フッター */
-function _posFooterHTML(mode) {
+/* POS操作は共通summary-bar内へ描画し、全タブで下部バーを1本にする。 */
+function _renderSummaryPosActions() {
+  const summaryBar = document.getElementById('summary-bar');
+  const root = document.getElementById('summary-pos-actions');
+  if (!summaryBar || !root) return;
   const inPaperView = posBetaState.viewMode === 'slip' && posBetaState.slipView === 'paper';
-  // 卓ビュー（フロア）では操作ボタンを出さず統計のみ。伝票ビュー（紙）では従来の操作ボタンを復活させる
-  if (posBetaState.viewMode === 'slip' && !inPaperView) {
-    return '<div class="pos-bottom-nav pos-bottom-nav-stats-only">'
-      + _posFooterStatsHTML()
-      + '</div>';
+  const showActions = document.body.dataset.activeTab === 'pos'
+    && (posBetaState.viewMode === 'normal' || inPaperView);
+  summaryBar.classList.toggle('has-pos-actions', showActions);
+  root.hidden = !showActions;
+  if (!showActions) {
+    root.innerHTML = '';
+    return;
   }
-  const hasSlip = mode !== 'empty';
-  const orderActive = mode === 'order';
+  const hasSlip = posFirstRows().length > 0;
+  const orderActive = posBetaState.viewMode === 'normal';
   const orderFn = orderActive
     ? "posBetaState.viewMode='slip';renderPOSPanel()"
     : "posBetaState.viewMode='normal';renderPOSPanel()";
@@ -11159,18 +11114,15 @@ function _posFooterHTML(mode) {
   // 伝票ビューでは新規伝票作成。オーダー画面では従来どおり伝票選択画面へ戻る
   const firstLabel = inPaperView ? '＋ 新規伝票' : '戻る';
   const firstFn = inPaperView ? 'posOpenNewSlipModal()' : "posBetaState.viewMode='slip';renderPOSPanel()";
-  return '<div class="pos-bottom-nav">'
-    + b(firstLabel,   firstFn, false, false)
+  root.innerHTML = b(firstLabel,   firstFn, false, false)
     + b('オーダー',  orderFn,                         orderActive, !hasSlip)
     + b('履歴・修正','posOpenOrderEdit()',             false, !hasSlip)
     + b('伝票設定',  'posOpenSlipSettings()',         false, !hasSlip)
     + b('印刷',      'posPrintReceipt()',             false, !hasSlip)
     + b('前金',      'posOpenAdvanceModal()',         false, !hasSlip)
     + b('精算',      'posOpenCheckoutPanel()',        false, !hasSlip)
-    + b('削除',      'posDeleteSlip()',               false, !hasSlip)
-    // 「終了」（リスト表タブへ戻る）は廃止（2026-07-14 オーナー指示。上部タブで移動できるため不要）
-    + _posFooterStatsHTML()
-    + '</div>';
+    + b('削除',      'posDeleteSlip()',               false, !hasSlip);
+  // 「終了」（リスト表タブへ戻る）は廃止（2026-07-14 オーナー指示。上部タブで移動できるため不要）
 }
 
 function renderPOSPanel() {
@@ -11178,6 +11130,8 @@ function renderPOSPanel() {
   if (!root) return;
   const firsts = posFirstRows();
   const row = posSelectedRow();
+  _renderSummaryPosActions();
+  updateSummary();
   const categories = resolvePosCatLayout(cfg).filter(cat => cat.visible);
   if (!categories.some(cat => cat.key === posBetaState.category)) {
     posBetaState.category = categories[0]?.key || '';
@@ -11187,13 +11141,11 @@ function renderPOSPanel() {
     if (posBetaState.viewMode === 'slip') {
       root.innerHTML = '<div class="pos-empty-shell">'
         + renderPOSSlipView([], null)
-        + _posFooterHTML('empty')
         + '</div>';
       return;
     }
     root.innerHTML = '<div class="pos-empty-shell">'
       + '<div class="pos-empty-stage"></div>'
-      + _posFooterHTML('empty')
       + '</div>';
     return;
   }
@@ -11201,7 +11153,6 @@ function renderPOSPanel() {
   if (posBetaState.viewMode === 'slip') {
     root.innerHTML = '<div class="pos-empty-shell">'
       + renderPOSSlipView(firsts, row)
-      + _posFooterHTML('slip')
       + '</div>';
     return;
   }
@@ -11230,7 +11181,6 @@ function renderPOSPanel() {
     + '</div>'
     + '</div>'
     + '</div>'
-    + _posFooterHTML('order')
     + '</div>';
 }
 
@@ -11343,7 +11293,7 @@ function _posSlipAdvanceBadge(row) {
 function _posTimerTick() {
   const root = document.getElementById('pos-content'); if (!root) return;
   if (document.body.dataset.activeTab !== 'pos') return;
-  _posUpdateFooterStats(root);
+  updateSummary();
   root.querySelectorAll('.pos-slip-timer-wrap[data-gid]').forEach(el => {
     const gid = parseInt(el.dataset.gid, 10);
     const row = state.rows.find(r => r.gid === gid && r.isFirst);
