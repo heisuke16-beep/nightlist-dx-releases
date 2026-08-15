@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.42">
+<meta name="app-version" content="1.0.43">
 <title>リスト表 v4</title>
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
      フォントはOS内蔵にフォールバックする（--font/--monoのスタック参照）。 -->
@@ -1549,6 +1549,7 @@ select option { background: var(--sur2); }
 .pos-drink-cast-btn.onslip { border-color: #f5dfa0; background: #3a3320; color: #f5dfa0; }
 .pos-drink-cast-btn.special { border-color: #6a8fc0; background: #26344e; color: #bcd2f0; }
 .pos-drink-cast-btn.none { border-style: dashed; color: #9badc8; }
+.pos-designation-target-btn { height: auto; min-height: 56px; padding: 10px 12px; line-height: 1.4; }
 /* キャスト折半モーダル */
 .pos-cs-amount { padding: 14px 20px 0; font-size: 14px; color: #9badc8; display: flex; align-items: baseline; gap: 18px; flex-wrap: wrap; }
 .pos-cs-amount b { font-size: 20px; color: #f5dfa0; font-family: 'JetBrains Mono', Consolas, monospace; margin-left: 6px; }
@@ -1583,6 +1584,17 @@ select option { background: var(--sur2); }
 .pos-co-btn.urikake { background: #b04a5a; }
 .pos-co-btn.cancel { background: #555; }
 .pos-co-btn small { font-size: 11px; opacity: 0.8; margin-top: 2px; }
+.app-dialog-panel { width: min(520px, calc(100vw - 32px)); background: var(--sur); border-color: var(--bdr2); color: var(--tx); }
+.app-dialog-body { padding: 22px; }
+.app-dialog-message { color: var(--tx); font-size: 17px; font-weight: 700; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
+.app-dialog-input { width: 100%; margin-top: 18px; padding: 12px 14px; background: var(--sur3); border: 1px solid var(--bdr2); border-radius: var(--radius); color: var(--tx); font: inherit; font-size: 17px; }
+.app-dialog-input:focus { outline: 2px solid var(--gold); border-color: var(--gold); }
+.app-dialog-actions { margin-top: 20px; }
+.app-dialog-actions-single { grid-template-columns: 1fr; }
+.app-dialog-actions .pos-co-btn { height: 56px; padding: 8px 12px; }
+.app-dialog-ok { background: var(--gold); color: var(--bg); }
+.app-dialog-danger { background: var(--red); color: var(--tx); }
+.app-dialog-cancel { background: var(--sur3); color: var(--tx); border: 1px solid var(--bdr2); }
 /* 分割精算（テンキー） */
 .pos-split-fields { display: flex; gap: 10px; margin-bottom: 12px; }
 .pos-split-field { flex: 1; padding: 10px 14px; background: #12203a; border: 2px solid #2a3450; border-radius: 8px; cursor: pointer; }
@@ -4663,9 +4675,9 @@ html[data-display="tablet"] #list-table .col-ctrl-btn { min-width: 32px; min-hei
   <div class="sum-item"><span class="sum-label">入客</span><span class="sum-val" id="s-guests">0</span><span class="sum-label">人</span></div>
   <div class="sum-item"><span class="sum-label">組</span><span class="sum-val" id="s-groups">0</span><span class="sum-label">組</span></div>
   <div class="sum-divider"></div>
-  <div class="sum-item"><span class="sum-label">総売上</span><span class="sum-val green" id="s-sales">¥0</span></div>
+  <div class="sum-item"><span class="sum-label">精算済み</span><span class="sum-val green" id="s-sales">¥0</span></div>
   <div class="sum-item"><span class="sum-label">未精算</span><span class="sum-val gold" id="s-unsettled">¥0</span></div>
-  <div class="sum-item"><span class="sum-label">見込み</span><span class="sum-val" id="s-forecast">¥0</span></div>
+  <div class="sum-item"><span class="sum-label">総売上</span><span class="sum-val" id="s-forecast">¥0</span></div>
   <div class="sum-item"><span class="sum-label">客単価</span><span class="sum-val" id="s-avg">—</span></div>
 </div>
 
@@ -4931,6 +4943,7 @@ const UsbStore = {
   },
 
   async activateWithPicker(opts = {}) {
+    if (_demoMode) { this._toast('デモモード中はフォルダを変更できません'); return false; }
     if (!this.isSupported()) {
       this._toast('このブラウザは非対応です。Chrome/Edgeをご利用ください');
       return false;
@@ -4951,14 +4964,14 @@ const UsbStore = {
         return true;
       }
       if (hasData) {
-        const proceed = confirm(`このフォルダには既にNightListのデータがあります。
+        const proceed = await appConfirm(`このフォルダには既にNightListのデータがあります。
 
 　フォルダ名: ${handle.name || ''}
 
 このまま進めると、フォルダの中のデータは
 いまこの画面のデータで置き換わります。
 
-置き換える前の状態は「消えた営業日を戻す」から戻せます。`);
+置き換える前の状態は「消えた営業日を戻す」から戻せます。`, { danger: true });
         if (!proceed) {
           this.active = beforeActive;
           return false;
@@ -5090,11 +5103,13 @@ const UsbStore = {
 
   writeSync(name, raw) {
     this.cache[name] = raw;
+    if (_demoMode) return;   // デモモード中は保存を凍結（cacheのみ更新し、ディスクへは書かない）
     this._dirty.add(name);
     this._scheduleFlush();
   },
 
   async flush(names) {
+    if (_demoMode) return;
     if (!this.active || this._fenced || !this._dirHandle) return;
     clearTimeout(this._flushTimer);
     this._flushTimer = null;
@@ -5122,6 +5137,7 @@ const UsbStore = {
   },
 
   async deactivate() {
+    if (_demoMode) { this._toast('デモモード中はUSB保存を解除できません'); return; }
     if (this.active) {
       await this.flush();
       if (this._fenced) return;
@@ -5150,6 +5166,7 @@ const UsbStore = {
   },
 
   markAllDirty() {
+    if (_demoMode) return;
     Object.keys(Persist.KEYS).forEach(name => this._dirty.add(name));
     this._scheduleFlush();
   },
@@ -5363,6 +5380,23 @@ async function requestAppFullscreen() {
     return false;
   }
 }
+
+async function _handleAppFullscreenShortcut(event) {
+  const key = String(event.key || '').toLowerCase();
+  if (!event.ctrlKey || event.altKey || event.metaKey || key !== 'f') return;
+  event.preventDefault();
+  if (document.fullscreenElement) {
+    try {
+      await document.exitFullscreen();
+    } catch (e) {
+      console.warn('[Fullscreen] exit failed:', e);
+    }
+    return;
+  }
+  await requestAppFullscreen();
+}
+
+document.addEventListener('keydown', _handleAppFullscreenShortcut);
 
 function isFullscreenOnBootEnabled() {
   const settings = Persist.read('settings');
@@ -6229,6 +6263,138 @@ const SelfUpdate = {
   },
 };
 /* ================================================================
+   APP DIALOGS — native alert / confirm / prompt replacement
+================================================================ */
+const _appDialogQueue = [];
+let _appDialogActive = null;
+
+function _appDialogCancelValue(type) {
+  if (type === 'confirm') return false;
+  if (type === 'prompt') return null;
+  return undefined;
+}
+
+function _appDialogEnqueue(type, message, options = {}, defaultValue = '') {
+  return new Promise(resolve => {
+    _appDialogQueue.push({ type, message: String(message), options, defaultValue, resolve });
+    _appDialogShowNext();
+  });
+}
+
+function _appDialogShowNext() {
+  if (_appDialogActive || !_appDialogQueue.length) return;
+  const dialog = _appDialogQueue.shift();
+  const opener = document.activeElement;
+  const overlay = document.createElement('div');
+  overlay.className = 'pos-co-overlay app-dialog-overlay';
+
+  const panel = document.createElement('div');
+  panel.className = 'pos-co-panel app-dialog-panel';
+  panel.setAttribute('role', 'dialog');
+  panel.setAttribute('aria-modal', 'true');
+
+  const body = document.createElement('div');
+  body.className = 'pos-co-body app-dialog-body';
+  const message = document.createElement('div');
+  message.className = 'app-dialog-message';
+  message.textContent = dialog.message;
+  body.appendChild(message);
+
+  let input = null;
+  if (dialog.type === 'prompt') {
+    input = document.createElement('input');
+    input.className = 'app-dialog-input';
+    input.type = 'text';
+    input.value = String(dialog.defaultValue ?? '');
+    input.autofocus = true;
+    input.setAttribute('aria-label', dialog.message);
+    body.appendChild(input);
+  }
+
+  const actions = document.createElement('div');
+  actions.className = 'pos-co-actions app-dialog-actions';
+  const okButton = document.createElement('button');
+  okButton.type = 'button';
+  okButton.className = 'pos-co-btn app-dialog-ok' + (dialog.options.danger ? ' app-dialog-danger' : '');
+  okButton.textContent = dialog.options.okLabel || 'OK';
+  actions.appendChild(okButton);
+
+  let cancelButton = null;
+  if (dialog.type !== 'alert') {
+    cancelButton = document.createElement('button');
+    cancelButton.type = 'button';
+    cancelButton.className = 'pos-co-btn cancel app-dialog-cancel';
+    cancelButton.textContent = dialog.options.cancelLabel || 'キャンセル';
+    actions.appendChild(cancelButton);
+  } else {
+    actions.classList.add('app-dialog-actions-single');
+  }
+  body.appendChild(actions);
+  panel.appendChild(body);
+  overlay.appendChild(panel);
+
+  _appDialogActive = { ...dialog, overlay, panel, input, okButton, cancelButton, opener };
+  okButton.addEventListener('click', () => {
+    const value = dialog.type === 'confirm' ? true : dialog.type === 'prompt' ? input.value : undefined;
+    _appDialogFinish(value);
+  });
+  cancelButton?.addEventListener('click', () => _appDialogFinish(_appDialogCancelValue(dialog.type)));
+  overlay.addEventListener('click', event => {
+    if (event.target === overlay) _appDialogFinish(_appDialogCancelValue(dialog.type));
+  });
+  document.addEventListener('keydown', _appDialogKeydown);
+  document.body.appendChild(overlay);
+  (input || okButton).focus();
+}
+
+function _appDialogKeydown(event) {
+  const active = _appDialogActive;
+  if (!active) return;
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    event.stopPropagation();
+    _appDialogFinish(_appDialogCancelValue(active.type));
+    return;
+  }
+  if (event.key === 'Enter' && active.type === 'prompt') {
+    event.preventDefault();
+    _appDialogFinish(active.input.value);
+    return;
+  }
+  if (event.key !== 'Tab') return;
+  const focusable = [active.input, active.okButton, active.cancelButton].filter(Boolean);
+  if (focusable.length < 2) return;
+  const current = focusable.indexOf(document.activeElement);
+  const next = event.shiftKey
+    ? (current <= 0 ? focusable.length - 1 : current - 1)
+    : (current < 0 || current === focusable.length - 1 ? 0 : current + 1);
+  event.preventDefault();
+  focusable[next].focus();
+}
+
+function _appDialogFinish(value) {
+  const active = _appDialogActive;
+  if (!active) return;
+  _appDialogActive = null;
+  document.removeEventListener('keydown', _appDialogKeydown);
+  active.overlay.remove();
+  if (active.opener && typeof active.opener.focus === 'function') active.opener.focus();
+  active.resolve(value);
+  _appDialogShowNext();
+}
+
+function appConfirm(message, opts = {}) {
+  return _appDialogEnqueue('confirm', message, opts);
+}
+
+function appAlert(message, opts = {}) {
+  return _appDialogEnqueue('alert', message, opts);
+}
+
+function appPrompt(message, defaultValue = '') {
+  return _appDialogEnqueue('prompt', message, {}, defaultValue);
+}
+/* ================================================================
    SETTINGS (cfg)
 ================================================================ */
 const SHIMEI_EXT_DEFAULTS = {
@@ -6565,16 +6731,9 @@ let redoStack = [];
 /* ================================================================
    TIME UTILITIES
 ================================================================ */
-let _devNowMin = null;   // セット時刻（分）
+let _devNowMin = null;   // セット時刻（分）／デモモード中のみ使用可
 let _devSetAt  = null;   // セットしたリアルタイムのms
-/* 開発者モードの時刻オーバーライドを復元（ブラウザを開き直してもオンのまま） */
-(() => {
-  const saved = Persist.read('devTime');
-  if (saved && typeof saved.nowMin === 'number' && typeof saved.setAt === 'number') {
-    _devNowMin = saved.nowMin;
-    _devSetAt  = saved.setAt;
-  }
-})();
+let _demoMode  = false;  // デモモード（非永続。ページを開き直すと必ずfalseに戻る）
 
 /* DEV時刻：セット時刻 ＋ 経過分 */
 function _getDevNowMin() {
@@ -6616,7 +6775,11 @@ function getNowHHMM() {
   const d = new Date();
   return String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
 }
-function devSetNowTime() {
+async function devSetNowTime() {
+  if (!_demoMode) {
+    await appAlert('時刻の変更はデモモード中のみ使えます');
+    return;
+  }
   const val = (document.getElementById('dev-now-time')?.value || '').trim();
   if (!val) { devClearNowTime(); return; }
   const m = val.match(/^(\d{1,2}):(\d{2})$/);
@@ -6627,7 +6790,7 @@ function devSetNowTime() {
   _devSetAt  = Date.now();
   Persist.write('devTime', { nowMin: _devNowMin, setAt: _devSetAt });
   _lastAutoCheckMinute = -1;
-  showToast(`⚠️ 開発モード: 現在時刻を ${val} にセット`);
+  showToast(`🎬 デモ: 現在時刻を ${val} にセット`);
   renderSettingsPanel();
   renderTimetable();
   renderTable();          // ← ドロップダウンのキャスト一覧を時刻に合わせて再描画
@@ -6647,8 +6810,13 @@ function devClearNowTime() {
   updateClock();
   updateStoreStatusBadge();
 }
-function devResetTimetable() {
-  if (!confirm('タイムテーブルをすべてリセットしますか？\n（出勤・退勤・同伴・当欠・遅刻がクリアされます）\n\nactiveCastsもクリアされます。')) return;
+async function devResetTimetable() {
+  if (!_demoMode) {
+    await appAlert('タイムテーブルのリセットはデモモード中のみ使えます');
+    return;
+  }
+  const ok = await appConfirm('タイムテーブルをすべてリセットしますか？\n（出勤・退勤・同伴・当欠・遅刻がクリアされます）\n\nactiveCastsもクリアされます。');
+  if (!ok) return;
   saveTimetableState({ clockIns: {}, checkouts: {}, douban: [], touketsu: [], plannedClockIns: {}, chikokuMins: {} });
   state.activeCasts = [];
   saveState();
@@ -6656,6 +6824,34 @@ function devResetTimetable() {
   renderCastPanel();
   updateStoreStatusBadge();
   showToast('タイムテーブルをリセットしました');
+}
+
+/* デモモード開始: 現在の実データを確実にディスクへ書き切ってから、以降の保存を凍結する。
+   デモ中の変更はUsbStore.writeSyncで凍結され（cacheのみ更新・flush対象外）、
+   終了時のlocation.reloadで開始時点のディスク内容へ復帰する。 */
+async function demoModeStart() {
+  if (_demoMode) return;
+  const ok = await appConfirm('デモモードを開始します。デモ中の操作（伝票の作成・編集・精算など）は保存されません。終了すると、デモ開始前の状態に戻ります。');
+  if (!ok) return;
+  saveState();
+  await UsbStore.flush();
+  if (UsbStore._dirty.size > 0) {
+    await appAlert('保存が完了していないためデモモードを開始できません。USBの接続を確認してもう一度お試しください。');
+    return;
+  }
+  _demoMode = true;
+  renderSettingsPanel();
+  updateClock();
+  showToast('🎬 デモモードを開始しました（変更は保存されません）');
+}
+
+/* デモモード終了: デモ中の変更は一切ディスクへ書かれていないため、
+   開き直せばUSBフォルダは開始時点のまま＝そこへ自然に復帰する。 */
+async function demoModeEnd() {
+  if (!_demoMode) return;
+  const ok = await appConfirm('デモモードを終了します。デモ中に作成・変更した内容はすべて消え、デモ開始前のデータに戻ります。', { danger: true });
+  if (!ok) return;
+  location.reload();
 }
 function minToStr(m) {
   return String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
@@ -6707,9 +6903,10 @@ function updateClock() {
     time = `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}`;
   }
   // 表示は営業日＋時刻のみ（オーナー決定 2026-07-17。ドット・壁時計日付は出さない）
-  clockEl.classList.toggle('dev', isDev);
+  // デモモード中は時刻オーバーライドの有無に関わらず常に[デモ中]バッジを出す
+  clockEl.classList.toggle('dev', isDev || _demoMode);
   clockEl.innerHTML = '<span class="pos-clock-time">' + time + '</span>'
-    + (isDev ? '<span class="header-clock-dev">[DEV]</span>' : '');
+    + (_demoMode ? '<span class="header-clock-dev">[デモ中]</span>' : (isDev ? '<span class="header-clock-dev">[DEV]</span>' : ''));
   // 営業日表示はロード中データの営業日キー（単一ソース）に揃える。
   // 過去日を復元中は実時計の今日ではなく復元元の営業日を表示し、[復元中]を付ける。
   const restored = (typeof state !== 'undefined' && state._restoredFromKey) || null;
@@ -6814,8 +7011,8 @@ function checkAutoCloseWarn() {
   showAutoCloseWarnDialog(curKey);
 }
 function checkAutoCloseDay() {
-  // dev時刻オーバーライド中は誤発火を避けるため自動締めしない
-  if (_devNowMin !== null) return;
+  // dev時刻オーバーライド中・デモモード中は誤発火を避けるため自動締めしない
+  if (_devNowMin !== null || _demoMode) return;
   const curKey = getBizDayKey();
   // 初回は現在の営業日キーで初期化するだけ（締めない）
   if (_lastBizDayKey === null) { _lastBizDayKey = curKey; return; }
@@ -6842,9 +7039,10 @@ function checkAutoCloseDay() {
 let _lastTickMinute = -1;
 setInterval(() => {
   updateClock();
-  if (_devNowMin === null) checkAutoActivateCasts();
-  if (_devNowMin === null) checkAutoCloseWarn();
-  if (_devNowMin === null) checkAutoCloseDay();
+  const overrideActive = _devNowMin !== null || _demoMode;
+  if (!overrideActive) checkAutoActivateCasts();
+  if (!overrideActive) checkAutoCloseWarn();
+  if (!overrideActive) checkAutoCloseDay();
   updateCountdowns();
   // 分が変わった瞬間にバッジ・タイムテーブルを更新
   // （d.getSeconds()===0 だとsetIntervalの誤差で1分遅れることがある）
@@ -7771,10 +7969,10 @@ function enableIndivTime(id) {
   row._indivTime = true;
   renderTable(); saveState();
 }
-function deleteGroup(firstRowId) {
+async function deleteGroup(firstRowId) {
   const row = state.rows.find(r => r.id === firstRowId);
   if (!row) return;
-  if (!confirm(`この伝票（No.${slipNoLabel(row)}）を削除しますか？\n※削除した伝票は「削除済み伝票アーカイブ」に記録されます`)) return;
+  if (!(await appConfirm(`この伝票（No.${slipNoLabel(row)}）を削除しますか？\n※削除した伝票は「削除済み伝票アーカイブ」に記録されます`, { danger: true }))) return;
   const groupRows = state.rows.filter(r => r.gid === row.gid);
   pushUndo();
   archiveDeletedSlip(groupRows, 'リスト表', getLoadedDayKey());
@@ -7944,10 +8142,10 @@ function openLinkDialog(rowId) {
     renderTable(); saveState();
   });
 }
-function unlinkGuest(rowId) {
+async function unlinkGuest(rowId) {
   const row = state.rows.find(r => r.id === rowId);
   if (!row || !row.linkedParentId) return;
-  if (!confirm('この行の同一人物リンクを解除しますか？')) return;
+  if (!(await appConfirm('この行の同一人物リンクを解除しますか？'))) return;
   pushUndo();
   row.linkedParentId = null;
   renderTable(); saveState();
@@ -7961,16 +8159,16 @@ function openPastLinkDialog(rowId) {
     renderPastTable();
   });
 }
-function pastUnlinkGuest(rowId) {
+async function pastUnlinkGuest(rowId) {
   if (!pastState) return;
   const row = pastState.rows.find(r => r.id === rowId);
   if (!row || !row.linkedParentId) return;
-  if (!confirm('この行の同一人物リンクを解除しますか？')) return;
+  if (!(await appConfirm('この行の同一人物リンクを解除しますか？'))) return;
   row.linkedParentId = null;
   renderPastTable();
 }
 // 共通：リンク先選択モーダル
-function _openLinkDialogCore(childId, rows, onConfirm) {
+async function _openLinkDialogCore(childId, rows, onConfirm) {
   const old = document.getElementById('link-modal');
   if (old) old.remove();
   // 入客番号マップ（表示順）
@@ -7982,7 +8180,7 @@ function _openLinkDialogCore(childId, rows, onConfirm) {
   // 候補：自分以外で、循環しない行のみ
   const candidates = rows.filter(r => r.id !== childId && canLinkTo(rows, childId, r.id));
   if (candidates.length === 0) {
-    alert('リンクできる行がありません。');
+    await appAlert('リンクできる行がありません。');
     return;
   }
   const opts = candidates.map(r => {
@@ -8239,11 +8437,11 @@ function updateSubCast(id, idx, field, value) {
 /* ================================================================
    SETTLEMENT
 ================================================================ */
-function settle(id) {
+async function settle(id) {
   const row = state.rows.find(r => r.id === id);
   if (!row) return;
   // amountMethodに応じた実売上で0円判定（cash選択時にcard欄の残値を無視するため）
-  if (rowSales(row) <= 0 && !confirm('金額が0円ですが精算しますか？')) return;
+  if (rowSales(row) <= 0 && !(await appConfirm('金額が0円ですが精算しますか？'))) return;
   pushUndo();
   row.settled   = true;
   row.settledAt = row.settledAt || Date.now();
@@ -8398,8 +8596,8 @@ function toggleCast(name) {
   renderCastPanel(); renderTable(); saveState();
 }
 function setAllActive()   { state.activeCasts = [...state.allCasts]; renderCastPanel(); renderTable(); saveState(); }
-function setAllInactive() {
-  if (!confirm('全員退勤しますか？\n出勤・退勤・同伴・当欠・遅刻・予定時刻もすべてクリアされます。')) return;
+async function setAllInactive() {
+  if (!(await appConfirm('全員退勤しますか？\n出勤・退勤・同伴・当欠・遅刻・予定時刻もすべてクリアされます。', { danger: true }))) return;
   state.activeCasts = [];
   saveTimetableState({ clockIns: {}, checkouts: {}, douban: [], touketsu: [], plannedClockIns: {}, chikokuMins: {} });
   saveState();
@@ -8463,8 +8661,8 @@ function setCastSlideWage(name, enabled){
   saveState();
 }
 /* 時給(wage)以外の単価項目だけを一括クリアする */
-function clearCastPayExceptWage(name){
-  if (!confirm('「' + name + '」の時給以外の単価をすべてクリアして標準額に戻しますか？')) return;
+async function clearCastPayExceptWage(name){
+  if (!(await appConfirm('「' + name + '」の時給以外の単価をすべてクリアして標準額に戻しますか？', { danger: true }))) return;
   const p = getCastProfile(name);
   castPayFields().forEach(([f]) => { if (f !== 'wage') p[f] = ''; });
   saveState();
@@ -8514,9 +8712,9 @@ function castsSortedByClockIn(names, tt){
     .map(o => o.name);
 }
 /* 退店：名簿(allCasts/activeCasts)から退店リストへ移す。データ(castProfiles)は残す。 */
-function retireCast(name){
+async function retireCast(name){
   ensureCastStores();
-  if (!confirm('「' + name + '」を退店にしますか？\n名簿から外れますが、データ（単価など）は退店リストに残ります。')) return;
+  if (!(await appConfirm('「' + name + '」を退店にしますか？\n名簿から外れますが、データ（単価など）は退店リストに残ります。', { danger: true }))) return;
   const ai = state.allCasts.indexOf(name);    if (ai >= 0) state.allCasts.splice(ai, 1);
   const ci = state.activeCasts.indexOf(name);  if (ci >= 0) state.activeCasts.splice(ci, 1);
   if (!state.retiredCasts.includes(name)) state.retiredCasts.push(name);
@@ -8532,9 +8730,9 @@ function restoreCast(name){
   try { showToast('「' + name + '」を名簿に戻しました'); } catch(_){}
 }
 /* 完全削除：名簿・退店リスト・単価データをすべて消す（復元不可）。 */
-function deleteCastMaster(name){
+async function deleteCastMaster(name){
   ensureCastStores();
-  if (!confirm('「' + name + '」を完全に削除しますか？\n単価などのデータも消え、元に戻せません。')) return;
+  if (!(await appConfirm('「' + name + '」を完全に削除しますか？\n単価などのデータも消え、元に戻せません。', { danger: true }))) return;
   ['allCasts','activeCasts','retiredCasts'].forEach(k => {
     const i = state[k].indexOf(name); if (i >= 0) state[k].splice(i, 1);
   });
@@ -8791,8 +8989,8 @@ function payslipConfirm() {
   }
 }
 
-function payslipUnconfirm() {
-  if (!_payslipSelectedCast || !confirm('この給与明細の確定を解除しますか？')) return;
+async function payslipUnconfirm() {
+  if (!_payslipSelectedCast || !(await appConfirm('この給与明細の確定を解除しますか？', { danger: true }))) return;
   const period = payslipPeriods(_payslipAnchorKey, cfg.payrollPeriod);
   if (!period) return;
   const payslipsStore = loadPayslips();
@@ -9583,6 +9781,19 @@ function updateStoreStatusBadge() {
 /* ================================================================
    PRINT PAGE GENERATOR
 ================================================================ */
+function _printRemarkNoteHtml(row, displaySource) {
+  const notes = [];
+  if (displaySource && displaySource !== 'フロント') {
+    notes.push(`[${escHtml(displaySource)}]`);
+  }
+  if ((row.mainType === 'honshimei' || row.mainType === 'modori_honshimei') && displaySource !== '本指名') {
+    notes.push(row.mainType === 'modori_honshimei' ? '[本指名 戻]' : '[本指名]');
+  }
+  return notes.length
+    ? `<div style="font-size:5.5pt;color:#222;font-weight:600;text-align:right;line-height:1;white-space:nowrap">${notes.join('')}</div>`
+    : '';
+}
+
 function doPrint() {
   const ROWS_PER_PAGE = 30;
   const container = document.getElementById('print-pages');
@@ -9762,11 +9973,9 @@ function doPrint() {
         const cond = condMap[row.condition] || row.condition || '';
         if (cond) condPart = `<div style="font-size:7pt">${cond}</div>`;
       }
-      // 入客経路（フロント以外のみ）。絶対配置で右上に浮かせると顧客名の行と重なるため、
-      // 通常フローの1行として名前の上に置く（2026-07-20 オーナー指摘）
+      // 入客経路（フロント以外）と本指名マークを、名前の上の同じ右寄せブロックに表示する。
       const displaySource = linkedParent2 ? (linkedParent2.source || '') : (row.source || '');
-      const sourcePart = (displaySource && displaySource !== 'フロント')
-        ? `<div style="font-size:5.5pt;color:#222;font-weight:600;text-align:right;line-height:1;white-space:nowrap">[${escHtml(displaySource)}]</div>` : '';
+      const remarkNotePart = _printRemarkNoteHtml(row, displaySource);
 
       // 売上セル：先頭行のみ累計売上表示、非先頭行は縦線（N・開始列と同じ扱い）
       let sellCell;
@@ -9790,7 +9999,7 @@ function doPrint() {
         <td>${[row.rotations[2], row.rotations2?.[2]].filter(Boolean).join('/')}</td>
         ${extCells}
         <td>${ryokinHtml}</td>
-        <td style="position:relative">${sourcePart}${namePart}${condPart}</td>
+        <td style="position:relative">${remarkNotePart}${namePart}${condPart}</td>
         ${sellCell}`;
 
       tbody.appendChild(tr);
@@ -10553,11 +10762,24 @@ function _ssDismiss(e) {
 /* ================================================================
    TAB SWITCH
 ================================================================ */
+let _settingsLeavePendingTab = null;
+async function _confirmSettingsLeave(targetTab) {
+  if (_settingsLeavePendingTab !== null) return;
+  _settingsLeavePendingTab = targetTab;
+  const shouldSave = await appConfirm('設定の変更を保存して移動しますか？\n\n・OK：変更を保存して移動します\n・キャンセル：設定タブに戻ります（変更はそのまま残ります）', {
+    okLabel: '保存して移動',
+    cancelLabel: '設定に戻る',
+  });
+  _settingsLeavePendingTab = null;
+  if (!shouldSave) return;
+  await applySettings();
+  showTab(targetTab);
+}
+
 function showTab(tab) {
   if (document.body.dataset.activeTab === 'settings' && tab !== 'settings' && _settingsDirty) {
-    const shouldSave = confirm('設定の変更を保存して移動しますか？\n\n・OK：変更を保存して移動します\n・キャンセル：設定タブに戻ります（変更はそのまま残ります）');
-    if (!shouldSave) return;
-    applySettings();
+    _confirmSettingsLeave(tab);
+    return;
   }
   document.querySelectorAll('.tab-btn').forEach(b =>
     b.classList.toggle('active', b.dataset.tab === tab)
@@ -10660,7 +10882,8 @@ function posTableDisplay(label) {
 }
 /* 移動先の卓に別の組（未精算）がいたら確認する。相席・卓分けの運用があるためブロックはしない。
    OK=そのまま移動 / キャンセル=移動しない を boolean で返す（2026-07-26 追加）。 */
-function posConfirmTableOccupied(tableValue, selfGid) {
+let _posTableOccupiedApproval = '';
+function posConfirmTableOccupied(tableValue, selfGid, onApprove) {
   const next = String(tableValue ?? '').trim();
   if (!next) return true;   // 未設定（-）への変更は確認しない
   const label = posTableLabel(next);
@@ -10668,7 +10891,23 @@ function posConfirmTableOccupied(tableValue, selfGid) {
     && posTableLabel(r.tableNum) === label);
   if (!others.length) return true;
   const names = others.map(r => 'No.' + slipNoLabel(r)).join('・');
-  return confirm(posTableDisplay(label) + 'には既に ' + names + ' の伝票があります。\n同じ卓に入れますか？');
+  const approvalKey = String(selfGid) + '\n' + label;
+  if (_posTableOccupiedApproval === approvalKey) {
+    _posTableOccupiedApproval = '';
+    return true;
+  }
+  appConfirm(posTableDisplay(label) + 'には既に ' + names + ' の伝票があります。\n同じ卓に入れますか？').then(approved => {
+    if (!approved) return;
+    _posTableOccupiedApproval = approvalKey;
+    if (onApprove) {
+      onApprove();
+      return;
+    }
+    const row = state.rows.find(r => r.gid === selfGid && r.isFirst)
+      || state.rows.find(r => r.gid === selfGid);
+    if (row) updateRowTable(row.id, tableValue);
+  });
+  return false;
 }
 function vipFeeUnits(row, settings) {
   const src = settings || {};
@@ -10795,12 +11034,26 @@ function _posExtRounds(row) {
   });
   return out;
 }
+/* 空場内（金額0円・キャスト無しの場内ボタン）の、延長1ラウンドあたりの繰延上乗せ額。
+   同一伝票（グループ先頭行）の posOrders から category==='jonai_empty' を集め、Σ(qty × defer) を返す。
+   defer は空場内投入時点の cfg.jonaiFee のスナップショット（posAddItem が刻印）。
+   後で cfg.jonaiFee を変更しても、この関数は保存済みの defer を読むだけなので過去分は不変。
+   状態は一切持たず posOrders から都度導出するため、延長の入力経路（POS / リスト表直接編集）を
+   問わず自動で追従する（オーナー確定事項: 以降の延長すべてに毎回上乗せ）。
+   _posExtBaseTotal・_posSeatLineItems・_posExtTrial の3者が本関数を共通の窓口として使う。 */
+function _emptyJonaiPerRound(row) {
+  if (!row) return 0;
+  return posOrders(row)
+    .filter(o => o.category === 'jonai_empty')
+    .reduce((sum, o) => sum + (Number(o.qty) || 1) * (Number(o.defer) || 0), 0);
+}
 /* 延長"基本料"の合計（単一式）。calcBill・_posSeatLineItems・_posExtTrial の3者が
    この式に揃う唯一の窓口。各延長ラウンドの「課金席数 × 単価(extPrices)」を合算して卓全体の
    延長基本料を返す。課金席数は _posExtRounds(row) のラウンドごとの席数（席数−退席・最低1）。
    cfg.extBasePerSeat===false の時は席数=1（卓単位）。
    ※旧 _posGroupExtBase の「先頭1席は calcBill・残り席は別足し」という二段持ちは廃止し、
-     ここで全席ぶんをまとめて計上する（calcBill から本関数を呼ぶ）。 */
+     ここで全席ぶんをまとめて計上する（calcBill から本関数を呼ぶ）。
+   空場内の繰延上乗せ（_emptyJonaiPerRound）は延長1ラウンドにつき定額で加算する。席数には掛けない。 */
 function _posExtBaseTotal(row) {
   if (!row) return 0;
   const rounds = (typeof _posExtRounds === 'function')
@@ -10808,6 +11061,7 @@ function _posExtBaseTotal(row) {
     : (Array.isArray(row.extensions)
         ? row.extensions.map(v => ({ min: parseInt(v), seats: 1 })).filter(g => g.min)
         : []);
+  const perRound = _emptyJonaiPerRound(row);
   let sum = 0;
   rounds.forEach(g => {
     const idx = (cfg.extOptions || []).indexOf(g.min);
@@ -10815,6 +11069,7 @@ function _posExtBaseTotal(row) {
       const seats = (cfg.extBasePerSeat === false) ? 1 : Math.max(1, g.seats || 1);
       sum += cfg.extPrices[idx] * seats;
     }
+    sum += perRound;
   });
   return sum;
 }
@@ -10861,6 +11116,13 @@ function _posMainTypeLine(type, cast) {
   if (!item || !item.amount) return null;
   return { label: item.label + (cast ? ':' + cast : ''), amount: item.amount };
 }
+function _posHasOrderCatCast(row, category, cast) {
+  return !!category && !!cast && Array.isArray(row.posOrders) && row.posOrders.some(o => {
+    const name = String(o.name || '');
+    const separator = name.indexOf(':');
+    return o.category === category && separator >= 0 && name.slice(separator + 1) === cast;
+  });
+}
 function _posExtFeeForType(type, idx) {
   if (type === 'douban' && cfg.doubanAsHonshimeiExt !== false) type = 'honshimei'; // 同伴を本指名扱い（設定でOFF可）
   if (type === 'honshimei'   && cfg.extFeeOnHonshimei)   return cfg.extFeeHonshimeiAmts?.[idx]   ?? cfg.extFeeHonshimeiAmt   ?? cfg.enchoshimeiFee ?? 0;
@@ -10883,8 +11145,9 @@ function _posSeatLineItems(row) {
   const _hasSetOrder = Array.isArray(row.posOrders) && row.posOrders.some(o => o.category === 'set');
   const items = (_hasSetOrder || row.posManaged) ? [] : [{ label: 'SET:' + minToHHMM(row.startMin) + '-' + minToHHMM(row.endMin), amount: baseSet }];
   // 指名明細がオーダーにある場合、mainType由来の指名ラインは重複表示しない
+  const _groupOrderRow = state.rows.find(r => r.gid === row.gid && r.isFirst) || row;
   const _mainCat = { honshimei:'nominate', douban:'dohan', jounai:'jonai' }[row.mainType];
-  const _mainInOrders = _mainCat && Array.isArray(row.posOrders) && row.posOrders.some(o => o.category === _mainCat);
+  const _mainInOrders = _mainCat && Array.isArray(_groupOrderRow.posOrders) && _groupOrderRow.posOrders.some(o => o.category === _mainCat);
   // 延指/本延オーダーがある＝延長指名の源泉はオーダー側。mainType/subCast由来の延長指名(enchoshimei)は重複表示しない（calcBillと一致）
   const _hasExtNomOrder = Array.isArray(row.posOrders) && row.posOrders.some(o => /^(honen|enshi)/.test(o.category||''));
   const _suppressEncho = row.mainType === 'enchoshimei' && _hasExtNomOrder;
@@ -10892,6 +11155,8 @@ function _posSeatLineItems(row) {
   if (mainLine) items.push(mainLine);
   (row.subCasts || []).forEach(sc => {
     if (sc.type === 'enchoshimei' && _hasExtNomOrder) return;
+    const subCat = { honshimei:'nominate', douban:'dohan', jounai:'jonai' }[sc.type];
+    if (_posHasOrderCatCast(_groupOrderRow, subCat, sc.cast)) return;
     const line = _posMainTypeLine(sc.type, sc.cast);
     if (line) items.push(line);
   });
@@ -10901,15 +11166,20 @@ function _posSeatLineItems(row) {
   // ※延長"指名料"は本ルールでは自動加算しない（源泉はボーイ手入力の本延/延指オーダーのみ。posOrders側で表示）。
   //   よって mainType/subCast 由来の延長指名料行はここでは一切出さない。
   const _rounds = (typeof _posExtRounds === 'function') ? _posExtRounds(row) : [];
-  const _baseAgg = {};   // min → { min, qty }
+  // 空場内の繰延上乗せ：延長ラウンド単位の定額（席数には掛けない）。同じ分数へ集約する行では
+  // ラウンド数ぶん合算して extra（qty×amount とは別枠の加算額）へ乗せる。
+  const _emptyJonaiRound = (typeof _emptyJonaiPerRound === 'function') ? _emptyJonaiPerRound(row) : 0;
+  const _baseAgg = {};   // min → { min, qty, extra }
   _rounds.forEach(g => {
     const seats = (cfg.extBasePerSeat === false) ? 1 : Math.max(1, g.seats || 1);
-    (_baseAgg[g.min] = _baseAgg[g.min] || { min: g.min, qty: 0 }).qty += seats;
+    const agg = (_baseAgg[g.min] = _baseAgg[g.min] || { min: g.min, qty: 0, extra: 0 });
+    agg.qty += seats;
+    agg.extra += _emptyJonaiRound;
   });
   Object.values(_baseAgg).sort((a, b) => a.min - b.min).forEach(g => {
     const idx = (cfg.extOptions || []).indexOf(g.min);
     const extPrice = (idx >= 0 && cfg.extPrices && cfg.extPrices[idx]) ? cfg.extPrices[idx] : 0;
-    if (extPrice) items.push({ label: '延長' + g.min + '分', amount: extPrice, qty: g.qty, extMin: g.min });
+    if (extPrice) items.push({ label: '延長' + g.min + '分', amount: extPrice, qty: g.qty, extMin: g.min, extra: g.extra });
   });
   return items;
 }
@@ -11066,7 +11336,7 @@ function posApplySlipEdit() {
   const oldGcount = Number(row.gcount) || 1;
   const newTableNum = tblStr.replace(/^T-/, '');
   // 移動先が埋まっているときだけ確認する。キャンセルならモーダルを閉じずに戻る（卓を選び直せる）
-  if (newTableNum !== oldTableNum && !posConfirmTableOccupied(newTableNum, row.gid)) return;
+  if (newTableNum !== oldTableNum && !posConfirmTableOccupied(newTableNum, row.gid, () => posApplySlipEdit())) return;
 
   pushUndo();
   state.rows.filter(r => r.gid === _posSeIdx.gid).forEach(r => {
@@ -11367,10 +11637,10 @@ function posToggleWait() {
   renderPOSPanel();
 }
 
-function posStartFromWait(gid) {
+async function posStartFromWait(gid) {
   const row = state.rows.find(r => String(r.gid) === String(gid) && r.isFirst);
   if (!row || row.isWaiting !== true) return;
-  if (!confirm('ウェイトを解除して開始しますか？')) return;
+  if (!(await appConfirm('ウェイトを解除して開始しますか？'))) return;
 
   const startMin = getNowMin();
   const setOrders = posOrders(row).filter(o => o.category === 'set');
@@ -11453,10 +11723,12 @@ function _posSlipCard(r, isSelected, totalCount, mode, padRows) {
   };
   const seatLine = item => {
     const q = Number(item.qty) || 1;
+    // extra: 空場内の繰延上乗せ（延長ラウンド単位の定額）。qtyに掛けず金額へ直接加算する。
+    const lineTotal = (Number(item.amount) || 0) * q + (Number(item.extra) || 0);
     return '<div class="pos-slip-line">'
       + '<span>' + escHtml(item.label) + '</span>'
       + '<span style="text-align:center">' + q + '</span>'
-      + '<span>' + posMoney((Number(item.amount) || 0) * q) + '</span>'
+      + '<span>' + posMoney(lineTotal) + '</span>'
       + '<span></span>'
       + '</div>';
   };
@@ -11591,10 +11863,12 @@ function _posOrderSlipPanel(r) {
       ? '<button type="button" class="pos-slip-line-delete" title="この延長を1回分削除" aria-label="この延長を1回分削除"'
         + ' onclick="event.stopPropagation();posDeleteLastExtByMin(&quot;' + escAttr(String(r.gid)) + '&quot;,&quot;' + escAttr(String(item.extMin)) + '&quot;)">×</button>'
       : '<span></span>';
+    // extra: 空場内の繰延上乗せ（延長ラウンド単位の定額）。qtyに掛けず金額へ直接加算する。
+    const lineTotal = (Number(item.amount) || 0) * q + (Number(item.extra) || 0);
     return '<div class="pos-order-slip-line">'
       + '<span class="pos-order-slip-qty">' + q + '</span>'
       + '<span class="pos-order-slip-name">' + escHtml(item.label) + '</span>'
-      + '<span class="pos-order-slip-amt">¥' + posMoney((Number(item.amount) || 0) * q) + '</span>'
+      + '<span class="pos-order-slip-amt">¥' + posMoney(lineTotal) + '</span>'
       + cell
       + '</div>';
   };
@@ -12330,10 +12604,10 @@ function posSlipSelect(gid) {
   posBetaState.selectedGid = gid;
   renderPOSPanel();
 }
-function posDeleteSlip() {
+async function posDeleteSlip() {
   const row = posSelectedRow();
   if (!row) return;
-  if (!confirm(`この伝票（No.${slipNoLabel(row)}）を削除しますか？\n※削除した伝票は「削除済み伝票アーカイブ」に記録されます`)) return;
+  if (!(await appConfirm(`この伝票（No.${slipNoLabel(row)}）を削除しますか？\n※削除した伝票は「削除済み伝票アーカイブ」に記録されます`, { danger: true }))) return;
   const groupRows = state.rows.filter(r => r.gid === row.gid);
   pushUndo();
   const gid = row.gid;
@@ -12546,7 +12820,9 @@ function posCategoryItems(category, row) {
     extension: [{ name:'延長20分', amount: extPrice(20, 4000), category }, { name:'延長40分', amount: extPrice(40, 7000), category }, { name:'延長60分', amount: extPrice(60, 11000), category }],
     nominate: castItems('指', Number(cfg.nominateFee || 2000)),
     dohan: castItems('同', Number(cfg.dohanFee || 15000)),
-    jonai: castItems('場', Number(cfg.jonaiFee || 2000)),
+    // 空場内: 場内カテゴリ先頭固定。0円・キャスト無しで、押した本数ぶんを以降の延長料金へ繰延上乗せする
+    // （customizable対象外のためハードコードでよい。posAddItemが押下時点のcfg.jonaiFeeをdeferへ刻印する）
+    jonai: [{ name:'空場内', amount:0, category:'jonai_empty' }, ...castItems('場', Number(cfg.jonaiFee || 2000))],
     // shot/bottleは店ごとに仕入れ銘柄が全く異なるため、新規導入店舗にそのまま実在商品名を
     // 出荷しないようダミー名にしてある（2026-07-03: 他店舗展開の洗い出しで指摘）。
     // 「設定→POSレジ→カスタムメニュー」で自店の商品に置き換える運用（cfg.posMenuで上書きされる）。
@@ -12696,8 +12972,8 @@ function posMenuDelItem(btn) {
 /* 全カテゴリのPOSメニューを空にする（オンボーディング用）。
    保存（applySettings）した時点で cfg.posMenu に空配列として書かれ、
    デフォルト（澪/モエ等）にフォールバックしなくなる。 */
-function posMenuClearAllDefaults() {
-  if (!confirm('ショット／ボトル／フード／持込／割引・割増／カスタムカテゴリ のメニューを全て削除します。\n\n（設定タブを離れるときに保存の確認が出ます）\n\n本当に削除しますか？')) return;
+async function posMenuClearAllDefaults() {
+  if (!(await appConfirm('ショット／ボトル／フード／持込／割引・割増／カスタムカテゴリ のメニューを全て削除します。\n\n（設定タブを離れるときに保存の確認が出ます）\n\n本当に削除しますか？', { danger: true }))) return;
   document.querySelectorAll('table[id^="cfg-posMenu-"] tbody').forEach(tbody => { tbody.innerHTML = ''; });
   if (typeof _settingsMarkDirty === 'function') _settingsMarkDirty();
   if (typeof showToast === 'function') showToast('全カテゴリのメニューを削除しました。保存してください。');
@@ -12790,8 +13066,8 @@ function posCatSyncLabel(key, label) {
   if (heading) heading.textContent = label.trim() || key;
 }
 
-function posCatAdd() {
-  const label = (prompt('追加するカテゴリ名を入力してください') || '').trim();
+async function posCatAdd() {
+  const label = ((await appPrompt('追加するカテゴリ名を入力してください')) || '').trim();
   if (!label) return;
   let max = 0;
   const keys = [];
@@ -12810,8 +13086,8 @@ function posCatAdd() {
   _settingsMarkDirty();
 }
 
-function posCatDelete(key) {
-  if (!confirm('このカテゴリを削除しますか？\n過去の伝票・日報の集計は残ります。商品リストは削除されます')) return;
+async function posCatDelete(key) {
+  if (!(await appConfirm('このカテゴリを削除しますか？\n過去の伝票・日報の集計は残ります。商品リストは削除されます', { danger: true }))) return;
   document.querySelector(`#cfg-pos-cat-layout tr[data-key="${key}"]`)?.remove();
   document.querySelector(`.pos-menu-editor[data-key="${key}"]`)?.remove();
   _settingsMarkDirty();
@@ -13048,8 +13324,8 @@ function _posInitSetEntry() {
   const hasSet = posOrders(row).some(o => o.category === 'set');
   _posSetEntry = {
     gid: row.gid,
-    startMin: row.startMin || now,
-    duration: (row.endMin && row.startMin) ? (row.endMin - row.startMin) : initDuration,
+    startMin: hasSet ? (row.startMin || now) : now,
+    duration: hasSet && row.endMin && row.startMin ? (row.endMin - row.startMin) : initDuration,
     price: initPrice,
     people: hasSet ? 1 : (row.gcount || 1),
   };
@@ -15117,10 +15393,10 @@ function posReportPrint(gid) {
   posPrintReceiptDirect(row);
 }
 
-function posReportRestore(gid) {
+async function posReportRestore(gid) {
   const row = state.rows.find(r => r.gid === gid && r.isFirst);
   if (!row) return;
-  if (!confirm(`No.${slipNoLabel(row)} ${row.source||''} を未精算に戻しますか？\n（POSレジの伝票一覧に復元されます）`)) return;
+  if (!(await appConfirm(`No.${slipNoLabel(row)} ${row.source||''} を未精算に戻しますか？\n（POSレジの伝票一覧に復元されます）`))) return;
   if (row.amountMethod === 'urikake' && !urikakeRevokeByRowId(row.id)) {
     showToast('売掛台帳の取消に失敗しました');
     return;
@@ -15134,10 +15410,10 @@ function posReportRestore(gid) {
   showToast(`No.${slipNoLabel(row)} を復元しました`);
 }
 
-function posReportDelete(gid) {
+async function posReportDelete(gid) {
   const row = state.rows.find(r => r.gid === gid && r.isFirst);
   if (!row) return;
-  if (!confirm(`この伝票（No.${slipNoLabel(row)}）を削除しますか？\n※削除した伝票は「削除済み伝票アーカイブ」に記録されます`)) return;
+  if (!(await appConfirm(`この伝票（No.${slipNoLabel(row)}）を削除しますか？\n※削除した伝票は「削除済み伝票アーカイブ」に記録されます`, { danger: true }))) return;
   const groupRows = state.rows.filter(r => r.gid === gid);
   pushUndo();
   archiveDeletedSlip(groupRows, '日報', getLoadedDayKey());
@@ -15462,13 +15738,13 @@ function dailyCloseToggleLock() {
   }
 }
 
-function reportEndBusinessDay() {
+async function reportEndBusinessDay() {
   const src = _reportDaySource();
   if (src.dayKey !== getLoadedDayKey()) {
     showToast('過去の営業日は締められません');
     return;
   }
-  if (!confirm('営業を終了しますか？\n・日次締めをロックします（未ロックの場合）\n・本日のリスト表を空にします\n（データは過去のリストから復元できます）')) return;
+  if (!(await appConfirm('営業を終了しますか？\n・日次締めをロックします（未ロックの場合）\n・本日のリスト表を空にします\n（データは過去のリストから復元できます）', { danger: true }))) return;
   const rec = _dailyCloseCurrentRecord();
   if (_dailyCloseNormalizeFrozen(rec.frozen).closedAt <= 0) dailyCloseLockNow();
   try { saveBackupForKey(getLoadedDayKey()); } catch (_) {}
@@ -15477,7 +15753,7 @@ function reportEndBusinessDay() {
   showToast('🔚 営業を終了しました（日次締めロック済み）');
 }
 
-function reportReopenBusinessDay() {
+async function reportReopenBusinessDay() {
   if (_reportDaySource().dayKey !== getLoadedDayKey()) {
     showToast('過去の営業日は操作できません');
     return;
@@ -15492,7 +15768,7 @@ function reportReopenBusinessDay() {
     showToast('営業終了時点のバックアップが見つかりません');
     return;
   }
-  if (!confirm('営業終了を取り消しますか？\n・日次締めのロックを解除します\n・リスト表を営業終了時点の状態に復元します\n（現在のリスト表の内容は置き換わります）')) return;
+  if (!(await appConfirm('営業終了を取り消しますか？\n・日次締めのロックを解除します\n・リスト表を営業終了時点の状態に復元します\n（現在のリスト表の内容は置き換わります）', { danger: true }))) return;
   dailyCloseUnlockNow();
   applySnapshot(snap);
   showToast('↩ 営業終了を取り消しました');
@@ -16330,36 +16606,36 @@ function posOrderEditQty(idx, delta) {
   saveState(); renderPOSPanel(); _posOeRerender();
 }
 
-function posOrderEditDelete(idx) {
+async function posOrderEditDelete(idx) {
   const row = posSelectedRow(); if (!row) return;
   const orders = posOrders(row);
   if (!orders[idx]) return;
-  if (!confirm(`「${orders[idx].name}」を削除しますか？`)) return;
+  if (!(await appConfirm(`「${orders[idx].name}」を削除しますか？`, { danger: true }))) return;
   pushUndo();
   orders.splice(idx, 1);
   saveState(); renderPOSPanel(); _posOeRerender();
 }
 
 /* 退席の取り消し（誤操作の訂正）。先頭行 departedCasts から指定indexを除く＝そのキャストの延長指名料・席数が戻る。 */
-function posOrderEditRemoveDeparted(di) {
+async function posOrderEditRemoveDeparted(di) {
   const row = posSelectedRow(); if (!row) return;
   const first = state.rows.find(r => r.gid === row.gid && r.isFirst) || row;
   if (!Array.isArray(first.departedCasts) || first.departedCasts[di] == null) return;
   const c = first.departedCasts[di];
-  if (!confirm(`退席${c ? '「' + c + '」' : '（フリー）'}を取り消しますか？`)) return;
+  if (!(await appConfirm(`退席${c ? '「' + c + '」' : '（フリー）'}を取り消しますか？`))) return;
   pushUndo();
   first.departedCasts.splice(di, 1);
   saveState(); renderTable(); renderPOSPanel(); _posOeRerender();
 }
 
 /* 延長（row.extensions）の削除。スロットを空にして終了時刻を再計算（リスト表の延長欄編集と同じ）。 */
-function posOrderEditDeleteExt(extIdx, opts) {
+async function posOrderEditDeleteExt(extIdx, opts) {
   const row = posSelectedRow(); if (!row) return;
   if (!Array.isArray(row.extensions) || row.extensions[extIdx] == null) return;
   const min = row.extensions[extIdx];
   if (!min) return;
   // オーダー画面の×から呼ぶ時は確認を出さない（1タッチ削除・undoで戻せる・2026-07-20）
-  if (!(opts && opts.skipConfirm) && !confirm(`「延長${min}分」を削除しますか？`)) return;
+  if (!(opts && opts.skipConfirm) && !(await appConfirm(`「延長${min}分」を削除しますか？`, { danger: true }))) return;
   pushUndo();
   const grp = state.rows.filter(r => r.gid === row.gid);
   // 多人数卓は各人行へ振り分けてあるので、同じスロットをグループ全行で空にする
@@ -16473,7 +16749,10 @@ function _posExtTrial(row, extMin) {
   // 既存ラウンドぶんの延長基本料は calcBill(row).subtotal に全席ぶん込み（_posExtBaseTotal）なので、
   // ここでは増分ラウンドぶんだけを extraTaxable に足す（旧 _posGroupExtBase 加算は二重計上になるため廃止）。
   const extPriceTotal = extPrice * (cfg.extBasePerSeat !== false ? seatCount : 1);
-  const t = _posComputeTotals(calcBill(row).subtotal, posOrders(row), extPriceTotal + enchoshimeiExtra);
+  // 空場内の繰延上乗せ：これから追加する1ラウンドぶん（既存ラウンドぶんは calcBill(row).subtotal に込み）。
+  // _posExtBaseTotal・_posSeatLineItems と同じ _emptyJonaiPerRound を使い、試算と実額を一致させる。
+  const emptyJonaiExtra = (typeof _emptyJonaiPerRound === 'function') ? _emptyJonaiPerRound(row) : 0;
+  const t = _posComputeTotals(calcBill(row).subtotal, posOrders(row), extPriceTotal + enchoshimeiExtra + emptyJonaiExtra);
   const advance = (typeof _posAdvancePrincipal === 'function') ? _posAdvancePrincipal(row) : 0;
   const dueCash = Math.max(0, t.cash - advance);
   const dueCard = ceilAddRate(dueCash, cfg.cardFeeRate || 0, cfg.cardFeeRound || 100);
@@ -16547,7 +16826,8 @@ function posPrintReceiptDirect(row) {
   const orders = posOrders(row);
   const itemRows = [];
   const setOrders   = orders.filter(o => o.category === 'set');
-  const otherOrders = orders.filter(o => o.category !== 'set');
+  // 客に渡る伝票なので、金額0円・繰延専用の空場内明細は出さない（延長行の合算後金額に含まれるため）
+  const otherOrders = orders.filter(o => o.category !== 'set' && o.category !== 'jonai_empty');
   const orderTr = o => {
     let label = escHtml(o.name);
     if (o.category === 'set' && typeof o.startMin === 'number' && typeof o.endMin === 'number')
@@ -16560,7 +16840,9 @@ function posPrintReceiptDirect(row) {
   setOrders.forEach(o => itemRows.push(orderTr(o)));
   _posSeatLineItems(row).forEach(item => {
     const q = Number(item.qty) || 1;
-    itemRows.push('<tr><td>' + escHtml(item.label) + '</td><td class="q">' + q + '</td><td class="a">' + ((Number(item.amount) || 0) * q).toLocaleString() + '</td></tr>');
+    // extra: 空場内の繰延上乗せ（延長ラウンド単位の定額）。qtyに掛けず金額へ直接加算する。
+    const lineTotal = (Number(item.amount) || 0) * q + (Number(item.extra) || 0);
+    itemRows.push('<tr><td>' + escHtml(item.label) + '</td><td class="q">' + q + '</td><td class="a">' + lineTotal.toLocaleString() + '</td></tr>');
   });
   otherOrders.forEach(o => itemRows.push(orderTr(o)));
   // 退席ラインは一番下に離して表示（明細と分ける）。空行で間を空けてから最下部に出す。
@@ -16714,29 +16996,121 @@ function posPrintExtTrial() {
 /* 指名カテゴリ → リスト表のmainType */
 const _POS_DESIG_CAT_TYPE = { nominate: 'honshimei', dohan: 'douban', jonai: 'jounai' };
 
+function _posDesignationTargetLabel(row, index) {
+  const typeLabel = {
+    honshimei:'本指', douban:'同伴', jounai:'場内', enchoshimei:'延指',
+    modori_honshimei:'戻本指', modori_enchoshimei:'戻延指'
+  };
+  const designations = [];
+  if (row.mainCast && typeLabel[row.mainType]) designations.push(row.mainCast + typeLabel[row.mainType]);
+  (row.subCasts || []).forEach(sc => {
+    if (sc && sc.cast && typeLabel[sc.type]) designations.push(sc.cast + typeLabel[sc.type]);
+  });
+  const parts = ['入客' + (index + 1)];
+  if (row.tableNum != null && String(row.tableNum).trim()) {
+    parts.push(posTableDisplay(posTableLabel(row.tableNum)));
+  }
+  if (String(row.guestName || '').trim()) parts.push(String(row.guestName).trim());
+  if (designations.length) parts.push('（' + designations.join('・') + '）');
+  return parts.join('・');
+}
+
+function _posPickDesignationTarget(groupRows, cast, desigType) {
+  return new Promise(resolve => {
+    const opener = document.activeElement;
+    const overlay = document.createElement('div');
+    overlay.className = 'pos-co-overlay';
+
+    const panel = document.createElement('div');
+    panel.className = 'pos-drink-pick';
+    panel.setAttribute('role', 'dialog');
+    panel.setAttribute('aria-modal', 'true');
+
+    const head = document.createElement('div');
+    head.className = 'pos-drink-pick-head';
+    const title = document.createElement('span');
+    const desigLabel = { honshimei:'指名', douban:'同伴', jounai:'場内' }[desigType] || '指名';
+    title.textContent = desigLabel + ':' + cast + ' — どのお客様につきますか？';
+    head.appendChild(title);
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.className = 'pos-drink-pick-close';
+    close.textContent = '×';
+    close.setAttribute('aria-label', '閉じる');
+    head.appendChild(close);
+    panel.appendChild(head);
+
+    const grid = document.createElement('div');
+    grid.className = 'pos-drink-cast-grid';
+    const buttons = groupRows.map((target, index) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'pos-drink-cast-btn pos-designation-target-btn';
+      button.textContent = _posDesignationTargetLabel(target, index);
+      button.addEventListener('click', () => finish(target));
+      grid.appendChild(button);
+      return button;
+    });
+    panel.appendChild(grid);
+    overlay.appendChild(panel);
+
+    let finished = false;
+    const finish = target => {
+      if (finished) return;
+      finished = true;
+      document.removeEventListener('keydown', onKeydown);
+      overlay.remove();
+      if (opener && typeof opener.focus === 'function') opener.focus();
+      resolve(target);
+    };
+    const onKeydown = event => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopPropagation();
+      finish(null);
+    };
+    close.addEventListener('click', () => finish(null));
+    overlay.addEventListener('click', event => { if (event.target === overlay) finish(null); });
+    document.addEventListener('keydown', onKeydown);
+    document.body.appendChild(overlay);
+    buttons[0]?.focus();
+  });
+}
+
 /* 指名オーダーをリスト表の指名欄へ書き込む（2026-07-20）。
    - 書き込み先の客行: そのキャストが今座っている行。分からなければ組の先頭行
    - その行に指名キャストが未設定なら mainCast/mainType、埋まっていれば subCasts へ
    - 既に同じキャストが記録済みなら種別だけ更新する（重複行を作らない） */
-function _posApplyDesignationToList(row, cast, desigType) {
+async function _posApplyDesignationToList(row, cast, desigType) {
   const groupRows = state.rows.filter(r => r.gid === row.gid)
     .sort((a, b) => (a.gidx || 0) - (b.gidx || 0));
   if (!groupRows.length) return;
   const seated = groupRows.find(r => _posCurrentFloorCasts(r).includes(cast));
-  const target = seated || groupRows.find(r => r.isFirst) || groupRows[0];
+  const fallback = groupRows.find(r => r.isFirst) || groupRows[0];
+  let target = seated || (groupRows.length === 1 ? groupRows[0] : null);
+  let usedFallback = false;
+  if (!target) {
+    target = await _posPickDesignationTarget(groupRows, cast, desigType);
+    if (!target) {
+      target = fallback;
+      usedFallback = true;
+    }
+  }
 
-  if (target.mainCast === cast) { target.mainType = desigType; return; }
-  if (!String(target.mainCast || '').trim()) {
+  if (target.mainCast === cast) {
+    target.mainType = desigType;
+  } else if (!String(target.mainCast || '').trim()) {
     target.mainCast = cast;
     target.mainType = desigType;
-    return;
+  } else {
+    if (!Array.isArray(target.subCasts)) target.subCasts = [];
+    const existing = target.subCasts.find(s => s && s.cast === cast);
+    if (existing) existing.type = desigType;
+    else target.subCasts.push({ cast, type: desigType });
   }
-  if (!Array.isArray(target.subCasts)) target.subCasts = [];
-  const existing = target.subCasts.find(s => s && s.cast === cast);
-  if (existing) existing.type = desigType;
-  else target.subCasts.push({ cast, type: desigType });
+  if (usedFallback) showToast('入客' + (groupRows.indexOf(target) + 1) + 'に付けました');
 }
-function posAddItem(name, amount, category, spShares) {
+async function posAddItem(name, amount, category, spShares) {
   let row = posSelectedRow();
   if (!row) { posCreateSlip(1); row = posSelectedRow(); }
   if (!row) return;
@@ -16751,17 +17125,23 @@ function posAddItem(name, amount, category, spShares) {
   const drinkItem = drinkItemByKey(category);
   const rawPoint = Number(drinkItem ? drinkItem.pt : item?.pt);
   const pointValue = (cfg.pointsEnabled && !spShares && (drinkItem || item) && Number.isFinite(rawPoint)) ? Math.trunc(rawPoint) : 0;
+  // 空場内（jonai_empty）：押下時点の cfg.jonaiFee をスナップショットして明細へ刻印する
+  // （延長への繰延上乗せの源泉。既存流儀どおり、後で jonaiFee を変更しても過去分は不変）。
+  const isEmptyJonai = category === 'jonai_empty';
+  const deferVal = isEmptyJonai ? (Number(cfg.jonaiFee) || 0) : undefined;
   // 延長(extension)はオーダー明細を作らない。延長は row.extensions を単一ソースとして
   // calcBill・_posSeatLineItems・リスト表・endMin が計上するため、オーダー明細も足すと
   // 延長料が二重計上（伝票に延長が2行・金額も倍）になる。延長は下の extensions 反映のみ行う。
   if (category !== 'extension') {
-    // 同じ明細（カテゴリ・名称・単価が一致）は数量をまとめる（SETは別経路のため対象外）
+    // 同じ明細（カテゴリ・名称・単価が一致）は数量をまとめる（SETは別経路のため対象外）。
+    // defer（空場内の刻印額）も一致条件に含める＝jonaiFee変更を挟んで押した空場内は別行へ分ける。
     const existing = category !== 'set' && orders.find(o =>
       o.category === category && o.name === name && (Number(o.amount) || 0) === amt &&
       (Number(o.back) || 0) === backYen &&
       Object.prototype.hasOwnProperty.call(o, 'backFree') === (backFreeYen !== undefined) &&
       (backFreeYen === undefined || (Number(o.backFree) || 0) === backFreeYen) &&
-      (Number(o.pt) || 0) === pointValue && !o.taxIncluded);
+      (Number(o.pt) || 0) === pointValue && !o.taxIncluded &&
+      (Number(o.defer) || 0) === (Number(deferVal) || 0));
     if (existing) {
       existing.qty = (Number(existing.qty) || 1) + 1;
       if (spShares) {
@@ -16776,6 +17156,7 @@ function posAddItem(name, amount, category, spShares) {
       if (backYen > 0) order.back = backYen;
       if (backFreeYen !== undefined) order.backFree = backFreeYen;
       if (pointValue) order.pt = pointValue;
+      if (isEmptyJonai) order.defer = deferVal;
       orders.push(order);
     }
   }
@@ -16784,7 +17165,7 @@ function posAddItem(name, amount, category, spShares) {
   const desigType = _POS_DESIG_CAT_TYPE[category];
   if (desigType) {
     const cast = name.includes(':') ? name.slice(name.indexOf(':') + 1) : name;
-    if (cast) _posApplyDesignationToList(row, cast, desigType);
+    if (cast) await _posApplyDesignationToList(row, cast, desigType);
     renderTable();
   }
   // 延長をリスト表の延長欄へ自動反映。
@@ -16826,7 +17207,7 @@ function posAddItem(name, amount, category, spShares) {
   }
   saveState();
   renderPOSPanel();
-  if (category === 'bottle' && confirm('このボトルをキープ登録しますか？')) {
+  if (category === 'bottle' && (await appConfirm('このボトルをキープ登録しますか？'))) {
     registerBottleFromOrder(String(name || '').split(':')[0], row.guestName || '');
   }
 }
@@ -16865,7 +17246,7 @@ function posDrinkPickClose() {
 function posAddItemWithCast(name, amount, category, cast) {
   posDrinkPickClose();
   const fullName = cast ? name + ':' + cast : name;
-  posAddItem(fullName, amount, category);
+  return posAddItem(fullName, amount, category);
 }
 
 /* ================================================================
@@ -16983,7 +17364,7 @@ function posCastSplitClose() {
   _castSplitState = null;
 }
 
-function posConfirmCastSplit() {
+async function posConfirmCastSplit() {
   const s = _castSplitState;
   if (!s) return;
   const casts = Array.from(s.checked);
@@ -17002,7 +17383,7 @@ function posConfirmCastSplit() {
   // shares を確定値（整数円）に正規化
   casts.forEach(c => { s.shares[c] = Math.round(Number(s.shares[c]) || 0); });
   // 明細は満額1行（誰が折半したかは品名に付記。コロン禁止 → 集計対象外のまま）
-  posAddItem(s.name + '（折半 ' + casts.join('・') + '）', s.amount, s.category, s.shares);
+  await posAddItem(s.name + '（折半 ' + casts.join('・') + '）', s.amount, s.category, s.shares);
   const detail = casts.map(c => c + ' +¥' + s.shares[c].toLocaleString()).join(' / ');
   posCastSplitClose();
   // 日計表を開いていれば即反映
@@ -17520,21 +17901,21 @@ function pastUpdateSub(id, idx, f, v) {
   if (r && r.subCasts[idx]) { r.subCasts[idx][f] = v; renderPastTable(); }
 }
 /* 過去リストの組削除・精算・列操作・組追加 */
-function pastDeleteGroup(firstRowId) {
+async function pastDeleteGroup(firstRowId) {
   if (!pastState) return;
   const row = pastState.rows.find(r => r.id === firstRowId);
   if (!row) return;
-  if (!confirm(`この伝票（No.${slipNoLabel(row)}）を削除しますか？\n※💾保存すると「削除済み伝票アーカイブ」に記録されます`)) return;
+  if (!(await appConfirm(`この伝票（No.${slipNoLabel(row)}）を削除しますか？\n※💾保存すると「削除済み伝票アーカイブ」に記録されます`, { danger: true }))) return;
   const gid = row.gid;
   pastState.rows = pastState.rows.filter(r => r.gid !== gid);
   renderPastTable();
 }
-function pastSettle(id) {
+async function pastSettle(id) {
   if (!pastState) return;
   const r = pastState.rows.find(r => r.id === id);
   if (!r) return;
   // amountMethodに応じた実売上で0円判定
-  if (rowSales(r) <= 0 && !confirm('金額が0円ですが精算しますか？')) return;
+  if (rowSales(r) <= 0 && !(await appConfirm('金額が0円ですが精算しますか？'))) return;
   r.settled = true;
   r.settledAt = r.settledAt || Date.now();
   renderPastTable();
@@ -17657,7 +18038,7 @@ function pastUpdateAmountEntryAmount(id, type, idx, value) {
   if (entries && entries[idx]) { entries[idx].amount = value; }
 }
 /* 編集中の過去リストを保存（同日キーは上書き） */
-function savePastDay() {
+async function savePastDay() {
   if (!pastState || !pastDayKey) return;
   const backups = loadBackups();
   const idx     = backups.findIndex(b => b.dayKey === pastDayKey);
@@ -17693,7 +18074,7 @@ function savePastDay() {
   // 顧客タブの表示も即更新（データは syncCustomers で直るが、表示が古いまま残るのを防ぐ）
   if (typeof renderCustomerTable === 'function') renderCustomerTable();
   renderPastSidebar();
-  alert(`${bizKeyToLabel(pastDayKey)} のデータを保存しました`);
+  await appAlert(`${bizKeyToLabel(pastDayKey)} のデータを保存しました`);
 }
 
 function doPastPrint() {
@@ -17719,8 +18100,8 @@ function doPastPrint() {
     if (bizDateEl) bizDateEl.textContent = savedBizDateText;
   }
 }
-function deletePastDay(dayKey) {
-  if (!confirm(`${bizKeyToLabel(dayKey)} のデータを削除しますか？`)) return;
+async function deletePastDay(dayKey) {
+  if (!(await appConfirm(`${bizKeyToLabel(dayKey)} のデータを削除しますか？`, { danger: true }))) return;
   const backups = loadBackups().filter(b => b.dayKey !== dayKey);
   saveBackups(backups);
   pastState  = null;
@@ -17835,21 +18216,21 @@ function showDeletedSlipsModal() {
 }
 
 async function deleteDeletedSlipEntry(id) {
-  const code = prompt('リカバリーコードを入力してください');
+  const code = await appPrompt('リカバリーコードを入力してください');
   if (!code) return;
   if (!await AuthStore.verifyRecovery(code)) { showToast('リカバリーコードが違います'); return; }
-  if (!confirm('この記録を完全に削除しますか？')) return;
+  if (!(await appConfirm('この記録を完全に削除しますか？', { danger: true }))) return;
   if (saveDeletedSlips(loadDeletedSlips().filter(entry => entry.id !== id))) showDeletedSlipsModal();
 }
 
 async function clearAllDeletedSlips() {
   const entries = loadDeletedSlips();
   if (!entries.length) { showToast('削除記録はありません'); return; }
-  const code = prompt('リカバリーコードを入力してください');
+  const code = await appPrompt('リカバリーコードを入力してください');
   if (!code) return;
   if (!await AuthStore.verifyRecovery(code)) { showToast('リカバリーコードが違います'); return; }
-  if (!confirm(`削除済み伝票アーカイブの全記録（${entries.length}件）を削除しますか？\nこの操作は元に戻せません。`)) return;
-  if (!confirm('最終確認です。本当にすべて削除しますか？')) return;
+  if (!(await appConfirm(`削除済み伝票アーカイブの全記録（${entries.length}件）を削除しますか？\nこの操作は元に戻せません。`, { danger: true }))) return;
+  if (!(await appConfirm('最終確認です。本当にすべて削除しますか？', { danger: true }))) return;
   if (saveDeletedSlips([])) { showToast('削除済み伝票アーカイブを全件削除しました'); showDeletedSlipsModal(); }
 }
 /* ================================================================
@@ -18797,15 +19178,22 @@ function renderSettingsPanel() {
       </div>
     </div>
 
-    <!-- 開発者モード -->
+    <!-- デモモード -->
     <div class="settings-section" data-setcat="system">
-      <div class="settings-section-header"><span class="settings-section-title">🛠️ 開発者モード</span></div>
+      <div class="settings-section-header"><span class="settings-section-title">🎬 デモモード</span></div>
       <div class="settings-section-body">
         <div class="settings-row">
-          <div class="settings-label">現在時刻をオーバーライド<div class="settings-sub">20:00〜23:30（30分刻み）／解除で実時刻に戻る</div></div>
+          <div class="settings-label">デモモード<div class="settings-sub">${_demoMode ? 'デモ中の変更は保存されません。終了すると元のデータに戻ります' : '練習・確認用に一時的な状態で操作できます（終了すると開始前のデータに戻ります）'}</div></div>
+          ${_demoMode
+            ? `<button class="btn danger" onclick="demoModeEnd()">⏹ デモモードを終了</button>`
+            : `<button class="btn" onclick="demoModeStart()">🎬 デモモードを開始</button>`}
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">現在時刻をオーバーライド<div class="settings-sub">20:00〜23:30（30分刻み）／解除で実時刻に戻る／デモモード中のみ使用可</div></div>
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
             <select class="settings-input" id="dev-now-time"
               onchange="devSetNowTime()"
+              ${_demoMode ? '' : 'disabled'}
               style="width:100px;font-family:var(--mono)">
               <option value="">— 選択 —</option>
               ${(() => {
@@ -18818,15 +19206,15 @@ function renderSettingsPanel() {
                 return opts;
               })()}
             </select>
-            <button class="btn" onclick="devClearNowTime()">解除</button>
+            <button class="btn" onclick="devClearNowTime()" ${_demoMode ? '' : 'disabled'}>解除</button>
             <span id="dev-now-label" style="font-size:11px;color:${_devNowMin !== null ? 'var(--gold)' : 'var(--tx3)'}">
               ${_devNowMin !== null ? '⚠️ 時刻オーバーライド中' : '（実時刻）'}
             </span>
           </div>
         </div>
         <div class="settings-row">
-          <div class="settings-label">タイムテーブルをリセット<div class="settings-sub">出勤・退勤・同伴・当欠・遅刻をすべてクリア</div></div>
-          <button class="btn danger" onclick="devResetTimetable()">🗑️ タイムテーブルをリセット</button>
+          <div class="settings-label">タイムテーブルをリセット<div class="settings-sub">出勤・退勤・同伴・当欠・遅刻をすべてクリア／デモモード中のみ使用可</div></div>
+          <button class="btn danger" onclick="devResetTimetable()" ${_demoMode ? '' : 'disabled'}>🗑️ タイムテーブルをリセット</button>
         </div>
       </div>
     </div>
@@ -18893,10 +19281,10 @@ async function usbSettingsDeactivate() {
   }
 }
 
-function usbSettingsClearLocal() {
+async function usbSettingsClearLocal() {
   if (!UsbStore.active) return;
-  if (!confirm('PC側データを消去しますか？\nUSB側のデータは残ります。')) return;
-  if (!confirm('最終確認です。PCに営業データの複製を残さないため、localStorage内のNightListデータを削除します。')) return;
+  if (!(await appConfirm('PC側データを消去しますか？\nUSB側のデータは残ります。', { danger: true }))) return;
+  if (!(await appConfirm('最終確認です。PCに営業データの複製を残さないため、localStorage内のNightListデータを削除します。', { danger: true }))) return;
   UsbStore.clearLocalCopies();
   showToast('PC側データを消去しました');
 }
@@ -18974,7 +19362,7 @@ async function authSettingsResetWithRecovery() {
     showToast('\u30ea\u30ab\u30d0\u30ea\u30fc\u30b3\u30fc\u30c9\u3092\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044');
     return;
   }
-  if (!confirm('\u8a8d\u8a3c\u3092\u30ea\u30bb\u30c3\u30c8\u3057\u307e\u3059\u304b\uff1f')) return;
+  if (!(await appConfirm('\u8a8d\u8a3c\u3092\u30ea\u30bb\u30c3\u30c8\u3057\u307e\u3059\u304b\uff1f', { danger: true }))) return;
   try {
     const ok = await AuthStore.resetWithRecovery(code);
     if (!ok) {
@@ -18998,7 +19386,7 @@ async function resetSlipNumberWithRecovery() {
   const message = max > 0
     ? `伝票番号をリセットします。\n本日の伝票 No.${max} が残っているため、次の番号は ${max + 1} になります。\n完全に1から始めるには営業終了後に実行してください。\nリセットしますか？`
     : '伝票番号をリセットします。次の伝票が No.1 になります。よろしいですか？';
-  if (!confirm(message)) return;
+  if (!(await appConfirm(message, { danger: true }))) return;
   const now = new Date().toISOString();
   if (!saveSlipCounter({ prevDaysMax: 0, updatedAt: now, lastResetAt: now })) return;
   showToast('伝票番号をリセットしました');
@@ -19011,7 +19399,7 @@ async function authSettingsClear() {
     showToast('現在のパスワードを入力してください');
     return;
   }
-  if (!confirm('起動ログインを解除しますか？')) return;
+  if (!(await appConfirm('起動ログインを解除しますか？', { danger: true }))) return;
   try {
     const ok = await AuthStore.clear(currentPassword);
     if (!ok) {
@@ -19051,7 +19439,7 @@ function shimeiExtAddRow(type) {
   tbody.querySelector('tr:last-child .shimei-ext-label')?.focus();
   _settingsMarkDirty();
 }
-function shimeiExtDelRow(button) {
+async function shimeiExtDelRow(button) {
   const row = button?.closest('tr.shimei-ext-row');
   const tbody = row?.parentElement;
   if (!row || !tbody) return;
@@ -19059,7 +19447,7 @@ function shimeiExtDelRow(button) {
     showToast('延長系の項目は最低1行必要です');
     return;
   }
-  if (!confirm('過去の集計・給与データは消えませんが、POSボタンと今後の集計列から外れます')) return;
+  if (!(await appConfirm('過去の集計・給与データは消えませんが、POSボタンと今後の集計列から外れます', { danger: true }))) return;
   row.remove();
   _settingsMarkDirty();
 }
@@ -19075,7 +19463,7 @@ function drinkItemAddRow() {
   (shotRow ? shotRow.previousElementSibling : tbody.lastElementChild)?.querySelector('.shimei-ext-label')?.focus();
   _settingsMarkDirty();
 }
-function drinkItemDelRow(button) {
+async function drinkItemDelRow(button) {
   const row = button?.closest('tr.drink-item-row');
   const tbody = row?.parentElement;
   if (!row || !tbody) return;
@@ -19083,7 +19471,7 @@ function drinkItemDelRow(button) {
     showToast('ドリンク項目は最低1行必要です');
     return;
   }
-  if (!confirm('過去の集計・給与データは消えませんが、POSボタンと今後の集計列から外れます')) return;
+  if (!(await appConfirm('過去の集計・給与データは消えませんが、POSボタンと今後の集計列から外れます', { danger: true }))) return;
   row.remove();
   _settingsMarkDirty();
 }
@@ -19309,7 +19697,7 @@ function shopLogoClear() {
 }
 
 /* 設定を保存して全体に即時反映 */
-function applySettings() {
+async function applySettings() {
   const get = id => document.getElementById(id);
 
   // 数値項目
@@ -19392,13 +19780,13 @@ function applySettings() {
     }
   });
   if (invalidVipSeats.length) {
-    alert('次のVIP席は保存対象から除外しました。\n' + invalidVipSeats.join('\n'));
+    await appAlert('次のVIP席は保存対象から除外しました。\n' + invalidVipSeats.join('\n'));
   }
 
   // バリデーション
-  if (timeStartH >= timeEndH) { alert('営業開始時刻は終了時刻より前にしてください'); return; }
-  if (rankRepeat >= rankVip)  { alert('リピーター閾値はVIP閾値より小さくしてください'); return; }
-  if (bizHour < 5 || bizHour > 18) { alert('営業日の境界時刻は5〜18時の範囲で設定してください'); return; }
+  if (timeStartH >= timeEndH) { await appAlert('営業開始時刻は終了時刻より前にしてください'); return; }
+  if (rankRepeat >= rankVip)  { await appAlert('リピーター閾値はVIP閾値より小さくしてください'); return; }
+  if (bizHour < 5 || bizHour > 18) { await appAlert('営業日の境界時刻は5〜18時の範囲で設定してください'); return; }
 
   // 料金設定
   const setPrice        = _int('cfg-setPrice', cfg.setPrice);
@@ -19730,8 +20118,8 @@ function payrollPeriodDeductionAdd() {
   _settingsMarkDirty();
 }
 
-function payrollPeriodDeductionDel(btn) {
-  if (!confirm('この期間控除を削除しますか？')) return;
+async function payrollPeriodDeductionDel(btn) {
+  if (!(await appConfirm('この期間控除を削除しますか？', { danger: true }))) return;
   btn.closest('tr.payroll-period-deduction-row')?.remove();
   _settingsMarkDirty();
 }
@@ -19796,8 +20184,8 @@ function payrollDeductionAdd() {
   _settingsMarkDirty();
 }
 
-function payrollDeductionDel(btn) {
-  if (!confirm('この控除項目を削除しますか？')) return;
+async function payrollDeductionDel(btn) {
+  if (!(await appConfirm('この控除項目を削除しますか？', { danger: true }))) return;
   btn.closest('tr')?.remove();
   _settingsMarkDirty();
 }
@@ -19876,7 +20264,7 @@ function summarizeCustomerOrders(orders) {
 
 function customerVisitOrders(orders) {
   // 注文傾向の対象は「商品」のみ。席料・延長・指名系フィー・退席・VIP自動明細は除く
-  const FEE_CATS = new Set(['set','extension','vip','kitaku','nominate','dohan','jonai']);
+  const FEE_CATS = new Set(['set','extension','vip','kitaku','nominate','dohan','jonai','jonai_empty']);
   // 店舗定義ドリンクの注文名は「項目名:キャスト名」形式のため、カテゴリ定義から表示する
   const DRINK_LABEL = Object.fromEntries(drinkItemList().map(item => [item.key, 'ドリンク' + item.label]));
   return (Array.isArray(orders) ? orders : []).filter(order => {
@@ -20613,14 +21001,14 @@ function openCustomerDetail(name) {
   document.body.insertAdjacentHTML('beforeend', html);
 }
 
-function recordUrikakeRepay(name) {
+async function recordUrikakeRepay(name) {
   const amount = Number(document.getElementById('urikake-repay-amount')?.value);
   const method = document.getElementById('urikake-repay-method')?.value || '';
-  if (!Number.isInteger(amount) || amount <= 0) { alert('回収金額は1円以上の整数で入力してください。'); return; }
+  if (!Number.isInteger(amount) || amount <= 0) { await appAlert('回収金額は1円以上の整数で入力してください。'); return; }
   const balance = urikakeBalance(loadUrikake(), name);
-  if (amount > balance) { alert(`回収額が売掛残高（¥${balance.toLocaleString()}）を超えています。`); return; }
+  if (amount > balance) { await appAlert(`回収額が売掛残高（¥${balance.toLocaleString()}）を超えています。`); return; }
   if (!urikakeAppend({ customerName: name, type: 'repay', amount, method, bizKey: getBizDayKey(), rowId: '', note: '' })) {
-    alert('売掛回収の保存に失敗しました。');
+    await appAlert('売掛回収の保存に失敗しました。');
     return;
   }
   renderCustomerTable();
@@ -20756,18 +21144,19 @@ function cancelMerge() {
   renderCustomerTable();
 }
 
-function confirmMerge(targetName) {
+async function confirmMerge(targetName) {
   const src = _mergeSourceName;
   if (!src || src === targetName) return;
   const data = loadCustomers();
   const sv = data[src]?.visits || 0;
   const tv = data[targetName]?.visits || 0;
-  if (!confirm(
+  if (!(await appConfirm(
     `「${src}」を「${targetName}」に統合しますか？\n\n` +
     `・${src}（${sv}回） の全来店履歴が ${targetName}（${tv}回） に合算されます\n` +
     `・「${src}」の顧客レコードは削除されます\n` +
-    `・この操作は元に戻せません`
-  )) return;
+    `・この操作は元に戻せません`,
+    { danger: true }
+  ))) return;
   doMerge(src, targetName);
 }
 
@@ -20834,18 +21223,18 @@ function _renameGuestInRows(rows, oldName, newName) {
 }
 
 /* 顧客名を編集：今日のリスト・全過去リスト・顧客DB すべてに即時反映 */
-function editCustomerName(oldName) {
-  const newName = prompt(`顧客名を変更します。\n\n新しい名前を入力してください：`, oldName);
+async function editCustomerName(oldName) {
+  const newName = await appPrompt(`顧客名を変更します。\n\n新しい名前を入力してください：`, oldName);
   if (newName === null) return; // キャンセル
   const trimmed = newName.trim();
-  if (!trimmed) { alert('空の名前には変更できません。'); return; }
+  if (!trimmed) { await appAlert('空の名前には変更できません。'); return; }
   if (trimmed === oldName) return; // 変更なし
 
   const data = loadCustomers();
   if (data[trimmed] && trimmed !== oldName) {
-    if (!confirm(`「${trimmed}」という顧客は既に存在します。\n統合して ${data[trimmed].visits}回＋${data[oldName]?.visits||0}回 の履歴としてまとめますか？`)) return;
+    if (!(await appConfirm(`「${trimmed}」という顧客は既に存在します。\n統合して ${data[trimmed].visits}回＋${data[oldName]?.visits||0}回 の履歴としてまとめますか？`, { danger: true }))) return;
   } else {
-    if (!confirm(`「${oldName}」を「${trimmed}」に変更します。\n\n・今日のリストと、過去の全営業日の記録が新しい名前に変わります\n・ボトルキープ・売掛の名義も変わります\n・この操作は元に戻せません\n\n変更しますか？`)) return;
+    if (!(await appConfirm(`「${oldName}」を「${trimmed}」に変更します。\n\n・今日のリストと、過去の全営業日の記録が新しい名前に変わります\n・ボトルキープ・売掛の名義も変わります\n・この操作は元に戻せません\n\n変更しますか？`, { danger: true }))) return;
   }
 
   // 1. 今日のリスト（state.rows）の客名を更新
@@ -21475,11 +21864,11 @@ function onImportFileSelected(input) {
   const file = input.files[0];
   if (!file) return;
   const reader = new FileReader();
-  reader.onload = e => {
+  reader.onload = async e => {
     try {
       const payload = JSON.parse(e.target.result);
       if (!payload.version) {
-        alert('このファイルはNightListのエクスポートデータではありません。');
+        await appAlert('このファイルはNightListのエクスポートデータではありません。');
         return;
       }
 
@@ -21504,11 +21893,11 @@ function onImportFileSelected(input) {
       const legacySettings = !isNewFormat ? payload.settings      : null;
 
       if (isNewFormat && !listStateStr && !backupsStr) {
-        alert('このファイルはNightListのエクスポートデータではありません。');
+        await appAlert('このファイルはNightListのエクスポートデータではありません。');
         return;
       }
       if (!isNewFormat && !legacyState) {
-        alert('このファイルはNightListのエクスポートデータではありません。');
+        await appAlert('このファイルはNightListのエクスポートデータではありません。');
         return;
       }
 
@@ -21520,13 +21909,14 @@ function onImportFileSelected(input) {
         ? (customersStr ? Object.keys(JSON.parse(customersStr)).length : 0)
         : Object.keys(legacyCust || {}).length;
 
-      if (!confirm(
+      if (!(await appConfirm(
         `以下のデータをインポートします。\n\n` +
         `エクスポート日時: ${dateStr}\n` +
         `保存データ: ${backupCount}日分\n` +
         `顧客データ: ${custCount}件\n\n` +
-        `⚠ 現在のデータはすべて上書きされます。続けますか？`
-      )) return;
+        `⚠ 現在のデータはすべて上書きされます。続けますか？`,
+        { danger: true }
+      ))) return;
 
       // 新形式：各キーをそのままlocalStorageに書き込む
       if (isNewFormat) {
@@ -21568,9 +21958,9 @@ function onImportFileSelected(input) {
       renderTimetable();
       updateStoreStatusBadge();
       refreshHistoryBtns();
-      alert('インポートが完了しました。');
+      await appAlert('インポートが完了しました。');
     } catch(err) {
-      alert('ファイルの読み込みに失敗しました。\n' + err.message);
+      await appAlert('ファイルの読み込みに失敗しました。\n' + err.message);
     }
   };
   reader.readAsText(file, 'utf-8');
@@ -21813,22 +22203,23 @@ function printTimetable() {
   if (el && meta) el.textContent = 'v' + meta.content;
 })();
 
+/* 時刻オーバーライドはデモモード中のみ有効（非永続）。旧仕様で永続化された
+   devTimeの残存値が非デモ起動に効いてしまう穴を塞ぐため、起動のたびに破棄する。 */
+function _purgeStaleDevTime() {
+  _devNowMin = null;
+  _devSetAt  = null;
+  try {
+    if (Persist.read('devTime') !== null) Persist.write('devTime', null);
+  } catch (_) {}
+}
+
 async function __boot() {
   await UsbStore.init();
   await UsbBootGate.show();
   await AuthGate.check();
 
   // 04-time-utilities.js は定義時にlocalStorageを一度読むため、USBゲート後に再同期する。
-  try {
-    const savedDevTime = Persist.read('devTime');
-    if (savedDevTime && typeof savedDevTime.nowMin === 'number' && typeof savedDevTime.setAt === 'number') {
-      _devNowMin = savedDevTime.nowMin;
-      _devSetAt  = savedDevTime.setAt;
-    } else {
-      _devNowMin = null;
-      _devSetAt  = null;
-    }
-  } catch (_) {}
+  _purgeStaleDevTime();
 
   loadCfg();
   loadState();
@@ -21847,6 +22238,7 @@ async function __boot() {
   // ブラウザを閉じる前に未保存警告（リスト表データ・設定パネルの両方をチェック）
   window.addEventListener('beforeunload', e => {
     if (UsbStore._fenced) return;
+    if (_demoMode) return;   // デモ中の変更は保存しない仕様のため、離脱警告も出さない
     if ((_unsavedChanges && state.rows.length > 0) || _settingsDirty) {
       e.preventDefault();
       e.returnValue = '保存されていないデータがあります。閉じる前に💾保存ボタンを押してください。';
