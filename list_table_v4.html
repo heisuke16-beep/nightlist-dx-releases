@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.43">
+<meta name="app-version" content="1.0.44">
 <title>リスト表 v4</title>
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
      フォントはOS内蔵にフォールバックする（--font/--monoのスタック参照）。 -->
@@ -9388,14 +9388,14 @@ function rebuildHeader(visRot, visExt) {
     <th style="min-width:44px">卓</th>
     ${rotThs}
     <th style="min-width:46px;vertical-align:middle">
-      <div style="display:flex;flex-direction:column;gap:2px;align-items:center">
+      <div class="col-ctrl-stack">
         <button class="col-ctrl-btn" onclick="addRotCol()">＋</button>
         <button class="col-ctrl-btn" onclick="removeRotCol()" ${rotColHasData() ? 'disabled title="この列にデータが入っています"' : ''}>－</button>
       </div>
     </th>
     ${extThs}
     <th style="min-width:46px;vertical-align:middle">
-      <div style="display:flex;flex-direction:column;gap:2px;align-items:center">
+      <div class="col-ctrl-stack">
         <button class="col-ctrl-btn" onclick="addExtCol()">＋</button>
         <button class="col-ctrl-btn" onclick="removeExtCol()" ${extColHasData() ? 'disabled title="この列にデータが入っています"' : ''}>－</button>
       </div>
@@ -11761,8 +11761,13 @@ function _posSlipCard(r, isSelected, totalCount, mode, padRows) {
       ? 'box-shadow:0 0 0 3px var(--pos-slip-rail-bdr,#2290ff),0 6px 20px rgba(0,0,0,0.5);'
       : 'opacity:0.72;cursor:pointer;');
   const bgColor = r.posColor || '#fdfcf8';
-  const onClickAttr = isReport ? '' : ' onclick="posSlipSelect(' + r.gid + ')"';
-  // タブレットモード用の状態クラス: 非選択=compact（明細を畳んで正方形寄りに・タップで開く）/ 選択=selected。
+  // 第4弾N: タップで選択のみ(posSlipSelect)ではなく、選択＋オーダー画面へ遷移(posOpenSlipOrder)
+  // まで行う（両モード共通・オーナー指示2026-08-16）。カード内タイマー(_posSlipTimerBlock)は
+  // event.stopPropagation()済みのため、ウェイト切替タップがオーダー遷移に化けることはない
+  const onClickAttr = isReport ? '' : ' onclick="posOpenSlipOrder(' + r.gid + ')"';
+  // タブレットモード用の状態クラス: 非選択=compact（明細を畳んで正方形寄りに）/ 選択=selected。
+  // タップすると選択されると同時にオーダー画面へ遷移するため、compactのまま留まって
+  // 明細を確認する操作はできない（意図的な仕様。第4弾N参照）。
   // 日報(report)のカードには付けない（畳み対象外）。CSSは 47b-tablet-mode.js 参照
   const stateCls = isReport ? '' : (isSelected ? ' pos-slip-selected' : ' pos-slip-compact');
 
@@ -22313,33 +22318,82 @@ document.addEventListener('compositionend', e => {
 });
 /* ================================================================
    タブレットモード（表示モード管理）
-   13〜14インチタブレットや拡大150%のノートPC（実効1280×720前後）向けに、
-   タッチ操作しやすいサイズへ主要UIを底上げする表示モード。
+   13〜14インチタブレットや拡大150%のノートPC（実効1280×720前後）向けの表示モード。
    - html[data-display="tablet"] 属性で切替（テーマ機構 47 と同じ型）
    - 永続化は Persist.write/read('displayMode')。端末ごとの表示設定として扱う
    - 切替は設定パネル「🎨 表示テーマ」内から（保存ボタン不要・即反映）
-   実測根拠(2026-07-14 子機1280×720): ボタン高さ平均28px・最小19px・フォント11〜13px
-   → タッチ推奨44px前後へ底上げ。リスト表は密度を守り、あふれた分は横スクロールで逃がす。
+   設計方針（2026-08-15 UI圧縮改修で分離）:
+   枠（クローム＝ヘッダー・タブバー・ツールバー・リスト表見出し・フッター）は
+   使用頻度が低く誤タップ被害も小さいため縮小してよい（26〜30px系）。
+   一方、業務ボタン（POS商品/伝票操作・リスト表の入力欄など「押し間違えたら困る」もの）は
+   44px系のタッチ標的を維持する。オーナー実機フィードバック（2026-08-15）に基づく判断。
+   仕様: dev/specs/2026-08-15-nightlistdx-タブレットモードUI圧縮.md
 ================================================================ */
 (function injectTabletModeCss() {
   const css = [
-    /* 基本フォントの底上げ */
-    'html[data-display="tablet"] body{font-size:15px}',
+    /* 基本フォント：13.3インチ実機で15pxは大きすぎたため13px（デスクトップ同値）へ縮小（第2弾G） */
+    'html[data-display="tablet"] body{font-size:13px}',
     /* 汎用ボタン・タブ（リスト表内の小さな＋−ボタンは対象外にして表の密度を守る） */
     'html[data-display="tablet"] .btn{min-height:42px;padding:8px 14px;font-size:14px}',
-    'html[data-display="tablet"] .tabs .tab-btn{min-height:44px;padding:8px 12px;font-size:13px}',
     'html[data-display="tablet"] .theme-toggle-btn{min-width:42px;min-height:42px}',
     /* リスト表：入力を触りやすく、はみ出しは横スクロールで逃がす */
     'html[data-display="tablet"] .table-wrapper{overflow-x:auto;-webkit-overflow-scrolling:touch}',
-    'html[data-display="tablet"] .list-table input,html[data-display="tablet"] .list-table select{font-size:15px;min-height:32px}',
-    'html[data-display="tablet"] .col-ctrl-btn{min-width:32px;min-height:32px}',
+    /* 第2弾G: 死にルール2件を削除。
+       ・.list-table input/select は実表がid=#list-table のため不発（削除しても見た目不変）
+       ・.col-ctrl-btn の32px指定は #list-table .col-ctrl-stack .col-ctrl-btn の24px指定に
+         負けている残骸（第1弾Dで追加した方が優先されるため実質無効） */
+
+    /* ----------------------------------------------------------------
+       枠（クローム）圧縮 2026-08-15
+       #header 58px→42px前後 / #tabs 52px→38px前後 / #toolbar 59px→40px前後 /
+       リスト表見出し 100px→45px前後 / #summary-bar 48px→38px前後
+    ---------------------------------------------------------------- */
+    /* A. ヘッダー：base(V5層)がheight:58px固定のため、tablet側でautoに解いてから圧縮する */
+    /* 第2弾F: padding上下0だとロゴ・営業日が上端に密着するため縦3pxの息継ぎを追加 */
+    'html[data-display="tablet"] #header{height:auto;padding:3px 10px}',
+    'html[data-display="tablet"] #header .btn{min-height:30px;padding:3px 10px;font-size:12px}',
+    /* 第2弾F: ロゴ(base 40px)を32pxへ縮小し、ヘッダー内の余白を確保する */
+    'html[data-display="tablet"] .header-logo-img{height:32px;width:auto}',
+
+    /* B. タブバー：旧「.tabs .tab-btn」は実要素(#tabs)と一致しない死にルールだったため削除し、
+       正しいセレクタ「#tabs .tab-btn」で縮小値を定義する */
+    'html[data-display="tablet"] #tabs{padding-top:4px}',
+    /* margin-bottom:7px（base V5層）のままだと42pxになり目標を2px超えるため4pxへ圧縮 */
+    'html[data-display="tablet"] #tabs .tab-btn{min-height:30px;padding:4px 10px;font-size:12px;margin-bottom:4px}',
+
+    /* C. ツールバー（人数追加ボタン群） */
+    'html[data-display="tablet"] #toolbar{padding:4px 12px}',
+    /* base padding:7px 0（.count-seg button）がmin-heightより支配的で33pxになるため上書き */
+    'html[data-display="tablet"] #toolbar .count-seg button{min-height:26px;min-width:28px;font-size:12px;padding:3px 0}',
+    'html[data-display="tablet"] #toolbar .btn{min-height:28px;padding:3px 10px;font-size:12px}',
+    'html[data-display="tablet"] #custom-count-input{min-height:26px;padding:3px 8px;font-size:12px}',
+
+    /* D. リスト表見出し：席次/延長のグループラベル行（#thead-group-row）を非表示にする。
+       列・＋/－機能・列幅は不変（オーナー確認済み。縮めるのは見出しの高さ＝縦方向のみ） */
+    'html[data-display="tablet"] #thead-group-row{display:none}',
+    /* グループ行を隠すと、その下の列見出し行のsticky top:20px（グループ行の高さぶん）が空白として残るため0に戻す */
+    'html[data-display="tablet"] #list-table #thead-row th{top:0}',
+    'html[data-display="tablet"] #list-table thead th{padding-top:4px;padding-bottom:4px}',
+    /* col-ctrl-stack: 21-render-table.js が付与するクラス。デスクトップ既定は下の素のセレクタ（縦積み・
+       従来のインラインstyleと同一）で再現し、タブレットだけ横並びに上書きして高さを圧縮する */
+    '.col-ctrl-stack{display:flex;flex-direction:column;gap:2px;align-items:center}',
+    'html[data-display="tablet"] .col-ctrl-stack{flex-direction:row}',
+    'html[data-display="tablet"] #list-table .col-ctrl-stack .col-ctrl-btn{min-width:24px;min-height:24px}',
+
+    /* E. フッター（#summary-bar）：base がheight:48px固定のためautoに解く */
+    /* 第2弾K: padding0だと内蔵の戻る/オーダーボタン上端がバー境界線に密着するため縦3pxを追加して分離 */
+    'html[data-display="tablet"] #summary-bar{height:auto;padding:3px 12px}',
+    'html[data-display="tablet"] #summary-bar .sum-val{font-size:13px}',
+    /* POSタブの埋め込み操作ボタン。base(#summary-pos-actions .pos-bottom-btn)は既にheight:36px固定なので、
+       この上書きが効くまでは47b側の旧min-height:48pxが底上げしていた。36pxへ揃える */
+    'html[data-display="tablet"] .pos-bottom-btn{min-height:36px}',
+
     /* POSパネル（店頭での主戦場） */
     'html[data-display="tablet"] .pos-co-btn{min-height:48px;font-size:15px}',
     'html[data-display="tablet"] .pos-action-btn{min-height:46px;font-size:15px}',
     'html[data-display="tablet"] .pos-cat-btn,html[data-display="tablet"] .pos-order-cat-btn{min-height:44px;font-size:14px}',
     'html[data-display="tablet"] .pos-product-grid button{min-height:52px;font-size:14px}',
     'html[data-display="tablet"] .pos-drink-cast-btn{min-height:46px;font-size:15px}',
-    'html[data-display="tablet"] .pos-bottom-btn{min-height:48px}',
     'html[data-display="tablet"] .pos-report-btn{min-height:44px}',
     'html[data-display="tablet"] .pos-nsm-arrow{min-width:48px;min-height:48px;font-size:18px}',
     'html[data-display="tablet"] .pos-nsm-ok{min-height:48px}',
@@ -22347,13 +22401,106 @@ document.addEventListener('compositionend', e => {
     'html[data-display="tablet"] .customer-picker-row{min-height:48px}',
     'html[data-display="tablet"] .analytics-preset,html[data-display="tablet"] .analytics-compare-btn,html[data-display="tablet"] #analytics-panel input[type="date"]{min-height:44px;font-size:14px}',
     'html[data-display="tablet"] .castmgmt-toggle{min-height:44px}',
-    /* POS伝票カード: 非選択は明細を畳んで正方形寄りのコンパクト表示（タップ＝選択で開く）。
-       選択中も空行の水増しを消して実明細ぶんの高さに。日報のカードは対象外（クラスが付かない） */
-    'html[data-display="tablet"] .pos-slip-compact .pos-slip-sheet-body{display:none}',
-    'html[data-display="tablet"] .pos-slip-compact .pos-slip-divider{display:none}',
-    'html[data-display="tablet"] .pos-slip-selected .pos-slip-line-empty{display:none}',
-    /* 親flexのstretchで全カードが最長カードの高さに揃うのを止め、各カードが自分の高さを保つ */
-    'html[data-display="tablet"] .pos-slip-sheet-wrap .pos-slip-sheet{align-self:flex-start}',
+    /* 第2弾I: POS伝票カードのタブレット専用「畳み」4ルールを削除（オーナー指示
+       「一旦デスクトップに近づけて。そこから修正入ろう」）。29-pos-panel.js が付与する
+       pos-slip-compact/pos-slip-selected クラス自体はJS無変更のため残るが、CSS側の畳み
+       処理を外すことで伝票ビューの見た目はデスクトップと同一（明細フル表示）に戻る */
+
+    /* 第2弾H: POS卓ビュー上部（キャストレール＋凡例＋卓/伝票トグル）を圧縮。
+       base(#pos-panel .pos-slip-view-head 等)はidを含むため、上書きも#pos-panel込みの
+       セレクタで指定しないと詳細度負けする */
+    /* base(#pos-panel .pos-slip-view-head)のmin-height:50pxはpadding指定だけでは打ち消せず、
+       そのままだと50px床が残って目標(≤38px)に届かないため明示的に上書きする */
+    /* 第3弾L: 31px→目標26px以下。トグルが律速のため、min-height:30pxは撤去しpaddingのみで圧縮する */
+    /* レビュー修正: min-height:30pxの撤去は誤りだった。あの指定は「床」ではなく
+       base側 #pos-panel .pos-slip-view-head{min-height:50px}（00-shell-head.html）を
+       打ち消す上書きだった。撤去するとbaseの50px床が復活してしまうため、
+       min-height:0を明示してコンテンツ実高（凡例16px＋トグル21px＋padding3px≒24px）に任せる */
+    /* Y軸センタリング: 折り返し禁止で常に1行・オーナー指示2026-08-16:
+       オーナー訂正「X軸ではなくY軸の話」を受けて水平センタリング(justify-content:center)と
+       レール圧縮(pos-active-cast-rail-wrap)の2箇所は撤回。真因はview-headがflex-wrap:wrapのため、
+       出勤キャストが多い実店舗データではレール＋凡例＋トグルが折り返し、トグルが帯の下段
+       （実測+20px）・凡例が上段（-13.5px）に散っていたこと。flex-wrap:nowrapで帯の折り返しを
+       禁止する。min-height:0はbase 50px床の打ち消しなので必ず残す。レールはbaseのflex:1 1 auto+
+       min-width:0で縮み、チップはレール内部のflex-wrap:wrapで折り返すので常に1行構成になり、
+       align-items:centerで文字列が帯の縦中央に固定される。justify-content:flex-end（base）へ復帰 */
+    /* 帯下（グリッド/カード側padding）の余白を上へ配分して文字列を帯の縦中央へ・オーナー指示2026-08-16:
+       実測での真因は、帯の見た目39px幅自体ではなく、カードグリッド側のpadding-top
+       （卓ビュー.pos-floor-grid=14px／伝票ビュー.pos-slip-sheet-wrap=16px）が帯の下側にだけ
+       余白を作っていたこと。文字列中心が帯中心より7〜8px上に寄っていたため、baseのpadding-topを
+       半分ずつ帯側（view-headのpadding-top）へ移し、帯全体の高さ・カード開始位置は変えずに
+       上下の余白を均等化する（当初9px）。
+       追加オーナー指示2026-08-16: サイズは良いが全体的にあと2pxぐらい上へ→上余白を9px→7pxへ
+       さらに-2px。帯内の文字と、その下の卓カード/伝票カード群がまとめて2px上がる。
+       写真付き追加指示2026-08-16: 画面下に余りがあるため卓ビュー全体をあと1〜2px上へ
+       →上余白を7px→5pxへさらに-2px。
+       追加オーナー指示2026-08-16: もう2pxぐらい文字を上げてよい→上余白を5px→3pxへさらに-2px
+       （経緯: 9→7→5→3px） */
+    'html[data-display="tablet"] #pos-panel .pos-slip-view-head{padding:3px 12px 2px;min-height:0;flex-wrap:nowrap}',
+    'html[data-display="tablet"] #pos-panel .pos-floor-grid{padding-top:7px}',
+    'html[data-display="tablet"] #pos-panel .pos-slip-sheet-wrap{padding-top:8px}',
+    /* nowrap時に凡例・トグルが潰れないようflex-shrink:0で確保する */
+    'html[data-display="tablet"] #pos-panel .pos-floor-legend,html[data-display="tablet"] #pos-panel .pos-slip-view-toggle{flex-shrink:0}',
+    'html[data-display="tablet"] #pos-panel .pos-slip-view-toggle button{padding:2px 8px;font-size:10px}',
+
+    /* 第3弾M: 伝票ビューのカードを横広・縦短に。空行フィラー（明細1行に対し14行分の枠を描く紙伝票
+       メタファー）を非表示にし、4列化で幅を約2倍にする。日報カードへ波及させないよう
+       .pos-slip-sheet-wrap スコープに限定する */
+    /* オーナー指示2026-08-16: カード幅が広すぎる（修正前6列・約194px⇔修正後3列・約402px）ため、
+       中間の4列（約305px）へ調整。gap12px×3=36px */
+    'html[data-display="tablet"] .pos-slip-sheet-wrap .pos-slip-sheet{flex:0 0 calc((100% - 36px)/4)}',
+    'html[data-display="tablet"] .pos-slip-sheet-wrap .pos-slip-line-empty{display:none}',
+
+    /* 第2弾J: POSシェル群の高さをタブレット実寸（ヘッダー+タブ・POSフッター）に合わせて再計算。
+       base(V5層)は height:calc(100vh - 106px) / padding-bottom:48px を旧クローム前提で
+       ハードコードしており、タブレット圧縮後のクロームとズレてオーダー画面が旧フッター位置で
+       切れていた。84px = F適用後のヘッダー(45px実測)+タブ(39px実測)、
+       43px = K適用後のPOSフッター実測値（padding3px+.pos-bottom-btn高36px+padding3px+border1px の合算。
+       1280×720フレッシュロード実測で確定。box-sizing:border-boxのため padding/border はheight:autoに加算される） */
+    'html[data-display="tablet"] .pos-shell{height:calc(100vh - 84px)}',
+    'html[data-display="tablet"] .pos-empty-shell{height:calc(100vh - 84px)}',
+    'html[data-display="tablet"] .pos-order-shell{height:calc(100vh - 84px);padding-bottom:43px}',
+    'html[data-display="tablet"] #past-panel{height:calc(100vh - 84px)}',
+    'html[data-display="tablet"] #pos-panel{min-height:calc(100vh - 84px);padding-bottom:43px}',
+    /* オーナー指示2026-08-16 その1: 出勤キャストのレールが出ると帯が45pxに太る。
+       base側 .pos-active-cast-chip{min-height:34px;padding:6px 11px}（00-shell-head.html:3801）が
+       チップを大きくしているため、タブレットではチップを圧縮して帯を低くする。
+       帯45→約37px、レール2段時87→約71pxを見込む。
+       写真付き追加指示2026-08-16: キャスト10〜14人の店でも1段に収まるよう文字をさらに縮小
+       （2段化はレイアウトが崩れるため回避。視認性を保てる下限として10px）。
+       base値=チップfont12px/small(サブ表記)9px/gap8px。レビュー実測: 1280×720・キャスト14人・
+       卓ラベル付きで現状2段/帯69px → 1段/帯30px */
+    'html[data-display="tablet"] #pos-panel .pos-active-cast-chip{min-height:20px;padding:2px 7px;font-size:10px;gap:4px}',
+    'html[data-display="tablet"] #pos-panel .pos-active-cast-chip small{font-size:8px}',
+    'html[data-display="tablet"] #pos-panel .pos-active-cast-rail{gap:5px}',
+    /* オーナー指示2026-08-16 その2: 伝票を並べた時、最下段カードの合計・金額欄が下部フッターにかぶる。
+       原因はbase側 .pos-slip-view-shell{height:100%}（00-shell-head.html:1032）が親シェルの
+       最下端（画面下端720px）まで伸び、固定フッター（上端677px）の裏に43pxぶん潜っていたこと。
+       43px=POSフッター実高（第2弾Jと同じ定数）。卓ビュー・伝票ビュー両方がこのshellを使うため
+       この1行で両方直る */
+    'html[data-display="tablet"] #pos-panel .pos-slip-view-shell{height:calc(100% - 43px)}',
+    /* オーナー指示2026-08-16 その3（レビューで真因を訂正）: 実機写真での指摘。卓ビューの占有カードで
+       「累計 ¥6,000」等の最下行がカード枠の外にはみ出し、最下段では見切れる。
+       当初の .pos-floor-card{height:auto;min-height:128px} は効果なしと判明（baseは元々min-heightのみで
+       固定高ではなかった）。隔離テストで再現・確定した真因: .pos-floor-grid はスクロール容器
+       （overflow-y:auto・高さ確定）で、行数×行高が容器高を超えるとChromiumがautoの行をアイテムの
+       min-height（128px）まで圧縮する。このため中身が128pxを超える占有カード（キャストchipや累計を含む・
+       サブ機はフォント差で超えやすい）の中身が枠外へはみ出す。minmax(128px,max-content)でも同様に圧縮され
+       防げない。grid-auto-rows:max-content にすると行が実コンテンツ高で確保され、同一行の空きカードも
+       stretchで揃い、スクロールも正常に働く（アイテム4個=151px・16個でも151pxを実測で確認） */
+    'html[data-display="tablet"] #pos-panel .pos-floor-grid{grid-auto-rows:max-content}',
+    /* 枠の高さ圧縮・オーナー指示2026-08-16: grid-auto-rows:max-contentで枠内には収まったが、
+       まだ枠の高さが高い。base=min-height:128px・padding:12px 14px・gap:6px を圧縮する。
+       レビュー実測: 占有カード151→137px・空きカード128→104px・中身の収まりは維持 */
+    'html[data-display="tablet"] #pos-panel .pos-floor-card{min-height:92px;padding:8px 12px;gap:4px}',
+    /* 文字縮小・オーナー指示2026-08-16: 「4卓/6卓」(.pos-floor-table base実測26px)・
+       「フロント」(.pos-floor-source base実測24px)・累計金額(base実測21px)の文字が大きい。
+       枠のY方向もさらに縮める（min-height 104→92px）。累計金額は「累計」ラベル(<small>10px)を
+       触らず、金額側の<b data-pos-floor-total-gid>要素だけを対象にする。
+       レビュー実測の期待値: 占有カード137→約119px・空きカード104→約92px・中身の収まりは維持 */
+    'html[data-display="tablet"] #pos-panel .pos-floor-table{font-size:17px}',
+    'html[data-display="tablet"] #pos-panel .pos-floor-source{font-size:13px}',
+    'html[data-display="tablet"] #pos-panel .pos-floor-total b{font-size:16px}',
     /* 設定パネル */
     'html[data-display="tablet"] .settings-input{min-height:40px;font-size:15px}',
     'html[data-display="tablet"] .settings-nav-btn{min-height:44px;font-size:14px}',
