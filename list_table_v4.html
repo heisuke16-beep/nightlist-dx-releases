@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.44">
+<meta name="app-version" content="1.0.45">
 <title>リスト表 v4</title>
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
      フォントはOS内蔵にフォールバックする（--font/--monoのスタック参照）。 -->
@@ -6062,6 +6062,19 @@ const SelfUpdate = {
   },
 
   async checkAndRun(options = {}) {
+    const wasFullscreen = !!document.fullscreenElement;
+    const result = await this._checkAndRunCore(options);
+    await this._maybeRestoreFullscreen(wasFullscreen);
+    return result;
+  },
+
+  async _maybeRestoreFullscreen(wasFullscreen) {
+    if (!wasFullscreen || document.fullscreenElement) return false;
+    await appAlert('更新処理でブラウザの確認が表示されたため、全画面表示が解除されました。OKを押すと全画面に戻ります');
+    return await requestAppFullscreen();
+  },
+
+  async _checkAndRunCore(options = {}) {
     const onProgress = typeof options.onProgress === 'function' ? options.onProgress : () => {};
     try {
       const updateUrl = SELF_UPDATE_URL;
@@ -6077,7 +6090,7 @@ const SelfUpdate = {
         return this._result('latest', `最新版です（v${this.currentVersion()}）`);
       }
       if (options.interactive !== false) {
-        const ok = confirm(`v${this.currentVersion()} → v${info.version} に更新します。営業データ（USB内のJSON）には影響しません。更新しますか？`);
+        const ok = await appConfirm(`v${this.currentVersion()} → v${info.version} に更新します。営業データ（USB内のJSON）には影響しません。更新しますか？`);
         if (!ok) return this._result('aborted', '更新を中止しました');
       }
 
