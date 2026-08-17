@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.52">
+<meta name="app-version" content="1.0.53">
 <title>リスト表 v4</title>
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
      フォントはOS内蔵にフォールバックする（--font/--monoのスタック参照）。 -->
@@ -4535,6 +4535,7 @@ html[data-display="tablet"] #list-table .col-ctrl-btn { min-width: 32px; min-hei
   <!-- タイムテーブルセクション -->
   <div id="timetable-section">
     <h2>出勤キャスト
+      <button class="btn primary" onclick="ttClockInAllPlanned()">⏱ 一括出勤</button>
       <button class="btn" onclick="printTimetable()" style="font-size:10px;padding:3px 10px;margin-left:10px">🖨 印刷</button>
     </h2>
     <div style="color:var(--tx3);font-size:11px;margin-bottom:10px;line-height:1.6">
@@ -10631,6 +10632,48 @@ function ttForceClockIn(castName) {
   renderCastPanel();
   updateStoreStatusBadge();
   showToast(`${castName} を今すぐ出勤にしました`);
+}
+
+/* 一括出勤（出勤予定キャストタブ・印刷ボタン横の「⏱ 一括出勤」）
+   — 予定済み（出勤予定キャストで選択済み）かつ未打刻の全員を、今すぐ・同一時刻で一括出勤させる。
+   対象判定は isEffectivelyActive ではなく tt.clockIns の有無で行う: isEffectivelyActive は
+   「予定時刻が未来でも実打刻があれば出勤扱い」等の表示用ロジックのため、これを対象条件に使うと
+   すでに手動で未来時刻に設定済みの打刻（現場が意図して先勤務予定を入れている）を後から潰して
+   しまう。clockIns未登録＝実打刻ゼロの子だけを対象にすることで、その意図的な設定を壊さない。
+   plannedClockInsが未来の子も対象に含める・同伴中(douban)も除外しない（個別ttForceClockInと同一挙動）。 */
+async function ttClockInAllPlanned() {
+  const tt = loadTimetableState();
+  const touketsu = new Set(tt.touketsu || []);
+  const targets = state.activeCasts.filter(c =>
+    state.allCasts.includes(c) && !tt.checkouts?.[c] && !touketsu.has(c) && !tt.clockIns?.[c]);
+
+  if (targets.length === 0) {
+    showToast('一括出勤の対象がいません');
+    return;
+  }
+
+  const hasChikoku = targets.some(c => (tt.chikokuMins?.[c] || 0) > 0);
+  const message = `次の${targets.length}名を今すぐ出勤にします:\n${targets.join('・')}`
+    + (hasChikoku ? '\n※遅刻記録はリセットされます' : '');
+  const ok = await appConfirm(message);
+  if (!ok) return;
+
+  /* 全員に同一の打刻時刻を刻むため、ループの外で1回だけ取得する */
+  const now = getNowHHMM();
+  if (!tt.clockIns)    tt.clockIns    = {};
+  if (!tt.chikokuMins) tt.chikokuMins = {};
+  targets.forEach(c => {
+    tt.clockIns[c] = now;
+    if (tt.chikokuMins[c]) tt.chikokuMins[c] = 0;
+  });
+
+  /* 保存・再描画は最後に1回だけ */
+  saveTimetableState(tt);
+  saveState();
+  renderTimetable();
+  renderCastPanel();
+  updateStoreStatusBadge();
+  showToast(`⏱ ${targets.join('・')} を出勤にしました`);
 }
 
 /* 当欠マーク */
@@ -22824,6 +22867,12 @@ document.addEventListener('compositionend', e => {
        base .desig-row{gap:3px}（1948行）。cast-sel(72)+type-sel(86)+sub-add(22)は不変のまま、
        行内2箇所のgapを3→1pxへ（-2px×2箇所=-4px、目標にちょうど届く） */
     'html[data-display="tablet"] #list-table .desig-row{gap:1px}',
+
+    /* 出勤キャストh2内ボタン（🖨印刷・⏱一括出勤）: 汎用.btnのmin-height:42px（本ファイル冒頭）が
+       インラインstyle font-size:10px の箱にだけ貫通し、文字は小さいまま箱だけ42pxに間延びしていた。
+       #header .btn等と同じ例外パターンで低頻度ボタン向けに圧縮する（仕様:
+       dev/specs/2026-08-17-nightlistdx-出勤キャストタブの印刷ボタン縮小と一括出勤.md） */
+    'html[data-display="tablet"] #timetable-section h2 .btn{min-height:26px}',
   ].join('\n');
   const el = document.createElement('style');
   el.id = 'tablet-mode-style';
