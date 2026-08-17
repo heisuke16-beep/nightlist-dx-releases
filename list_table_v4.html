@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.50">
+<meta name="app-version" content="1.0.51">
 <title>リスト表 v4</title>
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
      フォントはOS内蔵にフォールバックする（--font/--monoのスタック参照）。 -->
@@ -5382,7 +5382,13 @@ let _fullscreenReturnBtn = null;
    解除されるとwindowサイズは画面いっぱいのまま＝見た目は全画面。
    復帰ボタン抑止・ESC終了確認の両方でこの同一判定を使う。 */
 function _isEffectivelyFullscreen() {
-  return window.innerWidth >= screen.width && window.innerHeight >= screen.height;
+  // outer系（ウィンドウ外寸・OS基準）で判定する。inner系はページズームの影響を受け、
+  // ズームがかかっていると（例: zoom 110%）実質全画面でも黙って不成立になる
+  // （2026-08-17 実機障害の原因）。outerWidth/outerHeightはズームの影響を受けない。
+  // 既知の許容エッジ: タスクバー自動非表示＋最大化ウィンドウでは外寸が画面サイズと一致し
+  // 「実質全画面」扱いになる（ESCで終了確認が出る・復帰ボタンは出ない）。確認はキャンセル
+  // 可能で実害軽微のため許容する。
+  return window.outerWidth >= screen.width && window.outerHeight >= screen.height;
 }
 
 async function requestAppFullscreen() {
