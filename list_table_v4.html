@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.48">
+<meta name="app-version" content="1.0.49">
 <title>リスト表 v4</title>
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
      フォントはOS内蔵にフォールバックする（--font/--monoのスタック参照）。 -->
@@ -5367,6 +5367,17 @@ const UsbStore = {
   },
 };
 
+/* ================================================================
+   フルスクリーン解除検知＋復帰ボタン（2026-08-17 総点検・Part A）
+   印刷ダイアログ／ピッカー／ESC等でブラウザがフルスクリーンを強制解除しても、
+   これまではアプリが気づけていなかった（fullscreenchange未監視＝無自覚のまま
+   ウィンドウ運用に落ちて営業を続けてしまう）。ここで解除を検知し、
+   タップ1つ（ユーザージェスチャ）で戻れる非モーダルの浮動ボタンを出す。
+   Ctrl+Fでの意図的な解除だけは _appWantsFullscreen を false にし、ボタンを出さない。
+================================================================ */
+let _appWantsFullscreen = false;
+let _fullscreenReturnBtn = null;
+
 async function requestAppFullscreen() {
   try {
     const root = document.documentElement;
@@ -5374,6 +5385,7 @@ async function requestAppFullscreen() {
       throw new Error('Fullscreen API is not supported');
     }
     await root.requestFullscreen();
+    _appWantsFullscreen = true;
     return true;
   } catch (e) {
     console.warn('[Fullscreen] request failed:', e);
@@ -5388,6 +5400,7 @@ async function _handleAppFullscreenShortcut(event) {
   if (document.fullscreenElement) {
     try {
       await document.exitFullscreen();
+      _appWantsFullscreen = false;   // 意図的な解除＝復帰ボタンは出さない
     } catch (e) {
       console.warn('[Fullscreen] exit failed:', e);
     }
@@ -5397,6 +5410,61 @@ async function _handleAppFullscreenShortcut(event) {
 }
 
 document.addEventListener('keydown', _handleAppFullscreenShortcut);
+
+/* 印刷・ピッカー・ESC等で解除された場合の復帰ボタン（画面右下・#summary-barの上・右寄せ）。
+   非モーダル＝出ていても他の操作を一切妨げない。閉じる×は付けない
+   （意図的にウィンドウ運用へ戻したい場合はCtrl+F経由＝フラグが折れてボタン自体が出ない）。
+   DOMはbody直下へ生成（パネル外＝画面別zoomの影響を受けない）。 */
+function _ensureFullscreenReturnBtn() {
+  if (_fullscreenReturnBtn) return _fullscreenReturnBtn;
+  if (!document.getElementById('fullscreen-return-btn-style')) {
+    const style = document.createElement('style');
+    style.id = 'fullscreen-return-btn-style';
+    style.textContent = `
+      #fullscreen-return-btn {
+        position: fixed; right: 16px; bottom: 64px; z-index: 9000;
+        display: none; align-items: center; justify-content: center;
+        min-height: 44px; min-width: 44px; padding: 10px 18px;
+        border-radius: 10px; border: 1px solid var(--gold, #c9a84c);
+        background: linear-gradient(135deg, #2a1f08 0%, #1e1808 100%);
+        color: var(--gold2, #e8cd86); font-size: 13px; font-weight: 700;
+        font-family: var(--font, sans-serif); letter-spacing: 0.02em;
+        cursor: pointer; box-shadow: 0 6px 20px rgba(0,0,0,0.35), 0 0 12px rgba(201,168,76,0.18);
+      }
+      #fullscreen-return-btn.show { display: flex; }
+      #fullscreen-return-btn:hover { box-shadow: 0 0 20px rgba(201,168,76,0.3); }
+    `;
+    document.head.appendChild(style);
+  }
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.id = 'fullscreen-return-btn';
+  btn.textContent = '⛶ 全画面に戻る';
+  btn.addEventListener('click', async () => {
+    const ok = await requestAppFullscreen();
+    if (ok) _hideFullscreenReturnBtn();
+  });
+  document.body.appendChild(btn);
+  _fullscreenReturnBtn = btn;
+  return btn;
+}
+
+function _showFullscreenReturnBtn() {
+  _ensureFullscreenReturnBtn().classList.add('show');
+}
+
+function _hideFullscreenReturnBtn() {
+  if (!_fullscreenReturnBtn) return;
+  _fullscreenReturnBtn.classList.remove('show');
+}
+
+document.addEventListener('fullscreenchange', () => {
+  if (document.fullscreenElement) {
+    _hideFullscreenReturnBtn();
+  } else if (_appWantsFullscreen) {
+    _showFullscreenReturnBtn();
+  }
+});
 
 function isFullscreenOnBootEnabled() {
   const settings = Persist.read('settings');
@@ -5479,6 +5547,7 @@ const UsbBootGate = {
     overlay.querySelector('#usb-boot-repick').onclick = async () => {
       try {
         await UsbStore.repickAndHydrate();
+        if (isFullscreenOnBootEnabled()) await requestAppFullscreen();
         overlay.remove();
         resolve('usb');
       } catch (e) {
@@ -6960,13 +7029,10 @@ function hasAutoCloseWarnData() {
 
 function showAutoCloseWarnDialog(curKey) {
   const message = 'まもなく（約1時間後）営業日が切り替わり、本日分のリストは自動でリセットされます。\n\nまだ営業中の場合は、今日だけ営業時間を延長できます。';
-  if (typeof document === 'undefined' || !document.body) {
-    if (confirm(message + '\n\nOK: 今日だけ延長する\nキャンセル: このまま（後で自動リセット）')) {
-      _closeExtendedForKey = curKey;
-      try { showToast('本日は自動リセットを保留しました（翌営業日から通常どおり）'); } catch (_) {}
-    }
-    return;
-  }
+  // document/document.bodyが無い実行環境向けの防御ガード。checkAutoCloseWarn() は
+  // setInterval経由（起動から1秒以降）でしか呼ばれず、ブラウザ実行時はdocument.bodyが
+  // 必ず存在するため実質到達しない（2026-08-17 ネイティブダイアログ廃止に伴い、旧フォールバック分岐は削除）。
+  if (typeof document === 'undefined' || !document.body) return;
 
   const overlay = document.createElement('div');
   overlay.style.cssText = 'position:fixed;inset:0;z-index:22000;background:rgba(0,0,0,0.65);display:flex;align-items:center;justify-content:center;color:#f5ead2;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:24px;';
@@ -7217,11 +7283,24 @@ function bizKeyToLabel(key) {
   return `${y}年${+m}月${+d}日（${WEEKDAYS[dt.getDay()]}）`;
 }
 
+/* loadBackups() はオートセーブ30秒周期から間接的に呼ばれ続けるため、
+   壊れたバックアップデータがある間は onError が毎回発火しうる。
+   アプリ内モーダルを毎回出すと現場が詰むので、セッション中1回だけ表示する
+   （2回目以降はコンソール警告のみに留める）。 */
+let _loadBackupsErrorShown = false;
 function loadBackups() {
   return Persist.read('backups', {
-    onError: () => setTimeout(() => {
-      if (typeof alert === 'function') alert('バックアップ履歴の読み込みに失敗しました。\n\nデータが壊れている可能性があります。\n壊れたデータは端末内に退避しました。\nこのまま営業は続けられますが、過去の営業日データが表示されなくなっている場合があります。\n必ずオーナーへ連絡してください。');
-    }, 100)
+    onError: () => {
+      const alreadyShown = _loadBackupsErrorShown;
+      _loadBackupsErrorShown = true;
+      if (alreadyShown) {
+        console.warn('[Persist] バックアップ履歴の読み込みに失敗しました（セッション中2回目以降のため通知は省略）');
+        return;
+      }
+      setTimeout(() => {
+        appAlert('バックアップ履歴の読み込みに失敗しました。\n\nデータが壊れている可能性があります。\n壊れたデータは端末内に退避しました。\nこのまま営業は続けられますが、過去の営業日データが表示されなくなっている場合があります。\n必ずオーナーへ連絡してください。');
+      }, 100);
+    }
   }) || [];
 }
 function saveBackups(arr) {
@@ -7303,7 +7382,7 @@ function _archiveLostSnaps(oldArr, newArr) {
   saveRecovery(rec);
 }
 
-function manualSave() {
+async function manualSave() {
   // 復元中の場合は復元元の日付キーを使う、それ以外は今日の営業日キー
   const dayKey = state._restoredFromKey || getBizDayKey();
   const guests = state.rows.length;
@@ -7342,7 +7421,7 @@ function manualSave() {
     btn.textContent = '⚠ 保存できません';
     btn.disabled = false;
     setTimeout(() => { btn.textContent = '💾 保存'; }, 3000);
-    alert('保存に失敗しました。\n\n端末の空き容量が不足している可能性があります。\nこのまま営業を続けると入力内容が失われるおそれがあるため、オーナーへ連絡してください。');
+    await appAlert('保存に失敗しました。\n\n端末の空き容量が不足している可能性があります。\nこのまま営業を続けると入力内容が失われるおそれがあるため、オーナーへ連絡してください。');
   }
 }
 
@@ -7422,10 +7501,10 @@ function checkStaleBizDay(savedKey) {
   // 未精算の初回(=入店)行が残っているか
   const hasUnsettled = state.rows.some(r => r.isFirst && !r.settled);
   if (!hasUnsettled) return false;         // 残っているのが精算済みのみなら警告不要
-  // confirm は init シーケンスを止めないよう、描画後に遅延実行
-  setTimeout(() => {
+  // 確認は init シーケンスを止めないよう、描画後に遅延実行
+  setTimeout(async () => {
     try {
-      const ok = confirm(
+      const ok = await appConfirm(
         `前営業日（${bizKeyToLabel(savedKey)}）の締め忘れデータが残っています。\n\n` +
         `未精算のお客様が画面に表示されています。\n` +
         `今すぐ営業終了して新しい営業日（${bizKeyToLabel(curKey)}）を開始しますか？\n\n` +
@@ -7464,9 +7543,9 @@ function applySnapshot(snap) {
   showToast(`${bizKeyToLabel(snap.dayKey)} のデータを復元しました`);
 }
 
-function restoreBackup() {
+async function restoreBackup() {
   const backups = loadBackups();
-  if (backups.length === 0) { alert('保存データが見つかりません。\nまず💾保存ボタンで保存してください。'); return; }
+  if (backups.length === 0) { await appAlert('保存データが見つかりません。\nまず💾保存ボタンで保存してください。'); return; }
   showRestoreModal(backups);
 }
 
@@ -7625,19 +7704,21 @@ function showRestoreModal(backups) {
   });
 }
 
-function confirmRestore(idx) {
+async function confirmRestore(idx) {
   const snap = (window._restoreBackups || [])[idx];
   if (!snap) return;
   const label = bizKeyToLabel(snap.dayKey);
-  if (!confirm(`${label} のデータに復元しますか？\n\n現在のデータはUndo履歴に保存されます。\n復元後に💾保存すると ${label} の枠に上書きされます。`)) return;
+  const ok = await appConfirm(`${label} のデータに復元しますか？\n\n現在のデータはUndo履歴に保存されます。\n復元後に💾保存すると ${label} の枠に上書きされます。`, { danger: true });
+  if (!ok) return;
   document.getElementById('restore-modal').remove();
   applySnapshot(snap);
 }
 
-function deleteBackup(idx) {
+async function deleteBackup(idx) {
   const snap = (window._restoreBackups || [])[idx];
   if (!snap) return;
-  if (!confirm(`${bizKeyToLabel(snap.dayKey)} の保存データを削除しますか？`)) return;
+  const ok = await appConfirm(`${bizKeyToLabel(snap.dayKey)} の保存データを削除しますか？`, { danger: true });
+  if (!ok) return;
   const backups = loadBackups();
   backups.splice(idx, 1);
   saveBackups(backups);
@@ -7645,11 +7726,12 @@ function deleteBackup(idx) {
   if (backups.length > 0) showRestoreModal(backups);
 }
 
-function clearAllBackups() {
-  if (!confirm('全ての保存データを削除しますか？\nこの操作は元に戻せません。')) return;
+async function clearAllBackups() {
+  const ok = await appConfirm('全ての保存データを削除しますか？\nこの操作は元に戻せません。', { danger: true });
+  if (!ok) return;
   saveBackups([]);
   document.getElementById('restore-modal').remove();
-  alert('全ての保存データを削除しました。');
+  await appAlert('全ての保存データを削除しました。');
 }
 
 /* ----------------------------------------------------------------
@@ -7722,13 +7804,14 @@ function showRecoveryModal() {
 }
 
 /* 退避アーカイブから1件を営業日バックアップへ書き戻す（過去リスト一覧に復活させる） */
-function restoreFromRecovery(idx) {
+async function restoreFromRecovery(idx) {
   const rec  = loadRecovery();
   const snap = rec[idx];
   if (!snap) return;
   const guests = (snap.rows || []).length;
-  if (!confirm(`${bizKeyToLabel(snap.dayKey)}（入客${guests}人）を復元しますか？\n\n` +
-    `この日に今保存されているデータは、この控えで置き換わります。`)) return;
+  const ok = await appConfirm(`${bizKeyToLabel(snap.dayKey)}（入客${guests}人）を復元しますか？\n\n` +
+    `この日に今保存されているデータは、この控えで置き換わります。`, { danger: true });
+  if (!ok) return;
   const { archivedAt, ...clean } = snap;   // 退避メタは外して書き戻す
   const backups  = loadBackups();
   const existing = backups.findIndex(b => b.dayKey === clean.dayKey);
@@ -7740,7 +7823,7 @@ function restoreFromRecovery(idx) {
   if (typeof renderPastSidebar === 'function') renderPastSidebar();
   const m = document.getElementById('recovery-modal');
   if (m) m.remove();
-  alert(`${bizKeyToLabel(clean.dayKey)} のデータを復元しました。\n過去リスト一覧を確認してください。`);
+  await appAlert(`${bizKeyToLabel(clean.dayKey)} のデータを復元しました。\n過去リスト一覧を確認してください。`);
 }
 
 /* ================================================================
