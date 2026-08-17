@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.47">
+<meta name="app-version" content="1.0.48">
 <title>リスト表 v4</title>
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
      フォントはOS内蔵にフォールバックする（--font/--monoのスタック参照）。 -->
@@ -954,7 +954,7 @@ select option { background: var(--sur2); }
 .pos-order-shell {
   display: grid;
   grid-template-rows: minmax(0, 1fr);
-  height: calc(100vh / var(--uiz-pos, 1) - 106px);
+  height: calc(100vh / var(--uiz-pos-order, 1) - 106px);
   padding-bottom: 48px;
   background: var(--pos-order-shell-bg);
   overflow: hidden;
@@ -22495,7 +22495,7 @@ document.addEventListener('compositionend', e => {
        1280×720フレッシュロード実測で確定。box-sizing:border-boxのため padding/border はheight:autoに加算される） */
     'html[data-display="tablet"] .pos-shell{height:calc(100vh / var(--uiz-pos, 1) - 84px)}',
     'html[data-display="tablet"] .pos-empty-shell{height:calc(100vh / var(--uiz-pos, 1) - 84px)}',
-    'html[data-display="tablet"] .pos-order-shell{height:calc(100vh / var(--uiz-pos, 1) - 84px);padding-bottom:43px}',
+    'html[data-display="tablet"] .pos-order-shell{height:calc(100vh / var(--uiz-pos-order, 1) - 84px);padding-bottom:43px}',
     'html[data-display="tablet"] #past-panel{height:calc(100vh / var(--uiz-past, 1) - 84px)}',
     'html[data-display="tablet"] #pos-panel{min-height:calc(100vh / var(--uiz-pos, 1) - 84px);padding-bottom:43px}',
     /* オーナー指示2026-08-16 その1: 出勤キャストのレールが出ると帯が45pxに太る。
@@ -22680,32 +22680,50 @@ function initDisplayModeFromPersist() {
    - 保存は端末ローカルの localStorage 直（Persist/UsbStore を経由しない）。
      Persist経由はUSB共有フォルダに書かれ、USBを差し替えると設定が付いて
      回ってしまい「端末ごと」にならないため。読み書きはこのファイル内に閉じる。
+   - 適用方式: 注入CSS＋CSS変数駆動（inline style.zoomは使わない）。
+     `renderPOSPanel()`のたびにPOS内部のDOMは作り直されるため、要素への
+     inline styleは消えてしまう。注入スタイルシートに
+     `selector{zoom:var(--uiz-xxx,1)}` のルールを常設し、JSは
+     `document.documentElement.style.setProperty('--uiz-xxx', v)` だけを
+     行う（再描画に自動追従する）。
    設計方針: dev/specs/2026-08-17-nightlistdx-画面別文字サイズ調整.md
+             dev/specs/2026-08-17-nightlistdx-文字サイズ調整の拡張-70pctとPOS3分割.md
 ================================================================ */
 
 const UI_ZOOM_STORAGE_KEY = 'nightlist_ui_zoom_v1';
-const UI_ZOOM_MIN = 90;
+const UI_ZOOM_MIN = 70;
 const UI_ZOOM_MAX = 150;
 const UI_ZOOM_DEFAULT = 100;
-const UI_ZOOM_OPTIONS = [90, 100, 110, 120, 135, 150];
+const UI_ZOOM_OPTIONS = [70, 80, 90, 100, 110, 120, 135, 150];
 
-/* 画面キー → 適用先パネル要素ID群 / 100vh補正に使うCSS変数名。
+/* 画面キー → 適用先セレクタ / CSS変数名。
+   POSレジは1本のズームではなく、卓ビュー／伝票ビュー／オーダー画面を個別に持つ
+   （`renderPOSPanel()`が描画するDOMのうち、卓ビュー=`.pos-floor-grid`＝スクロール
+   領域内側の卓カードグリッド、伝票ビュー=`.pos-slip-sheet-wrap`＝同じくスクロール
+   領域内側の伝票カードラップ、オーダー画面=`.pos-order-shell`。
+   卓/伝票はシェル自体（`.pos-slip-view-shell`）ではなくスクロールする内側の
+   グリッド要素にzoomを掛けるため、シェル高さの100vh補正は不要＝はみ出しは
+   スクロールで吸収される）。
    設定UI自体（settings-panel）は対象外（操作しづらくなるため）。 */
 const UI_ZOOM_SCREENS = {
-  list:      { panels: ['list-panel'],      cssVar: '--uiz-list' },
-  pos:       { panels: ['pos-panel'],       cssVar: '--uiz-pos' },
-  cast:      { panels: ['cast-panel'],      cssVar: '--uiz-cast' },
-  report:    { panels: ['report-panel'],    cssVar: '--uiz-report' },
-  analytics: { panels: ['analytics-panel'], cssVar: '--uiz-analytics' },
-  customer:  { panels: ['customer-panel'],  cssVar: '--uiz-customer' },
-  bottle:    { panels: ['bottle-panel'],    cssVar: '--uiz-bottle' },
-  past:      { panels: ['past-panel'],      cssVar: '--uiz-past' },
+  list:      { selector: '#list-panel',          cssVar: '--uiz-list' },
+  pos_floor: { selector: '.pos-floor-grid',       cssVar: '--uiz-pos-floor' },
+  pos_slip:  { selector: '.pos-slip-sheet-wrap',  cssVar: '--uiz-pos-slip' },
+  pos_order: { selector: '.pos-order-shell',      cssVar: '--uiz-pos-order' },
+  cast:      { selector: '#cast-panel',           cssVar: '--uiz-cast' },
+  report:    { selector: '#report-panel',         cssVar: '--uiz-report' },
+  analytics: { selector: '#analytics-panel',      cssVar: '--uiz-analytics' },
+  customer:  { selector: '#customer-panel',       cssVar: '--uiz-customer' },
+  bottle:    { selector: '#bottle-panel',         cssVar: '--uiz-bottle' },
+  past:      { selector: '#past-panel',           cssVar: '--uiz-past' },
 };
 
-/* 設定UIの表示順・ラベル（仕様§1の並び順） */
+/* 設定UIの表示順・ラベル（仕様§2の並び順） */
 const UI_ZOOM_SCREEN_LIST = [
   ['list', 'リスト表'],
-  ['pos', 'POSレジ'],
+  ['pos_floor', 'POS 卓ビュー'],
+  ['pos_slip', 'POS 伝票ビュー'],
+  ['pos_order', 'POS オーダー画面'],
   ['cast', '出勤キャスト'],
   ['report', '集計'],
   ['analytics', '経営分析'],
@@ -22717,18 +22735,27 @@ const UI_ZOOM_SCREEN_LIST = [
 /* 直近に適用した倍率（%）のメモリキャッシュ。設定UIの選択状態表示に使う。 */
 let _uiZoomMemory = {};
 
-(function injectUiZoomPrintGuard() {
-  const panelSelectors = Object.keys(UI_ZOOM_SCREENS)
-    .map(key => '#' + UI_ZOOM_SCREENS[key].panels[0])
-    .join(',');
-  const css = `@media print { ${panelSelectors} { zoom: 1 !important } }`;
+/* 注入したzoomルールのCSS文字列（テスト用に参照できるよう保持。挙動には無関係）。 */
+let _uiZoomInjectedCss = '';
+
+/* 各画面のzoomルール（CSS変数参照）＋印刷ガードを1つの<style>として常設する。
+   POS内部のグリッド要素は`renderPOSPanel()`のたびに作り直されるが、セレクタ
+   ベースのルールなので再描画後も自動的に効き続ける。 */
+(function injectUiZoomStyle() {
+  const keys = Object.keys(UI_ZOOM_SCREENS);
+  const zoomRules = keys
+    .map(key => UI_ZOOM_SCREENS[key].selector + '{zoom:var(' + UI_ZOOM_SCREENS[key].cssVar + ',1)}')
+    .join('');
+  const printSelectors = keys.map(key => UI_ZOOM_SCREENS[key].selector).join(',');
+  const css = zoomRules + '@media print { ' + printSelectors + ' { zoom: 1 !important } }';
+  _uiZoomInjectedCss = css;
   const el = document.createElement('style');
   el.id = 'ui-zoom-style';
   el.textContent = css;
   document.head.appendChild(el);
 })();
 
-/* 90〜150の整数へクランプ。範囲外・非数値は既定100へフォールバック */
+/* 70〜150の整数へクランプ。範囲外・非数値は既定100へフォールバック */
 function _uiZoomClamp(pct) {
   const n = Number(pct);
   if (!Number.isFinite(n)) return UI_ZOOM_DEFAULT;
@@ -22737,16 +22764,12 @@ function _uiZoomClamp(pct) {
   return rounded;
 }
 
-/* 指定画面のパネル要素へzoomを適用し、100vh補正用のCSS変数もhtml要素へ反映する。
-   ストレージへは書かない（呼び出し側の責務）。 */
+/* 指定画面のCSS変数（html要素）へzoom値を反映する。ストレージへは書かない
+   （呼び出し側の責務）。inline styleは使わない＝注入CSSのvar参照のみで効く。 */
 function _uiZoomApplyDom(screenKey, value) {
   const screen = UI_ZOOM_SCREENS[screenKey];
   if (!screen) return;
   const zoomStr = String(value / 100);
-  screen.panels.forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.style.zoom = zoomStr;
-  });
   if (document.documentElement && document.documentElement.style && document.documentElement.style.setProperty) {
     document.documentElement.style.setProperty(screen.cssVar, zoomStr);
   }
@@ -22775,9 +22798,26 @@ function applyUiZoom(screenKey, pct) {
   _uiZoomSave(screenKey, value);
 }
 
+/* 旧保存値（v1.0.46までの単一`pos`キー）を新3キー（pos_floor/pos_slip/pos_order）へ
+   引き継ぐ。新3キーがまだ1つも保存されていない場合のみ、旧値を3キーへコピーして
+   保存し直し、旧キーは削除する（店舗の体験を変えない）。戻り値: 移行後のstoreオブジェクト。 */
+function _uiZoomMigrateLegacyPos(store) {
+  if (!store || typeof store !== 'object') return store;
+  const hasLegacyPos = Object.prototype.hasOwnProperty.call(store, 'pos');
+  const hasNewKeys = store.pos_floor !== undefined || store.pos_slip !== undefined || store.pos_order !== undefined;
+  if (!hasLegacyPos || hasNewKeys) return store;
+  const legacyValue = store.pos;
+  store.pos_floor = legacyValue;
+  store.pos_slip = legacyValue;
+  store.pos_order = legacyValue;
+  delete store.pos;
+  try { localStorage.setItem(UI_ZOOM_STORAGE_KEY, JSON.stringify(store)); } catch (_) {}
+  return store;
+}
+
 /* 起動時に呼ばれる公開API: localStorageから復元して全画面へ適用する。
    未保存・JSON破損時は全画面100%へフォールバックする（46-init.jsから
-   initDisplayModeFromPersist()直後に呼ぶ）。 */
+   initDisplayModeFromPersist()直後に呼ぶ）。旧`pos`キーからの移行もここで行う。 */
 function initUiZoomFromStorage() {
   let raw = null;
   try { raw = localStorage.getItem(UI_ZOOM_STORAGE_KEY); } catch (_) { raw = null; }
@@ -22789,6 +22829,7 @@ function initUiZoomFromStorage() {
     Object.keys(UI_ZOOM_SCREENS).forEach(key => _uiZoomApplyDom(key, UI_ZOOM_DEFAULT));
     return;
   }
+  parsed = _uiZoomMigrateLegacyPos(parsed);
   Object.keys(UI_ZOOM_SCREENS).forEach(key => {
     _uiZoomApplyDom(key, _uiZoomClamp(parsed[key]));
   });
