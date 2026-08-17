@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.46">
+<meta name="app-version" content="1.0.47">
 <title>リスト表 v4</title>
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
      フォントはOS内蔵にフォールバックする（--font/--monoのスタック参照）。 -->
@@ -22550,6 +22550,106 @@ document.addEventListener('compositionend', e => {
     'html[data-display="tablet"] #bottle-panel button,html[data-display="tablet"] #bottle-panel input,html[data-display="tablet"] #bottle-panel select{min-height:42px;font-size:14px}',
     'html[data-display="tablet"] .bottle-edit-modal button,html[data-display="tablet"] .bottle-edit-modal input,html[data-display="tablet"] .bottle-edit-modal select,html[data-display="tablet"] .bottle-edit-modal textarea{min-height:42px;font-size:15px}',
     'html[data-display="tablet"] .customer-detail-modal button,html[data-display="tablet"] .customer-detail-modal input,html[data-display="tablet"] .customer-detail-modal select,html[data-display="tablet"] .customer-detail-modal textarea{min-height:42px;font-size:15px}',
+
+    /* ----------------------------------------------------------------
+       リスト表：横幅圧縮 2026-08-17（精算列まで横スクロールなしにする）
+       仕様: dev/specs/2026-08-17-nightlistdx-タブレットのリスト表横幅圧縮.md
+       実測根拠（レビュー側1280×720・data-display=tablet・2名組1行）:
+       テーブル実幅1359px vs コンテナclientWidth 1272px＝87px超過。
+       目標: テーブル実幅≤1250px（コンテナに対し20px以上の余裕）。デスクトップは対象外。
+    ---------------------------------------------------------------- */
+    /* 1. td/thの水平パディング圧縮。縦方向は既存挙動を変えたくないので
+       shorthand(padding)ではなくpadding-left/rightのみ上書きする
+       （base: 00-shell-head.html #list-table td{padding:5px}／th{padding:7px 6px}、
+       47b内の既存#list-table thead th{padding-top/bottom:4px}と競合させないため） */
+    'html[data-display="tablet"] #list-table td{padding-left:2px;padding-right:2px}',
+    'html[data-display="tablet"] #list-table th{padding-left:2px;padding-right:2px}',
+    /* sales-cellはbaseが!important付き(.sales-cell{padding:5px 8px!important})のため、
+       同じ強さで水平のみ上書き（8→3px。垂直5pxは維持） */
+    'html[data-display="tablet"] .sales-cell{padding:5px 3px!important}',
+    /* 精算列: 21-render-table.js がrowspan tdへ直接 style="padding:4px" を書き出しており、
+       専用classが無いため通常のセレクタでは拾えない。style属性の部分一致で対象化し、
+       !importantでinline styleを上書きする（4→2px。垂直4pxは維持）。
+       group-numは既にbase側で2px !important（00-shell-head.html:4257-4259）のため変更不要 */
+    'html[data-display="tablet"] #list-table td[style*="padding:4px"]{padding-left:2px!important;padding-right:2px!important}',
+
+    /* 2. セル内固定幅の微詰め（仕様書item3の保護対象＝±ボタン22×22[.sub-add-btn/.sub-del]・
+       .method-btn・.cast-selは変更しない） */
+    /* time-sel: base .time-sel{min-width:72px}（00-shell-head.html:1935）を64pxへ。
+       表示はHH:MM固定5文字・monoフォントのため64pxでも欠けない */
+    'html[data-display="tablet"] #list-table .time-sel{min-width:64px}',
+    /* desig-cellのtype-sel: base .desig-row .type-sel{min-width:64px}（1950行）だが、
+       本指名系ラベル文字列の内容幅がmin-widthを上回り実測99pxまで広がっていた
+       （min-widthは床のため効かない）。explicit widthで86pxに強制する。
+       「↺ 出戻りフリー」等の長いラベルは視覚上収まりきらない場合があるが、
+       selectのvalueは変更されず表示のみの影響（要実機確認・確信度中） */
+    'html[data-display="tablet"] #list-table .desig-row .type-sel{width:86px}',
+    /* amount-cellのcash-row/card-row系入力: base width:72px（3623行）を60pxへ、
+       行内gapも3px→1pxへ詰めて残りを回収し、仕様書目標「112→96px」相当の圧縮とする。
+       amount-add-btn（＋）・method-btnは寸法据え置き（仕様書item3の保護対象外だが
+       操作性を優先しあえて変更しない） */
+    'html[data-display="tablet"] #list-table .amount-cell .cash-row,html[data-display="tablet"] #list-table .amount-cell .card-row{gap:1px}',
+    'html[data-display="tablet"] #list-table .amount-cell .cash-row input:not(.entry-label-input),html[data-display="tablet"] #list-table .amount-cell .card-row input:not(.entry-label-input){width:60px}',
+    /* remarks-cellの客名ボタン: base .name-input{min-width:90px}（2070行）は、より詳細度の高い
+       #list-table .remarks-row .customer-picker-trigger{min-width:0;overflow:hidden;
+       text-overflow:ellipsis}（4331-4338行）に上書きされ既に無効。この既存の省略表示機構は
+       そのまま活かし、max-widthで上限だけ追加する
+       （新規の省略導入ではなく、既存の省略が発動する閾値を下げるだけ）。
+       2026-08-17追加詰めで78pxへ再圧縮（下の新セクション参照） */
+    'html[data-display="tablet"] #list-table .remarks-cell .name-input{max-width:78px}',
+
+    /* ----------------------------------------------------------------
+       追加詰め 2026-08-17（コーディネーター指示・レビュー側実機再測定への対応）
+       実測（1280×720・tablet・厳しめケース=2名組＋延長1＋サブ指名1＋¥150,000）:
+       テーブル実幅1290px vs コンテナ1271px＝19px超過（fits=false）。目標≤1250px。
+       time-sel/type-sel/cash入力は欠けなし確認済みにつき変更しない。
+       残り超過分をremarks-cell・rot±/ext±・group-num・desig-rowから追加回収する。
+    ---------------------------------------------------------------- */
+    /* 1. remarks-cell（実測209→目標185前後）。
+       実体は #list-table .remarks-row{display:flex;flex-wrap:wrap;gap:3px} 1本の行に
+       name-input・source-sel・cond-selが並ぶ構造（.remarks-top/.remarks-bottomは
+       display:contentsで透過。4311-4344行）。3要素それぞれと行gapを詰める。 */
+    /* source-sel: base .source-sel{width:52px!important;min-width:52px!important}（2071行）を
+       46pxへ。同じ強さ(!important)で上書きしないとinline要素は52pxのまま残る。
+       選択肢はcfg.sources既定＝フロント/不明/新規/TikTok/紹介/案内所（font-size 11px） */
+    'html[data-display="tablet"] #list-table .remarks-row .source-sel{width:46px!important;min-width:46px!important}',
+    /* cond-sel: base #list-table .remarks-row .cond-sel{min-width:58px}（4340-4344行）が
+       床になり内容次第でさらに広がっていた（実測61px）。min-widthを0に落としてから
+       max-widthで上限化する（min-width>max-widthのままだとmin-width側が優先され
+       max-widthが無効になるため、両方の上書きが必須）。選択肢はcfg.conditions既定＝
+       NF/40込み/50込み/60込み/70込み＋「✎ 手入力」固定肢（最長候補）。
+       実ブラウザ実測: 50pxだと「✎ 手入力」選択時にscrollWidth 52px＞50pxで2px欠けたため
+       54pxへ戻して欠けを解消（実測: 46px幅時のsource-sel「フロント」はscrollWidth 46で
+       ちょうど収まる。type-sel 86pxは「本指名」等の常用ラベルは収まるが「↺ 出戻りフリー」
+       のみscrollWidth 91で5px欠ける。出戻り系は低頻度のためtype-selは据え置き・確信度中） */
+    'html[data-display="tablet"] #list-table .remarks-row .cond-sel{min-width:0;max-width:54px}',
+    /* remarks-row自体のgapも3→2pxへ（要素間2箇所×1px=2px分の追加回収） */
+    'html[data-display="tablet"] #list-table .remarks-row{gap:2px}',
+
+    /* 2. 席次/延長列の＋－列見出し（rot±/ext±・実測54→目標48）。
+       21-render-table.js（rebuildHeader）が出す<th style="min-width:46px">内の
+       .col-ctrl-stackに＋－2ボタン（.col-ctrl-btn、既存47b第1弾Dの上書きでタブレットは24×24・
+       不変）が横並び。base .col-ctrl-stack{gap:2px}（47b内、常時適用）とth水平padding2px×2（本ファイル
+       上部の#list-table th一括ルール）が合わせて6px分の伸びを生んでいた。
+       gap:0でボタン間の隙間を除去し、margin:0 -2pxでth側のpadding 2px分ずつを相殺する
+       （ボタン本体のサイズは不変。24+24+0gap=48pxがそのまま列幅の下限になる） */
+    'html[data-display="tablet"] #list-table .col-ctrl-stack{gap:0;margin:0 -2px}',
+
+    /* 3. 組セル（group-num・実測70→目標60指示）。
+       中身はgroup-num-main（grip22+circle22、gap2px）とgroup-num-actions
+       （－/＋/✕の3ボタン22px、gap既に0＝隙間なしで隣接済み、4256-4296行）の2段グリッド。
+       列幅は広い方の行=actions(22×3=66px、ボタン間gap0で既に詰め切っている)で決まるため、
+       ボタンサイズを変えずにgap/marginだけでは66pxを下回れない（66px超過分はボタン3個分の
+       絶対床）。安全に削れるのはtd自体の水平padding（base 1px 2px!important、4257-4259行）と
+       main行のgapのみ。padding 2px→0で-4px、main行gap 2→0で若干の余裕。
+       実測見込み: 70→66px（指示の60pxには届かない。確信度：低。詳細は完了報告参照） */
+    'html[data-display="tablet"] #list-table td.group-num{padding:1px 0!important}',
+    'html[data-display="tablet"] #list-table .group-num-main{gap:0}',
+
+    /* 4. desig-row内のgap（実測186→目標182）。
+       base .desig-row{gap:3px}（1948行）。cast-sel(72)+type-sel(86)+sub-add(22)は不変のまま、
+       行内2箇所のgapを3→1pxへ（-2px×2箇所=-4px、目標にちょうど届く） */
+    'html[data-display="tablet"] #list-table .desig-row{gap:1px}',
   ].join('\n');
   const el = document.createElement('style');
   el.id = 'tablet-mode-style';
