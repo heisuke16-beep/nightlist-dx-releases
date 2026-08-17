@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.51">
+<meta name="app-version" content="1.0.52">
 <title>リスト表 v4</title>
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
      フォントはOS内蔵にフォールバックする（--font/--monoのスタック参照）。 -->
@@ -661,6 +661,17 @@ select option { background: var(--sur2); }
   background: var(--bdr);
   margin: 0 3px;
 }
+/* ヘッダー終了ボタン（2026-08-17 オーナー要望）:
+   タブレット単体（キーボードなし）でも終了できるよう常設。onclickは既存の
+   _confirmAppExit()を呼ぶだけ（確認→保存確定→終了→close不発時のAlt+F4案内は
+   01c-usb-store.js側の既存フローをそのまま流用・新ロジックなし）。
+   タッチ標的44px以上を確保（デスクトップ/通常ウィンドウ時）。タブレットモードでは
+   47b-tablet-mode.js の `#header .btn{min-height:30px}` がid選択より詳細度で勝るため
+   他のヘッダーボタンと同じく圧縮される（枠は縮めてよい設計方針・47b冒頭コメント準拠）。 */
+#header-exit-btn {
+  min-height: 44px;
+}
+
 .header-btn-label {
   font-size: 9px;
   color: var(--tx3);
@@ -4446,6 +4457,7 @@ html[data-display="tablet"] #list-table .col-ctrl-btn { min-width: 32px; min-hei
     <button id="redo-btn" class="btn" onclick="redo()" disabled title="やり直す">↪ やり直す</button>
     <div class="sep"></div>
     <button class="btn primary" onclick="manualSave()" id="save-btn" title="この端末（ブラウザ）に保存">💾 保存</button>
+    <button class="btn danger" onclick="_confirmAppExit()" id="header-exit-btn" title="アプリを終了する">⏻ 終了</button>
     <input type="file" id="import-file-input" accept=".json" style="display:none" onchange="onImportFileSelected(this)">
   </div>
 </div>
@@ -5382,13 +5394,20 @@ let _fullscreenReturnBtn = null;
    解除されるとwindowサイズは画面いっぱいのまま＝見た目は全画面。
    復帰ボタン抑止・ESC終了確認の両方でこの同一判定を使う。 */
 function _isEffectivelyFullscreen() {
-  // outer系（ウィンドウ外寸・OS基準）で判定する。inner系はページズームの影響を受け、
-  // ズームがかかっていると（例: zoom 110%）実質全画面でも黙って不成立になる
-  // （2026-08-17 実機障害の原因）。outerWidth/outerHeightはズームの影響を受けない。
-  // 既知の許容エッジ: タスクバー自動非表示＋最大化ウィンドウでは外寸が画面サイズと一致し
-  // 「実質全画面」扱いになる（ESCで終了確認が出る・復帰ボタンは出ない）。確認はキャンセル
-  // 可能で実害軽微のため許容する。
-  return window.outerWidth >= screen.width && window.outerHeight >= screen.height;
+  // 2026-08-17 v1.0.51退行修正: outer系判定は全廃。
+  // 貸与タブレット実機（150%スケーリング）のキオスクで実測したところ、
+  // outer 1266×706 vs screen 1280×720（Chromeがウィンドウの不可視リサイズ枠を
+  // 外寸から差し引いて報告・14px不足）となり常に不成立＝ESC終了が効かず
+  // ⛶ボタンが誤表示される退行を起こした。
+  //
+  // 主判定は matchMedia('(display-mode: fullscreen)')。キオスク/F11/HTML5フルスクリーンの
+  // いずれでもtrueになることを同実機実測で確認済み。ページズーム・ウィンドウの不可視枠・
+  // OSスケーリングのいずれにも影響されないブラウザ公式のシグナルのため、これを主判定にする。
+  //
+  // OR で連結している inner系は、display-modeが読めない異常系向けの保険（フォールバック）。
+  // v1.0.50相当でページズーム下では効かないが、その場合は主判定のdisplay-modeが拾う。
+  return window.matchMedia('(display-mode: fullscreen)').matches
+    || (window.innerWidth >= screen.width && window.innerHeight >= screen.height);
 }
 
 async function requestAppFullscreen() {
