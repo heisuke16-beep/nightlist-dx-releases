@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.45">
+<meta name="app-version" content="1.0.46">
 <title>リスト表 v4</title>
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
      フォントはOS内蔵にフォールバックする（--font/--monoのスタック参照）。 -->
@@ -706,19 +706,19 @@ select option { background: var(--sur2); }
 #pos-panel {
   background: var(--pos-bg);
   color: #f5f7fb;
-  min-height: calc(100vh - 106px);
+  min-height: calc(100vh / var(--uiz-pos, 1) - 106px);
   padding-bottom: 48px;
 }
 .pos-shell {
   display: grid;
   grid-template-rows: 56px minmax(0, 1fr);
-  height: calc(100vh - 106px);
+  height: calc(100vh / var(--uiz-pos, 1) - 106px);
   background: var(--pos-shell-bg);
 }
 .pos-empty-shell {
   display: grid;
   grid-template-rows: minmax(0, 1fr);
-  height: calc(100vh - 106px);
+  height: calc(100vh / var(--uiz-pos, 1) - 106px);
   overflow: hidden;
   background: var(--pos-empty-bg);
 }
@@ -954,7 +954,7 @@ select option { background: var(--sur2); }
 .pos-order-shell {
   display: grid;
   grid-template-rows: minmax(0, 1fr);
-  height: calc(100vh - 106px);
+  height: calc(100vh / var(--uiz-pos, 1) - 106px);
   padding-bottom: 48px;
   background: var(--pos-order-shell-bg);
   overflow: hidden;
@@ -2865,7 +2865,7 @@ table#customer-table { border-collapse: collapse; width: 100%; min-width: 800px;
 /* ================================================================
    PAST LIST PANEL
 ================================================================ */
-#past-panel { display: flex; height: calc(100vh - 106px); overflow: hidden; }
+#past-panel { display: flex; height: calc(100vh / var(--uiz-past, 1) - 106px); overflow: hidden; }
 
 /* 左サイドバー：営業日一覧 */
 #past-sidebar {
@@ -19193,6 +19193,22 @@ function renderSettingsPanel() {
             <option value="tablet"  ${document.documentElement.getAttribute('data-display')==='tablet' ? 'selected' : ''}>タブレット 👆</option>
           </select>
         </div>
+        <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:6px">
+          <div class="settings-label" style="width:100%">画面ごとの文字サイズ（この端末のみ・即反映）<div class="settings-sub">タブレットや店のモニタに合わせて画面単位で拡大縮小できます</div></div>
+          ${UI_ZOOM_SCREEN_LIST.map(([key, label]) => {
+            const current = uiZoomCurrentValue(key);
+            const opts = UI_ZOOM_OPTIONS.map(v =>
+              `<option value="${v}" ${current === v ? 'selected' : ''}>${v}%${v === 100 ? '（標準）' : ''}</option>`
+            ).join('');
+            return `<div class="settings-row" style="width:100%">
+              <div class="settings-label">${escHtml(label)}</div>
+              <select class="settings-input" data-uiz-screen="${key}" style="width:130px" onchange="event.stopPropagation();applyUiZoom('${key}', Number(this.value))">
+                ${opts}
+              </select>
+            </div>`;
+          }).join('')}
+          <button type="button" class="btn" onclick="event.stopPropagation();settingsResetUiZoom()">すべて標準（100%）に戻す</button>
+        </div>
       </div>
     </div>
 
@@ -19532,6 +19548,12 @@ function rerenderTagEditor(id, values) {
   container.innerHTML = tags +
     `<input type="text" class="tag-add-input" placeholder="＋ 追加" id="taginput-${id}"
       onkeydown="if(event.key==='Enter')settingTagAdd('${id}')">`;
+}
+
+/* 画面ごとの文字サイズ「すべて標準に戻す」ボタン用ハンドラ（47c-ui-zoom.js） */
+function settingsResetUiZoom() {
+  resetAllUiZoom();
+  renderSettingsPanel();
 }
 
 /* 未保存変更トラッキング（タブ離脱時のapplySettings呼び出し・閉じる前警告の判定に使用） */
@@ -22247,6 +22269,7 @@ async function __boot() {
   refreshHistoryBtns();
   if (typeof initThemeFromPersist === 'function') initThemeFromPersist();
   if (typeof initDisplayModeFromPersist === 'function') initDisplayModeFromPersist();
+  if (typeof initUiZoomFromStorage === 'function') initUiZoomFromStorage();
   if (typeof restoreActiveTab === 'function') restoreActiveTab();
 
   // 設定パネルの未保存変更検知（バブルアップで一括キャッチ）
@@ -22470,11 +22493,11 @@ document.addEventListener('compositionend', e => {
        切れていた。84px = F適用後のヘッダー(45px実測)+タブ(39px実測)、
        43px = K適用後のPOSフッター実測値（padding3px+.pos-bottom-btn高36px+padding3px+border1px の合算。
        1280×720フレッシュロード実測で確定。box-sizing:border-boxのため padding/border はheight:autoに加算される） */
-    'html[data-display="tablet"] .pos-shell{height:calc(100vh - 84px)}',
-    'html[data-display="tablet"] .pos-empty-shell{height:calc(100vh - 84px)}',
-    'html[data-display="tablet"] .pos-order-shell{height:calc(100vh - 84px);padding-bottom:43px}',
-    'html[data-display="tablet"] #past-panel{height:calc(100vh - 84px)}',
-    'html[data-display="tablet"] #pos-panel{min-height:calc(100vh - 84px);padding-bottom:43px}',
+    'html[data-display="tablet"] .pos-shell{height:calc(100vh / var(--uiz-pos, 1) - 84px)}',
+    'html[data-display="tablet"] .pos-empty-shell{height:calc(100vh / var(--uiz-pos, 1) - 84px)}',
+    'html[data-display="tablet"] .pos-order-shell{height:calc(100vh / var(--uiz-pos, 1) - 84px);padding-bottom:43px}',
+    'html[data-display="tablet"] #past-panel{height:calc(100vh / var(--uiz-past, 1) - 84px)}',
+    'html[data-display="tablet"] #pos-panel{min-height:calc(100vh / var(--uiz-pos, 1) - 84px);padding-bottom:43px}',
     /* オーナー指示2026-08-16 その1: 出勤キャストのレールが出ると帯が45pxに太る。
        base側 .pos-active-cast-chip{min-height:34px;padding:6px 11px}（00-shell-head.html:3801）が
        チップを大きくしているため、タブレットではチップを圧縮して帯を低くする。
@@ -22547,6 +22570,139 @@ function initDisplayModeFromPersist() {
     try { saved = Persist.read('displayMode'); } catch (_) { saved = null; }
   }
   applyDisplayMode(saved === 'tablet' ? 'tablet' : 'desktop');
+}
+/* ================================================================
+   UI ZOOM（画面別文字サイズ・端末ごと・即反映）
+   導入店舗ごと・端末ごとに最適な文字サイズが異なるため、タブ（画面）単位で
+   CSS zoom による拡大縮小を選べるようにする。
+   - 対象はパネル要素そのもの（html全体ではない）。ヘッダー・タブバー・
+     フッター（#summary-bar）・モーダル・印刷用領域はパネル外のため無関係。
+   - 保存は端末ローカルの localStorage 直（Persist/UsbStore を経由しない）。
+     Persist経由はUSB共有フォルダに書かれ、USBを差し替えると設定が付いて
+     回ってしまい「端末ごと」にならないため。読み書きはこのファイル内に閉じる。
+   設計方針: dev/specs/2026-08-17-nightlistdx-画面別文字サイズ調整.md
+================================================================ */
+
+const UI_ZOOM_STORAGE_KEY = 'nightlist_ui_zoom_v1';
+const UI_ZOOM_MIN = 90;
+const UI_ZOOM_MAX = 150;
+const UI_ZOOM_DEFAULT = 100;
+const UI_ZOOM_OPTIONS = [90, 100, 110, 120, 135, 150];
+
+/* 画面キー → 適用先パネル要素ID群 / 100vh補正に使うCSS変数名。
+   設定UI自体（settings-panel）は対象外（操作しづらくなるため）。 */
+const UI_ZOOM_SCREENS = {
+  list:      { panels: ['list-panel'],      cssVar: '--uiz-list' },
+  pos:       { panels: ['pos-panel'],       cssVar: '--uiz-pos' },
+  cast:      { panels: ['cast-panel'],      cssVar: '--uiz-cast' },
+  report:    { panels: ['report-panel'],    cssVar: '--uiz-report' },
+  analytics: { panels: ['analytics-panel'], cssVar: '--uiz-analytics' },
+  customer:  { panels: ['customer-panel'],  cssVar: '--uiz-customer' },
+  bottle:    { panels: ['bottle-panel'],    cssVar: '--uiz-bottle' },
+  past:      { panels: ['past-panel'],      cssVar: '--uiz-past' },
+};
+
+/* 設定UIの表示順・ラベル（仕様§1の並び順） */
+const UI_ZOOM_SCREEN_LIST = [
+  ['list', 'リスト表'],
+  ['pos', 'POSレジ'],
+  ['cast', '出勤キャスト'],
+  ['report', '集計'],
+  ['analytics', '経営分析'],
+  ['customer', '顧客管理'],
+  ['bottle', 'ボトル'],
+  ['past', '過去のリスト'],
+];
+
+/* 直近に適用した倍率（%）のメモリキャッシュ。設定UIの選択状態表示に使う。 */
+let _uiZoomMemory = {};
+
+(function injectUiZoomPrintGuard() {
+  const panelSelectors = Object.keys(UI_ZOOM_SCREENS)
+    .map(key => '#' + UI_ZOOM_SCREENS[key].panels[0])
+    .join(',');
+  const css = `@media print { ${panelSelectors} { zoom: 1 !important } }`;
+  const el = document.createElement('style');
+  el.id = 'ui-zoom-style';
+  el.textContent = css;
+  document.head.appendChild(el);
+})();
+
+/* 90〜150の整数へクランプ。範囲外・非数値は既定100へフォールバック */
+function _uiZoomClamp(pct) {
+  const n = Number(pct);
+  if (!Number.isFinite(n)) return UI_ZOOM_DEFAULT;
+  const rounded = Math.round(n);
+  if (rounded < UI_ZOOM_MIN || rounded > UI_ZOOM_MAX) return UI_ZOOM_DEFAULT;
+  return rounded;
+}
+
+/* 指定画面のパネル要素へzoomを適用し、100vh補正用のCSS変数もhtml要素へ反映する。
+   ストレージへは書かない（呼び出し側の責務）。 */
+function _uiZoomApplyDom(screenKey, value) {
+  const screen = UI_ZOOM_SCREENS[screenKey];
+  if (!screen) return;
+  const zoomStr = String(value / 100);
+  screen.panels.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.zoom = zoomStr;
+  });
+  if (document.documentElement && document.documentElement.style && document.documentElement.style.setProperty) {
+    document.documentElement.style.setProperty(screen.cssVar, zoomStr);
+  }
+  _uiZoomMemory[screenKey] = value;
+}
+
+/* localStorageへ現在値をマージ保存する（他画面の既存値は保持） */
+function _uiZoomSave(screenKey, value) {
+  let store = {};
+  try {
+    const raw = localStorage.getItem(UI_ZOOM_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') store = parsed;
+    }
+  } catch (_) { store = {}; }
+  store[screenKey] = value;
+  try { localStorage.setItem(UI_ZOOM_STORAGE_KEY, JSON.stringify(store)); } catch (_) {}
+}
+
+/* 設定UIから呼ばれる公開API: 即反映＋即保存 */
+function applyUiZoom(screenKey, pct) {
+  if (!UI_ZOOM_SCREENS[screenKey]) return;
+  const value = _uiZoomClamp(pct);
+  _uiZoomApplyDom(screenKey, value);
+  _uiZoomSave(screenKey, value);
+}
+
+/* 起動時に呼ばれる公開API: localStorageから復元して全画面へ適用する。
+   未保存・JSON破損時は全画面100%へフォールバックする（46-init.jsから
+   initDisplayModeFromPersist()直後に呼ぶ）。 */
+function initUiZoomFromStorage() {
+  let raw = null;
+  try { raw = localStorage.getItem(UI_ZOOM_STORAGE_KEY); } catch (_) { raw = null; }
+  let parsed = null;
+  if (raw) {
+    try { parsed = JSON.parse(raw); } catch (_) { parsed = null; }
+  }
+  if (!parsed || typeof parsed !== 'object') {
+    Object.keys(UI_ZOOM_SCREENS).forEach(key => _uiZoomApplyDom(key, UI_ZOOM_DEFAULT));
+    return;
+  }
+  Object.keys(UI_ZOOM_SCREENS).forEach(key => {
+    _uiZoomApplyDom(key, _uiZoomClamp(parsed[key]));
+  });
+}
+
+/* 設定UIの「すべて標準に戻す」用: 保存値をクリアし全画面100%へ戻す */
+function resetAllUiZoom() {
+  try { localStorage.removeItem(UI_ZOOM_STORAGE_KEY); } catch (_) {}
+  Object.keys(UI_ZOOM_SCREENS).forEach(key => _uiZoomApplyDom(key, UI_ZOOM_DEFAULT));
+}
+
+/* 設定UI描画用: 画面の現在値（%）を返す（メモリキャッシュ、既定100） */
+function uiZoomCurrentValue(screenKey) {
+  return _uiZoomMemory[screenKey] || UI_ZOOM_DEFAULT;
 }
 /* ================================================================
    PAYROLL ENGINE（日計表 / 給料計算エンジン）
