@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.49">
+<meta name="app-version" content="1.0.50">
 <title>リスト表 v4</title>
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
      フォントはOS内蔵にフォールバックする（--font/--monoのスタック参照）。 -->
@@ -5378,6 +5378,13 @@ const UsbStore = {
 let _appWantsFullscreen = false;
 let _fullscreenReturnBtn = null;
 
+/* キオスク（OSレベル全画面）・F11運用でも、印刷等でHTML5フルスクリーンだけが
+   解除されるとwindowサイズは画面いっぱいのまま＝見た目は全画面。
+   復帰ボタン抑止・ESC終了確認の両方でこの同一判定を使う。 */
+function _isEffectivelyFullscreen() {
+  return window.innerWidth >= screen.width && window.innerHeight >= screen.height;
+}
+
 async function requestAppFullscreen() {
   try {
     const root = document.documentElement;
@@ -5462,8 +5469,66 @@ document.addEventListener('fullscreenchange', () => {
   if (document.fullscreenElement) {
     _hideFullscreenReturnBtn();
   } else if (_appWantsFullscreen) {
-    _showFullscreenReturnBtn();
+    // 通常ウィンドウ運用ではタブ/アドレスバー・タスクバーの分だけ innerHeight 等が
+    // 画面サイズより小さくなるため、この判定は成立せずv1.0.49どおりボタンを出す。
+    if (!_isEffectivelyFullscreen()) {
+      _showFullscreenReturnBtn();
+    }
   }
+});
+
+/* ================================================================
+   キオスクのESC終了確認（2026-08-17）
+   タブレット単体（キーボードなし）でも「アプリを終了する」導線を確保する。
+   次の3条件がすべて揃った時だけESCで終了確認を出し、それ以外のESC挙動は一切変えない。
+     1) 実質全画面（_isEffectivelyFullscreen、復帰ボタン抑止と同じ判定＝キオスク/F11時のみ）
+     2) HTML5フルスクリーン中でない（!document.fullscreenElement。HTML5全画面解除のESCと衝突させない）
+     3) アプリ内のモーダル・オーバーレイが開いていない（既存ESC用途を奪わない。判定方法は下記コメント参照）
+
+   [既存ESCハンドラ全数確認 2026-08-17 `grep -n "Escape" app/src/main/*.js`]
+     01f-app-dialogs.js:89                       _appDialogKeydown  … _appDialogActive で開閉判定
+     31-pos-精算パネル.js:155/256/386/582         各精算パネルのkeydown … _posUrikake/_posCardSplit/_posSplit/_posAdvance で開閉判定
+     35-pos-レシート印刷-独立ウィンドウ.js:365    _posPickDesignationTarget（指名ピッカー）… 開閉フラグがPromise内のクロージャ変数で外部から読めない
+     41-name-autocomplete.js:211                  onNameKeydown（名前候補サジェスト）… 開閉フラグがモジュール外から読めない形（_suggestTargetはあるが入力欄ごとの状態でDOMの方が確実）
+   → 前者2つ（01f・31）は状態変数を直接参照できるが、後者2つ（35・41）は参照できないため、
+     全モーダル/オーバーレイ/候補リストに共通して使われているDOM上のクラス名で横断判定する。
+     いずれも「開いた時にDOM生成→閉じた時にremove()」の一貫パターンで、表示中だけDOMに存在する。
+     pos-co-overlay（01f・31の全4種・35の指名ピッカー含む大半のモーダル）
+     pos-nsm-overlay（29のPOSスピナー/ピッカー群）
+     cr-overlay（32のキャストランキング）
+     pos-hist-overlay（33の伝票オーダー編集履歴）
+     name-suggest-list（41の名前候補サジェスト）
+     を横断チェックすることで、既存ESC用途およびそれ以外の可視モーダルも含めて奪わない。 */
+let _appExitIntent = false;   // true の間、46-init.js の beforeunload 未保存警告を抑止する
+
+function _isAppModalOrOverlayOpen() {
+  if (typeof _appDialogActive !== 'undefined' && _appDialogActive) return true;
+  return !!document.querySelector('.pos-co-overlay, .pos-nsm-overlay, .cr-overlay, .pos-hist-overlay, .name-suggest-list');
+}
+
+async function _confirmAppExit() {
+  const ok = await appConfirm('NightListを終了しますか？', { danger: true });
+  if (!ok) return;
+  saveState();
+  await UsbStore.flush();   // 非USBモード・デモモード中はflush内部で自動的にno-op
+  _appExitIntent = true;
+  window.close();
+  setTimeout(() => {
+    // window.close()が効かない環境（スクリプトから開いたウィンドウでない等）向けの案内。
+    // close()が効いていればページごと消えるため、このコールバックは呼ばれない。
+    // ここまで来た＝終了できなかったので、beforeunload警告の抑止を解除して保護を戻す
+    // （フラグを立てたままだと、以後の未保存離脱で二度と警告が出なくなる）。
+    _appExitIntent = false;
+    appAlert('この画面ではボタンから終了できません。Alt+F4 か、画面下端からタスクバーを出して閉じてください');
+  }, 300);
+}
+
+document.addEventListener('keydown', event => {
+  if (event.key !== 'Escape') return;
+  if (document.fullscreenElement) return;
+  if (!_isEffectivelyFullscreen()) return;
+  if (_isAppModalOrOverlayOpen()) return;
+  _confirmAppExit();
 });
 
 function isFullscreenOnBootEnabled() {
@@ -22363,6 +22428,7 @@ async function __boot() {
   window.addEventListener('beforeunload', e => {
     if (UsbStore._fenced) return;
     if (_demoMode) return;   // デモ中の変更は保存しない仕様のため、離脱警告も出さない
+    if (_appExitIntent) return;   // ESC終了確認から保存済みで閉じる意図＝ネイティブ警告と二重にしない
     if ((_unsavedChanges && state.rows.length > 0) || _settingsDirty) {
       e.preventDefault();
       e.returnValue = '保存されていないデータがあります。閉じる前に💾保存ボタンを押してください。';
