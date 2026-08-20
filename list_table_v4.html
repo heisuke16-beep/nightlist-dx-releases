@@ -3,8 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.53">
+<meta name="app-version" content="1.0.54">
 <title>リスト表 v4</title>
+<link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
      フォントはOS内蔵にフォールバックする（--font/--monoのスタック参照）。 -->
 <style>
@@ -2649,6 +2650,15 @@ table#customer-table { border-collapse: collapse; width: 100%; min-width: 800px;
 .analytics-kpi-delta.up { color: var(--green); background: rgba(55,190,132,.12); }
 .analytics-kpi-delta.down { color: var(--red); background: rgba(229,53,77,.12); }
 .analytics-kpi-delta.neutral { color: var(--tx3); background: var(--sur2); }
+/* 店舗給率カード（2026-08-20新設）: 小計基準/総売上基準の2段表示。カード自体は他と同じ1枚として数える */
+.analytics-kpi-card.store-ratio { grid-column: span 2; display: flex; flex-direction: column; gap: 6px; }
+.analytics-ratio-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 6px; border-top: 1px solid var(--bdr); }
+.analytics-ratio-row:first-of-type { padding-top: 0; border-top: none; }
+.analytics-ratio-label { flex: 1; min-width: 0; color: var(--tx2); font-size: 12px; }
+.analytics-ratio-label small { display: block; color: var(--tx3); font-size: 10px; margin-top: 1px; }
+.analytics-ratio-row strong { flex-shrink: 0; color: var(--tx); font-family: var(--font); font-variant-numeric: tabular-nums; font-size: 18px; }
+.analytics-kpi-card.store-ratio.is-blank .analytics-ratio-row strong { color: var(--tx3); }
+.analytics-ratio-note { margin-top: 2px; color: #e5a84b; font-size: 10px; }
 .analytics-chart-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .analytics-chart-card { min-width: 0; padding: 12px; border: 1px solid var(--bdr2); border-radius: 10px; background: var(--sur3); }
 .analytics-chart-card h3 { margin: 0 0 10px; color: var(--tx2); font-size: 11px; }
@@ -4547,31 +4557,13 @@ html[data-display="tablet"] #list-table .col-ctrl-btn { min-width: 32px; min-hei
   <!-- キャスト管理（時給・バック単価）の本体は「設定 → 👥 キャスト・給与」へ移設済み（2026-07-25）。
        描画先は 37-settings-panel.js のテンプレート、中身の描画は renderCastMgmt()。ここには共有スタイルだけ残す。 -->
   <style>
-      .castmgmt-toggle {
-        width:100%; min-height:44px; padding:0; border:0; background:none;
-        font:inherit; font-size:13px; font-weight:700; color:var(--tx2);
-        letter-spacing:.1em; text-transform:uppercase; cursor:pointer;
-        display:flex; align-items:center; gap:8px; text-align:left;
-      }
-      .castmgmt-toggle::before {
-        content:''; display:block; width:3px; height:14px; flex-shrink:0;
-        background:linear-gradient(180deg,var(--gold),var(--gold2)); border-radius:2px;
-      }
-      .castmgmt-toggle:hover { color:var(--tx); }
-      #castmgmt-arrow { width:1em; color:var(--gold2); text-align:center; }
       #castmgmt-panel { padding:6px 0 20px; }
     #castmgmt-panel h2 { margin-bottom:6px; }
     .castmgmt-hint { color:var(--tx3); font-size:12px; margin-bottom:14px; max-width:760px; line-height:1.5; }
     .castmgmt-actions { margin:10px 0 14px; display:flex; gap:8px; flex-wrap:wrap; }
     #castmgmt-table-wrapper { overflow-x:auto; }
-    #castmgmt-table { border-collapse:collapse; font-size:12px; }
-    #castmgmt-table th, #castmgmt-table td { border:1px solid var(--bdr); padding:4px 6px; text-align:center; white-space:nowrap; }
-    #castmgmt-table thead th { background:var(--sur2); color:var(--tx2); }
-    #castmgmt-table .cm-input { width:62px; padding:3px 4px; text-align:right; border:1px solid var(--bdr2); border-radius:4px; background:var(--sur); color:var(--tx); font-size:12px; }
-    #castmgmt-table .cm-default td { background:var(--goldglow); font-weight:600; }
     .cm-add-input { padding:6px 10px; border:1px solid var(--bdr2); border-radius:6px; background:var(--sur); color:var(--tx); font-size:13px; min-width:180px; }
     .cm-add-input::placeholder { color:var(--tx3); }
-    #castmgmt-table .cm-no { width:40px; padding:3px 4px; text-align:center; border:1px solid var(--bdr2); border-radius:4px; background:var(--sur); color:var(--tx); font-size:12px; }
     .cm-act { font-size:11px; padding:3px 8px; margin:0 2px; border-radius:5px; border:1px solid var(--bdr2); background:var(--sur2); color:var(--tx2); cursor:pointer; }
     .cm-act:hover { border-color:var(--gold); color:var(--tx); }
     .cm-del { color:#d97a7a; }
@@ -4580,6 +4572,20 @@ html[data-display="tablet"] #list-table .col-ctrl-btn { min-width: 32px; min-hei
     #castmgmt-retired-table { border-collapse:collapse; font-size:12px; opacity:.82; }
     #castmgmt-retired-table th, #castmgmt-retired-table td { border:1px solid var(--bdr); padding:4px 6px; text-align:center; white-space:nowrap; }
     #castmgmt-retired-table thead th { background:var(--sur2); color:var(--tx3); }
+    /* キャスト一覧＝普通のボタン並び（2026-08-20仕様B・オーナー差し戻し）:
+       仕様A（カード＋実効時給常時表示）を撤回。装飾的なカードではなく.btnトーンのボタンにし、
+       表示はNo.＋名前だけ（時給等の金銭情報は出さない）。 */
+    .cast-mgmt-list { display:flex; flex-wrap:wrap; gap:8px; }
+    .cast-mgmt-btn {
+      display:inline-flex; align-items:center; gap:8px;
+      min-height:44px; padding:8px 16px; font-size:14px; font-weight:700;
+    }
+    .cast-mgmt-no {
+      font-family:var(--mono); font-size:12px; font-weight:800; color:var(--gold2);
+    }
+    /* キャスト専用ページ（フルスクリーンモーダル。openPayslipModal同型） */
+    .cast-detail-modal .cd-field input, .cast-detail-modal .cd-field select { min-height:38px; }
+    .cast-detail-modal .cd-check { min-height:44px; }
     </style>
 </div>
 
@@ -6726,6 +6732,7 @@ const CFG_DEFAULTS = {
   payrollLateFineUnitMin:        15,    // 遅刻罰金の単位（分。N分ごとに1段階）
   payrollLateFineAmt:            1000,  // 遅刻罰金の単位額（円・1段階あたり）
   payrollBottleSpRate:           0.2,   // SP参考値の率（ボトル小計×rate）。最終額は手入力優先。
+  defaultWage:                   0,     // 店標準時給（円/時）。キャスト個別の時給が空欄のときに適用。既定0=なしなので店が設定しない限り挙動不変。
   // --- ポイント設定（キャスト評価用。給与計算とは独立） ---
   pointsEnabled: false,
   pointRules: {
@@ -6734,6 +6741,8 @@ const CFG_DEFAULTS = {
   rankingShowAmountToCast: true,
   // --- 給与明細の締め期間 ---
   payrollPeriod:                 'month', // 'month'(1日〜末日) | 'half'(1〜15日 / 16日〜末日)
+  // --- 個人給率の計算方式（2026-08-20新設・給率多指標化） ---
+  castPayrollRatioMode:          'personal', // 'personal'(個人小計基準・既定) | 'honshimei'(本指名小計基準)
   // --- スライド時給（期間の帰属売上合計で時給を判定。空=機能オフ） ---
   payrollSlideTable:             [],
   payrollSlideSource:            'current', // 'current'(今期の成績⇒今期の時給) | 'prev'(前期の成績⇒今期の時給)
@@ -8815,19 +8824,6 @@ function castPayFields() {
     ['freeD',     'D(' + shotLabel() + ')',   '円/本'],
   ];
 }
-function toggleCastMgmt(){
-  const panel = document.getElementById('castmgmt-panel');
-  const toggle = document.getElementById('castmgmt-toggle');
-  const arrow = document.getElementById('castmgmt-arrow');
-  if (!panel) return;
-  const willOpen = panel.classList.contains('hidden');
-  panel.classList.toggle('hidden', !willOpen);
-  if (toggle) toggle.setAttribute('aria-expanded', String(willOpen));
-  if (arrow) arrow.textContent = willOpen ? '▼' : '▶';
-  // 設定パネルは renderSettingsPanel() が毎回まるごと描き直すため、
-  // 「一度描いたらもう描かない」キャッシュは持てない。開くたびに描き直す。
-  if (willOpen) renderCastMgmt();
-}
 function _cmq(s){ return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
 function ensureCastStores(){
   if (!state.castProfiles) state.castProfiles = {};
@@ -8941,51 +8937,33 @@ function setPayrollCfgNum(key, value, fallback) {
   saveState();
 }
 
+/* キャスト一覧のボタン1つ分（No.＋名前のみ。仕様B・2026-08-20オーナー差し戻し）:
+   仕様A（カード＋実効時給常時表示）は「金銭情報を一覧に出したくない」で撤回。
+   装飾的なカードではなく普通のボタンにし、時給表示は削除。タップで専用ページへ。 */
+function _castMgmtCardHtml(name) {
+  const p = getCastProfile(name);
+  const q = _cmq(name);
+  return `<button type="button" class="btn cast-mgmt-btn" onclick="openCastDetailModal('${q}')">`
+    + `<span class="cast-mgmt-no">${p.no ?? ''}</span>`
+    + `<span class="cast-mgmt-name">${escHtml(name)}</span>`
+    + `</button>`;
+}
+
 function renderCastMgmt(){
   ensureCastStores();
   const wrap = document.getElementById('castmgmt-table-wrapper');
   if (!wrap) return;
-  const d = state.castDefaults;
-  const payFields = castPayFields();
-  const PAYCOLS = payFields.length;
+  const payFields = castPayFields();   // 退店リスト表示（下段）でのみ使用。編集は専用ページ(openCastDetailModal)へ移設済み。
 
-  // ---- 在籍キャスト（編集テーブル） ----
+  // ---- 在籍キャスト（ボタン一覧・タップで専用ページへ。2026-08-20仕様B=オーナー差し戻し）----
+  //      旧表が持っていた時給・全バック単価・番号・スライド/保証時給の編集機能は
+  //      1つも削らず openCastDetailModal() のキャスト専用ページへ移設済み。
+  //      一覧はNo.＋名前のみ（時給は表示しない）・常時表示（アコーディオン廃止）。
   let activeHtml;
   if (!state.allCasts.length){
     activeHtml = '<div style="padding:30px;color:var(--tx3)">まだキャストが登録されていません。上の入力欄から追加してください。</div>';
   } else {
-    let head = '<th style="width:48px">No.</th><th style="min-width:90px;text-align:left">名前</th>';
-    payFields.forEach(([f,lbl,unit]) => {
-      head += `<th>${lbl}<br><span style="font-weight:400;color:var(--tx3);font-size:9px">${unit}</span></th>`;
-    });
-    head += '<th>スライド<br><span style="font-weight:400;color:var(--tx3);font-size:9px">適用</span></th>';
-    head += '<th>保証時給<br><span style="font-weight:400;color:var(--tx3);font-size:9px">円/時</span></th>';
-    head += '<th style="min-width:120px">操作</th>';
-    let defRow = '<tr class="cm-default"><td>—</td><td style="text-align:left">デフォルト単価<br><span style="font-weight:400;color:var(--tx3);font-size:9px;white-space:nowrap">空欄のキャストにはこの標準額が自動で適用されます</span></td>';
-    payFields.forEach(([f]) => {
-      if (f === 'wage') { defRow += '<td title="時給は子ごとに違うためデフォルトなし">—</td>'; return; }
-      defRow += `<td><input type="number" class="cm-input" value="${d[f] ?? ''}" onchange="setCastDefault('${f}',this.value)"></td>`;
-    });
-    defRow += '<td>—</td><td>—</td>';
-    defRow += '<td>—</td></tr>';
-    let body = '';
-    castsSortedByNo(state.allCasts).forEach(name => {
-      const p = getCastProfile(name);
-      const q = _cmq(name);
-      body += `<tr><td><input type="number" class="cm-no" value="${p.no ?? ''}" onchange="setCastNo('${q}',this.value)"></td>`;
-      body += `<td style="text-align:left;font-weight:600">${escHtml(name)}</td>`;
-      payFields.forEach(([f]) => {
-        const placeholder = f === 'wage' ? '' : (d[f] ?? '');
-        body += `<td><input type="number" class="cm-input" value="${p[f] ?? ''}" placeholder="${placeholder}" onchange="setCastPay('${q}','${f}',this.value)"></td>`;
-      });
-      body += `<td><input type="checkbox" ${p.slideWage ? 'checked' : ''} onchange="setCastSlideWage('${q}',this.checked)"></td>`;
-      body += `<td><input type="number" class="cm-input" value="${p.guaranteeWage ?? 0}" min="0" step="100" onchange="setCastPay('${q}','guaranteeWage',this.value)"></td>`;
-      body += `<td><button class="cm-act cm-clearpay" onclick="clearCastPayExceptWage('${q}')">単価クリア</button>`
-            + `<button class="cm-act cm-retire" onclick="retireCast('${q}')">退店</button>`
-            + `<button class="cm-act cm-del" onclick="deleteCastMaster('${q}')">削除</button></td>`;
-      body += '</tr>';
-    });
-    activeHtml = `<table id="castmgmt-table"><thead><tr>${head}</tr></thead><tbody>${defRow}${body}</tbody></table>`;
+    activeHtml = `<div class="cast-mgmt-list">${castsSortedByNo(state.allCasts).map(_castMgmtCardHtml).join('')}</div>`;
   }
 
   // ---- 退店したキャスト（アーカイブ） ----
@@ -14895,6 +14873,10 @@ function computeReportAgg(settled) {
   const prodByCast = {};
   const prodBackByCast = {};
   const prodPointsByCast = {};
+  // 本指売上・ボトル売上の品目分解（キャスト月次成績表用。2026-08-20新設）。
+  // nameGroups（卓丸ごと頭数按分）とは別に、posOrdersのcategory==='nominate'/'bottle'明細を
+  // その明細の紐付け先キャスト(_aggCastOf)へそのまま積む「品目別」の集計。
+  const prodSalesByCast = {};
   const ensureP = c => {
     if (!prodByCast[c]) {
       prodByCast[c] = { '指':0,'同':0,'場':0,'指D':0,'D':0 };
@@ -14915,6 +14897,14 @@ function computeReportAgg(settled) {
   // 指名売上の対象タイプ。場内(jounai)・延長指名(enchoshimei)は除外。
   const SHIMEI_NOMINATE = ['honshimei', 'douban'];
   if (modoriAgg !== 'none') SHIMEI_NOMINATE.push('modori_honshimei');
+  // 個人小計売上（2026-08-20新設・給率多指標化）: 指名系すべて（本指名・同伴・場内・延長指名）の
+  // 卓小計(税抜)を頭割り帰属した合計。nameGroups（本指名/同伴のみ・税込中心）とは別軸の集計。
+  // SHIMEI_TYPES（01-constants.js）= ['honshimei','douban','jounai','enchoshimei']をそのまま使う。
+  const personalSubtotalByCast = {};   // cast -> 円（税抜・頭割り後）
+  const PERSONAL_NOMINATE_TYPES = new Set(SHIMEI_TYPES);
+  if (modoriAgg !== 'none') PERSONAL_NOMINATE_TYPES.add('modori_honshimei');
+  if (modoriEnchoshimeiAgg !== 'none') PERSONAL_NOMINATE_TYPES.add('modori_enchoshimei');
+  let subtotalSum = 0;   // 店舗小計売上（税抜・全卓合算。指名の有無を問わない。店舗給率の分母用）
   const byCategory = {};
   const bySource = {};
   const shimeiLabels = {};
@@ -14938,6 +14928,7 @@ function computeReportAgg(settled) {
     const tableSubtotal = (typeof _posCalcTotal === 'function')
       ? (Number(_posCalcTotal(r).subtotal) || 0)
       : (Number(calcBill(r).subtotal) || 0);
+    subtotalSum += tableSubtotal;
     const nominators = new Set();
     if (r.mainCast && SHIMEI_NOMINATE.indexOf(r.mainType) >= 0) nominators.add(r.mainCast);
     (r.subCasts || []).forEach(sc => {
@@ -14978,6 +14969,29 @@ function computeReportAgg(settled) {
       g.totalSub += shareSub;
     });
 
+    // --- 個人小計売上（2026-08-20新設）: 指名系すべて（本指名・同伴・場内・延長指名）を対象に
+    //     卓小計(税抜)を頭数で等分して計上。按分ロジック（等分・端数処理）はnameGroupsと同じR2方式。 ---
+    const personalNominators = new Set();
+    if (r.mainCast && PERSONAL_NOMINATE_TYPES.has(r.mainType)) personalNominators.add(r.mainCast);
+    (r.subCasts || []).forEach(sc => {
+      if (sc.cast && PERSONAL_NOMINATE_TYPES.has(sc.type)) personalNominators.add(sc.cast);
+    });
+    // 多人数卓の指名系オーダー（本指名/同伴/場内/延長指名の各カテゴリ）からも拾う。nameGroups側の
+    // 走査（nominate|dohan|honen）に jonai（場内）・enshi（延指）を加えた広め判定。
+    posOrders(r).forEach(o => {
+      if (!/^(nominate|dohan|jonai|honen|enshi)/.test(o.category || '')) return;
+      const oc = _aggCastOf(o.name);
+      if (oc && oc !== 'ボーイ' && oc !== 'ゲスト') personalNominators.add(oc);
+    });
+    const pList = Array.from(personalNominators);
+    const pCount = pList.length;
+    let _personalAllocatedSub = 0;
+    pList.forEach((cast, idx) => {
+      const share = (idx === pCount - 1) ? (tableSubtotal - _personalAllocatedSub) : Math.floor(tableSubtotal / pCount);
+      _personalAllocatedSub += share;
+      personalSubtotalByCast[cast] = (personalSubtotalByCast[cast] || 0) + share;
+    });
+
     posOrders(r).forEach(o => {
       const qty = Number(o.qty)||1;
       const lineAmt = (Number(o.amount)||0) * qty;
@@ -14991,6 +15005,11 @@ function computeReportAgg(settled) {
       const isSizeDrinkCat = isDrinkItemKey(o.category);
       const isDrinkCat = isSizeDrinkCat || o.category === 'shot';
       const isExcludedDrinker = (!cast || cast === 'ボーイ' || cast === 'ゲスト');
+      if (cast && !isExcludedDrinker && (o.category === 'nominate' || o.category === 'bottle')) {
+        const salesEntry = prodSalesByCast[cast] = prodSalesByCast[cast] || { honshimeiSales: 0, bottleSales: 0 };
+        if (o.category === 'nominate') salesEntry.honshimeiSales += lineAmt;
+        else salesEntry.bottleSales += lineAmt;
+      }
       const isNominator = !!cast && nominators.has(cast);
       const productBack = _aggProductBack(o, isNominator);
       const rawPoint = Number(o.pt);
@@ -15061,7 +15080,8 @@ function computeReportAgg(settled) {
 
   const total = cashSum + cardSum + urikakeSum;
   return {
-    prodByCast, prodBackByCast, prodPointsByCast, nameGroups, nominatedCasts, byCategory, bySource, shimeiLabels,
+    prodByCast, prodBackByCast, prodPointsByCast, prodSalesByCast, nameGroups, nominatedCasts, byCategory, bySource, shimeiLabels,
+    personalSubtotalByCast, subtotalSum,
     cashCount, cardCount, urikakeCount, cashSum, cardSum, urikakeSum,
     guests, total, avg: guests ? Math.round(total/guests) : 0, count: settled.length
   };
@@ -15684,6 +15704,7 @@ function _dailyCloseEmptyFrozen() {
     castPayTotal: 0, castNibaraiTotal: 0,
     urikakeRepayCash: 0, urikakeRepayCard: 0,
     cardSlipCount: 0, closedAt: 0, castRows: [],
+    storeSubtotalSales: null,
   };
 }
 
@@ -15714,6 +15735,14 @@ function _dailyCloseNormalizeCastRows(rows) {
       .forEach(([key, value]) => { out.backCounts[String(key)] = _dailyCloseNum(value); });
     Object.entries(src.backAmounts && typeof src.backAmounts === 'object' ? src.backAmounts : {})
       .forEach(([key, value]) => { out.backAmounts[String(key)] = _dailyCloseNum(value); });
+    // 本指売上・ボトル売上（2026-08-20新設・後方互換）: フィールド自体が無い＝旧締めデータは
+    // null（「—」表示の合図）。存在すれば0円も含めて実値として保存する（numberFieldsの一括0化にしない）。
+    out.honshimeiSales = Object.prototype.hasOwnProperty.call(src, 'honshimeiSales') ? _dailyCloseNum(src.honshimeiSales) : null;
+    out.bottleSales = Object.prototype.hasOwnProperty.call(src, 'bottleSales') ? _dailyCloseNum(src.bottleSales) : null;
+    // 個人小計売上（2026-08-20新設・給率多指標化・後方互換）: honshimeiSales/bottleSalesと同じ扱い。
+    // フィールド自体が無い＝旧締めデータはnull（個人給率personal基準の期間集計から除外する合図）。
+    out.personalSubtotalSales = (Object.prototype.hasOwnProperty.call(src, 'personalSubtotalSales') && src.personalSubtotalSales != null)
+      ? _dailyCloseNum(src.personalSubtotalSales) : null;
     return out;
   });
 }
@@ -15722,6 +15751,10 @@ function _dailyCloseNormalizeFrozen(frozen) {
   const out = _dailyCloseEmptyFrozen();
   DAILY_CLOSE_FROZEN_FIELDS.forEach(field => { out[field] = _dailyCloseNum(frozen?.[field]); });
   out.castRows = _dailyCloseNormalizeCastRows(frozen?.castRows);
+  // 店舗小計売上（2026-08-20新設・給率多指標化・後方互換）: フィールド自体が無い＝旧締めデータは
+  // null（店舗給率の小計基準を期間から除外する合図）。honshimeiSales/bottleSalesと同じ扱い。
+  out.storeSubtotalSales = (Object.prototype.hasOwnProperty.call(frozen || {}, 'storeSubtotalSales') && frozen.storeSubtotalSales != null)
+    ? _dailyCloseNum(frozen.storeSubtotalSales) : null;
   return out;
 }
 
@@ -15873,6 +15906,7 @@ function _dailyCloseLiveAuto(src, agg, payrollRows) {
     cardSlipCount: _dailyCloseNum(agg.cardCount),
     closedAt: 0,
     castRows: _dailyCloseNormalizeCastRows(payrollRows),
+    storeSubtotalSales: _dailyCloseNum(agg.subtotalSum),
   };
 }
 
@@ -16387,6 +16421,47 @@ function bizGrossProfit(store, range, tillFloat) {
   return { grossProfit: days ? grossProfit : null, days };
 }
 
+/* ================================================================
+   店舗給率（2026-08-20新設・給率多指標化・仕様C）
+   bizGrossProfitと同じ手法（frozenから期間集計。ロック済み日のみ対象）で、
+   小計基準（税抜・storeSubtotalSales）と総売上基準（税込・totalSales）の2段を返す純関数。
+   小計基準は期間内に旧締め（storeSubtotalSalesキー自体が無い日）を1日でも含めばN/A。
+   ゼロ除算はN/A（null）。「キャスト給与計」カードにはcastPayTotalをそのまま使う。
+================================================================ */
+function bizStorePayrollRatio(store, range) {
+  const start = _bizAnalyticsKey(range && range.start);
+  const end = _bizAnalyticsKey(range && range.end);
+  const entries = Array.isArray(store)
+    ? store.map((rec, index) => [String(index), rec])
+    : Object.entries(store && typeof store === 'object' ? store : {});
+  let castPayTotal = 0;
+  let totalSales = 0;
+  let subtotalSales = 0;
+  let days = 0;
+  let hasLegacyDay = false;
+  entries.forEach(([storeKey, rec]) => {
+    if (!rec || !rec.frozen || !(Number(rec.frozen.closedAt) > 0)) return;
+    const key = _bizAnalyticsKey(rec.dayKey || rec.bizKey || rec.date || storeKey);
+    if (!key || (start && key < start) || (end && key > end)) return;
+    const frozen = rec.frozen;
+    days++;
+    castPayTotal += Number(frozen.castPayTotal) || 0;
+    totalSales += Number(frozen.totalSales) || 0;
+    if (Object.prototype.hasOwnProperty.call(frozen, 'storeSubtotalSales') && frozen.storeSubtotalSales != null) {
+      subtotalSales += Number(frozen.storeSubtotalSales) || 0;
+    } else {
+      hasLegacyDay = true;
+    }
+  });
+  return {
+    castPayTotal: days ? castPayTotal : null,
+    totalRatio: (days > 0 && totalSales > 0) ? (castPayTotal / totalSales * 100) : null,
+    subtotalRatio: (days > 0 && !hasLegacyDay && subtotalSales > 0) ? (castPayTotal / subtotalSales * 100) : null,
+    days,
+    hasLegacyDay,
+  };
+}
+
 function bizDailyTrend(snapshots, range) {
   return _bizAnalyticsSnaps(snapshots, range)
     .map(_bizAnalyticsDay)
@@ -16554,6 +16629,21 @@ function _analyticsBadge(current, previous, hasPrevious) {
   return `<span class="analytics-kpi-delta ${cls}">${sign}${percent}%</span>`;
 }
 
+/* 店舗給率カード（2026-08-20新設・給率多指標化・仕様C）: 小計基準/総売上基準の2段を分母明示で表示する。
+   キャスト給与計カードとは別に、常に1枚の.analytics-kpi-cardとして描画する（カード総数は不変=14枚）。 */
+function _analyticsStoreRatioCardHtml(summary, previous, hasPrevious) {
+  const subtotal = summary.店舗給率_小計基準;
+  const total = summary.店舗給率_総売上基準;
+  const emptyCls = (subtotal == null && total == null) ? ' is-blank' : '';
+  const legacyNote = summary.店舗給率小計旧締め混在
+    ? '<div class="analytics-ratio-note">小計基準は旧締めデータを含む期間はN/A</div>' : '';
+  const row = (label, desc, value, prevValue) => `<div class="analytics-ratio-row"><span class="analytics-ratio-label">${label}<small>${desc}</small></span><strong>${value == null ? 'N/A' : value.toFixed(1) + '%'}</strong>${_analyticsBadge(value, prevValue, hasPrevious)}</div>`;
+  return `<div class="analytics-kpi-card store-ratio${emptyCls}"><div class="analytics-kpi-head"><span title="日次締めロック済み ${summary.店舗給率日数 || 0}日分">店舗給率</span></div>`
+    + row('女子給率（小計基準）', 'Σキャスト総支給 ÷ Σ店舗小計売上（税抜）', subtotal, previous.店舗給率_小計基準)
+    + row('女子給率（総売上基準）', 'Σキャスト総支給 ÷ Σ店舗総売上（税込）', total, previous.店舗給率_総売上基準)
+    + legacyNote + '</div>';
+}
+
 function _analyticsKpiHtml(summary, previous, hasPrevious) {
   // 数値そのものは色で区別しない（数字は文字色で読む）。強調は総売上＝この画面の見出し数字のみ。
   // 良し悪しを示す色は前期比バッジ（緑↑/赤↓）だけが持つ。（2026-07-20 見直し）
@@ -16561,7 +16651,7 @@ function _analyticsKpiHtml(summary, previous, hasPrevious) {
     ['総売上', '総売上', 'money', 'k-hero'], ['本指名売上', '本指名売上総計', 'shimei-money', ''], ['現金', '現金計', 'money', ''], ['カード', 'カード計', 'money', ''], ['売掛', '売掛計', 'money', ''],
     ['組数', '組数', 'count', ''], ['入客数', '入客数', 'people', ''], ['組単価', '組単価', 'money', ''], ['客単価', '客単価', 'money', ''],
     ['本指名率', '本指名率', 'percent', ''], ['場内率', '場内率', 'percent', ''], ['粗利', '粗利', 'money', ''],
-    ['キャスト給与計', 'キャスト給与計', 'money', ''], ['給率', '給率', 'percent', ''],
+    ['キャスト給与計', 'キャスト給与計', 'money', ''],
   ];
   return cards.map(([label, key, kind, cls]) => {
     if (kind === 'shimei-money') key = analyticsShimeiBase === 'subtotal' ? '本指名売上小計' : '本指名売上総計';
@@ -16576,7 +16666,7 @@ function _analyticsKpiHtml(summary, previous, hasPrevious) {
     const toggle = kind === 'shimei-money' ? `<span class="analytics-kpi-base-toggle"><button class="analytics-preset${analyticsShimeiBase === 'subtotal' ? ' active' : ''}" onclick="analyticsSetShimeiBase('subtotal')">小計</button><button class="analytics-preset${analyticsShimeiBase === 'total' ? ' active' : ''}" onclick="analyticsSetShimeiBase('total')">総計</button></span>` : '';
     const shimeiAttr = kind === 'shimei-money' ? ` data-analytics-shimei-base="${analyticsShimeiBase}"` : '';
     return `<div class="analytics-kpi-card ${cls}${emptyCls}"${shimeiAttr}><div class="analytics-kpi-head"><span${labelTitle}>${label}</span>${toggle}${_analyticsBadge(value, previous[key], hasPrevious)}</div><strong>${display}</strong></div>`;
-  }).join('');
+  }).join('') + _analyticsStoreRatioCardHtml(summary, previous, hasPrevious);
 }
 
 function _analyticsTrendHtml(items, valueKey, formatter, colorClass) {
@@ -16634,6 +16724,19 @@ function renderBusinessAnalyticsPanel() {
   summary.粗利日数 = currentGrossProfit.days;
   previous.粗利 = previousGrossProfit.grossProfit;
   previous.粗利日数 = previousGrossProfit.days;
+  // 店舗給率（2026-08-20新設・給率多指標化・仕様C）: 粗利と同じくfrozenから期間集計して上書きする。
+  const currentPayrollRatio = bizStorePayrollRatio(dailyCloseStore, range);
+  const previousPayrollRatio = compareRange
+    ? bizStorePayrollRatio(dailyCloseStore, compareRange)
+    : { castPayTotal: null, totalRatio: null, subtotalRatio: null, days: 0, hasLegacyDay: false };
+  summary.キャスト給与計 = currentPayrollRatio.castPayTotal;
+  summary.店舗給率_小計基準 = currentPayrollRatio.subtotalRatio;
+  summary.店舗給率_総売上基準 = currentPayrollRatio.totalRatio;
+  summary.店舗給率日数 = currentPayrollRatio.days;
+  summary.店舗給率小計旧締め混在 = currentPayrollRatio.hasLegacyDay;
+  previous.キャスト給与計 = previousPayrollRatio.castPayTotal;
+  previous.店舗給率_小計基準 = previousPayrollRatio.subtotalRatio;
+  previous.店舗給率_総売上基準 = previousPayrollRatio.totalRatio;
   const hasPrevious = !!(compareRange && (previous.組数 > 0 || previousGrossProfit.days > 0));
   if (!summary.組数) {
     panel.innerHTML = `<div class="analytics-title"><h2>📈 経営分析</h2><span>${_analyticsInputDate(range.start)} 〜 ${_analyticsInputDate(range.end)}</span></div>${controls}<div class="analytics-empty">対象期間に精算データがありません</div>`;
@@ -18739,6 +18842,11 @@ function renderSettingsPanel() {
             <input type="text" class="settings-input" id="slip-recovery-code" placeholder="リカバリーコード" autocomplete="off" style="flex:1;min-width:220px">
             <button type="button" class="btn danger" onclick="resetSlipNumberWithRecovery()" ${recoverySet ? '' : 'disabled'}>番号を1に戻す</button>
           </div>
+          <div class="settings-sub" style="margin-top:2px">既存店の通し番号を引き継ぐ場合は、下の欄に次に発行したい番号を入力してください（リカバリーコードは上の欄と共用）。この機能はいつでも再実行して別の番号へ戻せます。</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;width:100%">
+            <input type="text" inputmode="numeric" class="settings-input" id="slip-jump-target" placeholder="次に発行したい伝票番号（例: 10234）" autocomplete="off" style="flex:1;min-width:220px">
+            <button type="button" class="btn danger" onclick="jumpSlipNumberWithRecovery()" ${recoverySet ? '' : 'disabled'}>指定番号から始める</button>
+          </div>
           ${recoverySet ? '' : '<div class="settings-sub">🔐 起動ログインを設定すると利用できます</div>'}
           <button type="button" class="btn" onclick="showDeletedSlipsModal()" style="margin-top:4px">🗑 削除済み伝票アーカイブを見る</button>
         </div>
@@ -19165,6 +19273,12 @@ function renderSettingsPanel() {
       <div class="settings-section-header"><span class="settings-section-title">💴 給与計算ルール</span></div>
       <div class="settings-section-body">
         <div class="settings-row">
+          <div class="settings-label">店標準時給<div class="settings-sub">キャスト個別の時給が空欄のときに自動で適用（バックの標準額と同じ仕組み）。空欄=店標準を使わない旧挙動のまま。入力した時点で保存されます</div></div>
+          <span style="display:flex;gap:6px;align-items:center">
+            <input type="number" id="cfg-defaultWage" class="settings-input" value="${cfg.defaultWage || ''}" min="0" step="100" placeholder="0" style="width:110px" onchange="setPayrollCfgNum('defaultWage', this.value, 0)"><span style="font-size:11px;color:var(--tx3)">円/時</span>
+          </span>
+        </div>
+        <div class="settings-row">
           <div class="settings-label">給与明細の締め期間<div class="settings-sub">給与明細の期間ナビと合算範囲に使用</div></div>
           <select class="settings-input" id="cfg-payrollPeriod" style="width:140px">
             <option value="month"${cfg.payrollPeriod === 'half' ? '' : ' selected'}>月払い</option>
@@ -19213,7 +19327,11 @@ function renderSettingsPanel() {
             <thead><tr><th>名称</th><th style="width:130px">方式</th><th style="width:130px">値</th><th style="width:56px"></th></tr></thead>
             <tbody>${(Array.isArray(cfg.payrollDeductions) ? cfg.payrollDeductions : []).map(_payrollDeductionRowHTML).join('')}</tbody>
           </table>
-          <button type="button" class="pos-me-add-btn" onclick="payrollDeductionAdd()">＋ 控除項目を追加</button>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <button type="button" class="pos-me-add-btn" onclick="payrollDeductionAdd()">＋ 控除項目を追加</button>
+            <span style="font-size:11px;color:var(--tx3)">よく使う項目:</span>
+            ${PAYROLL_DEDUCTION_PRESETS.map(label => `<button type="button" class="pos-me-add-btn" onclick="payrollDeductionAddPreset('${escAttr(label)}')">＋ ${label}</button>`).join('')}
+          </div>
         </div>
         <div class="settings-group-head">⏱ 出退勤の丸め・遅刻罰金・SP参考率</div>
         <div class="settings-sub" style="margin-bottom:8px">1円もズレない計算なので変更は慎重に。この6項目は入力した時点で保存されます（保存ボタンを待ちません）。</div>
@@ -19258,11 +19376,10 @@ function renderSettingsPanel() {
     <div class="settings-section" data-setcat="cast">
       <div class="settings-section-header"><span class="settings-section-title">💴 キャスト管理</span></div>
       <div class="settings-section-body">
-        <button type="button" id="castmgmt-toggle" class="castmgmt-toggle" aria-expanded="false" aria-controls="castmgmt-panel" onclick="toggleCastMgmt()">
-          <span id="castmgmt-arrow" aria-hidden="true">▶</span> キャスト別の時給・バック単価
-        </button>
-        <div id="castmgmt-panel" class="hidden">
-          <div class="castmgmt-hint">POSで数えた本数 × ここで設定した単価 ＝ バック自動計算。時給×労働時間（「出勤キャスト」タブのタイムテーブル）と合わせて日計表に集計する想定です。空欄は「未設定」、0は「0円」として扱います。この表の編集は入力した時点で保存されます。</div>
+        <!-- アコーディオン廃止（2026-08-20仕様B）: 一覧は時給等の金銭情報を出さないため、
+             隠す理由がなくなった。常時表示にする。 -->
+        <div id="castmgmt-panel">
+          <div class="castmgmt-hint">POSで数えた本数 × ここで設定した単価 ＝ バック自動計算。時給×労働時間（「出勤キャスト」タブのタイムテーブル）と合わせて日計表に集計する想定です。空欄は「未設定」、0は「0円」として扱います。単価の編集はキャストをタップして開く専用ページで行います。</div>
           <div class="castmgmt-actions">
             <button class="btn" onclick="openPayslipModal()">📄 給与明細</button>
             <input type="text" id="new-cast-input" class="cm-add-input" placeholder="キャスト名を入力…" onkeydown="if(event.key==='Enter')addCast()">
@@ -19492,6 +19609,9 @@ function renderSettingsPanel() {
 
   _posMenuInitDndAll();
   settingsSelectCategory(_settingsActiveCat);
+  // キャスト管理一覧: アコーディオン廃止（2026-08-20仕様B）につき常時描画。
+  // 旧仕様はtoggleCastMgmt()が開閉時にだけ描画していたが、その関数ごと撤去したためここで描く。
+  if (typeof renderCastMgmt === 'function') renderCastMgmt();
 }
 
 async function usbSettingsActivate() {
@@ -19627,19 +19747,71 @@ async function authSettingsResetWithRecovery() {
   }
 }
 
+/* 伝票番号の任意ジャンプ（2026-08-20 オーナー確定仕様）:
+   既存店は何十年分の通し番号を持っているため、「1に戻す」だけでなく
+   「指定番号から始める」を追加する。内部的には prevDaysMax = N-1 を保存するだけで、
+   computeNextSlipNo(prevDaysMax, rows) = max(prevDaysMax, liveMaxSlipNo(rows)) + 1 の
+   既存仕様（10b-slip-number.js）にそのまま乗る＝本日の伝票が残っていれば
+   liveMax+1が優先される、という警告文言もこの仕組みの帰結。 */
+
+/* 15桁までを許可する上限。Number.MAX_SAFE_INTEGER(2^53-1)は9,007,199,254,740,991の16桁で、
+   16桁の入力を許すとNumber変換で精度が失われうるため、安全に整数として扱える15桁までに制限する。 */
+const SLIP_JUMP_MAX_DIGITS = 15;
+
+/* 「次に発行したい伝票番号」の入力値を検証する。1以上の整数・15桁以内のみ許可。
+   不正値（0・負数・小数・16桁以上・非数値）は null を返す。 */
+function _parseSlipJumpTarget(raw) {
+  const s = String(raw ?? '').trim();
+  if (!/^[1-9]\d*$/.test(s)) return null;           // 先頭0・小数点・負号・空文字などを拒否
+  if (s.length > SLIP_JUMP_MAX_DIGITS) return null;  // 最大15桁
+  const n = Number(s);
+  if (!Number.isSafeInteger(n) || n < 1) return null;
+  return n;
+}
+
+/* 確認ダイアログの文面。resetToOne=trueは既存「番号を1に戻す」の文言をそのまま維持する。 */
+function _slipJumpConfirmMessage(targetNo, liveMax, resetToOne) {
+  if (resetToOne) {
+    return liveMax > 0
+      ? `伝票番号をリセットします。\n本日の伝票 No.${liveMax} が残っているため、次の番号は ${liveMax + 1} になります。\n完全に1から始めるには営業終了後に実行してください。\nリセットしますか？`
+      : '伝票番号をリセットします。次の伝票が No.1 になります。よろしいですか？';
+  }
+  return liveMax >= targetNo
+    ? `伝票番号を No.${targetNo} から始めます。\n本日の伝票 No.${liveMax} が残っているため、次の番号は ${liveMax + 1} になります。\nこの機能はいつでも再実行して、また別の任意の番号へ戻せます。\n実行しますか？`
+    : `次の伝票が No.${targetNo} になります。\nこの機能はいつでも再実行して、また別の任意の番号へ戻せます。\n実行しますか？`;
+}
+
+/* 次の伝票番号が targetNo になるよう prevDaysMax = targetNo - 1 を保存する共通処理。 */
+function _applySlipCounterTarget(targetNo) {
+  const now = new Date().toISOString();
+  return saveSlipCounter({ prevDaysMax: targetNo - 1, updatedAt: now, lastResetAt: now });
+}
+
 async function resetSlipNumberWithRecovery() {
   const code = _authInputValue('slip-recovery-code');
   if (!code) { showToast('リカバリーコードを入力してください'); return; }
   const ok = await AuthStore.verifyRecovery(code);
   if (!ok) { showToast('リカバリーコードが違います'); return; }
   const max = liveMaxSlipNo(state.rows);
-  const message = max > 0
-    ? `伝票番号をリセットします。\n本日の伝票 No.${max} が残っているため、次の番号は ${max + 1} になります。\n完全に1から始めるには営業終了後に実行してください。\nリセットしますか？`
-    : '伝票番号をリセットします。次の伝票が No.1 になります。よろしいですか？';
+  const message = _slipJumpConfirmMessage(1, max, true);
   if (!(await appConfirm(message, { danger: true }))) return;
-  const now = new Date().toISOString();
-  if (!saveSlipCounter({ prevDaysMax: 0, updatedAt: now, lastResetAt: now })) return;
+  if (!_applySlipCounterTarget(1)) return;
   showToast('伝票番号をリセットしました');
+  renderSettingsPanel();
+}
+
+async function jumpSlipNumberWithRecovery() {
+  const code = _authInputValue('slip-recovery-code');
+  if (!code) { showToast('リカバリーコードを入力してください'); return; }
+  const target = _parseSlipJumpTarget(_authInputValue('slip-jump-target'));
+  if (target == null) { showToast('伝票番号は1以上の整数（15桁まで）で入力してください'); return; }
+  const ok = await AuthStore.verifyRecovery(code);
+  if (!ok) { showToast('リカバリーコードが違います'); return; }
+  const max = liveMaxSlipNo(state.rows);
+  const message = _slipJumpConfirmMessage(target, max, false);
+  if (!(await appConfirm(message, { danger: true }))) return;
+  if (!_applySlipCounterTarget(target)) return;
+  showToast(`伝票番号を No.${target} から始めるよう設定しました`);
   renderSettingsPanel();
 }
 
@@ -20164,6 +20336,7 @@ async function applySettings() {
   const payrollLateFineUnitMin        = _payNumGet('cfg-payrollLateFineUnitMin', 'payrollLateFineUnitMin') ?? 15;
   const payrollLateFineAmt            = _payNumGet('cfg-payrollLateFineAmt', 'payrollLateFineAmt') ?? 1000;
   const payrollBottleSpRate           = _payNumGet('cfg-payrollBottleSpRate', 'payrollBottleSpRate') ?? 0.2;
+  const defaultWage                   = _payNumGet('cfg-defaultWage', 'defaultWage') ?? 0;
   const payrollPeriod                 = get('cfg-payrollPeriod')?.value === 'half' ? 'half' : 'month';
   const payrollSlideSource            = get('cfg-payrollSlideSource')?.value === 'prev' ? 'prev' : 'current';
   const payrollSlideTable = Array.from(document.querySelectorAll('#cfg-payroll-slide-table tbody > tr')).map(tr => ({
@@ -20233,7 +20406,7 @@ async function applySettings() {
     showCountdown, fullscreenOnBoot, posMenu, posCatLayout, posCustomCats, posPrices, shimeiExtItems, drinkItems, shotLabel,
     receiptStoreName1, receiptStoreAddr, receiptStoreTel, receiptInvoiceNo, receiptNote,
     payrollClockInRoundMin, payrollClockOutRoundMin, payrollClockOutRoundThreshold,
-    payrollLateFineUnitMin, payrollLateFineAmt, payrollBottleSpRate, payrollPeriod,
+    payrollLateFineUnitMin, payrollLateFineAmt, payrollBottleSpRate, defaultWage, payrollPeriod,
     payrollSlideTable, payrollSlideSource, payrollPeriodDeductions, payrollRoundMode, payrollRoundUnit,
     payrollDeductions,
     payrollHiddenCols: Array.isArray(cfg.payrollHiddenCols) ? cfg.payrollHiddenCols : [],
@@ -20424,20 +20597,61 @@ function payrollDeductionModeChanged(select) {
   if (unit) unit.textContent = select.value === 'rate' ? '%' : (select.value === 'fixed' ? '円' : '—');
 }
 
+/* 控除項目キー(ded_N)の次の空き番号を決める純関数。確定済みcfg.payrollDeductionsと
+   未保存のDOM上の行のkeyの両方を見て、最大番号+1を返す（payrollDeductionAdd/AddPreset共通）。 */
+function _payrollDeductionNextKeyFrom(committedItems, domKeys) {
+  const nums = (Array.isArray(committedItems) ? committedItems : [])
+    .map(item => /^ded_(\d+)$/.exec(item?.key || ''))
+    .filter(Boolean).map(match => Number(match[1]));
+  (Array.isArray(domKeys) ? domKeys : []).forEach(key => {
+    const match = /^ded_(\d+)$/.exec(key || '');
+    if (match) nums.push(Number(match[1]));
+  });
+  return 'ded_' + ((nums.length ? Math.max(...nums) : 0) + 1);
+}
+
+/* 追加しようとしているlabelが、確定済み(committedItems)・未保存のDOM行(domLabels)の
+   どちらかに既にあるかを判定する純関数（前後空白は無視）。 */
+function _payrollDeductionPresetDuplicate(label, committedItems, domLabels) {
+  const existing = new Set(
+    (Array.isArray(committedItems) ? committedItems : []).map(item => String(item?.label || '').trim())
+  );
+  (Array.isArray(domLabels) ? domLabels : []).forEach(value => existing.add(String(value || '').trim()));
+  return existing.has(String(label || '').trim());
+}
+
+function _payrollDeductionNextKey(tbody) {
+  const domKeys = Array.from(tbody.querySelectorAll('tr[data-key]')).map(tr => tr.dataset.key);
+  return _payrollDeductionNextKeyFrom(cfg.payrollDeductions, domKeys);
+}
+
 function payrollDeductionAdd() {
   const tbody = document.querySelector('#cfg-payroll-deductions-table tbody');
   if (!tbody) return;
-  const nums = (Array.isArray(cfg.payrollDeductions) ? cfg.payrollDeductions : [])
-    .map(item => /^ded_(\d+)$/.exec(item?.key || ''))
-    .filter(Boolean).map(match => Number(match[1]));
-  tbody.querySelectorAll('tr[data-key]').forEach(tr => {
-    const match = /^ded_(\d+)$/.exec(tr.dataset.key || '');
-    if (match) nums.push(Number(match[1]));
-  });
-  const key = 'ded_' + ((nums.length ? Math.max(...nums) : 0) + 1);
+  const key = _payrollDeductionNextKey(tbody);
   tbody.insertAdjacentHTML('beforeend', _payrollDeductionRowHTML({ key, label: '', mode: 'fixed', value: 0 }));
   tbody.querySelector('tr:last-child .payroll-deduction-label')?.focus();
   _settingsMarkDirty();
+}
+
+/* 「＋よく使う項目を追加」（送迎/ヘアメイク/衣装代）。2026-08-20新設。
+   manual・単価0で1タップ追加。cfg.payrollDeductionsの自動シードはしない
+   （既存店の日計表に黙って列が生えるのを避ける。オーナー決定）。
+   確定済み・未保存(DOM上の未保存行)どちらにも同名があればスキップする。 */
+const PAYROLL_DEDUCTION_PRESETS = ['送迎', 'ヘアメイク', '衣装代'];
+
+function payrollDeductionAddPreset(label) {
+  const tbody = document.querySelector('#cfg-payroll-deductions-table tbody');
+  if (!tbody) return;
+  const domLabels = Array.from(tbody.querySelectorAll('.payroll-deduction-label')).map(input => input.value);
+  if (_payrollDeductionPresetDuplicate(label, cfg.payrollDeductions, domLabels)) {
+    if (typeof showToast === 'function') showToast(`「${label}」は既に追加されています`);
+    return;
+  }
+  const key = _payrollDeductionNextKey(tbody);
+  tbody.insertAdjacentHTML('beforeend', _payrollDeductionRowHTML({ key, label, mode: 'manual', value: 0 }));
+  _settingsMarkDirty();
+  if (typeof showToast === 'function') showToast(`「${label}」を追加しました（保存ボタンで確定します）`);
 }
 
 async function payrollDeductionDel(btn) {
@@ -22653,7 +22867,6 @@ document.addEventListener('compositionend', e => {
     'html[data-display="tablet"] .customer-picker-search,html[data-display="tablet"] .customer-picker-row,html[data-display="tablet"] .customer-picker-add-toggle,html[data-display="tablet"] .customer-picker-clear,html[data-display="tablet"] .customer-picker-new-name,html[data-display="tablet"] .customer-picker-register{min-height:44px;font-size:15px}',
     'html[data-display="tablet"] .customer-picker-row{min-height:48px}',
     'html[data-display="tablet"] .analytics-preset,html[data-display="tablet"] .analytics-compare-btn,html[data-display="tablet"] #analytics-panel input[type="date"]{min-height:44px;font-size:14px}',
-    'html[data-display="tablet"] .castmgmt-toggle{min-height:44px}',
     /* 第2弾I: POS伝票カードのタブレット専用「畳み」4ルールを削除（オーナー指示
        「一旦デスクトップに近づけて。そこから修正入ろう」）。29-pos-panel.js が付与する
        pos-slip-compact/pos-slip-selected クラス自体はJS無変更のため残るが、CSS側の畳み
@@ -22767,6 +22980,9 @@ document.addEventListener('compositionend', e => {
     'html[data-display="tablet"] #bottle-panel button,html[data-display="tablet"] #bottle-panel input,html[data-display="tablet"] #bottle-panel select{min-height:42px;font-size:14px}',
     'html[data-display="tablet"] .bottle-edit-modal button,html[data-display="tablet"] .bottle-edit-modal input,html[data-display="tablet"] .bottle-edit-modal select,html[data-display="tablet"] .bottle-edit-modal textarea{min-height:42px;font-size:15px}',
     'html[data-display="tablet"] .customer-detail-modal button,html[data-display="tablet"] .customer-detail-modal input,html[data-display="tablet"] .customer-detail-modal select,html[data-display="tablet"] .customer-detail-modal textarea{min-height:42px;font-size:15px}',
+    // キャスト専用ページ（2026-08-20新設）: 一覧ボタンのタップ標的とモーダル内入力欄をタブレットで拡大
+    'html[data-display="tablet"] .cast-mgmt-btn{min-height:52px;padding:12px 18px;font-size:15px}',
+    'html[data-display="tablet"] .cast-detail-modal button,html[data-display="tablet"] .cast-detail-modal input,html[data-display="tablet"] .cast-detail-modal select{min-height:42px;font-size:15px}',
 
     /* ----------------------------------------------------------------
        リスト表：横幅圧縮 2026-08-17（精算列まで横スクロールなしにする）
@@ -23185,6 +23401,15 @@ function _castBackUnit(profile, defaults, field) {
   return (fallback === '' || fallback == null) ? 0 : (Number(fallback) || 0);
 }
 
+/* 時給の2段フォールバック（_castBackUnitの時給版）: 個別 → 店標準時給(cfg.defaultWage) → 0。
+   2026-08-20 オーナー決定で新設。既定0なので店が設定しない限り「空欄=0円」の旧挙動のまま。 */
+function _castWage(profile) {
+  const v = profile && profile.wage;
+  if (v !== '' && v != null) return Number(v) || 0;
+  const fallback = (typeof cfg !== 'undefined' && cfg) ? cfg.defaultWage : 0;
+  return (fallback === '' || fallback == null) ? 0 : (Number(fallback) || 0);
+}
+
 /* ================================================================
    手入力（SP / 日払い / 本数 / 控除）ストア: state.payrollManual[dayKey][castName]
 ================================================================ */
@@ -23335,7 +23560,7 @@ function computePayrollForCast(castName, prodByCast, opts) {
   const castDefaults = ((opts.castDefaults !== undefined) ? opts.castDefaults : state.castDefaults) || {};
 
   /* --- 時間給 --- */
-  const wage = _payNum(profile, 'wage');
+  const wage = _castWage(profile);
   const inHHMM  = (opts.inHHMM  != null) ? opts.inHHMM  : ((tt.clockIns  || {})[castName] || '');
   const outHHMM = (opts.outHHMM != null) ? opts.outHHMM : ((tt.checkouts || {})[castName] || '');
   const workMinutes = calcWorkMinutes(inHHMM, outHHMM);
@@ -23425,6 +23650,20 @@ function computePayrollForCast(castName, prodByCast, opts) {
   /* --- 給率（%）。売上0はゼロ除算回避で null --- */
   const kyuuritsu = (sales > 0) ? (dailyPay / sales * 100) : null;
 
+  /* --- 本指売上・ボトル売上（品目分解。opts.salesByCastが無ければ0=集計対象外日でも新規計算は0円扱い）。
+     月次成績表の品目分解列用。frozen保存時、この2キーが「存在すること」自体が
+     「新方式で計算された日」の目印になる（旧締めデータは丸ごとキー無し→読み側で null=「—」表示）。 --- */
+  const _salesByCast = (opts.salesByCast && opts.salesByCast[castName]) || null;
+  const honshimeiSales = _salesByCast ? (Number(_salesByCast.honshimeiSales) || 0) : 0;
+  const bottleSales = _salesByCast ? (Number(_salesByCast.bottleSales) || 0) : 0;
+
+  /* --- 個人小計売上（2026-08-20新設・給率多指標化）。opts.personalSubtotalByCastが渡された日=新方式
+     で計算された日の目印（このキャストの当日分が無ければ0円）。渡されなければnull=旧締め扱い。
+     frozen保存時、この値の有無で「新キーが存在する日か」を判定する（castMonthlyTotalsが個人給率
+     personal基準の分母/分子の対象日を絞り込む）。 --- */
+  const personalGroups = opts.personalSubtotalByCast || null;
+  const personalSubtotalSales = personalGroups ? (Number(personalGroups[castName]) || 0) : null;
+
   return {
     castName,
     wage, workMinutes, hourlyPay,
@@ -23441,6 +23680,8 @@ function computePayrollForCast(castName, prodByCast, opts) {
     deductionTotal,
     netPay,
     sales, salesSubtotal,
+    honshimeiSales, bottleSales,
+    personalSubtotalSales,
     kyuuritsu,
     kyuuritsuBase: c.kyuuritsuBase,
   };
@@ -23460,7 +23701,9 @@ function computePayrollTable(settled, opts) {
   const prodByCast = agg.prodByCast || {};
   const prodBackByCast = agg.prodBackByCast || {};
   const prodPointsByCast = agg.prodPointsByCast || {};
+  const salesByCast = agg.prodSalesByCast || {};
   const nameGroups = agg.nameGroups || {};
+  const personalSubtotalByCast = agg.personalSubtotalByCast || {};
   const dayKey = opts.dayKey || (typeof getBizDayKey === 'function' ? getBizDayKey() : '');
   const tt = opts.tt || (typeof loadTimetableState === 'function' ? loadTimetableState() : {});
   const manual = (state.payrollManual && state.payrollManual[dayKey]) || {};
@@ -23486,7 +23729,7 @@ function computePayrollTable(settled, opts) {
   if (typeof castsSortedByClockIn === 'function') casts = castsSortedByClockIn(casts, tt);
   else if (typeof castsSortedByNo === 'function') casts = castsSortedByNo(casts);
 
-  const baseOpts = Object.assign({}, opts, { dayKey, tt, manual, nameGroups, prodBackByCast, prodPointsByCast, rows: settled });
+  const baseOpts = Object.assign({}, opts, { dayKey, tt, manual, nameGroups, prodBackByCast, prodPointsByCast, salesByCast, personalSubtotalByCast, rows: settled });
   return casts.map(name => ({
     ...computePayrollForCast(name, prodByCast, baseOpts),
     firstRepeatCount: firstRepeatByCast[name] || 0,
@@ -23857,6 +24100,442 @@ function payslipCastNames(dailycloseStore, from, to) {
       });
     });
   return names;
+}
+
+/* ================================================================
+   キャスト月次成績表（キャスト専用ページ）
+   computePayslip は期間合算のみ返すため、こちらは「1日1行」の日別明細をそのまま
+   frozen.castRowsから並べて返す純関数。合算はcastMonthlyTotalsが担当する。
+================================================================ */
+function castMonthlyRows(dailycloseStore, castName, from, to) {
+  const rows = [];
+  const unlockedDays = [];
+  Object.entries(dailycloseStore && typeof dailycloseStore === 'object' ? dailycloseStore : {})
+    .filter(([key]) => key >= String(from || '') && key <= String(to || ''))
+    .sort(([a], [b]) => a.localeCompare(b))
+    .forEach(([bizKey, record]) => {
+      const frozen = record && typeof record === 'object' && record.frozen && typeof record.frozen === 'object'
+        ? record.frozen : {};
+      if (_payslipNum(frozen.closedAt) <= 0) { unlockedDays.push(bizKey); return; }
+      (Array.isArray(frozen.castRows) ? frozen.castRows : [])
+        .filter(row => String(row?.castName || '') === String(castName || ''))
+        .forEach(row => rows.push({ ...row, bizKey }));
+    });
+  return { rows, unlockedDays };
+}
+
+/* castMonthlyRows()の日別行を合算する純関数。
+   honshimeiSales/bottleSales は2026-08-20新設のためnull（＝旧締めデータ）が混在しうる。
+   1件でも実値があれば「わかる範囲の合計」を出し、全件nullなら合計もnull（「—」表示）にする。 */
+function castMonthlyTotals(rows) {
+  const numFields = [
+    'workMinutes', 'hourlyPay', 'sp', 'backTotal', 'lateFee', 'nibarai',
+    'dailyPay', 'deductionTotal', 'netPay', 'sales', 'salesSubtotal',
+    'pointsTotal', 'firstRepeatCount',
+  ];
+  const totals = {};
+  numFields.forEach(field => { totals[field] = 0; });
+  const backCounts = {};
+  const backAmounts = {};
+  const deductionMap = {};
+  let honshimeiSalesTotal = 0;
+  let hasHonshimeiSales = false;
+  let bottleSalesTotal = 0;
+  let hasBottleSales = false;
+  // 個人小計売上（2026-08-20新設・給率多指標化）: personal基準の分子(日給)・分母(個人小計売上)は
+  // 新キーが存在する日だけをΣする（旧締め日を除外）。対象日数は注記表示用に別途持つ。
+  let personalSubtotalTotal = 0;
+  let hasPersonalSubtotal = false;
+  let personalSubtotalDays = 0;
+  let personalDailyPayTotal = 0;
+
+  (Array.isArray(rows) ? rows : []).forEach(row => {
+    numFields.forEach(field => { totals[field] += _payslipNum(row?.[field]); });
+    if (row && row.honshimeiSales != null) { hasHonshimeiSales = true; honshimeiSalesTotal += _payslipNum(row.honshimeiSales); }
+    if (row && row.bottleSales != null) { hasBottleSales = true; bottleSalesTotal += _payslipNum(row.bottleSales); }
+    if (row && row.personalSubtotalSales != null) {
+      hasPersonalSubtotal = true;
+      personalSubtotalTotal += _payslipNum(row.personalSubtotalSales);
+      personalSubtotalDays += 1;
+      personalDailyPayTotal += _payslipNum(row.dailyPay);
+    }
+    Object.entries(row?.backCounts && typeof row.backCounts === 'object' ? row.backCounts : {})
+      .forEach(([key, value]) => { backCounts[key] = (backCounts[key] || 0) + _payslipNum(value); });
+    Object.entries(row?.backAmounts && typeof row.backAmounts === 'object' ? row.backAmounts : {})
+      .forEach(([key, value]) => { backAmounts[key] = (backAmounts[key] || 0) + _payslipNum(value); });
+    (Array.isArray(row?.deductions) ? row.deductions : []).forEach(item => {
+      const key = String(item?.key || '');
+      if (!key) return;
+      if (!deductionMap[key]) deductionMap[key] = { key, label: '', amount: 0 };
+      deductionMap[key].label = String(item?.label || '');
+      deductionMap[key].amount += _payslipNum(item?.amount);
+    });
+  });
+
+  return {
+    ...totals,
+    days: (Array.isArray(rows) ? rows : []).length,
+    backCounts, backAmounts,
+    deductions: Object.values(deductionMap),
+    honshimeiSales: hasHonshimeiSales ? honshimeiSalesTotal : null,
+    bottleSales: hasBottleSales ? bottleSalesTotal : null,
+    // 期間給率%（Σ日給 ÷ Σ帰属売上 × 100。日別kyuuritsuと同式の期間版）。既存の表示・計算式は不変。
+    kyuuritsuPeriod: totals.sales > 0 ? (totals.dailyPay / totals.sales * 100) : null,
+    // 個人小計売上（2026-08-20新設）: 新キーが存在する日のみのΣ。1日も無ければnull（＝全日旧締め）。
+    personalSubtotalSales: hasPersonalSubtotal ? personalSubtotalTotal : null,
+    personalSubtotalDays,
+    personalDailyPayTotal: hasPersonalSubtotal ? personalDailyPayTotal : null,
+  };
+}
+
+/* ================================================================
+   個人給率（2026-08-20新設・給率多指標化）
+   castMonthlyTotals() の期間集計から、方式(mode)別の給率%を返す純関数。
+   ゼロ除算・分母データ無しはnull（＝画面側で「N/A」表示。0%と混同しない）。100%超はそのまま返す。
+     'personal'  （既定）: 個人小計基準 = Σ総支給 ÷ Σ個人小計売上（新キーが存在する日のみ集計）
+     'honshimei'         : 本指名小計基準 = Σ総支給 ÷ Σ本指名小計売上（既存salesSubtotal・全日集計）
+================================================================ */
+function castPayrollRatioForTotals(totals, mode) {
+  const t = totals || {};
+  if (mode === 'honshimei') {
+    const denom = _payslipNum(t.salesSubtotal);
+    return denom > 0 ? (_payslipNum(t.dailyPay) / denom * 100) : null;
+  }
+  const denom = t.personalSubtotalSales;
+  if (denom == null || !(denom > 0)) return null;
+  return (_payslipNum(t.personalDailyPayTotal) / denom) * 100;
+}
+/* ================================================================
+   キャスト専用ページ（プロフィール設定 + 月次成績表）
+   openPayslipModal と同型のフルスクリーンモーダル（pos-co-overlay流用）。
+   キャスト管理一覧（16-cast-management.js renderCastMgmt）の「名前」タップから開く。
+   仕様: dev/specs/2026-08-20-nightlistdx-キャスト専用ページと月次成績.md
+================================================================ */
+let _castDetailName = '';
+let _castDetailAnchorKey = '';
+
+function openCastDetailModal(name) {
+  if (!state.allCasts || state.allCasts.indexOf(name) < 0) return;
+  _castDetailName = name;
+  _castDetailAnchorKey = getBizDayKey();
+  document.getElementById('cast-detail-overlay')?.remove();
+  document.body.insertAdjacentHTML('beforeend', '<div class="pos-co-overlay" id="cast-detail-overlay" onclick="if(event.target===this)closeCastDetailModal()">'
+    + '<div class="pos-co-panel cast-detail-modal" style="width:min(1200px,97vw);max-height:94vh;display:flex;flex-direction:column">'
+    + '<div class="pos-co-header"><div class="pos-co-title">👤 ' + escHtml(name) + '</div><button class="pos-co-close" onclick="closeCastDetailModal()">×</button></div>'
+    + '<div id="cast-detail-body" style="overflow:auto"></div></div></div>');
+  document.addEventListener('keydown', _castDetailKeydown);
+  renderCastDetailModal();
+}
+
+function closeCastDetailModal() {
+  document.getElementById('cast-detail-overlay')?.remove();
+  document.removeEventListener('keydown', _castDetailKeydown);
+  _castDetailName = '';
+  // 専用ページで単価・番号を編集した可能性があるため、裏の一覧（番号順）を最新化しておく。
+  if (typeof renderCastMgmt === 'function') renderCastMgmt();
+}
+
+function _castDetailKeydown(e) {
+  if (e.key === 'Escape') { closeCastDetailModal(); e.preventDefault(); }
+}
+
+/* 退店・完全削除は既存の retireCast()/deleteCastMaster()（appConfirm確認済み・既存挙動そのまま）を
+   専用ページから呼ぶだけのラッパー。実行後に対象が名簿から消えていたらページを閉じる
+   （消えたキャストの編集画面を開いたままにしないため）。 */
+async function _castDetailRetire(name) {
+  await retireCast(name);
+  if (!state.allCasts || !state.allCasts.includes(name)) closeCastDetailModal();
+}
+async function _castDetailDelete(name) {
+  await deleteCastMaster(name);
+  if (!state.allCasts || !state.allCasts.includes(name)) closeCastDetailModal();
+}
+
+function castDetailMovePeriod(direction) {
+  const period = payslipPeriods(_castDetailAnchorKey, cfg.payrollPeriod);
+  if (!period) return;
+  _castDetailAnchorKey = direction < 0 ? period.prevKey : period.nextKey;
+  renderCastDetailModal();
+}
+
+function _castDetailPlaceholder(amount) {
+  return '空欄=店標準 ¥' + (Number(amount) || 0).toLocaleString();
+}
+
+/* ================================================================
+   個人給率（2026-08-20新設・給率多指標化。仕様B）
+   「期間給率」→「個人給率（○○基準）」に改名し、タップで計算方式を店舗設定として切り替える。
+   店舗設定は cfg.castPayrollRatioMode（personal既定/honshimei）。ゼロ除算・分母データ無しはN/A表示。
+================================================================ */
+function _castPayrollRatioMode() {
+  return cfg.castPayrollRatioMode === 'honshimei' ? 'honshimei' : 'personal';
+}
+function _castPayrollRatioModeLabel(mode) {
+  return mode === 'honshimei' ? '本指名小計基準' : '個人小計基準';
+}
+/* totals = castMonthlyTotals()の戻り値。表示用の { label, valueText, note } を返す純関数寄りのヘルパー。 */
+function _castPayrollRatioDisplay(totals, mode) {
+  const value = castPayrollRatioForTotals(totals, mode);
+  const label = _castPayrollRatioModeLabel(mode);
+  let note = '';
+  if (mode === 'personal' && (totals.days || 0) > 0 && (totals.personalSubtotalDays || 0) < totals.days) {
+    note = '対象' + totals.personalSubtotalDays + '日／全' + totals.days + '日（新集計以前の締めを除く）';
+  }
+  return { label, valueText: value == null ? 'N/A' : value.toFixed(1) + '%', note };
+}
+function setCastPayrollRatioMode(mode) {
+  cfg.castPayrollRatioMode = mode === 'honshimei' ? 'honshimei' : 'personal';
+  saveCfg();
+  renderCastDetailModal();
+}
+function _castPayrollRatioPopoverHtml() {
+  const mode = _castPayrollRatioMode();
+  const option = (value, title, desc) => '<label class="cd-ratio-option"><input type="radio" name="cd-ratio-mode" value="' + value + '"'
+    + (mode === value ? ' checked' : '') + ' onchange="setCastPayrollRatioMode(this.value)">'
+    + '<span><b>' + escHtml(title) + '</b><small>' + escHtml(desc) + '</small></span></label>';
+  return '<div id="cast-payroll-ratio-picker" class="cd-ratio-picker" hidden onclick="event.stopPropagation()">'
+    + '<div class="cd-ratio-picker-title">個人給率の計算方式</div>'
+    + option('personal', '個人小計基準（既定）', 'Σ総支給 ÷ Σ個人小計売上（本指名・同伴・場内・延長指名の卓小計を頭割り）')
+    + option('honshimei', '本指名小計基準', 'Σ総支給 ÷ Σ本指名小計売上（本指名＋同伴卓の小計按分）')
+    + '</div>';
+}
+function _setCastPayrollRatioPickerOpen(open) {
+  const picker = document.getElementById('cast-payroll-ratio-picker');
+  const button = document.querySelector('.cd-monthly-rate-toggle');
+  if (!picker) return;
+  picker.hidden = !open;
+  if (button) button.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+function toggleCastPayrollRatioPicker(event) {
+  if (event) event.stopPropagation();
+  const picker = document.getElementById('cast-payroll-ratio-picker');
+  if (picker) _setCastPayrollRatioPickerOpen(picker.hidden);
+}
+function _closeCastPayrollRatioPickerOnOutside(event) {
+  const picker = document.getElementById('cast-payroll-ratio-picker');
+  if (!picker || picker.hidden || picker.contains(event.target)) return;
+  if (event.target && typeof event.target.closest === 'function' && event.target.closest('.cd-monthly-rate-toggle')) return;
+  _setCastPayrollRatioPickerOpen(false);
+}
+document.addEventListener('click', _closeCastPayrollRatioPickerOnOutside);
+
+/* 上段: プロフィール設定（番号・時給・スライド/保証時給・バック単価全部）。
+   旧castmgmt-tableの巨大表が持っていた編集機能を1つも削らずここへ集約する。 */
+function _castDetailProfileHtml(name) {
+  const p = getCastProfile(name);
+  const d = state.castDefaults || {};
+  const q = _cmq(name);
+  const fieldHtml = ([f, lbl, unit]) => {
+    const placeholder = (f === 'wage') ? _castDetailPlaceholder(cfg.defaultWage) : _castDetailPlaceholder(d[f]);
+    return '<label class="cd-field"><span>' + escHtml(lbl) + ' <small>' + escHtml(unit) + '</small></span>'
+      + '<input type="number" class="settings-input" value="' + (p[f] ?? '') + '" placeholder="' + escHtml(placeholder) + '" onchange="setCastPay(\'' + q + '\',\'' + f + '\',this.value)"></label>';
+  };
+  return '<div class="cd-profile">'
+    + '<div class="cd-profile-grid">'
+    + '<label class="cd-field"><span>番号</span><input type="number" class="settings-input" value="' + (p.no ?? '') + '" onchange="setCastNo(\'' + q + '\',this.value)"></label>'
+    + castPayFields().map(fieldHtml).join('')
+    + '<label class="cd-field"><span>保証時給 <small>円/時</small></span><input type="number" class="settings-input" value="' + (p.guaranteeWage ?? 0) + '" min="0" step="100" onchange="setCastPay(\'' + q + '\',\'guaranteeWage\',this.value)"></label>'
+    + '<label class="cd-field cd-check"><input type="checkbox" ' + (p.slideWage ? 'checked' : '') + ' onchange="setCastSlideWage(\'' + q + '\',this.checked)"><span>スライド時給を適用</span></label>'
+    + '</div>'
+    + '<div class="cd-profile-actions">'
+    + '<button class="btn" onclick="clearCastPayExceptWage(\'' + q + '\')">単価クリア（時給以外）</button>'
+    + '<button class="btn" onclick="_castDetailRetire(\'' + q + '\')">退店</button>'
+    + '<button class="btn danger" onclick="_castDetailDelete(\'' + q + '\')">完全削除</button>'
+    + '</div></div>';
+}
+
+/* 月次成績表の本数列キーを「ドリンク系」と「それ以外」に分ける。
+   ドリンク系（指D/D・サイズ別）は横幅対策で日別列には出さず、表の下の合計行だけに出す。 */
+function _castDetailCountKeys(rows) {
+  const keys = payrollCountKeys(...rows.map(r => (r && r.backCounts) || {}));
+  const isDrinkKey = key => key === '指D' || key === 'D' || /_(shimeiD|freeD)$/.test(key);
+  return {
+    cols: keys.filter(key => !isDrinkKey(key)),
+    drink: keys.filter(isDrinkKey),
+  };
+}
+
+function _castDetailDeductionCell(row, key) {
+  const item = (Array.isArray(row?.deductions) ? row.deductions : []).find(d => d && d.key === key);
+  return item ? (Number(item.amount) || 0) : 0;
+}
+
+/* 月次成績表の本体HTML（プロフィール以外の下段）を組み立てる。印刷にも同じデータを使う。 */
+function _castDetailMonthlyData(name, period) {
+  const store = loadDailyClose();
+  const { rows, unlockedDays } = castMonthlyRows(store, name, period.from, period.to);
+  const totals = castMonthlyTotals(rows);
+  const { cols: countKeys, drink: drinkKeys } = _castDetailCountKeys(rows);
+  const deductionItems = Array.isArray(cfg.payrollDeductions) ? cfg.payrollDeductions : [];
+  return { rows, unlockedDays, totals, countKeys, drinkKeys, deductionItems };
+}
+
+function _castDetailMonthlyTableHtml(data, printMode) {
+  const { rows, totals, countKeys, drinkKeys, deductionItems } = data;
+  const yen = v => (v == null ? '—' : _payslipYen(v));
+  const cnt = (row, key) => { const v = (row.backCounts || {})[key]; return v ? v.toLocaleString() : ''; };
+
+  const head = '<tr>'
+    + '<th class="cd-sticky">日付</th><th>出勤</th><th>退勤</th><th>時間</th>'
+    + '<th>時給</th><th>時間給</th>'
+    + countKeys.map(key => '<th>' + escHtml(_payslipBackLabel(key)) + '</th>').join('')
+    + '<th>バック計</th><th>SP</th><th>日給</th><th>日払い</th>'
+    + deductionItems.map(item => '<th>' + escHtml(item.label || item.key) + '</th>').join('')
+    + (deductionItems.length ? '<th>控除計</th>' : '')
+    + '<th>遅刻罰金</th><th>本指売上</th><th>ボトル売上</th><th>帰属売上</th><th>差引支給</th>'
+    + '</tr>';
+
+  const rowHtml = row => '<tr>'
+    + '<td class="cd-sticky">' + escHtml(_payslipMd(row.bizKey)) + '</td>'
+    + '<td>' + escHtml(row.roundedIn || '') + '</td><td>' + escHtml(row.roundedOut || '') + '</td><td>' + _payslipHm(row.workMinutes) + '</td>'
+    + '<td>' + yen(row.wage) + '</td><td>' + yen(row.hourlyPay) + '</td>'
+    + countKeys.map(key => '<td>' + cnt(row, key) + '</td>').join('')
+    + '<td>' + yen(row.backTotal) + '</td><td>' + yen(row.sp) + '</td><td>' + yen(row.dailyPay) + '</td><td>' + yen(row.nibarai) + '</td>'
+    + deductionItems.map(item => '<td>' + yen(_castDetailDeductionCell(row, item.key)) + '</td>').join('')
+    + (deductionItems.length ? '<td>' + yen(row.deductionTotal) + '</td>' : '')
+    + '<td>' + yen(row.lateFee) + '</td>'
+    + '<td>' + (row.honshimeiSales == null ? '—' : yen(row.honshimeiSales)) + '</td>'
+    + '<td>' + (row.bottleSales == null ? '—' : yen(row.bottleSales)) + '</td>'
+    + '<td>' + yen(row.sales) + '</td><td>' + yen(row.netPay) + '</td>'
+    + '</tr>';
+
+  const body = rows.length ? rows.map(rowHtml).join('')
+    : '<tr><td class="cd-sticky" colspan="' + (10 + countKeys.length + deductionItems.length + (deductionItems.length ? 1 : 0) + 4) + '" style="text-align:center;color:' + (printMode ? '#888' : 'var(--tx3)') + ';padding:18px">締め済みデータがありません</td></tr>';
+
+  const totalRow = rows.length ? ('<tr class="cd-total">'
+    + '<td class="cd-sticky">合計（' + totals.days + '日）</td><td></td><td></td><td>' + _payslipHm(totals.workMinutes) + '</td>'
+    + '<td></td><td>' + yen(totals.hourlyPay) + '</td>'
+    + countKeys.map(key => '<td>' + ((totals.backCounts[key] || 0) ? totals.backCounts[key].toLocaleString() : '') + '</td>').join('')
+    + '<td>' + yen(totals.backTotal) + '</td><td>' + yen(totals.sp) + '</td><td>' + yen(totals.dailyPay) + '</td><td>' + yen(totals.nibarai) + '</td>'
+    + deductionItems.map(item => {
+        const found = totals.deductions.find(d => d.key === item.key);
+        return '<td>' + yen(found ? found.amount : 0) + '</td>';
+      }).join('')
+    + (deductionItems.length ? '<td>' + yen(totals.deductionTotal) + '</td>' : '')
+    + '<td>' + yen(totals.lateFee) + '</td>'
+    + '<td>' + (totals.honshimeiSales == null ? '—' : yen(totals.honshimeiSales)) + '</td>'
+    + '<td>' + (totals.bottleSales == null ? '—' : yen(totals.bottleSales)) + '</td>'
+    + '<td>' + yen(totals.sales) + '</td><td>' + yen(totals.netPay) + '</td>'
+    + '</tr>') : '';
+
+  return '<table class="cd-table"><thead>' + head + '</thead><tbody>' + body + totalRow + '</tbody></table>';
+}
+
+function _castDetailDrinkSummaryHtml(data) {
+  const { totals, drinkKeys } = data;
+  if (!drinkKeys.length) return '';
+  const items = drinkKeys.map(key => escHtml(_payslipBackLabel(key)) + ' ' + ((totals.backCounts[key] || 0)).toLocaleString() + '本').join(' ／ ');
+  return '<div class="cd-drink-summary">ドリンク本数（当月計・横幅対策のため日別列は省略）: ' + items + '</div>';
+}
+
+function _castDetailMonthlyHtml(name, period) {
+  const data = _castDetailMonthlyData(name, period);
+  const warning = data.unlockedDays.length
+    ? '<div class="payslip-warning">⚠ 未締めの日（本日分含む・対象外）: ' + data.unlockedDays.map(_payslipMd).join(', ') + '</div>' : '';
+  const ratioMode = _castPayrollRatioMode();
+  const ratioInfo = _castPayrollRatioDisplay(data.totals, ratioMode);
+  return '<div class="cd-monthly">'
+    + '<div class="cd-monthly-head">'
+    + '<div class="cd-monthly-nav"><button class="btn" onclick="castDetailMovePeriod(-1)">◀ 前期間</button>'
+    + '<b>' + escHtml(period.label) + '</b><button class="btn" onclick="castDetailMovePeriod(1)">次期間 ▶</button></div>'
+    + '<div class="cd-monthly-rate">'
+    + '<button type="button" class="cd-monthly-rate-toggle" onclick="toggleCastPayrollRatioPicker(event)" aria-haspopup="true" aria-expanded="false">'
+    + '個人給率（' + escHtml(ratioInfo.label) + '）<b>' + ratioInfo.valueText + '</b>'
+    + (ratioInfo.note ? '<small>' + escHtml(ratioInfo.note) + '</small>' : '') + '</button>'
+    + _castPayrollRatioPopoverHtml()
+    + '</div>'
+    + '<button class="btn primary" onclick="castMonthlyPrint()"' + (data.rows.length ? '' : ' disabled') + '>🖨 A4印刷</button>'
+    + '</div>'
+    + warning
+    + '<div class="cd-scroll">' + _castDetailMonthlyTableHtml(data, false) + '</div>'
+    + _castDetailDrinkSummaryHtml(data)
+    + '<div class="payslip-legal">※本指売上・ボトル売上は2026-08-20以降に締めた日から集計します。それ以前の締めは「—」表示です。</div>'
+    + '</div>';
+}
+
+function renderCastDetailModal() {
+  const box = document.getElementById('cast-detail-body');
+  if (!box || !_castDetailName) return;
+  const name = _castDetailName;
+  const period = payslipPeriods(_castDetailAnchorKey, cfg.payrollPeriod);
+  box.innerHTML = _castDetailStyles()
+    + _castDetailProfileHtml(name)
+    + (period ? _castDetailMonthlyHtml(name, period) : '<div style="padding:24px;text-align:center;color:var(--tx3)">期間を取得できませんでした</div>');
+}
+
+function _castDetailStyles() {
+  return '<style>'
+    + '.cd-profile{padding:16px 18px;border-bottom:1px solid var(--bdr)}'
+    + '.cd-profile-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(122px,1fr));gap:10px}'
+    + '.cd-field{display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--tx2)}'
+    + '.cd-field small{color:var(--tx3)}'
+    + '.cd-check{flex-direction:row;align-items:center;gap:8px;justify-content:flex-start;padding:8px 0}'
+    + '.cd-check input{width:20px;height:20px}'
+    + '.cd-profile-actions{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap}'
+    + '.cd-monthly{padding:16px 18px}'
+    + '.cd-monthly-head{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:10px}'
+    + '.cd-monthly-nav{display:flex;align-items:center;gap:10px}'
+    + '.cd-monthly-rate{position:relative;margin-left:auto;font-size:13px;color:var(--tx2)}'
+    + '.cd-monthly-rate-toggle{display:flex;align-items:center;gap:6px;min-height:44px;padding:6px 12px;background:var(--sur2);color:var(--tx2);border:1px solid var(--bdr2);border-radius:8px;cursor:pointer;font-size:13px}'
+    + '.cd-monthly-rate-toggle:hover{border-color:var(--gold)}'
+    + '.cd-monthly-rate-toggle b{color:var(--gold2);font-size:15px}'
+    + '.cd-monthly-rate-toggle small{display:block;color:var(--tx3);font-size:10px;font-weight:400}'
+    + '.cd-ratio-picker{position:absolute;z-index:12;right:0;top:calc(100% + 6px);width:min(340px,calc(100vw - 40px));padding:10px;background:var(--sur);color:var(--tx);border:1px solid var(--bdr2);border-radius:8px;box-shadow:0 8px 26px rgba(0,0,0,0.3)}'
+    + '.cd-ratio-picker[hidden]{display:none}'
+    + '.cd-ratio-picker-title{font-size:11px;color:var(--tx3);margin-bottom:6px}'
+    + '.cd-ratio-option{display:flex;align-items:flex-start;gap:8px;min-height:44px;padding:6px 4px;cursor:pointer}'
+    + '.cd-ratio-option input{margin-top:3px;accent-color:var(--gold)}'
+    + '.cd-ratio-option b{display:block;font-size:12px;color:var(--tx)}'
+    + '.cd-ratio-option small{display:block;color:var(--tx3);font-size:11px;line-height:1.4}'
+    + '.cd-scroll{overflow-x:auto;border:1px solid var(--bdr);border-radius:8px}'
+    + '.cd-table{border-collapse:collapse;font-size:11px;width:max-content;min-width:100%;font-variant-numeric:tabular-nums}'
+    + '.cd-table th,.cd-table td{border-bottom:1px solid var(--bdr);padding:5px 7px;text-align:right;white-space:nowrap}'
+    + '.cd-table th{background:var(--sur2);color:var(--tx3);font-weight:600;position:sticky;top:0;z-index:2}'
+    + '.cd-table td.cd-sticky,.cd-table th.cd-sticky{position:sticky;left:0;background:var(--sur);z-index:1;text-align:left}'
+    + '.cd-table th.cd-sticky{background:var(--sur2);z-index:3}'
+    + '.cd-table tr.cd-total td{background:var(--sur2);font-weight:700;border-top:2px solid var(--bdr2)}'
+    + '.cd-drink-summary{margin-top:8px;font-size:11px;color:var(--tx3)}'
+    + '.cd-monthly .payslip-warning{margin-bottom:10px}'
+    + '@media(max-width:900px){.cd-profile-grid{grid-template-columns:repeat(auto-fill,minmax(102px,1fr))}}'
+    + '</style>';
+}
+
+/* A4横で印刷（独立印刷ビュー。24-print-page-generator/payslipPrintと同系のwindow.openパターン）。
+   8/17の教訓（下端黒塗り対策）どおり、@media printでhtml/bodyを白固定する。 */
+function castMonthlyPrint() {
+  const name = _castDetailName;
+  if (!name) return;
+  const period = payslipPeriods(_castDetailAnchorKey, cfg.payrollPeriod);
+  if (!period) return;
+  const data = _castDetailMonthlyData(name, period);
+  if (!data.rows.length) return;
+  const ratioMode = _castPayrollRatioMode();
+  const ratioInfo = _castPayrollRatioDisplay(data.totals, ratioMode);
+  const rateLabel = '個人給率（' + ratioInfo.label + '） ' + ratioInfo.valueText + (ratioInfo.note ? '（' + ratioInfo.note + '）' : '');
+  const w = window.open('', '_blank', 'width=1200,height=900');
+  if (!w) { if (typeof showToast === 'function') showToast('ポップアップがブロックされました'); return; }
+  w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>月次成績 ' + _payslipEsc(name) + '</title><style>'
+    + '@page{size:A4 landscape;margin:8mm}'
+    + 'html,body{background:#fff;color:#000}'
+    + '@media print{html,body{background:#fff !important;background-image:none !important;-webkit-print-color-adjust:exact;print-color-adjust:exact}}'
+    + '*{box-sizing:border-box}body{font-family:"Hiragino Kaku Gothic ProN","Meiryo",sans-serif;margin:0;padding:4mm}'
+    + 'h1{font-size:15pt;text-align:center;margin:0 0 4px;letter-spacing:.2em}'
+    + '.cd-print-meta{text-align:center;font-size:10pt;margin-bottom:8px}'
+    + 'table{border-collapse:collapse;width:100%;font-size:7.5pt}'
+    + 'th,td{border:1px solid #999;padding:2px 4px;text-align:right;white-space:nowrap}'
+    + 'th{background:#eee;font-weight:700}'
+    + 'td:first-child,th:first-child{text-align:left}'
+    + 'tr.cd-total td{font-weight:700;background:#f3f3f3}'
+    + '.cd-drink-summary,.payslip-legal{font-size:8pt;color:#444;margin-top:6px}'
+    + '</style></head><body>'
+    + '<h1>月次成績表</h1>'
+    + '<div class="cd-print-meta">' + _payslipEsc(cfg.shopName || '') + '　' + _payslipEsc(name) + ' 様　' + _payslipEsc(period.label) + '　' + _payslipEsc(rateLabel) + '</div>'
+    + _castDetailMonthlyTableHtml(data, true)
+    + _castDetailDrinkSummaryHtml(data)
+    + '<div class="payslip-legal">※本指売上・ボトル売上は2026-08-20以降に締めた日から集計します。それ以前の締めは「—」表示です。</div>'
+    + '<script>window.onload=function(){window.print()}<\/script>'
+    + '</body></html>');
+  w.document.close();
 }
 /* ================================================================
    領収書印刷（独立ウィンドウ・80mmレシート）
