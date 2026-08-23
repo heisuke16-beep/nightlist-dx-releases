@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.55">
+<meta name="app-version" content="1.0.56">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -14575,9 +14575,10 @@ function _reportPeriodSwitchHtml() {
     + '.report-range-table th{background:var(--sur2);color:var(--tx2);text-align:center}'
     + '.report-range-table td.day{text-align:left}'
     + '.report-range-table tr.total td{background:var(--goldglow);font-weight:700}'
-    + '.agg-wrap{display:flex;gap:18px;align-items:flex-start}'
-    + '.agg-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:18px}'
-    + '.agg-side{width:258px;flex-shrink:0;display:flex;flex-direction:column;gap:14px}'
+    + '.agg-kpibar{display:flex;flex-direction:column;gap:12px;margin-bottom:18px}'
+    + '.agg-kpi-tiles{display:grid;grid-template-columns:minmax(220px,1.3fr) repeat(2,minmax(140px,1fr));gap:12px}'
+    + '.agg-kpi-secs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-items:start}'
+    + '@media(max-width:900px){.agg-kpi-tiles{grid-template-columns:1fr 1fr 1fr}.agg-kpi-secs{grid-template-columns:1fr}}'
     + '.agg-box{background:var(--sur);border:1px solid var(--bdr);border-radius:12px;padding:16px 18px}'
     + '.agg-box-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:10px;flex-wrap:wrap}'
     + '.agg-box-head h3{font-size:14px;color:var(--tx2);margin:0}'
@@ -14611,7 +14612,6 @@ function _reportPeriodSwitchHtml() {
     + '.agg-side-label{font-size:11px;color:var(--tx3);margin-bottom:4px}'
     + '.agg-side-big{font-size:26px;font-weight:800;color:var(--tx)}'
     + '.agg-side-val{font-size:20px;font-weight:700;color:var(--tx)}'
-    + '.agg-side-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}'
     + '.agg-side-sec{background:var(--sur);border:1px solid var(--bdr);border-radius:12px;padding:12px 14px}'
     + '.agg-side-sec h4{font-size:12px;color:#6aa6e8;margin:0 0 8px;font-weight:700}'
     + '.agg-side-row{display:flex;justify-content:space-between;gap:8px;font-size:12px;padding:5px 0;border-top:1px solid var(--bdr);color:var(--tx2)}'
@@ -15208,7 +15208,7 @@ function _aggNameCardsHtml(nameGroups, nominatedCasts) {
   return '<div class="agg-card-grid">' + cards + '</div>';
 }
 
-function _aggSidebarHtml(a, bizKey) {
+function _aggKpiBarHtml(a, bizKey) {
   const catLabels = { vip: 'VIP席', ...Object.fromEntries(resolvePosCatLayout(cfg).map(cat => [cat.key, cat.label])) };
   const catLabel = key => catLabels[key] || (String(key).startsWith('cust_') ? 'その他(' + key + ')' : key);
   const catRows = Object.keys(a.byCategory).filter(k => a.byCategory[k]).sort((x,y) => a.byCategory[y] - a.byCategory[x])
@@ -15221,11 +15221,13 @@ function _aggSidebarHtml(a, bizKey) {
   const repayCash = repayments.filter(entry => entry.method === 'cash').reduce((sum, entry) => sum + (Number(entry.amount) || 0), 0);
   const repayCard = repayments.filter(entry => entry.method === 'card').reduce((sum, entry) => sum + (Number(entry.amount) || 0), 0);
   return ''
-    + '<div class="agg-side-card total"><div class="agg-side-label">総売上</div><div class="agg-side-big" style="color:var(--green)">¥' + a.total.toLocaleString() + '</div></div>'
-    + '<div class="agg-side-grid">'
+    + '<div class="agg-kpibar">'
+    + '<div class="agg-kpi-tiles">'
+      + '<div class="agg-side-card total"><div class="agg-side-label">総売上</div><div class="agg-side-big" style="color:var(--green)">¥' + a.total.toLocaleString() + '</div></div>'
       + '<div class="agg-side-card"><div class="agg-side-label">総客数</div><div class="agg-side-val">' + a.guests + '</div></div>'
       + '<div class="agg-side-card"><div class="agg-side-label">平均客単価</div><div class="agg-side-val">¥' + a.avg.toLocaleString() + '</div></div>'
     + '</div>'
+    + '<div class="agg-kpi-secs">'
     + '<div class="agg-side-sec"><h4>支払方法別</h4>'
       + '<div class="agg-side-row first"><span>現金</span><span class="agg-side-c">' + a.cashCount + '</span><span class="agg-side-a">¥' + a.cashSum.toLocaleString() + '</span></div>'
       + '<div class="agg-side-row"><span>カード</span><span class="agg-side-c">' + a.cardCount + '</span><span class="agg-side-a">¥' + a.cardSum.toLocaleString() + '</span></div>'
@@ -15234,7 +15236,9 @@ function _aggSidebarHtml(a, bizKey) {
       + '<div class="agg-side-row"><span>売掛回収（カード）</span><span class="agg-side-c"></span><span class="agg-side-a">¥' + repayCard.toLocaleString() + '</span></div>'
     + '</div>'
     + '<div class="agg-side-sec"><h4>会計種別</h4>' + srcRows + '</div>'
-    + '<div class="agg-side-sec"><h4>カテゴリ別</h4>' + catRows + '</div>';
+    + '<div class="agg-side-sec"><h4>カテゴリ別</h4>' + catRows + '</div>'
+    + '</div>'
+    + '</div>';
 }
 
 function exportCastProdCSV() {
@@ -15639,9 +15643,8 @@ function _renderReportDay() {
   const cardSortOpts = [['salesDesc','売上が高い順'],['salesAsc','売上が低い順'],['nameAsc','名前順'],['no','番号順']]
     .map(([v,l]) => `<option value="${v}"${reportCardSort===v?' selected':''}>${l}</option>`).join('');
 
-  const dash = `<div class="agg-wrap">
-    <div class="agg-main">
-      <div class="agg-box">
+  const dash = _aggKpiBarHtml(agg, src.dayKey)
+    + `<div class="agg-box">
         <div class="agg-box-head">
           <h3>キャスト別指名売上 <span class="payroll-note">※本指名・同伴で付いた卓の税込総計（場内・延長指名は除外）。出戻り本指は設定「出戻り本指の集計扱い」に従う</span></h3>
           <div class="agg-box-actions">
@@ -15649,10 +15652,7 @@ function _renderReportDay() {
           </div>
         </div>
         ${_aggNameCardsHtml(agg.nameGroups, agg.nominatedCasts)}
-      </div>
-    </div>
-    <aside class="agg-side">${_aggSidebarHtml(agg, src.dayKey)}</aside>
-  </div>`;
+      </div>`;
 
   // 集計見出しは実カレンダー日(new Date)でなく、表示中データの営業日(src.dayKey=getLoadedDayKey由来)。
   // ページヘッダ営業日と必ず一致させる（営業日境界・過去日復元を考慮）。
