@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.54">
+<meta name="app-version" content="1.0.55">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -1294,12 +1294,14 @@ select option { background: var(--sur2); }
   color: #1a1a2e;
   line-height: 1.2;
 }
-.pos-slip-header-sub {
-  font-size: 10px;
-  font-weight: 700;
-  color: #7b8ec8;
-  letter-spacing: 2.5px;
-  margin-top: 2px;
+.pos-slip-header-no {
+  font-size: 9px;
+  font-weight: 600;
+  font-family: 'JetBrains Mono', Consolas, monospace;
+  color: #a3abc2;
+  letter-spacing: 1px;
+  margin-top: 3px;
+  line-height: 1.3;
 }
 .pos-slip-timer-wrap { text-align: right; cursor: pointer; }
 .pos-slip-header-right { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; max-width: 60%; }
@@ -1416,13 +1418,6 @@ select option { background: var(--sur2); }
   border-bottom: 2px solid #1a1a2e;
   padding-bottom: 1px;
   line-height: 1.3;
-}
-.pos-slip-footcell-sub {
-  font-size: 8px;
-  font-weight: 700;
-  letter-spacing: 2px;
-  color: #7b8ec8;
-  margin-top: 5px;
 }
 .pos-slip-sheet-footright { display: flex; flex-direction: column; }
 .pos-slip-sheet-footrow {
@@ -4902,6 +4897,12 @@ function createUsbOwnerTabId() {
   return `nightlist-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
 }
 
+/* デモモード中でもディスクへ書いてよい Persist キー。
+   設定（cfg）だけは練習中の入力を失わせない（2026-08-23 オーナー指示・ボトル品名消失事例）。
+   伝票・リスト表・バックアップ等はデモ終了のreloadで開始前へ戻す設計のため、ここに入れない。 */
+const _DEMO_PERSIST_KEYS = new Set(['settings']);
+function _demoWriteAllowed(name) { return !_demoMode || _DEMO_PERSIST_KEYS.has(name); }
+
 const UsbStore = {
   active: false,
   cache: {},
@@ -5122,19 +5123,18 @@ const UsbStore = {
 
   writeSync(name, raw) {
     this.cache[name] = raw;
-    if (_demoMode) return;   // デモモード中は保存を凍結（cacheのみ更新し、ディスクへは書かない）
+    if (!_demoWriteAllowed(name)) return;   // デモモード中は設定以外の保存を凍結（cacheのみ更新し、ディスクへは書かない）
     this._dirty.add(name);
     this._scheduleFlush();
   },
 
   async flush(names) {
-    if (_demoMode) return;
     if (!this.active || this._fenced || !this._dirHandle) return;
     clearTimeout(this._flushTimer);
     this._flushTimer = null;
     const ownsWrites = await this._checkOwnershipBeforeFlush();
     if (!ownsWrites) return;
-    const targets = names ? Array.from(names) : Array.from(this._dirty);
+    const targets = (names ? Array.from(names) : Array.from(this._dirty)).filter(_demoWriteAllowed);
     if (!targets.length) return;
     const failed = [];
     for (const name of targets) {
@@ -6362,11 +6362,24 @@ const SelfUpdate = {
     // いま開いているファイル名での探索を最優先にする。記憶済みハンドルを先にすると、
     // 配信ファイルのリネーム後に (a)旧ファイル消滅→未捕捉例外で即失敗
     // (b)旧ファイル残存→開いていない方を書き換えて成功表示、の両方が起きる（2026-07-21店舗で実発生）。
+    if (fileName) {
+      try {
+        const sameFolderHandle = await UsbStore._dirHandle.getFileHandle(fileName);
+        if (await this._ensureFilePermission(sameFolderHandle) && await this._verifyAppIdentity(sameFolderHandle)) {
+          await this._saveHandle('appFile', sameFolderHandle);
+          return sameFolderHandle;
+        }
+      } catch (_) {}
+    }
+    // フォールバック1.5: PWA化でルート直下（例 http://localhost:8940/）から開くと
+    // location.pathnameからファイル名が取れず上の探索が空振りする（2026-08-20タブレット実機で発生）。
+    // フォルダ直下（非再帰）を列挙し、app-versionが自分と一致するHTMLが1件だけならそれを採用する。
+    // 2件以上一致したら誤ファイル書き換え防止のため採用せず次段へ進む（2026-07-21の教訓を踏襲）。
     try {
-      const sameFolderHandle = await UsbStore._dirHandle.getFileHandle(fileName);
-      if (await this._ensureFilePermission(sameFolderHandle) && await this._verifyAppIdentity(sameFolderHandle)) {
-        await this._saveHandle('appFile', sameFolderHandle);
-        return sameFolderHandle;
+      const scanned = await this._findSingleMatchingAppFileInFolder();
+      if (scanned) {
+        await this._saveHandle('appFile', scanned);
+        return scanned;
       }
     } catch (_) {}
     // フォールバック: 記憶済みハンドル（アプリ本体がUSB外にある構成用）。
@@ -6392,6 +6405,22 @@ const SelfUpdate = {
     }
     await this._saveHandle('appFile', picked);
     return picked;
+  },
+
+  async _findSingleMatchingAppFileInFolder() {
+    if (typeof UsbStore._dirHandle?.entries !== 'function') return null;
+    let matched = null;
+    for await (const [name, handle] of UsbStore._dirHandle.entries()) {
+      if (handle?.kind && handle.kind !== 'file') continue;
+      if (!/\.html?$/i.test(name)) continue;
+      try {
+        if (!await this._ensureFilePermission(handle)) continue;
+        if (!await this._verifyAppIdentity(handle)) continue;
+      } catch (_) { continue; }
+      if (matched) return null; // 2件以上一致 → 誤ファイル書き換え防止のため採用しない
+      matched = handle;
+    }
+    return matched;
   },
 
   async _ensureFilePermission(handle) {
@@ -6694,6 +6723,7 @@ const CFG_DEFAULTS = {
   extFeeOnHonshimei:   true, // 本指名延長時に延長指名料を加算
   extFeeOnJounai:      true, // 場内指名延長時に延長指名料を加算
   extFeeOnEnchoshimei: true, // 延長指名→再延長時に延長指名料を加算
+  extAutoShimeiFee:    false, // 延長◯分を押したとき、卓の指名キャストぶんの延長指名料（本指名延長/延長指名）を自動追加する（false=手入力・既定）
   extBasePerSeat:      true,  // 延長基本料を席数ぶん取る（false=卓単位・延長1回ぶん）
   extFeePerSeat:       false, // 延長指名料を席数ぶん取る（false=延長1回ぶん＝指名1人につき1回）
   doubanAsHonshimeiExt: true, // 同伴を本指名扱いで延長指名料を取る（false=同伴は延長指名料なし）
@@ -6893,7 +6923,6 @@ function migrateShimeiExtModel() {
   if (typeof saveState === 'function') saveState();
   return true;
 }
-
 /* ================================================================
    STATE
 ================================================================ */
@@ -7013,7 +7042,7 @@ async function devResetTimetable() {
    終了時のlocation.reloadで開始時点のディスク内容へ復帰する。 */
 async function demoModeStart() {
   if (_demoMode) return;
-  const ok = await appConfirm('デモモードを開始します。デモ中の操作（伝票の作成・編集・精算など）は保存されません。終了すると、デモ開始前の状態に戻ります。');
+  const ok = await appConfirm('デモモードを開始します。デモ中の伝票・リスト表の操作（作成・編集・精算など）は保存されず、終了するとデモ開始前の状態に戻ります。設定画面での変更（料金・メニュー・店ルールなど）はデモ中でも保存されます。');
   if (!ok) return;
   saveState();
   await UsbStore.flush();
@@ -7024,14 +7053,14 @@ async function demoModeStart() {
   _demoMode = true;
   renderSettingsPanel();
   updateClock();
-  showToast('🎬 デモモードを開始しました（変更は保存されません）');
+  showToast('🎬 デモモードを開始しました（伝票・リスト表は保存されません／設定は保存されます）');
 }
 
 /* デモモード終了: デモ中の変更は一切ディスクへ書かれていないため、
    開き直せばUSBフォルダは開始時点のまま＝そこへ自然に復帰する。 */
 async function demoModeEnd() {
   if (!_demoMode) return;
-  const ok = await appConfirm('デモモードを終了します。デモ中に作成・変更した内容はすべて消え、デモ開始前のデータに戻ります。', { danger: true });
+  const ok = await appConfirm('デモモードを終了します。デモ中の伝票・リスト表の変更は消え、デモ開始前のデータに戻ります（設定の変更は残ります）。', { danger: true });
   if (!ok) return;
   location.reload();
 }
@@ -11241,6 +11270,54 @@ function _posExtRounds(row) {
   });
   return out;
 }
+/* 指名キャストごとの延長指名料数量を、指定分数の延長ラウンド数に揃える。 */
+function _posAutoExtShimeiFeeSync(row, min) {
+  const targetMin = Number(min);
+  if (!row || !targetMin) return;
+  const rounds = _posExtRounds(row).filter(r => r.min === targetMin).length;
+  const departed = _posDepartedCasts(row);
+  _posTableDesignations(row).forEach(d => {
+    if (!d.cast || departed.includes(d.cast)) return;
+    let type = '';
+    if (d.role === '本指名') type = 'honen';
+    else if (d.role === '同伴' && cfg.doubanAsHonshimeiExt !== false) type = 'honen';
+    else if (d.role === '場内' || d.role === '延長指名') type = 'enshi';
+    if (!type) return;
+
+    const items = shimeiExtGroup(type);
+    const key = type + String(targetMin);
+    const item = items.find(candidate => candidate.key === key)
+      || items.find(candidate => String(candidate.label || '').match(/(\d+)/)?.[1] === String(targetMin));
+    if (!item) return;
+
+    const orders = posOrders(row);
+    const matches = orders.filter(o => {
+      const name = String(o.name || '');
+      const separator = name.indexOf(':');
+      return o.category === item.key && separator >= 0 && name.slice(separator + 1) === d.cast;
+    });
+    const cur = matches.reduce((sum, o) => sum + (Number(o.qty) || 1), 0);
+    if (cur < rounds) {
+      for (let i = cur; i < rounds; i++) {
+        posAddItem(item.label + ':' + d.cast, Number(item.amount) || 0, item.key, undefined, { noDesignation:true });
+      }
+      return;
+    }
+    let remove = cur - rounds;
+    for (let i = orders.length - 1; i >= 0 && remove > 0; i--) {
+      const order = orders[i];
+      const name = String(order.name || '');
+      const separator = name.indexOf(':');
+      if (order.category !== item.key || separator < 0 || name.slice(separator + 1) !== d.cast) continue;
+      const qty = Number(order.qty) || 1;
+      const amount = Math.min(qty, remove);
+      const nextQty = qty - amount;
+      remove -= amount;
+      if (nextQty > 0) order.qty = nextQty;
+      else orders.splice(i, 1);
+    }
+  });
+}
 /* 空場内（金額0円・キャスト無しの場内ボタン）の、延長1ラウンドあたりの繰延上乗せ額。
    同一伝票（グループ先頭行）の posOrders から category==='jonai_empty' を集め、Σ(qty × defer) を返す。
    defer は空場内投入時点の cfg.jonaiFee のスナップショット（posAddItem が刻印）。
@@ -11889,13 +11966,6 @@ function _posPickUnusedColor() {
   return pool[Math.floor(Math.random() * pool.length)].hex;
 }
 
-const _POS_SOURCE_EN = {
-  'フロント':'FRONT', '本指名':'HONSHIMEI', '同伴':'DOUHAN',
-  'フリー':'FREE', '紹介':'REFERRAL',
-  '本指名(無料チケット)':'FREE TICKET', '本指名(イベント)':'EVENT',
-  'フリー(イベント)':'FREE EVENT',
-};
-
 function _posSlipCard(r, isSelected, totalCount, mode, padRows) {
   const BODY_ROWS = mode === 'report' ? Math.max(padRows || 0, 1) : ((totalCount || 1) > 6 ? 5 : 14);
   const orders = posOrders(r);
@@ -11906,7 +11976,6 @@ function _posSlipCard(r, isSelected, totalCount, mode, padRows) {
   const people = r.gcount || 1;
   const table = r.tableNum ? posTableLabel(r.tableNum) : '-';
   const source = r.source || '';
-  const sourceEn = _POS_SOURCE_EN[source] || source.replace(/[^\x20-\x7E]/g,'').toUpperCase().slice(0,12);
 
   // 表示順を固定: ①SET（最上段）→ ②指名・延長など脳みそ側ライン → ③その他オーダー（ドリンク・延指）
   const setOrders   = orders.filter(o => o.category === 'set');
@@ -11982,7 +12051,7 @@ function _posSlipCard(r, isSelected, totalCount, mode, padRows) {
     + '<div class="pos-slip-sheet-header">'
     +   '<div class="pos-slip-header-left">'
     +     '<div class="pos-slip-header-name">' + escHtml(source) + '</div>'
-    +     '<div class="pos-slip-header-sub">' + escHtml(sourceEn) + '</div>'
+    +     '<div class="pos-slip-header-no">No.' + escHtml(slipNoLabel(r)) + '</div>'
     +   '</div>'
     +   (isReport ? '' : '<div class="pos-slip-header-right">' + _posSlipTimerBlock(r) + _posSlipAdvanceBadge(r) + '</div>')
     + '</div>'
@@ -11993,7 +12062,6 @@ function _posSlipCard(r, isSelected, totalCount, mode, padRows) {
     +     '<div class="pos-slip-footcell-count"><div class="pos-slip-footcell-val">' + people + '名</div></div>'
     +     '<div class="pos-slip-footcell-table">'
     +       '<div class="pos-slip-footcell-val">' + escHtml(posTableDisplay(table)) + '</div>'
-    +       '<div class="pos-slip-footcell-sub">TABLE</div>'
     +     '</div>'
     +   '</div>'
     +   '<div class="pos-slip-sheet-footright">'
@@ -14758,8 +14826,8 @@ function _payrollTd(content, className, groupStart) {
 function _payrollTableColumns(countCols, deductionItems, showPoints) {
   const deductionOptionLabel = deductionItems.map(item => item.label || '').concat(['控除計', '差引支給']).join('・');
   const cols = [
-    { id:'clockin', group:'work', label:'出勤', cell:(x, start) => _payrollTd(_payrollClockSelectHtml(x.r.inHHMM, roundClockIn, "payrollSetClockIn('" + x.cj + "', this.value)"), '', start), total:(x, start) => _payrollTd('', '', start) },
-    { id:'clockout', group:'work', label:'退勤', cell:(x, start) => _payrollTd(_payrollClockSelectHtml(x.r.outHHMM, roundClockOut, "payrollSetClockOut('" + x.cj + "', this.value)"), '', start), total:(x, start) => _payrollTd('', '', start) },
+    { id:'clockin', group:'work', label:'出勤', cell:(x, start) => _payrollTd(x.plain ? (x.r.inHHMM || '') : _payrollClockSelectHtml(x.r.inHHMM, roundClockIn, "payrollSetClockIn('" + x.cj + "', this.value)"), '', start), total:(x, start) => _payrollTd('', '', start) },
+    { id:'clockout', group:'work', label:'退勤', cell:(x, start) => _payrollTd(x.plain ? (x.r.outHHMM || '') : _payrollClockSelectHtml(x.r.outHHMM, roundClockOut, "payrollSetClockOut('" + x.cj + "', this.value)"), '', start), total:(x, start) => _payrollTd('', '', start) },
     { id:'work', group:'work', label:'勤務', cell:(x, start) => _payrollTd(_payWorkLabel(x.r.workMinutes), '', start), total:(x, start) => _payrollTd('', '', start) },
     { id:'hourly', group:'work', label:'時間給', cell:(x, start) => _payrollTd(x.hasOut ? _payYen(x.r.hourlyPay) : '—', 'pay-amt' + (x.hasOut ? '' : ' pay-muted'), start), total:(x, start) => _payrollTd('', '', start) },
     ...countCols.map(([id, label]) => ({
@@ -14767,6 +14835,10 @@ function _payrollTableColumns(countCols, deductionItems, showPoints) {
       cell:(x, start) => {
         const auto = x.autoCounts[id] || 0;
         const hasMan = x.manCounts[id] != null;
+        if (x.plain) {
+          const value = hasMan ? x.manCounts[id] : auto;
+          return _payrollTd(value ? value : '', '', start);
+        }
         return _payrollTd('<input type="number" class="pay-in' + (hasMan ? ' pay-edited' : '') + '" value="' + (hasMan ? x.manCounts[id] : '') + '" placeholder="' + auto + '" onchange="payrollSetCount(\'' + x.cj + '\', \'' + id + '\', this.value)">', '', start);
       },
       total:(x, start) => _payrollTd('', '', start),
@@ -14774,16 +14846,20 @@ function _payrollTableColumns(countCols, deductionItems, showPoints) {
     { id:'firstRepeat', group:'pay', label:'初リピ', cell:(x, start) => _payrollTd((x.r.firstRepeatCount || 0).toLocaleString('ja-JP'), 'pay-total', start), total:(x, start) => _payrollTd(x.tot.firstRepeat.toLocaleString('ja-JP'), 'pay-total', start) },
     ...(showPoints ? [{ id:'points', group:'pay', label:'ポイント', cell:(x, start) => _payrollTd((x.r.pointsTotal || 0).toLocaleString('ja-JP') + 'pt', 'pay-total', start), total:(x, start) => _payrollTd(x.tot.points.toLocaleString('ja-JP') + 'pt', 'pay-total', start) }] : []),
     { id:'prodBack', group:'pay', label:'商品B', cell:(x, start) => _payrollTd(x.r.prodBack ? _payYen(x.r.prodBack) : '—', 'pay-amt' + (x.r.prodBack ? '' : ' pay-muted'), start), total:(x, start) => _payrollTd(x.tot.prodBack ? _payYen(x.tot.prodBack) : '—', 'pay-amt', start) },
-    { id:'sp', group:'pay', label:'SP', cell:(x, start) => _payrollTd('<input type="number" class="pay-in" value="' + (x.r.sp || '') + '" placeholder="0" onchange="payrollSetSP(\'' + x.cj + '\', this.value)">', '', start), total:(x, start) => _payrollTd('', '', start) },
+    { id:'sp', group:'pay', label:'SP', cell:(x, start) => _payrollTd(x.plain ? (x.r.sp ? _payYen(x.r.sp) : '') : '<input type="number" class="pay-in" value="' + (x.r.sp || '') + '" placeholder="0" onchange="payrollSetSP(\'' + x.cj + '\', this.value)">', '', start), total:(x, start) => _payrollTd('', '', start) },
     { id:'backTotal', group:'pay', label:'バック合計', cell:(x, start) => _payrollTd(_payYen(x.r.backTotal), 'pay-total', start), total:(x, start) => _payrollTd(_payYen(x.tot.back), 'pay-total', start) },
     { id:'late', group:'pay', label:'遅刻', cell:(x, start) => _payrollTd(x.r.lateFee ? '-' + _payYen(x.r.lateFee) : '—', 'pay-amt' + (x.r.lateFee ? '' : ' pay-muted'), start), total:(x, start) => _payrollTd(x.tot.late ? '-' + _payYen(x.tot.late) : '—', 'pay-amt', start) },
-    { id:'nibarai', group:'pay', label:'日払い', cell:(x, start) => _payrollTd('<input type="number" class="pay-in" value="' + (x.r.nibarai || '') + '" placeholder="0" onchange="payrollSetNibarai(\'' + x.cj + '\', this.value)">', '', start), total:(x, start) => _payrollTd(_payYen(x.tot.nibarai), 'pay-amt', start) },
+    { id:'nibarai', group:'pay', label:'日払い', cell:(x, start) => _payrollTd(x.plain ? (x.r.nibarai ? _payYen(x.r.nibarai) : '') : '<input type="number" class="pay-in" value="' + (x.r.nibarai || '') + '" placeholder="0" onchange="payrollSetNibarai(\'' + x.cj + '\', this.value)">', '', start), total:(x, start) => _payrollTd(_payYen(x.tot.nibarai), 'pay-amt', start) },
     { id:'dailyPay', group:'pay', label:'日給', cell:(x, start) => _payrollTd(x.hasOut ? _payYen(x.r.dailyPay) : '（時給未確定）', 'pay-daily' + (x.hasOut ? '' : ' pay-muted'), start), total:(x, start) => _payrollTd(_payYen(x.tot.daily), 'pay-daily', start) },
     ...deductionItems.map((item, index) => ({
       id:'deductions', group:'pay', label:item.label || '', optionLabel:deductionOptionLabel,
       cell:(x, start) => {
         const calculated = (x.r.deductions || [])[index] || {};
         const hasMan = Object.prototype.hasOwnProperty.call(x.manualDeductions, item.key);
+        if (x.plain) {
+          const value = hasMan ? x.manualDeductions[item.key] : (calculated.auto || 0);
+          return _payrollTd(x.hasOut && value ? _payYen(value) : '', '', start);
+        }
         return _payrollTd('<input type="number" class="pay-in' + (hasMan ? ' pay-edited' : '') + '" value="' + (hasMan ? x.manualDeductions[item.key] : '') + '" placeholder="' + (calculated.auto || 0) + '" onchange="payrollSetDeduction(\'' + x.cj + '\', \'' + item.key + '\', this.value)">', '', start);
       },
       total:(x, start) => _payrollTd('', '', start),
@@ -15183,53 +15259,26 @@ function exportCastProdCSV() {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
   showToast('CSVを保存しました');
 }
-/* 日計表を紙フォーム風に別ウィンドウで印刷（閲覧中の営業日#15対象）。
-   列: No|1h|社交名|出勤|退勤|時間|時間給|本指|本延|20延|40延|場内|同伴|指D|D|SP|サービス給|日給|日払い。
-   下部にキャスト別指名売上。社員(ボーイ)名欄は出さない。 */
+/* 画面の日計表と同じ全列をA4横で印刷（閲覧中の営業日#15対象）。 */
 function printReport() {
   const src = (typeof _reportDaySource === 'function') ? _reportDaySource() : { dayKey: getBizDayKey(), rows: state.rows, tt: {} };
   const settled = (src.rows || []).filter(r => r.isFirst && r.settled);
-  const rows = (typeof computePayrollTable === 'function') ? computePayrollTable(settled, { dayKey: src.dayKey, tt: src.tt }) : [];
+  const model = _payrollTableModel(src);
+  const fullModel = { ...model, visibleColumns:model.columns };
+  // 印刷幅対策: 指名内訳・ドリンク内訳（本数列）の見出しだけ縦書きにして列幅を詰める（A4横に縮小なしで収める・2026-08-23実測）。
+  // pay-column-row には社交名のthが無い（group-rowでrowspan）ため、1列目=最初の勤務列。
+  const _workN  = model.columns.filter(c => c.group === 'work').length;
+  const _countN = model.columns.filter(c => c.group === 'shimei' || c.group === 'drink').length;
+  const _vertFrom = _workN + 1, _vertTo = _workN + _countN;
+  const tableHtml = model.rows.length
+    ? _payrollTableInnerHtml(src, fullModel, { plain:true })
+    : '<div class="empty">出勤キャストがいません</div>';
   const agg  = (typeof computeReportAgg === 'function') ? computeReportAgg(settled) : { nameGroups: {} };
   const nameGroups = agg.nameGroups || {};
-  const checkouts = (src.tt && src.tt.checkouts) || {};
-  const deductionItems = (typeof cfg !== 'undefined' && Array.isArray(cfg.payrollDeductions)) ? cfg.payrollDeductions : [];
-  const countCols = _payrollCountCols(rows, agg.shimeiLabels);
 
   const key = src.dayKey || '';
   const y = key.slice(0,4), mo = +key.slice(4,6), da = +key.slice(6,8);
   const wd = (key.length === 8 && typeof WEEKDAYS !== 'undefined') ? WEEKDAYS[new Date(+y, mo-1, da).getDay()] : '';
-
-  const cntV = (r, k) => {
-    const man = r.manualCounts || {}, au = r.autoCounts || r.backCounts || {};
-    const v = (man[k] != null) ? man[k] : (au[k] || 0);
-    return v ? v : '';
-  };
-  const hm = (min) => { min = Number(min) || 0; if (min <= 0) return ''; return Math.floor(min/60) + ':' + String(min%60).padStart(2,'0'); };
-  const yen = (n) => { n = Number(n) || 0; return n ? n.toLocaleString() : ''; };
-
-  const MIN_ROWS = 20;
-  let body = '';
-  rows.forEach((r, i) => {
-    const hasOut = !!checkouts[r.castName];
-    const deductionCells = deductionItems.length
-      ? (r.deductions || []).map(item => '<td>' + (hasOut ? yen(item.amount) : '') + '</td>').join('')
-        + '<td>' + (hasOut ? yen(r.deductionTotal) : '') + '</td>'
-        + '<td>' + (hasOut ? yen(r.netPay) : '') + '</td>'
-      : '';
-    body += '<tr>'
-      + '<td class="n">' + (i+1) + '</td><td></td>'
-      + '<td class="nm">' + escHtml(r.castName) + '</td>'
-      + '<td>' + (r.roundedIn || '') + '</td><td>' + (r.roundedOut || '') + '</td>'
-      + '<td>' + hm(r.workMinutes) + '</td><td>' + (hasOut ? yen(r.hourlyPay) : '') + '</td>'
-      + countCols.map(([countKey]) => '<td>' + cntV(r, countKey) + '</td>').join('')
-      + '<td>' + yen(r.sp) + '</td><td></td>'
-      + '<td>' + (hasOut ? yen(r.dailyPay) : '') + '</td>' + deductionCells + '<td>' + yen(r.nibarai) + '</td>'
-      + '</tr>';
-  });
-  for (let i = rows.length; i < MIN_ROWS; i++) {
-    body += '<tr><td class="n">' + (i+1) + '</td>' + '<td></td>'.repeat(10 + countCols.length + (deductionItems.length ? deductionItems.length + 2 : 0)) + '</tr>';
-  }
 
   const nameItems = Object.keys(nameGroups)
     .map(c => ({ c, t: nameGroups[c].total || 0 }))
@@ -15237,35 +15286,36 @@ function printReport() {
     .map(x => '<div class="nb-item"><span>' + escHtml(x.c) + '</span><span class="a">¥' + x.t.toLocaleString() + '</span></div>').join('')
     || '<div style="color:#888;padding:6px">指名売上なし</div>';
 
-  const heads = ['1h','社交名','出勤','退勤','時間','時間給', ...countCols.map(([, label]) => label), 'SP','サービス給','日給',
-    ...deductionItems.map(item => String(item.label || '')), ...(deductionItems.length ? ['控除計','差引支給'] : []), '日払い'];
-  const colW = [16,18,52,34,34,30,40, ...countCols.map(() => 24), 30,40,44,
-    ...deductionItems.map(() => 36), ...(deductionItems.length ? [38,42] : []), 40];
-  const _colTot = colW.reduce((a, b) => a + b, 0);
-  const cols = colW.map(w => '<col style="width:' + (w / _colTot * 100).toFixed(3) + '%">').join('');
-
   const w = window.open('', '_blank', 'width=920,height=1240');
   if (!w) { if (typeof showToast === 'function') showToast('ポップアップがブロックされました'); return; }
   w.document.write(
     '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>日計表</title><style>'
-    + '@page{size:A4 portrait;margin:8mm}'
-    + '*{box-sizing:border-box}body{font-family:"Hiragino Kaku Gothic ProN","Meiryo",sans-serif;color:#000;margin:0;padding:0 2.5mm}'
-    + 'h1{font-size:15pt;text-align:center;font-weight:700;margin:0 0 4px;letter-spacing:4px}'
-    + '.hd{font-size:10pt;text-align:center;margin-bottom:8px}'
-    + 'table.dp{width:100%;border-collapse:separate;border-spacing:0;table-layout:fixed;border-top:1px solid #000;border-left:1px solid #000}'
-    + 'table.dp th,table.dp td{border-right:1px solid #000;border-bottom:1px solid #000;font-size:7pt;text-align:center;padding:1px;height:17px;overflow:hidden;white-space:nowrap}'
-    + 'table.dp th{background:#eee;font-weight:700;font-size:6.5pt}'
-    + 'table.dp td.n{color:#888;font-size:6.5pt}table.dp td.nm{text-align:left;padding-left:2px}'
-    + '.namebox{border:1.5px solid #000;padding:6px 10px;min-height:55mm;margin-top:10px}'
-    + '.namebox h3{font-size:10pt;margin:0 0 6px;border-bottom:1px solid #000;padding-bottom:3px}'
-    + '.nb-list{column-count:3;column-gap:16px}'
-    + '.nb-item{display:flex;justify-content:space-between;gap:8px;padding:2px 4px;border-bottom:1px dotted #999;font-size:9.5pt;break-inside:avoid}'
-    + '.nb-item .a{text-align:right;white-space:nowrap;font-family:monospace}'
+    + '@page { size: A4 landscape; margin: 8mm 10mm; }'
+    + '* { box-sizing: border-box; }'
+    + 'body { font-family: "Hiragino Kaku Gothic ProN", "Meiryo", sans-serif; color:#000; margin:0; }'
+    + 'h1 { font-size:14pt; text-align:center; font-weight:700; margin:0 0 2px; letter-spacing:.3em; }'
+    + '.hd { font-size:10pt; text-align:center; margin-bottom:6px; }'
+    + 'table.payroll-table { width:100%; border-collapse:collapse; table-layout:auto; }'
+    + 'table.payroll-table th, table.payroll-table td { border:1px solid #000; padding:2px 3px; font-size:9pt; text-align:right; white-space:nowrap; line-height:1.25; }'
+    + 'table.payroll-table th { background:#e6e6e6; font-weight:700; text-align:center; font-size:8.5pt; }'
+    + (_countN > 0 ? 'table.payroll-table tr.pay-column-row th:nth-child(n+' + _vertFrom + '):nth-child(-n+' + _vertTo + ') { writing-mode:vertical-rl; text-align:left; padding:4px 2px; letter-spacing:0; line-height:1.1; }' : '')
+    + 'table.payroll-table th.pay-group-head { background:#cfcfcf; font-size:9pt; letter-spacing:.1em; }'
+    + 'table.payroll-table td.pay-name, table.payroll-table th.pay-name { text-align:left; font-weight:700; white-space:nowrap; }'
+    + 'table.payroll-table tbody tr:nth-child(even) td { background:#f4f4f4; }'
+    + 'table.payroll-table tr.pay-totalrow td { background:#e6e6e6; font-weight:700; border-top:2px solid #000; }'
+    + 'table.payroll-table .pay-group-start { border-left:2px solid #000; }'
+    + 'table.payroll-table .pay-muted { color:#777; }'
+    + 'thead { display: table-header-group; } tr { break-inside: avoid; }'
+    + '.namebox { border:1.5px solid #000; padding:6px 10px; margin-top:10px; break-inside:avoid; }'
+    + '.namebox h3 { font-size:10pt; margin:0 0 6px; border-bottom:1px solid #000; padding-bottom:3px; }'
+    + '.nb-list { column-count:4; column-gap:16px; }'
+    + '.nb-item { display:flex; justify-content:space-between; gap:8px; padding:2px 4px; border-bottom:1px dotted #999; font-size:9.5pt; break-inside:avoid; }'
+    + '.nb-item .a { text-align:right; white-space:nowrap; font-family:monospace; }'
+    + '.empty { padding:20px; text-align:center; color:#666; font-size:10pt; }'
     + '</style></head><body>'
     + '<h1>日計表</h1>'
-    + '<div class="hd">' + (y || '____') + ' 年 ' + (mo || '__') + ' 月 ' + (da || '__') + ' 日 ' + (wd ? '（' + wd + '）' : '') + '　　記入者 ＿＿＿＿＿＿</div>'
-    + '<table class="dp"><colgroup>' + cols + '</colgroup><thead><tr><th></th>' + heads.map(h => '<th>' + h + '</th>').join('') + '</tr></thead>'
-    + '<tbody>' + body + '</tbody></table>'
+    + '<div class="hd">' + (y || '____') + ' 年 ' + (mo || '__') + ' 月 ' + (da || '__') + ' 日 ' + (wd ? '（' + wd + '）' : '') + '</div>'
+    + tableHtml
     + '<div class="namebox"><h3>キャスト別指名売上</h3><div class="nb-list">' + nameItems + '</div></div>'
     + '<script>window.onload=function(){window.print()}<\/script>'
     + '</body></html>'
@@ -15373,7 +15423,7 @@ function _payrollTableModel(src) {
 
 /* テーブル本体（再描画対象）。computePayrollTable を呼び直して最新化。
    src = #15 の { dayKey, rows, tt }（省略時は当日ライブを内部解決）。 */
-function _payrollTableInnerHtml(src, model) {
+function _payrollTableInnerHtml(src, model, opts = { plain:false }) {
   model = model || _payrollTableModel(src);
   src = model.src;
   const rows = model.rows;
@@ -15406,7 +15456,7 @@ function _payrollTableInnerHtml(src, model) {
       tot.net += r.netPay || 0;
     }
 
-    const ctx = { r, cj, hasOut, manualDeductions, autoCounts, manCounts, tot };
+    const ctx = { r, cj, hasOut, manualDeductions, autoCounts, manCounts, tot, plain:opts.plain === true };
     return '<tr>'
       + '<td class="pay-name">' + escHtml(c) + '</td>'
       + visibleColumns.map((col, index) => col.cell(ctx, index === 0 || col.group !== visibleColumns[index - 1].group)).join('')
@@ -15421,8 +15471,10 @@ function _payrollTableInnerHtml(src, model) {
 
   const head = _payrollTableHeaderFromColumns(visibleColumns);
 
-  return '<div class="payroll-scroll" tabindex="0" role="region" aria-label="日計表。横にスクロールできます"><table class="payroll-table">'
-    + head + '<tbody>' + body + totRow + '</tbody></table></div>';
+  const table = '<table class="payroll-table">' + head + '<tbody>' + body + totRow + '</tbody></table>';
+  return opts.plain === true
+    ? table
+    : '<div class="payroll-scroll" tabindex="0" role="region" aria-label="日計表。横にスクロールできます">' + table + '</div>';
 }
 
 function _payrollColumnPickerHtml(columns) {
@@ -15559,11 +15611,8 @@ function _renderReportDay() {
   const settled = (src.rows || []).filter(r => r.isFirst && r.settled);
   const agg = computeReportAgg(settled);
   const isPast = src.dayKey !== getLoadedDayKey();
-  // 商品集計を日計表と一致させるため、同じ backCounts(同伴昇格＋手修正反映済み)を取り出して渡す。
   const _payRows = (typeof computePayrollTable === 'function')
     ? computePayrollTable(settled, { dayKey: src.dayKey, tt: src.tt }) : [];
-  const backByCast = {};
-  _payRows.forEach(r => { backByCast[r.castName] = r.backCounts; });
 
   const count = settled.length;
   const sortOptions = POS_REPORT_SORTS.map(([v,l]) =>
@@ -15592,16 +15641,6 @@ function _renderReportDay() {
 
   const dash = `<div class="agg-wrap">
     <div class="agg-main">
-      <div class="agg-box">
-        <div class="agg-box-head">
-          <h3>キャスト別商品集計</h3>
-          <div class="agg-box-actions">
-            <button onclick="printReport()">🖨 印刷</button>
-            <button onclick="exportCastProdCSV()">💾 CSV保存</button>
-          </div>
-        </div>
-        ${_aggProdTableHtml(agg.prodByCast, backByCast, agg.shimeiLabels)}
-      </div>
       <div class="agg-box">
         <div class="agg-box-head">
           <h3>キャスト別指名売上 <span class="payroll-note">※本指名・同伴で付いた卓の税込総計（場内・延長指名は除外）。出戻り本指は設定「出戻り本指の集計扱い」に従う</span></h3>
@@ -15678,7 +15717,6 @@ async function posReportDelete(gid) {
   renderReportPanel();
   showToast(`No.${slipNoLabel(row)} を完全削除しました`);
 }
-
 /* ================================================================
    日次締め（日計表の下半分）
 ================================================================ */
@@ -16986,6 +17024,7 @@ async function posOrderEditDeleteExt(extIdx, opts) {
     grp.forEach(r => { r.endMin = newEnd; });
   }
   syncVipFeeOrder(row);
+  if (cfg.extAutoShimeiFee && typeof _posAutoExtShimeiFeeSync === 'function') _posAutoExtShimeiFeeSync(row, Number(min));
   saveState(); renderTable(); renderPOSPanel();
   if (typeof _posOeRerender === 'function') _posOeRerender();
   showToast('延長' + min + '分 を削除しました');
@@ -17366,7 +17405,7 @@ function _posPickDesignationTarget(groupRows, cast, desigType) {
     const head = document.createElement('div');
     head.className = 'pos-drink-pick-head';
     const title = document.createElement('span');
-    const desigLabel = { honshimei:'指名', douban:'同伴', jounai:'場内' }[desigType] || '指名';
+    const desigLabel = { honshimei:'指名', douban:'同伴', jounai:'場内', enchoshimei:'延長指名' }[desigType] || '指名';
     title.textContent = desigLabel + ':' + cast + ' — どのお客様につきますか？';
     head.appendChild(title);
     const close = document.createElement('button');
@@ -17414,6 +17453,16 @@ function _posPickDesignationTarget(groupRows, cast, desigType) {
   });
 }
 
+/* 同じ組のリスト表行に、そのキャストが指名（本指名/同伴/場内/延長指名/出戻り指名）として載っているか。
+   mainCast が一致しても mainType が free/modori_free なら「未指名」扱い。 */
+function _posCastDesignatedInList(row, cast) {
+  const isDesig = t => SHIMEI_TYPES.includes(t) || t === 'modori_honshimei' || t === 'modori_enchoshimei';
+  return state.rows.some(r => r.gid === row.gid && (
+    (r.mainCast === cast && isDesig(r.mainType)) ||
+    (Array.isArray(r.subCasts) && r.subCasts.some(s => s && s.cast === cast && isDesig(s.type)))
+  ));
+}
+
 /* 指名オーダーをリスト表の指名欄へ書き込む（2026-07-20）。
    - 書き込み先の客行: そのキャストが今座っている行。分からなければ組の先頭行
    - その行に指名キャストが未設定なら mainCast/mainType、埋まっていれば subCasts へ
@@ -17448,6 +17497,7 @@ async function _posApplyDesignationToList(row, cast, desigType) {
   if (usedFallback) showToast('入客' + (groupRows.indexOf(target) + 1) + 'に付けました');
 }
 async function posAddItem(name, amount, category, spShares) {
+  const opts = arguments[4];
   let row = posSelectedRow();
   if (!row) { posCreateSlip(1); row = posSelectedRow(); }
   if (!row) return;
@@ -17505,6 +17555,16 @@ async function posAddItem(name, amount, category, spShares) {
     if (cast) await _posApplyDesignationToList(row, cast, desigType);
     renderTable();
   }
+  // 延指（延長指名料）オーダー: まだ指名として載っていないキャストなら「延長指名」としてリスト表へ反映する。
+  // 場内・本指名などで既に付いている子の種別は変えない（場内のまま延指を取るのは正常な運用）。
+  // 自動加算（_posAutoExtShimeiFeeSync）経由は opts.noDesignation で抑止する（ピッカーが延長操作の途中で開かないように）。
+  if (!desigType && /^enshi/.test(category || '') && !(opts && opts.noDesignation)) {
+    const cast = name.includes(':') ? name.slice(name.indexOf(':') + 1) : '';
+    if (cast && typeof _posCastDesignatedInList === 'function' && !_posCastDesignatedInList(row, cast)) {
+      await _posApplyDesignationToList(row, cast, 'enchoshimei');
+      renderTable();
+    }
+  }
   // 延長をリスト表の延長欄へ自動反映。
   // 多人数卓(2名以上)は「今アクティブな席（=基本席数−帰宅人数）」にだけ振り分ける。
   // 帰宅後に入れた延長は減った席数ぶんしか入らない＝既存の延長は変えず、次の延長から席数が減る。
@@ -17539,6 +17599,7 @@ async function posAddItem(name, amount, category, spShares) {
         grp.forEach(r => { r.endMin = newEnd; });
       }
       syncVipFeeOrder(row);
+      if (cfg.extAutoShimeiFee && typeof _posAutoExtShimeiFeeSync === 'function') _posAutoExtShimeiFeeSync(row, Number(min));
       renderTable();
     }
   }
@@ -18951,9 +19012,9 @@ function renderSettingsPanel() {
               <colgroup><col style="width:180px"><col style="width:110px"><col style="width:120px"><col style="width:120px"><col style="width:80px"><col style="width:52px"></colgroup>
               <thead><tr><th>項目名</th><th>金額（円）</th><th>指名バック（円）</th><th>通常バック（円）</th><th>pt</th><th></th></tr></thead>
               <tbody>${_feeMasterGroupHeadHTML('指名・同伴')}${fixedRows}</tbody>
-              <tbody>${_feeMasterGroupHeadHTML('本延', 'honen')}</tbody>
+              <tbody>${_feeMasterGroupHeadHTML('本指名延長', 'honen')}</tbody>
               <tbody id="cfg-shimei-honen">${shimeiExtGroup('honen').map(item => _shimeiExtSettingsRowHTML('honen', item)).join('')}</tbody>
-              <tbody>${_feeMasterGroupHeadHTML('延指', 'enshi')}</tbody>
+              <tbody>${_feeMasterGroupHeadHTML('延長指名', 'enshi')}</tbody>
               <tbody id="cfg-shimei-enshi">${shimeiExtGroup('enshi').map(item => _shimeiExtSettingsRowHTML('enshi', item)).join('')}</tbody>
               <tbody>${_feeMasterGroupHeadHTML('ドリンク', 'drink')}</tbody>
               <tbody id="cfg-drink-items">${drinkItemList().map(item => _feeMasterDrinkRowHTML(item)).join('')}${_feeMasterShotRowHTML(shotLabel(), CD.shimeiD, CD.freeD)}</tbody>
@@ -19067,6 +19128,10 @@ function renderSettingsPanel() {
           <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:13px">
             <input type="checkbox" id="cfg-extBasePerSeat" ${cfg.extBasePerSeat !== false ? 'checked' : ''} style="margin-top:2px">
             <div><b>延長料金を人数ぶん取る</b><div style="font-size:11px;color:var(--tx3)">ON: 3名なら延長料×3／OFF: 卓に1回ぶんだけ</div></div>
+          </label>
+          <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:13px">
+            <input type="checkbox" id="cfg-extAutoShimeiFee" ${cfg.extAutoShimeiFee ? 'checked' : ''} style="margin-top:2px">
+            <div><b>延長を押したら指名料を自動で入れる</b><div style="font-size:11px;color:var(--tx3)">ON: 延長◯分を押すと、卓に付いている本指名（同伴）→本指名延長◯分、場内・延長指名→延長指名◯分をキャスト別に自動追加。延長を×で消すと自動分も一緒に消えます／OFF: 今までどおり手入力（おすすめの初期値）</div></div>
           </label>
           <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:13px">
             <input type="checkbox" id="cfg-extFeePerSeat" ${cfg.extFeePerSeat ? 'checked' : ''} style="margin-top:2px">
@@ -19550,7 +19615,7 @@ function renderSettingsPanel() {
       <div class="settings-section-header"><span class="settings-section-title">🎬 デモモード</span></div>
       <div class="settings-section-body">
         <div class="settings-row">
-          <div class="settings-label">デモモード<div class="settings-sub">${_demoMode ? 'デモ中の変更は保存されません。終了すると元のデータに戻ります' : '練習・確認用に一時的な状態で操作できます（終了すると開始前のデータに戻ります）'}</div></div>
+          <div class="settings-label">デモモード<div class="settings-sub">${_demoMode ? 'デモ中の伝票・リスト表の変更は保存されません（終了で元に戻ります）。設定の変更は保存されます' : '練習・確認用に一時的な状態で操作できます（伝票・リスト表は終了で開始前に戻ります。設定の変更は残ります）'}</div></div>
           ${_demoMode
             ? `<button class="btn danger" onclick="demoModeEnd()">⏹ デモモードを終了</button>`
             : `<button class="btn" onclick="demoModeStart()">🎬 デモモードを開始</button>`}
@@ -20256,6 +20321,7 @@ async function applySettings() {
   const tillFloat       = Math.max(0, parseInt(get('cfg-tillFloat')?.value) || 0);
   const discountAfterTax = !!(get('cfg-discountAfterTax')?.checked);
   // 延長・課金の店ルール
+  const extAutoShimeiFee    = !!(get('cfg-extAutoShimeiFee')?.checked);
   const extBasePerSeat      = !!(get('cfg-extBasePerSeat')?.checked);
   const extFeePerSeat       = !!(get('cfg-extFeePerSeat')?.checked);
   const doubanAsHonshimeiExt = !!(get('cfg-doubanAsHonshimeiExt')?.checked);
@@ -20401,7 +20467,7 @@ async function applySettings() {
     extFeeHonshimeiAmt, extFeeJounaiAmt, extFeeEnchoshimeiAmt,
     extFeeHonshimeiAmts, extFeeJounaiAmts, extFeeEnchoshimeiAmts,
     extFeeOnHonshimei, extFeeOnJounai, extFeeOnEnchoshimei, extPrices,
-    extBasePerSeat, extFeePerSeat, doubanAsHonshimeiExt, modoriHonshimeiAgg, modoriEnchoshimeiAgg,
+    extAutoShimeiFee, extBasePerSeat, extFeePerSeat, doubanAsHonshimeiExt, modoriHonshimeiAgg, modoriEnchoshimeiAgg,
     taxRate, taxRound, discountAfterTax, cardFeeRate, cardFeeRound, tillFloat,
     showCountdown, fullscreenOnBoot, posMenu, posCatLayout, posCustomCats, posPrices, shimeiExtItems, drinkItems, shotLabel,
     receiptStoreName1, receiptStoreAddr, receiptStoreTel, receiptInvoiceNo, receiptNote,
@@ -22709,7 +22775,7 @@ async function __boot() {
   // ブラウザを閉じる前に未保存警告（リスト表データ・設定パネルの両方をチェック）
   window.addEventListener('beforeunload', e => {
     if (UsbStore._fenced) return;
-    if (_demoMode) return;   // デモ中の変更は保存しない仕様のため、離脱警告も出さない
+    if (_demoMode && !_settingsDirty) return;   // デモ中は伝票・リスト表を保存しないので警告不要。ただし設定は保存対象なので未保存なら警告する
     if (_appExitIntent) return;   // ESC終了確認から保存済みで閉じる意図＝ネイティブ警告と二重にしない
     if ((_unsavedChanges && state.rows.length > 0) || _settingsDirty) {
       e.preventDefault();
