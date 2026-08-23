@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.59">
+<meta name="app-version" content="1.0.60">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -2844,6 +2844,8 @@ table#customer-table { border-collapse: collapse; width: 100%; min-width: 800px;
 .settings-sub {
   font-size: 10px; color: var(--tx3); margin-top: 2px;
 }
+.pay-logic { margin: 4px 0 0 1.2em; padding: 0; font-size: 12px; color: var(--tx2); line-height: 1.7; }
+.pay-logic b { color: var(--tx); }
 .settings-group-head { margin:18px 0 6px; padding-top:12px; border-top:1px solid var(--bdr); font-size:11px; font-weight:700; color:var(--tx2); letter-spacing:0.04em; }
 .settings-group-head.first { border-top:none; padding-top:0; margin-top:4px; }
 .pos-me-acc { width:100%; }
@@ -6781,6 +6783,10 @@ const CFG_DEFAULTS = {
   // --- 給与端数丸め（客側会計の丸めとは独立） ---
   payrollRoundMode:              'round', // 'round' | 'floor' | 'ceil'
   payrollRoundUnit:              1,       // 1 | 10 | 100 円
+  // --- 給与ルールの店別切替（2026-08-24・初期値は従来の動き） ---
+  payrollDouhanAddsHonshimei:    true,  // 同伴を本指名の本数に+1（本指バックも付く）
+  payrollDouhanAddsHonenFirst:   true,  // 同伴を本指名延長の先頭項目（本延20等）の本数に+1
+  payrollSpInBackTotal:          true,  // SP（手入力＋ボトル折半）をバック合計（＝日給）に含める。false=参考表示のみ
   // --- 控除項目（店舗定義。空=控除機能オフ＝日計表の表示は従来どおり） ---
   // key はラベル変更後も不変。mode: fixed=固定額 / rate=日給×率% / manual=都度手入力
   payrollDeductions:             [],
@@ -14640,6 +14646,8 @@ function _reportPeriodSwitchHtml() {
     + '.payroll-table td.pay-daily{color:var(--gold);font-weight:800;text-align:right;font-size:12px}'
     + '.payroll-table td.pay-net{color:var(--green);font-weight:800;text-align:right;font-size:12px}'
     + '.payroll-table td.pay-rate{color:var(--tx2);font-weight:600}'
+    + '.pay-bd-btn{margin-left:6px;font-size:11px;padding:0 6px;border-radius:10px;border:1px solid var(--bdr2);background:var(--sur2);color:var(--tx2);cursor:pointer}'
+    + '.pay-bd-table{width:100%;border-collapse:collapse;font-size:13px}.pay-bd-table td{padding:6px 8px;border-bottom:1px solid var(--bdr)}.pay-bd-table td.k{color:var(--tx2);white-space:nowrap;width:6em}.pay-bd-table td.v{text-align:right;font-family:var(--mono)}'
     + '.payroll-table tr.pay-totalrow td{background:var(--sur2);font-weight:700;border-top:2px solid var(--bdr2);color:var(--tx)}'
     + '.payroll-table input.pay-in{box-sizing:border-box;width:42px;font-size:11px;padding:3px 2px;background:var(--sur2);color:var(--tx);border:1px solid var(--bdr2);border-radius:5px;text-align:right}'
     + '.payroll-table input.pay-in:focus{outline:none;border-color:var(--gold)}'
@@ -15475,7 +15483,57 @@ function _payrollTableModel(src) {
   const showPoints = typeof cfg !== 'undefined' && cfg.pointsEnabled === true;
   const columns = _payrollTableColumns(countCols, deductionItems, showPoints);
   const hiddenCols = (typeof cfg !== 'undefined' && Array.isArray(cfg.payrollHiddenCols)) ? cfg.payrollHiddenCols : [];
-  return { src, rows, columns, visibleColumns:_payrollVisibleColumns(columns, hiddenCols) };
+  return { src, rows, countCols, columns, visibleColumns:_payrollVisibleColumns(columns, hiddenCols) };
+}
+
+function _payrollBreakdownHtml(r, src, countCols) {
+  if (!r) return '';
+  src = src || {};
+  countCols = countCols || _payrollCountCols([r], {});
+  const dayLabel = (typeof bizKeyToLabel === 'function') ? bizKeyToLabel(src.dayKey || '') : String(src.dayKey || '');
+  const workMinutes = Math.max(0, Number(r.workMinutes) || 0);
+  const workLabel = `${Math.floor(workMinutes / 60)}時間${workMinutes % 60}分`;
+  const backLines = countCols.filter(([key]) => Number(r.backCounts?.[key]) || 0).map(([key, label]) => {
+    const count = Number(r.backCounts?.[key]) || 0;
+    const unit = Number(r.backUnits?.[key]) || 0;
+    const amount = Number(r.backAmounts?.[key]) || 0;
+    return `${escHtml(label)} ${count}×${_payYen(unit)}＝${_payYen(amount)}`;
+  });
+  const spNote = (typeof cfg !== 'undefined' && cfg.payrollSpInBackTotal === false) ? '（参考・日給に含めず）' : '';
+  const deductions = Array.isArray(r.deductions) ? r.deductions : [];
+  const rows = [
+    `<tr><td class="k">勤務</td><td class="v">${escHtml(_payClock24(r.roundedIn) || '—')}→${escHtml(_payClock24(r.roundedOut) || '—')}（${workLabel}）　時間給 ${_payYen(r.hourlyPay)}${r.outHHMM ? '' : '<br>※退勤未入力のため時間給は未確定'}</td></tr>`,
+    `<tr><td class="k">バック</td><td class="v">${backLines.length ? backLines.join('<br>') + '<br>' : ''}商品バック ${_payYen(r.prodBack)}　SP ${_payYen(r.sp)}${spNote}<br>バック合計 ${_payYen(r.backTotal)}</td></tr>`,
+    Number(r.lateFee) ? `<tr><td class="k">遅刻罰金</td><td class="v">−${_payYen(r.lateFee)}（${Number(r.chikokuMin) || 0}分）</td></tr>` : '',
+    `<tr><td class="k">日給</td><td class="v">${_payYen(r.dailyPay)} ＝ 時間給 ${_payYen(r.hourlyPay)} ＋ バック ${_payYen(r.backTotal)} − 遅刻 ${_payYen(r.lateFee)}</td></tr>`,
+    deductions.length ? `<tr><td class="k">控除</td><td class="v">${deductions.map(item => `${escHtml(item.label || '')} ${_payYen(item.amount)}`).join(' ／ ')}<br>控除計 ${_payYen(r.deductionTotal)}</td></tr>` : '',
+    `<tr><td class="k">差引支給</td><td class="v">${_payYen(r.netPay)}</td></tr>`,
+    `<tr><td class="k">給率</td><td class="v">${Number(r.sales) > 0 && r.kyuuritsu != null ? `${Number(r.kyuuritsu).toFixed(1)}%（売上 ${_payYen(r.sales)}）` : '—'}</td></tr>`,
+  ].filter(Boolean).join('');
+  return `<div id="payroll-breakdown-overlay" class="pos-co-overlay" onclick="if(event.target===this)payrollCloseBreakdown()">
+    <div class="pos-co-panel">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px"><b>${escHtml(r.castName)} の日給内訳（${escHtml(dayLabel)}）</b><button type="button" onclick="payrollCloseBreakdown()" aria-label="閉じる">×</button></div>
+      <table class="pay-bd-table"><tbody>${rows}</tbody></table>
+    </div>
+  </div>`;
+}
+
+function payrollCloseBreakdown() {
+  document.getElementById('payroll-breakdown-overlay')?.remove();
+}
+
+/* 内訳表示用: 深夜の内部表記（25:00 等）を 01:00 表記に戻す */
+function _payClock24(hhmm) {
+  const m = /^(d{1,2}):(d{2})$/.exec(String(hhmm || ''));
+  if (!m) return hhmm || '';
+  return String(Number(m[1]) % 24).padStart(2, '0') + ':' + m[2];
+}
+function payrollShowBreakdown(castName) {
+  const model = _payrollTableModel(_reportDaySource());
+  const row = model.rows.find(r => r.castName === castName);
+  if (!row) return;
+  payrollCloseBreakdown();
+  document.body.insertAdjacentHTML('beforeend', _payrollBreakdownHtml(row, model.src, model.countCols));
 }
 
 /* テーブル本体（再描画対象）。computePayrollTable を呼び直して最新化。
@@ -15515,7 +15573,7 @@ function _payrollTableInnerHtml(src, model, opts = { plain:false }) {
 
     const ctx = { r, cj, hasOut, manualDeductions, autoCounts, manCounts, tot, plain:opts.plain === true };
     return '<tr>'
-      + '<td class="pay-name">' + escHtml(c) + '</td>'
+      + '<td class="pay-name">' + escHtml(c) + (opts.plain === true ? '' : '<button type="button" class="pay-bd-btn" title="日給の内訳" aria-label="' + escHtml(c) + ' の日給の内訳" onclick="payrollShowBreakdown(\'' + cj + '\')">ⓘ</button>') + '</td>'
       + visibleColumns.map((col, index) => col.cell(ctx, index === 0 || col.group !== visibleColumns[index - 1].group)).join('')
       + '</tr>';
   }).join('');
@@ -19495,6 +19553,30 @@ function renderSettingsPanel() {
     <div class="settings-section" data-setcat="cast">
       <div class="settings-section-header"><span class="settings-section-title">💴 給与計算ルール</span></div>
       <div class="settings-section-body">
+        <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:6px">
+          <div class="settings-label"><b>給与計算のしくみ</b><div class="settings-sub">日計表の日給はこの順で計算されます（値は現在の設定）</div></div>
+          <ol class="pay-logic">
+            <li>① <b>時間給</b> ＝ 時給 × 勤務分 ÷ 60（1円未満四捨五入）。出勤は ${cfg.payrollClockInRoundMin ?? 30} 分単位で切り上げ、退勤は ${cfg.payrollClockOutRoundMin ?? 30} 分単位（${cfg.payrollClockOutRoundThreshold ?? 15} 分を境に四捨五入）。時給はキャスト個別→空欄なら店標準時給 ¥${Number(cfg.defaultWage) || 0}</li>
+            <li>② <b>バック</b> ＝ 本数 × バック単価（本指・本指名延長・延長指名・場内・同伴・指名ドリンク・フリードリンク）＋ 商品バック。単価はキャスト個別→空欄ならキャスト既定バック。本数は伝票から自動集計（日計表で手修正可）</li>
+            <li>③ <b>SP</b> ＝ 手入力 ＋ ボトル折半ぶん（SP参考値の率 ${(Number(cfg.payrollBottleSpRate ?? 0.2) * 100).toLocaleString('ja-JP')}%）</li>
+            <li>④ <b>遅刻罰金</b> ＝ ${cfg.payrollLateFineUnitMin ?? 15} 分ごとに ¥${Number(cfg.payrollLateFineAmt ?? 1000).toLocaleString('ja-JP')}</li>
+            <li>⑤ <b>日給</b> ＝ 時間給 ＋ バック合計（＝②＋③） − 遅刻罰金</li>
+            <li>⑥ <b>控除計</b> ＝ 控除項目の合計（${(Array.isArray(cfg.payrollDeductions) ? cfg.payrollDeductions : []).map(item => escHtml(item.label || '')).filter(Boolean).join('・') || '未設定'}）／ <b>差引支給</b> ＝ 日給 − 控除計</li>
+            <li>⑦ <b>給率</b> ＝ 日給 ÷ キャスト帰属売上 × 100（参考値）</li>
+          </ol>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">同伴を本指名の本数に数える<div class="settings-sub">ON: 同伴1件につき本指名+1（本指バックも付く）／OFF: 同伴バックのみ</div></div>
+          <label><input type="checkbox" id="cfg-payrollDouhanAddsHonshimei" ${cfg.payrollDouhanAddsHonshimei !== false ? 'checked' : ''}> 有効にする</label>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">同伴を本指名延長の先頭項目に数える<div class="settings-sub">ON: 同伴1件につき本指名延長の先頭項目（例: 本延20）+1／OFF: 加算しない</div></div>
+          <label><input type="checkbox" id="cfg-payrollDouhanAddsHonenFirst" ${cfg.payrollDouhanAddsHonenFirst !== false ? 'checked' : ''}> 有効にする</label>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">SPをバック合計（日給）に含める<div class="settings-sub">ON: 手入力SP・ボトル折半を日給に含める／OFF: 参考表示のみで日給には含めない</div></div>
+          <label><input type="checkbox" id="cfg-payrollSpInBackTotal" ${cfg.payrollSpInBackTotal !== false ? 'checked' : ''}> 有効にする</label>
+        </div>
         <div class="settings-row">
           <div class="settings-label">店標準時給<div class="settings-sub">キャスト個別の時給が空欄のときに自動で適用（バックの標準額と同じ仕組み）。空欄=店標準を使わない旧挙動のまま。入力した時点で保存されます</div></div>
           <span style="display:flex;gap:6px;align-items:center">
@@ -20560,6 +20642,13 @@ async function applySettings() {
   const payrollLateFineUnitMin        = _payNumGet('cfg-payrollLateFineUnitMin', 'payrollLateFineUnitMin') ?? 15;
   const payrollLateFineAmt            = _payNumGet('cfg-payrollLateFineAmt', 'payrollLateFineAmt') ?? 1000;
   const payrollBottleSpRate           = _payNumGet('cfg-payrollBottleSpRate', 'payrollBottleSpRate') ?? 0.2;
+  const _payBoolGet = (id, key) => {
+    const el = get(id);
+    return el ? !!el.checked : cfg[key] !== false;
+  };
+  const payrollDouhanAddsHonshimei = _payBoolGet('cfg-payrollDouhanAddsHonshimei', 'payrollDouhanAddsHonshimei');
+  const payrollDouhanAddsHonenFirst = _payBoolGet('cfg-payrollDouhanAddsHonenFirst', 'payrollDouhanAddsHonenFirst');
+  const payrollSpInBackTotal = _payBoolGet('cfg-payrollSpInBackTotal', 'payrollSpInBackTotal');
   const defaultWage                   = _payNumGet('cfg-defaultWage', 'defaultWage') ?? 0;
   const payrollPeriod                 = get('cfg-payrollPeriod')?.value === 'half' ? 'half' : 'month';
   const payrollSlideSource            = get('cfg-payrollSlideSource')?.value === 'prev' ? 'prev' : 'current';
@@ -20631,6 +20720,7 @@ async function applySettings() {
     receiptStoreName1, receiptStoreAddr, receiptStoreTel, receiptInvoiceNo, receiptNote,
     payrollClockInRoundMin, payrollClockOutRoundMin, payrollClockOutRoundThreshold,
     payrollLateFineUnitMin, payrollLateFineAmt, payrollBottleSpRate, defaultWage, payrollPeriod,
+    payrollDouhanAddsHonshimei, payrollDouhanAddsHonenFirst, payrollSpInBackTotal,
     payrollSlideTable, payrollSlideSource, payrollPeriodDeductions, payrollRoundMode, payrollRoundUnit,
     payrollDeductions,
     payrollHiddenCols: Array.isArray(cfg.payrollHiddenCols) ? cfg.payrollHiddenCols : [],
@@ -23538,6 +23628,15 @@ function _payrollCfg(opts) {
     spRate: (opts.spRate != null) ? opts.spRate
           : ((typeof cfg !== 'undefined' && cfg.payrollBottleSpRate != null) ? cfg.payrollBottleSpRate
           : ((typeof cfg !== 'undefined' && cfg.spRate != null) ? cfg.spRate : 0.2)),
+    payrollDouhanAddsHonshimei: (opts.payrollDouhanAddsHonshimei !== undefined)
+      ? opts.payrollDouhanAddsHonshimei !== false
+      : !(typeof cfg !== 'undefined' && cfg.payrollDouhanAddsHonshimei === false),
+    payrollDouhanAddsHonenFirst: (opts.payrollDouhanAddsHonenFirst !== undefined)
+      ? opts.payrollDouhanAddsHonenFirst !== false
+      : !(typeof cfg !== 'undefined' && cfg.payrollDouhanAddsHonenFirst === false),
+    payrollSpInBackTotal: (opts.payrollSpInBackTotal !== undefined)
+      ? opts.payrollSpInBackTotal !== false
+      : !(typeof cfg !== 'undefined' && cfg.payrollSpInBackTotal === false),
   };
 }
 
@@ -23779,7 +23878,8 @@ function calcSpReference(bottleSubtotal, opts) {
      nameGroups,                   // computeReportAgg().nameGroups（売上算出に使用）
      inHHMM, outHHMM,              // 出退勤の上書き（手修正値）。省略時は tt から取得
      sp, nibarai,                  // SP/日払いの明示上書き（省略時は manual / state から）
-     kyuuritsuBase, spRate         // 設定上書き
+     kyuuritsuBase, spRate,        // 設定上書き
+     payrollDouhanAddsHonshimei, payrollDouhanAddsHonenFirst, payrollSpInBackTotal
    }
 ================================================================ */
 function computePayrollForCast(castName, prodByCast, opts) {
@@ -23809,11 +23909,11 @@ function computePayrollForCast(castName, prodByCast, opts) {
   const honenFirst = shimeiExtGroup('honen')[0]?.key;
   const autoCounts = {};
   countKeys.forEach(key => {
-    if (key === '本指') autoCounts[key] = (Number(p['指']) || 0) + douhanCnt;
+    if (key === '本指') autoCounts[key] = (Number(p['指']) || 0) + (c.payrollDouhanAddsHonshimei ? douhanCnt : 0);
     else if (key === '場内') autoCounts[key] = Number(p['場']) || 0;
     else if (key === '同伴') autoCounts[key] = douhanCnt;
     else if (key === '指D' || key === 'D' || /_(shimeiD|freeD)$/.test(key)) autoCounts[key] = Number(p[key]) || 0;
-    else autoCounts[key] = (Number(p[key]) || 0) + (key === honenFirst ? douhanCnt : 0);
+    else autoCounts[key] = (Number(p[key]) || 0) + (key === honenFirst && c.payrollDouhanAddsHonenFirst ? douhanCnt : 0);
   });
   // #12 手修正があれば優先、なければ自動集計。空欄で自動値に戻る（manualCounts に欠落＝自動）。
   const backCounts = {};
@@ -23824,9 +23924,11 @@ function computePayrollForCast(castName, prodByCast, opts) {
   /* --- バック金額（本数 × 単価）。手修正後の backCounts を使うので金額・合計・日給が追従 --- */
   const backField = { 本指:'honshimei', 場内:'jonai', 同伴:'douhan', 指D:'shimeiD', D:'freeD' };
   const backAmounts = {};
+  const backUnits = {};
   countKeys.forEach(key => {
     const field = backField[key] || key;
-    backAmounts[key] = (Number(backCounts[key]) || 0) * _castBackUnit(profile, castDefaults, field);
+    backUnits[key] = _castBackUnit(profile, castDefaults, field);
+    backAmounts[key] = (Number(backCounts[key]) || 0) * backUnits[key];
   });
 
   /* --- SP / 日払い（手入力。manualRec は上で取得済み） --- */
@@ -23849,8 +23951,8 @@ function computePayrollForCast(castName, prodByCast, opts) {
   const pointsTotal = pointsProd + pointsCount;
   const nibarai = (opts.nibarai != null) ? (Number(opts.nibarai) || 0) : (Number(manualRec.nibarai) || 0);
 
-  /* --- バック合計（SP含む。SPは円をそのまま加算） --- */
-  let backTotal = sp + prodBack;
+  /* --- バック合計（設定に応じてSPを含む。SP自体は参考表示用に常に返す） --- */
+  let backTotal = (c.payrollSpInBackTotal ? sp : 0) + prodBack;
   for (const k in backAmounts) backTotal += backAmounts[k];
 
   /* --- 遅刻罰金 --- */
@@ -23901,7 +24003,7 @@ function computePayrollForCast(castName, prodByCast, opts) {
     inHHMM, outHHMM,
     roundedIn:  inHHMM  ? roundClockIn(inHHMM)   : '',
     roundedOut: outHHMM ? roundClockOut(outHHMM) : '',
-    backCounts, autoCounts, manualCounts, backAmounts,
+    backCounts, autoCounts, manualCounts, backAmounts, backUnits,
     sp, prodBack, backTotal,
     pointsProd, pointsCount, pointsTotal,
     lateFee, chikokuMin,
