@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.58">
+<meta name="app-version" content="1.0.59">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -15345,25 +15345,32 @@ function printDeductionSheet() {
   const key = src.dayKey || '';
   const y = key.slice(0,4), mo = +key.slice(4,6), da = +key.slice(6,8);
   const wd = (key.length === 8 && typeof WEEKDAYS !== 'undefined') ? WEEKDAYS[new Date(+y, mo-1, da).getDay()] : '';
+  const dateLabel = /^\d{4}$/.test(y)
+    ? '令和 ' + (+y - 2018) + ' 年 ' + mo + ' 月 ' + da + ' 日 ' + (wd ? wd + '曜日' : '')
+    : '令和 ＿＿ 年 ＿＿ 月 ＿＿ 日';
   const w = window.open('', '_blank', 'width=920,height=1240');
   if (!w) { if (typeof showToast === 'function') showToast('ポップアップがブロックされました'); return; }
   w.document.write(
     '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>控除票</title><style>'
-    + '@page { size: A4 portrait; margin: 12mm 14mm; }'
+    + '@page{size:A4 portrait;margin:12mm 14mm}'
     + 'body{font-family:"Hiragino Kaku Gothic ProN","Meiryo",sans-serif;color:#000;margin:0}'
-    + 'h1{font-size:15pt;text-align:center;font-weight:700;margin:0 0 2px;letter-spacing:.3em}'
-    + '.hd{font-size:10pt;text-align:center;margin-bottom:8px}'
-    + 'table.deduction-sheet{width:100%;border-collapse:collapse}'
-    + 'table.deduction-sheet th,table.deduction-sheet td{border:1px solid #000;padding:5px 8px;font-size:10pt;text-align:right;white-space:nowrap}'
-    + 'table.deduction-sheet th{background:#e6e6e6;text-align:center}'
-    + 'table.deduction-sheet td.pay-name,table.deduction-sheet th.pay-name{text-align:left;font-weight:700}'
-    + 'table.deduction-sheet tbody tr:nth-child(even) td{background:#f4f4f4}'
-    + 'table.deduction-sheet tr.pay-totalrow td{background:#e6e6e6;font-weight:700;border-top:2px solid #000}'
-    + 'thead{display:table-header-group} tr{break-inside:avoid}'
+    + '.top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px}'
+    + '.top .shop{font-size:11pt;font-weight:700}'
+    + '.top h1{font-size:16pt;margin:0;letter-spacing:.3em}'
+    + '.top .date{font-size:11pt}'
+    + 'table.ded{width:100%;border-collapse:collapse;table-layout:fixed}'
+    + 'table.ded th,table.ded td{border:1px solid #000;padding:3px 6px;font-size:10.5pt;white-space:nowrap;height:7.2mm;overflow:hidden}'
+    + 'table.ded th{background:#e6e6e6;text-align:center;font-weight:700}'
+    + 'table.ded td.no{width:8mm;color:#777;text-align:center;font-size:9pt;border-left:none;border-top:none;border-bottom:none;background:#fff}'
+    + 'table.ded td.cno{width:12mm;text-align:center}'
+    + 'table.ded td.nm{width:30mm;text-align:left;font-weight:700}'
+    + 'table.ded td.amt{text-align:left}'
+    + 'table.ded tbody tr:nth-child(even) td:not(.no){background:#f1f1f1}'
+    + 'table.ded tr.sum td{background:#e6e6e6;font-weight:700;border-top:2px solid #000}'
+    + 'tr{break-inside:avoid}'
     + '</style></head><body>'
-    + '<h1>控除票</h1>'
-    + '<div class="hd">' + (y || '____') + ' 年 ' + (mo || '__') + ' 月 ' + (da || '__') + ' 日 ' + (wd ? '（' + wd + '）' : '') + '</div>'
-    + _deductionSheetInnerHtml(src, { plain:true })
+    + '<div class="top"><div class="shop">' + escHtml(cfg.shopName || '') + '</div><h1>控除票</h1><div class="date">' + dateLabel + '</div></div>'
+    + _deductionSheetPrintTableHtml(src)
     + '<script>window.onload=function(){window.print()}<\/script>'
     + '</body></html>'
   );
@@ -15574,6 +15581,49 @@ function _deductionSheetInnerHtml(src, opts = { plain:false }) {
     + '<td class="pay-net">' + _payYen(tot.net) + '</td></tr>';
   const table = '<table class="payroll-table deduction-sheet">' + head + '<tbody>' + body + totalRow + '</tbody></table>';
   return opts.plain === true ? table : '<div class="payroll-scroll">' + table + '</div>';
+}
+
+function _deductionSheetPrintTableHtml(src) {
+  const model = _payrollTableModel(src);
+  src = model.src;
+  const rows = model.rows;
+  const deductionItems = (typeof cfg !== 'undefined' && Array.isArray(cfg.payrollDeductions)) ? cfg.payrollDeductions : [];
+  const totals = deductionItems.map(() => 0);
+  const counts = deductionItems.map(() => 0);
+  const yen = value => {
+    const amount = Number(value) || 0;
+    return '¥' + (amount ? amount.toLocaleString() : '');
+  };
+  const head = '<thead><tr><th>No.</th><th>社番</th><th>名前</th>'
+    + deductionItems.map(item => '<th>' + escHtml(item.label || '') + '</th>').join('')
+    + '</tr></thead>';
+  const bodyRows = rows.map((r, rowIndex) => {
+    const c = r.castName;
+    const manualDeductions = (typeof getPayrollManual === 'function')
+      ? getPayrollManual(src.dayKey, c).deductions : {};
+    const cells = deductionItems.map((item, index) => {
+      const calculated = (r.deductions || [])[index] || {};
+      const hasMan = Object.prototype.hasOwnProperty.call(manualDeductions, item.key);
+      const value = Number(hasMan ? manualDeductions[item.key] : (calculated.auto || 0)) || 0;
+      totals[index] += value;
+      if (value > 0) counts[index] += 1;
+      return '<td class="amt">' + yen(value) + '</td>';
+    }).join('');
+    const profile = state.castProfiles && state.castProfiles[c];
+    const hasCastNo = profile && profile.no !== '' && profile.no != null && Number.isFinite(Number(profile.no));
+    const castNo = hasCastNo ? String(profile.no) : '';
+    return '<tr><td class="no">' + (rowIndex + 1) + '</td><td class="cno">' + escHtml(castNo) + '</td><td class="nm">' + escHtml(c) + '</td>' + cells + '</tr>';
+  });
+  const rowCount = Math.max(25, rows.length);
+  for (let rowIndex = rows.length; rowIndex < rowCount; rowIndex += 1) {
+    bodyRows.push('<tr><td class="no">' + (rowIndex + 1) + '</td><td class="cno"></td><td class="nm"></td>'
+      + deductionItems.map(() => '<td class="amt">¥</td>').join('') + '</tr>');
+  }
+  const sumRow = '<tr class="sum"><td class="no"></td><td class="cno"></td><td class="nm">合計</td>'
+    + totals.map(value => '<td class="amt">' + yen(value) + '</td>').join('') + '</tr>';
+  const countRow = '<tr class="sum"><td class="no"></td><td class="cno"></td><td class="nm">人数</td>'
+    + counts.map(value => '<td class="amt">' + value + ' 人</td>').join('') + '</tr>';
+  return '<table class="ded">' + head + '<tbody>' + bodyRows.join('') + sumRow + countRow + '</tbody></table>';
 }
 
 function _payrollColumnPickerHtml(columns) {
