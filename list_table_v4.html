@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.56">
+<meta name="app-version" content="1.0.57">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -14803,10 +14803,12 @@ function _payrollCountCols(rows, stampedLabels) {
 }
 function _payrollCountGroup(key) {
   const match = /^(.*)_(shimeiD|freeD)$/.exec(key);
-  return key === '指D' || key === 'D' || (match && isDrinkItemKey(match[1])) ? 'drink' : 'shimei';
+  if (key === '指D' || (match && match[2] === 'shimeiD' && isDrinkItemKey(match[1]))) return 'drinkShimei';
+  if (key === 'D' || (match && match[2] === 'freeD' && isDrinkItemKey(match[1]))) return 'drinkFree';
+  return 'shimei';
 }
 function _payrollCountGroups(cols) {
-  const labels = { shimei:'指名内訳', drink:'ドリンク内訳' };
+  const labels = { shimei:'指名内訳', drinkShimei:'指名ドリンク', drinkFree:'フリードリンク' };
   return (cols || []).reduce((groups, col) => {
     const key = _payrollCountGroup(col[0]);
     const last = groups[groups.length - 1];
@@ -14818,7 +14820,7 @@ function _payrollCountGroups(cols) {
 function _payrollCountGroupStart(cols, index) {
   return index === 0 || _payrollCountGroup(cols[index][0]) !== _payrollCountGroup(cols[index - 1][0]);
 }
-const _PAYROLL_GROUP_LABELS = { work:'勤務', shimei:'指名内訳', drink:'ドリンク内訳', pay:'給与' };
+const _PAYROLL_GROUP_LABELS = { work:'勤務', shimei:'指名内訳', drinkShimei:'指名ドリンク', drinkFree:'フリードリンク', pay:'給与' };
 function _payrollTd(content, className, groupStart) {
   const classes = [className || '', groupStart ? 'pay-group-start' : ''].filter(Boolean).join(' ');
   return '<td' + (classes ? ' class="' + classes + '"' : '') + '>' + content + '</td>';
@@ -14887,7 +14889,12 @@ function _payrollColumnGroups(columns) {
 function _payrollTableHeaderFromColumns(columns) {
   const groups = _payrollColumnGroups(columns);
   const groupHeads = groups.map(group => '<th scope="colgroup" class="pay-group-head pay-group-start" colspan="' + group.span + '">' + group.label + '</th>').join('');
-  const columnHeads = columns.map((col, index) => '<th scope="col"' + (index === 0 || col.group !== columns[index - 1].group ? ' class="pay-group-start"' : '') + '>' + escHtml(col.label) + '</th>').join('');
+  const columnHeads = columns.map((col, index) => {
+    const shortened = (col.group === 'drinkShimei' || col.group === 'drinkFree')
+      ? col.label.replace(/^指D\(|^D\(/, '').replace(/\)$/, '') : col.label;
+    const label = shortened || col.label;
+    return '<th scope="col"' + (index === 0 || col.group !== columns[index - 1].group ? ' class="pay-group-start"' : '') + '>' + escHtml(label) + '</th>';
+  }).join('');
   return '<thead><tr class="pay-group-row">'
     + '<th scope="col" class="pay-name pay-group-head" rowspan="2">社交名</th>'
     + groupHeads
@@ -15269,10 +15276,10 @@ function printReport() {
   const settled = (src.rows || []).filter(r => r.isFirst && r.settled);
   const model = _payrollTableModel(src);
   const fullModel = { ...model, visibleColumns:model.columns };
-  // 印刷幅対策: 指名内訳・ドリンク内訳（本数列）の見出しだけ縦書きにして列幅を詰める（A4横に縮小なしで収める・2026-08-23実測）。
+  // 印刷幅対策: 指名内訳・指名ドリンク・フリードリンク（本数列）の見出しだけ縦書きにして列幅を詰める（A4横に縮小なしで収める・2026-08-23実測）。
   // pay-column-row には社交名のthが無い（group-rowでrowspan）ため、1列目=最初の勤務列。
   const _workN  = model.columns.filter(c => c.group === 'work').length;
-  const _countN = model.columns.filter(c => c.group === 'shimei' || c.group === 'drink').length;
+  const _countN = model.columns.filter(c => ['shimei','drinkShimei','drinkFree'].includes(c.group)).length;
   const _vertFrom = _workN + 1, _vertTo = _workN + _countN;
   const tableHtml = model.rows.length
     ? _payrollTableInnerHtml(src, fullModel, { plain:true })
@@ -15489,7 +15496,7 @@ function _payrollColumnPickerHtml(columns) {
     seen.add(col.id);
     return true;
   });
-  const groups = ['work', 'shimei', 'drink', 'pay'].map(group => ({
+  const groups = ['work', 'shimei', 'drinkShimei', 'drinkFree', 'pay'].map(group => ({
     key:group, label:_PAYROLL_GROUP_LABELS[group], options:options.filter(col => col.group === group),
   })).filter(group => group.options.length);
   return '<div id="payroll-column-picker" class="payroll-cols-picker" hidden onclick="event.stopPropagation()">'
@@ -23485,18 +23492,25 @@ function _ensurePayrollManual(dayKey) {
   return state.payrollManual[dayKey];
 }
 
-/* 手修正可能なバック本数列のキー（日計表の動的列と一致）。削除済み延長キーは末尾へ残す。 */
+/* 手修正可能なバック本数列のキー（日計表の動的列と一致）。 */
 function payrollCountKeys(...sources) {
-  const drinkKeys = drinkItemList().flatMap(item => {
-    const keys = drinkBackKeys(item);
-    return [keys.shimei, keys.free];
-  });
-  const keys = ['本指', ...shimeiExtKeys(), '場内','同伴', ...drinkKeys, '指D','D'];
+  const items = drinkItemList();
+  const drinkShimei = items.map(item => drinkBackKeys(item).shimei);
+  const drinkFree = items.map(item => drinkBackKeys(item).free);
+  const keys = ['本指', ...shimeiExtKeys(), '場内','同伴', ...drinkShimei, '指D', ...drinkFree, 'D'];
   const seen = new Set(keys);
+  const added = [];
   sources.forEach(source => Object.keys(source || {}).forEach(key => {
     const deletedDrink = /_(shimeiD|freeD)$/.test(key) && isDrinkItemKey(key.replace(/_(shimeiD|freeD)$/, ''));
-    if ((/^(enshi|honen)/.test(key) || deletedDrink) && !seen.has(key)) { seen.add(key); keys.push(key); }
+    if ((/^(enshi|honen)/.test(key) || deletedDrink) && !seen.has(key)) { seen.add(key); keys.push(key); added.push(key); }
   }));
+  keys.splice(keys.length - added.length, added.length);
+  const shimeiAdded = added.filter(key => !/_(shimeiD|freeD)$/.test(key));
+  const shimeiDrinkAdded = added.filter(key => /_shimeiD$/.test(key));
+  const freeDrinkAdded = added.filter(key => /_freeD$/.test(key));
+  keys.splice(keys.indexOf('同伴'), 0, ...shimeiAdded);
+  keys.splice(keys.indexOf('指D') + 1, 0, ...shimeiDrinkAdded);
+  keys.splice(keys.indexOf('D') + 1, 0, ...freeDrinkAdded);
   return keys;
 }
 function _payrollManualCounts(raw, keys) {
