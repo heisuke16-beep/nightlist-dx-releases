@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.57">
+<meta name="app-version" content="1.0.58">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -14647,6 +14647,7 @@ function _reportPeriodSwitchHtml() {
     + '.payroll-table input.pay-in.pay-time{width:44px;text-align:center;font-family:var(--mono)}'   /* 出退勤HH:MM編集 */
     + '.payroll-table select.pay-time{box-sizing:border-box;width:44px;font-size:11px;padding:3px 1px;background:var(--sur2);color:var(--tx);border:1px solid var(--bdr2);border-radius:5px;text-align:center;font-family:var(--mono);cursor:pointer}'   /* 出退勤30分刻みドロップダウン */
     + '.payroll-table select.pay-time:focus{outline:none;border-color:var(--gold)}'
+    + '.deduction-sheet tr.ded-zero td{color:var(--tx3)}'
     + '@media print{.report-end-business-day,.report-period-switch,.agg-box-actions,.pos-report-slip-actions,.pos-report-bar{display:none}}'
     + '@media print{.payroll-table input.pay-in,.payroll-table select.pay-time{border:none;background:transparent;-webkit-appearance:none;appearance:none}}'
     + '</style>'
@@ -15334,6 +15335,41 @@ function printReport() {
   w.document.close();
 }
 
+function printDeductionSheet() {
+  const deductionItems = (typeof cfg !== 'undefined' && Array.isArray(cfg.payrollDeductions)) ? cfg.payrollDeductions : [];
+  if (!deductionItems.length) {
+    if (typeof showToast === 'function') showToast('控除項目が設定されていません');
+    return;
+  }
+  const src = (typeof _reportDaySource === 'function') ? _reportDaySource() : { dayKey: getBizDayKey(), rows: state.rows, tt: {} };
+  const key = src.dayKey || '';
+  const y = key.slice(0,4), mo = +key.slice(4,6), da = +key.slice(6,8);
+  const wd = (key.length === 8 && typeof WEEKDAYS !== 'undefined') ? WEEKDAYS[new Date(+y, mo-1, da).getDay()] : '';
+  const w = window.open('', '_blank', 'width=920,height=1240');
+  if (!w) { if (typeof showToast === 'function') showToast('ポップアップがブロックされました'); return; }
+  w.document.write(
+    '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>控除票</title><style>'
+    + '@page { size: A4 portrait; margin: 12mm 14mm; }'
+    + 'body{font-family:"Hiragino Kaku Gothic ProN","Meiryo",sans-serif;color:#000;margin:0}'
+    + 'h1{font-size:15pt;text-align:center;font-weight:700;margin:0 0 2px;letter-spacing:.3em}'
+    + '.hd{font-size:10pt;text-align:center;margin-bottom:8px}'
+    + 'table.deduction-sheet{width:100%;border-collapse:collapse}'
+    + 'table.deduction-sheet th,table.deduction-sheet td{border:1px solid #000;padding:5px 8px;font-size:10pt;text-align:right;white-space:nowrap}'
+    + 'table.deduction-sheet th{background:#e6e6e6;text-align:center}'
+    + 'table.deduction-sheet td.pay-name,table.deduction-sheet th.pay-name{text-align:left;font-weight:700}'
+    + 'table.deduction-sheet tbody tr:nth-child(even) td{background:#f4f4f4}'
+    + 'table.deduction-sheet tr.pay-totalrow td{background:#e6e6e6;font-weight:700;border-top:2px solid #000}'
+    + 'thead{display:table-header-group} tr{break-inside:avoid}'
+    + '</style></head><body>'
+    + '<h1>控除票</h1>'
+    + '<div class="hd">' + (y || '____') + ' 年 ' + (mo || '__') + ' 月 ' + (da || '__') + ' 日 ' + (wd ? '（' + wd + '）' : '') + '</div>'
+    + _deductionSheetInnerHtml(src, { plain:true })
+    + '<script>window.onload=function(){window.print()}<\/script>'
+    + '</body></html>'
+  );
+  w.document.close();
+}
+
 /* ================================================================
    日計表（給料一覧）
    計算は 48-payroll-engine.js (computePayrollTable) に委譲。
@@ -15372,8 +15408,11 @@ function payrollSetDeduction(castName, key, value) {
   _rerenderPayrollTable();
 }
 function _rerenderPayrollTable() {
+  const src = _reportDaySource();
   const host = document.getElementById('payroll-table-host');
-  if (host) host.innerHTML = _payrollTableInnerHtml(_reportDaySource());
+  if (host) host.innerHTML = _payrollTableInnerHtml(src);
+  const deductionHost = document.getElementById('deduction-sheet-host');
+  if (deductionHost) deductionHost.innerHTML = _deductionSheetInnerHtml(src);
 }
 
 /* 日計表の出勤/退勤を30分刻みで編集 → 当日はライブttへ、過去日はその日のバックアップ
@@ -15488,6 +15527,55 @@ function _payrollTableInnerHtml(src, model, opts = { plain:false }) {
     : '<div class="payroll-scroll" tabindex="0" role="region" aria-label="日計表。横にスクロールできます">' + table + '</div>';
 }
 
+function _deductionSheetInnerHtml(src, opts = { plain:false }) {
+  const model = _payrollTableModel(src);
+  src = model.src;
+  const rows = model.rows;
+  const deductionItems = (typeof cfg !== 'undefined' && Array.isArray(cfg.payrollDeductions)) ? cfg.payrollDeductions : [];
+  if (!deductionItems.length) {
+    return '<div class="agg-side-empty" style="padding:16px;text-align:center">控除項目が設定されていません（⚙️ 設定 → キャスト・給与 → 控除項目）</div>';
+  }
+  if (!rows.length) {
+    return '<div class="agg-side-empty" style="padding:24px;text-align:center">出勤キャストがいません</div>';
+  }
+  const checkouts = (src.tt && src.tt.checkouts) || {};
+  const tot = { deduction:0, net:0 };
+  const head = '<thead><tr><th class="pay-name">社交名</th><th>日給</th>'
+    + deductionItems.map(item => '<th>' + escHtml(item.label || '') + '</th>').join('')
+    + '<th>控除計</th><th>差引支給</th></tr></thead>';
+  const body = rows.map(r => {
+    const c = r.castName;
+    const cj = escHtml(c).replace(/'/g, "\\'");
+    const hasOut = !!checkouts[c];
+    const manualDeductions = (typeof getPayrollManual === 'function')
+      ? getPayrollManual(src.dayKey, c).deductions : {};
+    if (hasOut) {
+      tot.deduction += r.deductionTotal || 0;
+      tot.net += r.netPay || 0;
+    }
+    const cells = deductionItems.map((item, index) => {
+      const calculated = (r.deductions || [])[index] || {};
+      const hasMan = Object.prototype.hasOwnProperty.call(manualDeductions, item.key);
+      const value = hasMan ? manualDeductions[item.key] : (calculated.auto || 0);
+      if (opts.plain === true) return '<td>' + (hasOut && value ? _payYen(value) : '') + '</td>';
+      return '<td><input type="number" class="pay-in' + (hasMan ? ' pay-edited' : '') + '" value="' + (hasMan ? manualDeductions[item.key] : '') + '" placeholder="' + (calculated.auto || 0) + '" onchange="payrollSetDeduction(\'' + cj + '\', \'' + item.key + '\', this.value)"></td>';
+    }).join('');
+    return '<tr' + (!hasOut || (Number(r.deductionTotal) || 0) === 0 ? ' class="ded-zero"' : '') + '>'
+      + '<td class="pay-name">' + escHtml(c) + '</td>'
+      + '<td class="pay-daily' + (hasOut ? '' : ' pay-muted') + '">' + (hasOut ? _payYen(r.dailyPay) : '（時給未確定）') + '</td>'
+      + cells
+      + '<td class="pay-total' + (hasOut ? '' : ' pay-muted') + '">' + (hasOut ? _payYen(r.deductionTotal) : '—') + '</td>'
+      + '<td class="pay-net' + (hasOut ? '' : ' pay-muted') + '">' + (hasOut ? _payYen(r.netPay) : '（時給未確定）') + '</td>'
+      + '</tr>';
+  }).join('');
+  const totalRow = '<tr class="pay-totalrow"><td class="pay-name">合計</td><td></td>'
+    + deductionItems.map(() => '<td></td>').join('')
+    + '<td class="pay-total">' + _payYen(tot.deduction) + '</td>'
+    + '<td class="pay-net">' + _payYen(tot.net) + '</td></tr>';
+  const table = '<table class="payroll-table deduction-sheet">' + head + '<tbody>' + body + totalRow + '</tbody></table>';
+  return opts.plain === true ? table : '<div class="payroll-scroll">' + table + '</div>';
+}
+
 function _payrollColumnPickerHtml(columns) {
   const hidden = new Set((typeof cfg !== 'undefined' && Array.isArray(cfg.payrollHiddenCols)) ? cfg.payrollHiddenCols : []);
   const seen = new Set();
@@ -15597,6 +15685,18 @@ function _payrollSectionHtml(src) {
     + '</div>';
 }
 
+function _deductionSheetSectionHtml(src) {
+  const hasDeductions = typeof cfg !== 'undefined' && Array.isArray(cfg.payrollDeductions) && cfg.payrollDeductions.length > 0;
+  return '<div class="agg-box" style="margin-top:18px">'
+    + '<div class="agg-box-head">'
+    + '<h3>控除票 <span class="payroll-note">※出勤キャスト全員。控除額は日計表の控除列と同じ値（ここで直すと日計表にも反映）。差引支給＝日給−控除計</span></h3>'
+    + '<div class="agg-box-actions">'
+    + '<button onclick="printDeductionSheet()"' + (hasDeductions ? '' : ' disabled') + '>🖨 印刷</button>'
+    + '</div></div>'
+    + '<div id="deduction-sheet-host">' + _deductionSheetInnerHtml(src) + '</div>'
+    + '</div>';
+}
+
 /* #15 日報の営業日プルダウン（過去営業日＋当日）。既定=当日。 */
 function _reportDaySelectHtml() {
   const todayKey = getLoadedDayKey();
@@ -15672,6 +15772,7 @@ function _renderReportDay() {
     </h2>
     ${dash}
     ${_payrollSectionHtml(src)}
+    ${_deductionSheetSectionHtml(src)}
     ${_dailyCloseSectionHtml(src, agg, _payRows, isPast)}
     ${_castRankingSectionHtml()}
     <div class="pos-report-bar" style="margin-top:24px">
