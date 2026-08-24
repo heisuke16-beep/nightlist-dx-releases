@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.61">
+<meta name="app-version" content="1.0.62">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -14544,7 +14544,7 @@ function _castRankingStoreWithLiveToday() {
   };
   const settled = src.rows.filter(row => row.isFirst && row.settled);
   const agg = computeReportAgg(settled);
-  const payrollRows = computePayrollTable(settled, { dayKey, tt: src.tt });
+  const payrollRows = computePayrollTable(settled, { dayKey, tt: src.tt, activeCasts: src.activeCasts });
   const liveAuto = _dailyCloseLiveAuto(src, agg, payrollRows);
   const auto = _dailyCloseEffectiveAuto(record, liveAuto, false);
   return _dailyCloseStoreWithToday(store, dayKey, record, auto);
@@ -14653,7 +14653,7 @@ function _reportClosedTodaySnap() {
   const todayKey = getLoadedDayKey();
   return loadBackups().find(snap => snap.dayKey === todayKey) || null;
 }
-/* 選択中営業日の { rows, tt } を返す。過去日はバックアップのスナップから（ライブ状態は壊さない）。 */
+/* 選択中営業日の { rows, tt, activeCasts } を返す。過去日はバックアップのスナップから（ライブ状態は壊さない）。 */
 function _reportDaySource() {
   const todayKey = getLoadedDayKey();
   const key = reportSelectedDay;
@@ -14661,18 +14661,18 @@ function _reportDaySource() {
     const tt = (typeof loadTimetableState === 'function') ? loadTimetableState() : {};
     const snap = _reportClosedTodaySnap();
     if (snap) {
-      return { dayKey: todayKey, rows: Array.isArray(snap.rows) ? snap.rows : [], tt: snap.timetableSnap || tt };
+      return { dayKey: todayKey, rows: Array.isArray(snap.rows) ? snap.rows : [], tt: snap.timetableSnap || tt, activeCasts: Array.isArray(snap.activeCasts) ? snap.activeCasts : (state.activeCasts || []) };
     }
-    return { dayKey: todayKey, rows: state.rows || [], tt };
+    return { dayKey: todayKey, rows: state.rows || [], tt, activeCasts: state.activeCasts || [] };
   }
   // 過去営業日：バックアップから rows + timetableSnap を取得（閲覧専用）
   const snap = (typeof loadBackups === 'function' ? loadBackups() : []).find(s => s.dayKey === key);
   if (snap) {
-    return { dayKey: key, rows: Array.isArray(snap.rows) ? snap.rows : [], tt: snap.timetableSnap || {} };
+    return { dayKey: key, rows: Array.isArray(snap.rows) ? snap.rows : [], tt: snap.timetableSnap || {}, activeCasts: Array.isArray(snap.activeCasts) ? snap.activeCasts : [] };
   }
   // フォールバック：_collectDayRows に存在すれば rows のみ（ttは空）
   const map = _collectDayRows();
-  return { dayKey: key, rows: map[key] || [], tt: {} };
+  return { dayKey: key, rows: map[key] || [], tt: {}, activeCasts: [] };
 }
 
 function _reportPeriodSwitchHtml() {
@@ -14743,8 +14743,10 @@ function _reportPeriodSwitchHtml() {
     + '.payroll-table th.pay-group-head{color:var(--tx2);font-size:10px;letter-spacing:.04em;border-bottom:1px solid var(--bdr2)}'
     + '.payroll-table .pay-group-start{border-left:2px solid var(--bdr2)}'
     + '.payroll-table tbody td:nth-child(2){border-left:2px solid var(--bdr2)}'
-    + '.payroll-table td.pay-name,.payroll-table th.pay-name{text-align:left;color:var(--tx);font-weight:600;position:sticky;left:0;background:var(--sur);z-index:1}'
+    + '.payroll-table td.pay-name,.payroll-table th.pay-name{text-align:center;vertical-align:middle;color:var(--tx);font-weight:600;position:sticky;left:0;background:var(--sur);z-index:1}'
     + '.payroll-table th.pay-name{background:var(--sur2);z-index:4}'
+    + '.payroll-table td.pay-name-action{cursor:pointer}'
+    + '.payroll-table td.pay-name-action:focus-visible{outline:2px solid var(--gold);outline-offset:-2px}'
     + '.payroll-table tbody tr:nth-child(even):not(.pay-totalrow) td{background:var(--sur2)}'
     + '.payroll-table td.pay-amt{color:var(--tx2);text-align:right}'
     + '.payroll-table td.pay-muted{color:var(--tx3)}'
@@ -14752,8 +14754,14 @@ function _reportPeriodSwitchHtml() {
     + '.payroll-table td.pay-daily{color:var(--gold);font-weight:800;text-align:right;font-size:12px}'
     + '.payroll-table td.pay-net{color:var(--green);font-weight:800;text-align:right;font-size:12px}'
     + '.payroll-table td.pay-rate{color:var(--tx2);font-weight:600}'
-    + '.pay-bd-btn{margin-left:6px;font-size:11px;padding:0 6px;border-radius:10px;border:1px solid var(--bdr2);background:var(--sur2);color:var(--tx2);cursor:pointer}'
-    + '.pay-bd-table{width:100%;border-collapse:collapse;font-size:13px}.pay-bd-table td{padding:6px 8px;border-bottom:1px solid var(--bdr)}.pay-bd-table td.k{color:var(--tx2);white-space:nowrap;width:6em}.pay-bd-table td.v{text-align:right;font-family:var(--mono)}'
+    + '.pay-bd-btn{display:inline-block;margin-left:4px;font-size:11px;padding:0 6px;border-radius:10px;border:1px solid var(--bdr2);background:var(--sur2);color:var(--tx2)}'
+    + '.pay-bd-panel{padding:0;overflow:hidden}'
+    + '.pay-bd-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;background:var(--sur2);border-bottom:1px solid var(--bdr2)}'
+    + '.pay-bd-title{font-size:16px;font-weight:800;color:var(--tx)}.pay-bd-date{margin-top:2px;font-size:12px;color:var(--tx2)}'
+    + '.pay-bd-close{display:flex;align-items:center;justify-content:center;flex:0 0 36px;width:36px;height:36px;padding:0;border:1px solid var(--bdr2);border-radius:8px;background:var(--sur);color:var(--tx);font-size:22px;cursor:pointer}'
+    + '.pay-bd-body{padding:12px 16px;max-height:80vh;overflow-y:auto}'
+    + '.pay-bd-table{width:100%;border-collapse:collapse;font-size:14px}.pay-bd-table td{padding:9px 10px;border-bottom:1px solid var(--bdr)}.pay-bd-table tr:last-child td{border-bottom:none}.pay-bd-table td.k{color:var(--tx2);white-space:nowrap;width:6em}.pay-bd-table td.v{text-align:right;font-family:var(--mono)}'
+    + '.pay-bd-table tr.pay-bd-back td.v{line-height:1.7}.pay-bd-table .pay-bd-amount{font-weight:800}.pay-bd-table tr.pay-bd-daily .pay-bd-amount{font-size:17px;color:var(--gold)}.pay-bd-table tr.pay-bd-net .pay-bd-amount{font-size:18px;color:var(--green)}.pay-bd-sub{margin-top:4px;font-size:12px;line-height:1.5;color:var(--tx2);white-space:normal}'
     + '.payroll-table tr.pay-totalrow td{background:var(--sur2);font-weight:700;border-top:2px solid var(--bdr2);color:var(--tx)}'
     + '.payroll-table input.pay-in{box-sizing:border-box;width:42px;font-size:11px;padding:3px 2px;background:var(--sur2);color:var(--tx);border:1px solid var(--bdr2);border-radius:5px;text-align:right}'
     + '.payroll-table input.pay-in:focus{outline:none;border-color:var(--gold)}'
@@ -15369,7 +15377,7 @@ function exportCastProdCSV() {
   const a = computeReportAgg(settled);
   // CSVも画面の商品集計と一致させる：日計表と同じ backCounts を源泉に。
   const _payRows = (typeof computePayrollTable === 'function')
-    ? computePayrollTable(settled, { dayKey: src.dayKey, tt: src.tt }) : [];
+    ? computePayrollTable(settled, { dayKey: src.dayKey, tt: src.tt, activeCasts: src.activeCasts }) : [];
   const backByCast = {};
   _payRows.forEach(r => { backByCast[r.castName] = r.backCounts; });
   const sorted = (typeof castsSortedByNo === 'function') ? castsSortedByNo(Object.keys(a.prodByCast)) : Object.keys(a.prodByCast);
@@ -15475,11 +15483,10 @@ function printDeductionSheet() {
     + 'table.ded{width:100%;border-collapse:collapse;table-layout:fixed}'
     + 'table.ded th,table.ded td{border:1px solid #000;padding:3px 6px;font-size:10.5pt;white-space:nowrap;height:7.2mm;overflow:hidden}'
     + 'table.ded th{background:#e6e6e6;text-align:center;font-weight:700}'
-    + 'table.ded td.no{width:8mm;color:#777;text-align:center;font-size:9pt;border-left:none;border-top:none;border-bottom:none;background:#fff}'
     + 'table.ded td.cno{width:12mm;text-align:center}'
     + 'table.ded td.nm{width:30mm;text-align:left;font-weight:700}'
     + 'table.ded td.amt{text-align:left}'
-    + 'table.ded tbody tr:nth-child(even) td:not(.no){background:#f1f1f1}'
+    + 'table.ded tbody tr:nth-child(even) td{background:#f1f1f1}'
     + 'table.ded tr.sum td{background:#e6e6e6;font-weight:700;border-top:2px solid #000}'
     + 'tr{break-inside:avoid}'
     + '</style></head><body>'
@@ -15582,7 +15589,7 @@ function _payrollTableModel(src) {
   src = src || _reportDaySource();
   const settled = (src.rows || []).filter(r => r.isFirst && r.settled);
   const rows = (typeof computePayrollTable === 'function')
-    ? computePayrollTable(settled, { dayKey: src.dayKey, tt: src.tt }) : [];
+    ? computePayrollTable(settled, { dayKey: src.dayKey, tt: src.tt, activeCasts: src.activeCasts }) : [];
   const agg = (typeof computeReportAgg === 'function') ? computeReportAgg(settled) : { shimeiLabels:{} };
   const countCols = _payrollCountCols(rows, agg.shimeiLabels);
   const deductionItems = (typeof cfg !== 'undefined' && Array.isArray(cfg.payrollDeductions)) ? cfg.payrollDeductions : [];
@@ -15609,17 +15616,17 @@ function _payrollBreakdownHtml(r, src, countCols) {
   const deductions = Array.isArray(r.deductions) ? r.deductions : [];
   const rows = [
     `<tr><td class="k">勤務</td><td class="v">${escHtml(_payClock24(r.roundedIn) || '—')}→${escHtml(_payClock24(r.roundedOut) || '—')}（${workLabel}）　時間給 ${_payYen(r.hourlyPay)}${r.outHHMM ? '' : '<br>※退勤未入力のため時間給は未確定'}</td></tr>`,
-    `<tr><td class="k">バック</td><td class="v">${backLines.length ? backLines.join('<br>') + '<br>' : ''}商品バック ${_payYen(r.prodBack)}　SP ${_payYen(r.sp)}${spNote}<br>バック合計 ${_payYen(r.backTotal)}</td></tr>`,
+    `<tr class="pay-bd-back"><td class="k">バック</td><td class="v">${backLines.length ? backLines.join('<br>') + '<br>' : ''}商品バック ${_payYen(r.prodBack)}　SP ${_payYen(r.sp)}${spNote}<br>バック合計 ${_payYen(r.backTotal)}</td></tr>`,
     Number(r.lateFee) ? `<tr><td class="k">遅刻罰金</td><td class="v">−${_payYen(r.lateFee)}（${Number(r.chikokuMin) || 0}分）</td></tr>` : '',
-    `<tr><td class="k">日給</td><td class="v">${_payYen(r.dailyPay)} ＝ 時間給 ${_payYen(r.hourlyPay)} ＋ バック ${_payYen(r.backTotal)} − 遅刻 ${_payYen(r.lateFee)}</td></tr>`,
+    `<tr class="pay-bd-daily"><td class="k">日給</td><td class="v"><span class="pay-bd-amount">${_payYen(r.dailyPay)}</span><div class="pay-bd-sub">＝ 時間給 ${_payYen(r.hourlyPay)} ＋ バック ${_payYen(r.backTotal)} − 遅刻 ${_payYen(r.lateFee)}</div></td></tr>`,
     deductions.length ? `<tr><td class="k">控除</td><td class="v">${deductions.map(item => `${escHtml(item.label || '')} ${_payYen(item.amount)}`).join(' ／ ')}<br>控除計 ${_payYen(r.deductionTotal)}</td></tr>` : '',
-    `<tr><td class="k">差引支給</td><td class="v">${_payYen(r.netPay)}</td></tr>`,
+    `<tr class="pay-bd-net"><td class="k">差引支給</td><td class="v"><span class="pay-bd-amount">${_payYen(r.netPay)}</span></td></tr>`,
     `<tr><td class="k">給率</td><td class="v">${Number(r.sales) > 0 && r.kyuuritsu != null ? `${Number(r.kyuuritsu).toFixed(1)}%（売上 ${_payYen(r.sales)}）` : '—'}</td></tr>`,
   ].filter(Boolean).join('');
   return `<div id="payroll-breakdown-overlay" class="pos-co-overlay" onclick="if(event.target===this)payrollCloseBreakdown()">
-    <div class="pos-co-panel">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px"><b>${escHtml(r.castName)} の日給内訳（${escHtml(dayLabel)}）</b><button type="button" onclick="payrollCloseBreakdown()" aria-label="閉じる">×</button></div>
-      <table class="pay-bd-table"><tbody>${rows}</tbody></table>
+    <div class="pos-co-panel pay-bd-panel">
+      <div class="pay-bd-head"><div><div class="pay-bd-title">${escHtml(r.castName)} の日給内訳</div><div class="pay-bd-date">${escHtml(dayLabel)}</div></div><button type="button" class="pay-bd-close" onclick="payrollCloseBreakdown()" aria-label="閉じる">×</button></div>
+      <div class="pay-bd-body"><table class="pay-bd-table"><tbody>${rows}</tbody></table></div>
     </div>
   </div>`;
 }
@@ -15679,7 +15686,9 @@ function _payrollTableInnerHtml(src, model, opts = { plain:false }) {
 
     const ctx = { r, cj, hasOut, manualDeductions, autoCounts, manCounts, tot, plain:opts.plain === true };
     return '<tr>'
-      + '<td class="pay-name">' + escHtml(c) + (opts.plain === true ? '' : '<button type="button" class="pay-bd-btn" title="日給の内訳" aria-label="' + escHtml(c) + ' の日給の内訳" onclick="payrollShowBreakdown(\'' + cj + '\')">ⓘ</button>') + '</td>'
+      + (opts.plain === true
+        ? '<td class="pay-name">' + escHtml(c) + '</td>'
+        : '<td class="pay-name pay-name-action" role="button" tabindex="0" onclick="payrollShowBreakdown(\'' + cj + '\')" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();payrollShowBreakdown(\'' + cj + '\')}">' + escHtml(c) + '<span class="pay-bd-btn" aria-hidden="true">ⓘ</span></td>')
       + visibleColumns.map((col, index) => col.cell(ctx, index === 0 || col.group !== visibleColumns[index - 1].group)).join('')
       + '</tr>';
   }).join('');
@@ -15758,10 +15767,10 @@ function _deductionSheetPrintTableHtml(src) {
     const amount = Number(value) || 0;
     return '¥' + (amount ? amount.toLocaleString() : '');
   };
-  const head = '<thead><tr><th>No.</th><th>社番</th><th>名前</th>'
+  const head = '<thead><tr><th>No.</th><th>名前</th>'
     + deductionItems.map(item => '<th>' + escHtml(item.label || '') + '</th>').join('')
     + '</tr></thead>';
-  const bodyRows = rows.map((r, rowIndex) => {
+  const bodyRows = rows.map(r => {
     const c = r.castName;
     const manualDeductions = (typeof getPayrollManual === 'function')
       ? getPayrollManual(src.dayKey, c).deductions : {};
@@ -15776,16 +15785,16 @@ function _deductionSheetPrintTableHtml(src) {
     const profile = state.castProfiles && state.castProfiles[c];
     const hasCastNo = profile && profile.no !== '' && profile.no != null && Number.isFinite(Number(profile.no));
     const castNo = hasCastNo ? String(profile.no) : '';
-    return '<tr><td class="no">' + (rowIndex + 1) + '</td><td class="cno">' + escHtml(castNo) + '</td><td class="nm">' + escHtml(c) + '</td>' + cells + '</tr>';
+    return '<tr><td class="cno">' + escHtml(castNo) + '</td><td class="nm">' + escHtml(c) + '</td>' + cells + '</tr>';
   });
   const rowCount = Math.max(25, rows.length);
   for (let rowIndex = rows.length; rowIndex < rowCount; rowIndex += 1) {
-    bodyRows.push('<tr><td class="no">' + (rowIndex + 1) + '</td><td class="cno"></td><td class="nm"></td>'
+    bodyRows.push('<tr><td class="cno"></td><td class="nm"></td>'
       + deductionItems.map(() => '<td class="amt">¥</td>').join('') + '</tr>');
   }
-  const sumRow = '<tr class="sum"><td class="no"></td><td class="cno"></td><td class="nm">合計</td>'
+  const sumRow = '<tr class="sum"><td class="cno"></td><td class="nm">合計</td>'
     + totals.map(value => '<td class="amt">' + yen(value) + '</td>').join('') + '</tr>';
-  const countRow = '<tr class="sum"><td class="no"></td><td class="cno"></td><td class="nm">人数</td>'
+  const countRow = '<tr class="sum"><td class="cno"></td><td class="nm">人数</td>'
     + counts.map(value => '<td class="amt">' + value + ' 人</td>').join('') + '</tr>';
   return '<table class="ded">' + head + '<tbody>' + bodyRows.join('') + sumRow + countRow + '</tbody></table>';
 }
@@ -15847,7 +15856,7 @@ function exportPayrollCSV() {
   const src = (typeof _reportDaySource === 'function') ? _reportDaySource() : { dayKey: getBizDayKey(), rows: state.rows, tt: {} };
   const settled = (src.rows || []).filter(r => r.isFirst && r.settled);
   const rows = (typeof computePayrollTable === 'function')
-    ? computePayrollTable(settled, { dayKey: src.dayKey, tt: src.tt }) : [];
+    ? computePayrollTable(settled, { dayKey: src.dayKey, tt: src.tt, activeCasts: src.activeCasts }) : [];
   const tt = src.tt || {};
   const checkouts = tt.checkouts || {};
   const deductionItems = (typeof cfg !== 'undefined' && Array.isArray(cfg.payrollDeductions)) ? cfg.payrollDeductions : [];
@@ -15937,7 +15946,7 @@ function _renderReportDay() {
   const agg = computeReportAgg(settled);
   const isPast = src.dayKey !== getLoadedDayKey();
   const _payRows = (typeof computePayrollTable === 'function')
-    ? computePayrollTable(settled, { dayKey: src.dayKey, tt: src.tt }) : [];
+    ? computePayrollTable(settled, { dayKey: src.dayKey, tt: src.tt, activeCasts: src.activeCasts }) : [];
 
   const count = settled.length;
   const sortOptions = POS_REPORT_SORTS.map(([v,l]) =>
@@ -16335,7 +16344,7 @@ function dailyCloseLockNow() {
   if (_dailyCloseNormalizeFrozen(rec.frozen).closedAt > 0) return false;
   const settled = (src.rows || []).filter(row => row.isFirst && row.settled);
   const agg = computeReportAgg(settled);
-  const payrollRows = computePayrollTable(settled, { dayKey: src.dayKey, tt: src.tt });
+  const payrollRows = computePayrollTable(settled, { dayKey: src.dayKey, tt: src.tt, activeCasts: src.activeCasts });
   rec.frozen = { ..._dailyCloseLiveAuto(src, agg, payrollRows), closedAt: Date.now() };
   return _dailyCloseSaveCurrent(rec);
 }
@@ -16411,7 +16420,7 @@ function dailyCloseSyncNibarai() {
   if (rec && _dailyCloseNormalizeFrozen(rec.frozen).closedAt > 0) {
     const src = _reportDaySource();
     const settled = (src.rows || []).filter(row => row.isFirst && row.settled);
-    const payrollRows = computePayrollTable(settled, { dayKey: src.dayKey, tt: src.tt });
+    const payrollRows = computePayrollTable(settled, { dayKey: src.dayKey, tt: src.tt, activeCasts: src.activeCasts });
     rec.frozen = _dailyCloseNormalizeFrozen(rec.frozen);
     rec.frozen.castNibaraiTotal = (payrollRows || []).reduce((s, r) => s + _dailyCloseNum(r.nibarai), 0);
     const nibaraiByCast = {};
@@ -16430,7 +16439,7 @@ function _dailyCloseRerender() {
   const src = _reportDaySource();
   const settled = (src.rows || []).filter(row => row.isFirst && row.settled);
   const agg = computeReportAgg(settled);
-  const payrollRows = computePayrollTable(settled, { dayKey: src.dayKey, tt: src.tt });
+  const payrollRows = computePayrollTable(settled, { dayKey: src.dayKey, tt: src.tt, activeCasts: src.activeCasts });
   host.outerHTML = _dailyCloseSectionHtml(src, agg, payrollRows, src.dayKey !== getLoadedDayKey());
 }
 
@@ -24737,7 +24746,8 @@ function computePayrollTable(settled, opts) {
 
   // 対象キャスト集合（出勤中 + 売上/商品データに出現 + 出退勤入力あり）
   const set = {};
-  (state.activeCasts || []).forEach(n => { if (n) set[n] = true; });
+  const activeCasts = Array.isArray(opts.activeCasts) ? opts.activeCasts : (state.activeCasts || []);
+  activeCasts.forEach(n => { if (n) set[n] = true; });
   Object.keys(prodByCast).forEach(n => { set[n] = true; });
   Object.keys(nameGroups).forEach(n => { set[n] = true; });
   Object.keys(tt.clockIns  || {}).forEach(n => { if ((tt.clockIns||{})[n])  set[n] = true; });
