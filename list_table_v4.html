@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.68">
+<meta name="app-version" content="1.0.69">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -7021,7 +7021,7 @@ function _migrateDrinkItemsModel() {
   cfg.drinkItems = DRINK_ITEM_DEFAULTS.map(item => ({
     ...item,
     amount: _shimeiExtNumeric(legacyPrices[item.key]) ?? item.amount,
-    pt: Math.trunc(_shimeiExtNumeric(legacyPoints[item.key]) ?? item.pt),
+    pt: ptHalfStep(_shimeiExtNumeric(legacyPoints[item.key]) ?? item.pt),
   }));
   DRINK_ITEM_DEFAULTS.forEach(item => { delete legacyPrices[item.key]; });
   cfg.posPrices = legacyPrices;
@@ -13410,7 +13410,7 @@ function posMenuAddItem(key) {
     <td><input type="number" class="pos-me-price-input" value="" step="${_posMenuStep}" placeholder="金額"></td>
     <td><input type="text" class="pos-me-back-input" value="" placeholder="額 or %"></td>
     ${splitBack ? '<td><input type="text" class="pos-me-back-free-input" value="" placeholder="空欄=同額"></td>' : ''}
-    <td><input type="number" class="pos-me-pt-input" value="" step="1" placeholder="0"></td>
+    <td><input type="number" class="pos-me-pt-input" value="" step="0.5" placeholder="0"></td>
     <td><button type="button" class="pos-me-del" onclick="posMenuDelItem(this)">削除</button></td>`;
   tbody.appendChild(tr);
   tr.querySelector('.pos-me-name-input').focus();
@@ -13497,7 +13497,7 @@ function _posMenuEditorHTML(key, label, items, open = false) {
     <td><input type="number" class="pos-me-price-input" value="${Number(item.amount) || 0}" step="${_posMenuStep}" placeholder="金額"></td>
     <td><input type="text" class="pos-me-back-input" value="${escAttr(item.back || '')}" placeholder="額 or %"></td>
     ${splitBack ? `<td><input type="text" class="pos-me-back-free-input" value="${escAttr(item.backFree == null ? '' : String(item.backFree))}" placeholder="空欄=同額"></td>` : ''}
-    <td><input type="number" class="pos-me-pt-input" value="${Number.isFinite(Number(item.pt)) && Number(item.pt) !== 0 ? Math.trunc(Number(item.pt)) : ''}" step="1" placeholder="0"></td>
+    <td><input type="number" class="pos-me-pt-input" value="${Number.isFinite(Number(item.pt)) && Number(item.pt) !== 0 ? Number(item.pt) : ''}" step="0.5" placeholder="0"></td>
     <td><button type="button" class="pos-me-del" onclick="posMenuDelItem(this)">削除</button></td>
   </tr>`).join('');
   const openAttr = open ? ' open' : '';
@@ -15327,7 +15327,7 @@ function computeReportAgg(settled) {
       const isNominator = !!cast && nominators.has(cast);
       const productBack = _aggProductBack(o, isNominator);
       const rawPoint = Number(o.pt);
-      const pointValue = cfg.pointsEnabled && Number.isFinite(rawPoint) ? Math.trunc(rawPoint) : 0;
+      const pointValue = cfg.pointsEnabled && Number.isFinite(rawPoint) ? ptHalfStep(rawPoint) : 0;
       if (cast && !isExcludedDrinker && !o.spShares && productBack.amount > 0) {
         prodBackByCast[cast] = (prodBackByCast[cast] || 0) + productBack.amount * qty;
       }
@@ -16378,7 +16378,9 @@ function _dailyCloseNormalizeCastRows(rows) {
         auto: _dailyCloseNum(item?.auto),
       })),
     };
-    numberFields.forEach(field => { out[field] = _dailyCloseNum(src[field]); });
+    numberFields.forEach(field => {
+      out[field] = field === 'pointsTotal' ? ptHalfStep(src[field]) : _dailyCloseNum(src[field]);
+    });
     Object.entries(src.backCounts && typeof src.backCounts === 'object' ? src.backCounts : {})
       .forEach(([key, value]) => { out.backCounts[String(key)] = _dailyCloseNum(value); });
     Object.entries(src.backAmounts && typeof src.backAmounts === 'object' ? src.backAmounts : {})
@@ -16516,7 +16518,7 @@ function castRankingMonthTotals(store, bizKey) {
       });
       total.sales += _dailyCloseNum(row.sales);
       total.salesSubtotal += _dailyCloseNum(row.salesSubtotal);
-      total.pointsTotal += _dailyCloseNum(row.pointsTotal);
+      total.pointsTotal += Number(row.pointsTotal) || 0;
       total.firstRepeatCount += _dailyCloseNum(row.firstRepeatCount);
     });
   });
@@ -18419,7 +18421,7 @@ async function posAddItem(name, amount, category, spShares) {
     : undefined;
   const drinkItem = drinkItemByKey(category);
   const rawPoint = Number(drinkItem ? drinkItem.pt : item?.pt);
-  const pointValue = (cfg.pointsEnabled && !spShares && (drinkItem || item) && Number.isFinite(rawPoint)) ? Math.trunc(rawPoint) : 0;
+  const pointValue = (cfg.pointsEnabled && !spShares && (drinkItem || item) && Number.isFinite(rawPoint)) ? ptHalfStep(rawPoint) : 0;
   // 空場内（jonai_empty）：押下時点の cfg.jonaiFee をスナップショットして明細へ刻印する
   // （延長への繰延上乗せの源泉。既存流儀どおり、後で jonaiFee を変更しても過去分は不変）。
   const isEmptyJonai = category === 'jonai_empty';
@@ -19568,9 +19570,9 @@ function collectFeeMasterValues(rows, base = {}) {
     jonaiFee: intOrZero(base.jonaiFee),
     dohanFee: intOrZero(base.dohanFee),
     pointRules: {
-      本指: intOrZero(base.pointRules?.本指),
-      場内: intOrZero(base.pointRules?.場内),
-      同伴: intOrZero(base.pointRules?.同伴),
+      本指: ptHalfStep(base.pointRules?.本指),
+      場内: ptHalfStep(base.pointRules?.場内),
+      同伴: ptHalfStep(base.pointRules?.同伴),
     },
     shimeiExtItems: { honen: [], enshi: [] },
     drinkItems: [],
@@ -19597,7 +19599,7 @@ function collectFeeMasterValues(rows, base = {}) {
     if (group === 'fixed' && fixed[key]) {
       const [amountKey, pointKey] = fixed[key];
       result[amountKey] = intOr(row.amount, result[amountKey]);
-      result.pointRules[pointKey] = intOrZero(row.pt);
+      result.pointRules[pointKey] = ptHalfStep(row.pt);
       result.castDefaults[key] = numberOrZero(row.back);
       return;
     }
@@ -19607,7 +19609,7 @@ function collectFeeMasterValues(rows, base = {}) {
         key,
         label: String(row.label || '').trim() || key,
         amount: numberOrZero(row.amount),
-        pt: intOrZero(row.pt),
+        pt: ptHalfStep(row.pt),
       });
       result.castDefaults[key] = numberOrZero(row.back);
       return;
@@ -19618,7 +19620,7 @@ function collectFeeMasterValues(rows, base = {}) {
         key,
         label: String(row.label || '').trim() || key,
         amount: numberOrZero(row.amount),
-        pt: intOrZero(row.pt),
+        pt: ptHalfStep(row.pt),
       });
       const keys = drinkBackKeys(key);
       result.castDefaults[keys.shimei] = numberOrZero(row.backShimei);
@@ -19640,7 +19642,7 @@ function collectFeeMasterValues(rows, base = {}) {
       key,
       label: String(fallback?.label || '').trim() || key,
       amount: numberOrZero(fallback?.amount),
-      pt: intOrZero(fallback?.pt),
+      pt: ptHalfStep(fallback?.pt),
     });
     result.castDefaults[key] = numberOrZero(castDefaults[key]);
   });
@@ -19650,7 +19652,7 @@ function collectFeeMasterValues(rows, base = {}) {
       key:fallback.key,
       label:String(fallback.label || '').trim() || fallback.key,
       amount:numberOrZero(fallback.amount),
-      pt:intOrZero(fallback.pt),
+      pt:ptHalfStep(fallback.pt),
     });
     const keys = drinkBackKeys(fallback);
     result.castDefaults[keys.shimei] = numberOrZero(castDefaults[keys.shimei]);
@@ -19691,7 +19693,7 @@ function _feeMasterFixedRowHTML(key, label, amount, back, pt) {
     <td><input type="number" class="settings-input fee-master-amount" id="${amountId}" value="${_feeMasterNumber(amount)}" min="0" step="500"></td>
     <td><input type="number" class="settings-input fee-master-back" value="${_feeMasterNumber(back)}" min="0" step="100"></td>
     <td style="text-align:center;color:var(--tx3)">—</td>
-    <td><input type="number" class="settings-input fee-master-pt" value="${Math.trunc(_feeMasterNumber(pt))}" step="1"></td>
+    <td><input type="number" class="settings-input fee-master-pt" value="${_feeMasterNumber(pt)}" step="0.5"></td>
     <td></td>
   </tr>`;
 }
@@ -19704,7 +19706,7 @@ function _feeMasterDrinkRowHTML(item) {
     <td><input type="number" class="settings-input fee-master-amount" value="${_feeMasterNumber(value.amount)}" min="0" step="500"></td>
     <td><input type="number" class="settings-input fee-master-back-shimei" value="${_feeMasterNumber(state.castDefaults?.[keys.shimei])}" min="0" step="100"></td>
     <td><input type="number" class="settings-input fee-master-back-free" value="${_feeMasterNumber(state.castDefaults?.[keys.free])}" min="0" step="100"></td>
-    <td><input type="number" class="settings-input fee-master-pt" value="${Math.trunc(_feeMasterNumber(value.pt))}" step="1"></td>
+    <td><input type="number" class="settings-input fee-master-pt" value="${_feeMasterNumber(value.pt)}" step="0.5"></td>
     <td><button type="button" class="pos-me-del" onclick="drinkItemDelRow(this)">削除</button></td>
   </tr>`;
 }
@@ -21153,7 +21155,7 @@ function _shimeiExtSettingsRowHTML(type, item) {
     <td><input type="number" class="settings-input fee-master-amount shimei-ext-amount" value="${_feeMasterNumber(value.amount)}" min="0" step="500"></td>
     <td><input type="number" class="settings-input fee-master-back" value="${_feeMasterNumber(back)}" min="0" step="100"></td>
     <td style="text-align:center;color:var(--tx3)">—</td>
-    <td><input type="number" class="settings-input fee-master-pt shimei-ext-pt" value="${Math.trunc(_feeMasterNumber(value.pt))}" step="1"></td>
+    <td><input type="number" class="settings-input fee-master-pt shimei-ext-pt" value="${_feeMasterNumber(value.pt)}" step="0.5"></td>
     <td><button type="button" class="pos-me-del" onclick="shimeiExtDelRow(this)">削除</button></td>
   </tr>`;
 }
@@ -21609,7 +21611,7 @@ async function applySettings() {
       const backFree = (backFreeRaw && /^(\d+|\d+(\.\d+)?%)$/.test(backFreeRaw)) ? backFreeRaw : null;
       const pointInput = tr.querySelector('.pos-me-pt-input');
       const rawPt = pointInput && pointInput.value !== '' ? Number(pointInput.value) : 0;
-      const pt = Number.isFinite(rawPt) ? Math.trunc(rawPt) : 0;
+      const pt = ptHalfStep(rawPt);
       if (!name || isNaN(amount)) return null;
       const item = { name, amount };
       if (back) item.back = back;
@@ -24644,6 +24646,13 @@ function uiZoomCurrentValue(screenKey) {
    手入力（SP / 日払い / 本数 / 控除）は state.payrollManual[dayKey][castName] に保存。
 ================================================================ */
 
+/* pt用: 0.5刻みへ正規化（0.4→0.5、負・非数は0） */
+function ptHalfStep(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.round(n * 2) / 2;
+}
+
 /* ---- 設定の取り出し（cfg に無ければ既定値） ---------------------- */
 function _payrollCfg(opts) {
   opts = opts || {};
@@ -24971,10 +24980,10 @@ function computePayrollForCast(castName, prodByCast, opts) {
   const pointsCount = (typeof cfg !== 'undefined' && cfg.pointsEnabled)
     ? ['本指','場内','同伴'].reduce((sum, key) => {
         const value = Number(pointRules[key]);
-        return sum + (Number(backCounts[key]) || 0) * (Number.isFinite(value) ? Math.trunc(value) : 0);
+        return sum + (Number(backCounts[key]) || 0) * ptHalfStep(value);
       }, 0) + shimeiExtItems().reduce((sum, item) => {
         const value = Number(item.pt);
-        return sum + (Number(backCounts[item.key]) || 0) * (Number.isFinite(value) ? Math.trunc(value) : 0);
+        return sum + (Number(backCounts[item.key]) || 0) * ptHalfStep(value);
       }, 0)
     : 0;
   const pointsTotal = pointsProd + pointsCount;
