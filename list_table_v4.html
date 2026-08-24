@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.62">
+<meta name="app-version" content="1.0.63">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -14733,6 +14733,9 @@ function _reportPeriodSwitchHtml() {
     + '.agg-side-empty{color:var(--tx3);font-size:12px}'
     /* ---- 日計表（給料一覧） ---- */
     + '.payroll-note{font-size:11px;color:var(--tx3);font-weight:400}'
+    + '.payroll-title{display:flex;align-items:center;gap:8px;flex:1;min-width:0}'
+    + '.payroll-title-text{min-width:0}'
+    + '.payroll-rules-gear{display:flex;align-items:center;justify-content:center;flex:0 0 32px;width:32px;height:32px;padding:0;border:1px solid var(--bdr2);border-radius:8px;background:var(--sur2);color:var(--tx);font-size:17px;line-height:1;cursor:pointer}'
     + '.payroll-scroll{overflow-x:auto;scrollbar-gutter:stable;border:1px solid var(--bdr);border-radius:8px}'
     + '.payroll-scroll:focus-visible{outline:2px solid var(--gold);outline-offset:2px}'
     + '.payroll-table{border-collapse:collapse;font-size:11px;width:max-content;min-width:100%;font-variant-numeric:tabular-nums}'
@@ -14760,6 +14763,16 @@ function _reportPeriodSwitchHtml() {
     + '.pay-bd-title{font-size:16px;font-weight:800;color:var(--tx)}.pay-bd-date{margin-top:2px;font-size:12px;color:var(--tx2)}'
     + '.pay-bd-close{display:flex;align-items:center;justify-content:center;flex:0 0 36px;width:36px;height:36px;padding:0;border:1px solid var(--bdr2);border-radius:8px;background:var(--sur);color:var(--tx);font-size:22px;cursor:pointer}'
     + '.pay-bd-body{padding:12px 16px;max-height:80vh;overflow-y:auto}'
+    + '.pqm-save-note{margin-bottom:8px;font-size:12px;color:var(--tx2)}'
+    + '.pqm-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 0;border-bottom:1px solid var(--bdr)}'
+    + '.pqm-label{min-width:0;font-size:13px;font-weight:600;color:var(--tx)}'
+    + '.pqm-sub{margin-top:3px;font-size:11px;line-height:1.5;font-weight:400;color:var(--tx3)}'
+    + '.pqm-check{display:flex;align-items:center;gap:5px;flex:0 0 auto;font-size:12px;color:var(--tx2)}'
+    + '.pqm-number{box-sizing:border-box;width:110px;padding:7px 8px;border:1px solid var(--bdr2);border-radius:7px;background:var(--sur2);color:var(--tx);font-size:13px;text-align:right}'
+    + '.pqm-unit{font-size:11px;color:var(--tx3)}'
+    + '.pqm-late-inputs{display:flex;align-items:center;justify-content:flex-end;gap:5px;flex:0 0 auto;white-space:nowrap}'
+    + '.pqm-late-inputs .pqm-number{width:82px}'
+    + '.pqm-footnote{margin-top:12px;font-size:11px;line-height:1.6;color:var(--tx3)}'
     + '.pay-bd-table{width:100%;border-collapse:collapse;font-size:14px}.pay-bd-table td{padding:9px 10px;border-bottom:1px solid var(--bdr)}.pay-bd-table tr:last-child td{border-bottom:none}.pay-bd-table td.k{color:var(--tx2);white-space:nowrap;width:6em}.pay-bd-table td.v{text-align:right;font-family:var(--mono)}'
     + '.pay-bd-table tr.pay-bd-back td.v{line-height:1.7}.pay-bd-table .pay-bd-amount{font-weight:800}.pay-bd-table tr.pay-bd-daily .pay-bd-amount{font-size:17px;color:var(--gold)}.pay-bd-table tr.pay-bd-net .pay-bd-amount{font-size:18px;color:var(--green)}.pay-bd-sub{margin-top:4px;font-size:12px;line-height:1.5;color:var(--tx2);white-space:normal}'
     + '.payroll-table tr.pay-totalrow td{background:var(--sur2);font-weight:700;border-top:2px solid var(--bdr2);color:var(--tx)}'
@@ -14770,7 +14783,7 @@ function _reportPeriodSwitchHtml() {
     + '.payroll-table select.pay-time{box-sizing:border-box;width:44px;font-size:11px;padding:3px 1px;background:var(--sur2);color:var(--tx);border:1px solid var(--bdr2);border-radius:5px;text-align:center;font-family:var(--mono);cursor:pointer}'   /* 出退勤30分刻みドロップダウン */
     + '.payroll-table select.pay-time:focus{outline:none;border-color:var(--gold)}'
     + '.deduction-sheet tr.ded-zero td{color:var(--tx3)}'
-    + '@media print{.report-end-business-day,.report-period-switch,.agg-box-actions,.pos-report-slip-actions,.pos-report-bar{display:none}}'
+    + '@media print{.report-end-business-day,.report-period-switch,.agg-box-actions,.pos-report-slip-actions,.pos-report-bar,.payroll-rules-gear{display:none}}'
     + '@media print{.payroll-table input.pay-in,.payroll-table select.pay-time{border:none;background:transparent;-webkit-appearance:none;appearance:none}}'
     + '</style>'
     + '<div class="report-period-switch">'
@@ -15649,6 +15662,56 @@ function payrollShowBreakdown(castName) {
   document.body.insertAdjacentHTML('beforeend', _payrollBreakdownHtml(row, model.src, model.countCols));
 }
 
+function payrollRulesSetBool(key, checked) {
+  cfg[key] = !!checked;
+  saveState();
+}
+
+function payrollRulesOpenModal() {
+  document.getElementById('payroll-rules-overlay')?.remove();
+  const html = `<div id="payroll-rules-overlay" class="pos-co-overlay" onclick="if(event.target===this)payrollRulesCloseModal()">
+    <div class="pos-co-panel pay-bd-panel">
+      <div class="pay-bd-head"><div class="pay-bd-title">給与計算ルール</div><button type="button" class="pay-bd-close" onclick="payrollRulesCloseModal()" aria-label="閉じる">×</button></div>
+      <div class="pay-bd-body">
+        <div class="pqm-save-note">変更した時点で保存されます</div>
+        <div class="pqm-row">
+          <div class="pqm-label">同伴を本指名の本数に数える<div class="pqm-sub">ON: 同伴1件につき本指名+1（本指バックも付く）／OFF: 同伴バックのみ</div></div>
+          <label class="pqm-check"><input type="checkbox" id="pqm-payrollDouhanAddsHonshimei" ${cfg.payrollDouhanAddsHonshimei !== false ? 'checked' : ''} onchange="payrollRulesSetBool('payrollDouhanAddsHonshimei', this.checked)"> 有効にする</label>
+        </div>
+        <div class="pqm-row">
+          <div class="pqm-label">同伴を本指名延長の先頭項目に数える<div class="pqm-sub">ON: 同伴1件につき本指名延長の先頭項目（例: 本延20）+1／OFF: 加算しない</div></div>
+          <label class="pqm-check"><input type="checkbox" id="pqm-payrollDouhanAddsHonenFirst" ${cfg.payrollDouhanAddsHonenFirst !== false ? 'checked' : ''} onchange="payrollRulesSetBool('payrollDouhanAddsHonenFirst', this.checked)"> 有効にする</label>
+        </div>
+        <div class="pqm-row">
+          <div class="pqm-label">SPをバック合計（日給）に含める<div class="pqm-sub">ON: 手入力SP・ボトル折半を日給に含める／OFF: 参考表示のみで日給には含めない</div></div>
+          <label class="pqm-check"><input type="checkbox" id="pqm-payrollSpInBackTotal" ${cfg.payrollSpInBackTotal !== false ? 'checked' : ''} onchange="payrollRulesSetBool('payrollSpInBackTotal', this.checked)"> 有効にする</label>
+        </div>
+        <div class="pqm-row">
+          <div class="pqm-label">店標準時給<div class="pqm-sub">キャスト個別の時給が空欄のときに自動で適用（バックの標準額と同じ仕組み）。空欄=店標準を使わない旧挙動のまま。入力した時点で保存されます</div></div>
+          <span class="pqm-late-inputs"><input type="number" id="pqm-defaultWage" class="pqm-number" value="${cfg.defaultWage || ''}" min="0" step="100" placeholder="0" onchange="setPayrollCfgNum('defaultWage', this.value, 0)"><span class="pqm-unit">円/時</span></span>
+        </div>
+        <div class="pqm-row">
+          <div class="pqm-label">遅刻罰金<div class="pqm-sub">N分ごとに1段階。例：15なら1〜15分=1段階、16〜30分=2段階</div><div class="pqm-sub">1段階あたりの金額</div></div>
+          <span class="pqm-late-inputs"><input type="number" id="pqm-payrollLateFineUnitMin" class="pqm-number" value="${cfg.payrollLateFineUnitMin ?? 15}" min="1" max="60" step="1" onchange="setPayrollCfgNum('payrollLateFineUnitMin', this.value, 15)"><span class="pqm-unit">分ごとに ¥</span><input type="number" id="pqm-payrollLateFineAmt" class="pqm-number" value="${cfg.payrollLateFineAmt ?? 1000}" min="0" step="100" onchange="setPayrollCfgNum('payrollLateFineAmt', this.value, 1000)"></span>
+        </div>
+        <div class="pqm-footnote">締め期間・スライド時給・控除項目などの詳細は 設定 → 給与計算ルール で設定できます</div>
+      </div>
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+function payrollRulesCloseModal() {
+  document.getElementById('payroll-rules-overlay')?.remove();
+  if (document.getElementById('payroll-table-host') && typeof _rerenderPayrollTable === 'function') {
+    _rerenderPayrollTable();
+  }
+  const settingsPanel = document.getElementById('settings-panel');
+  if (settingsPanel && settingsPanel.getClientRects().length > 0 && typeof renderSettingsPanel === 'function') {
+    renderSettingsPanel();
+  }
+}
+
 /* テーブル本体（再描画対象）。computePayrollTable を呼び直して最新化。
    src = #15 の { dayKey, rows, tt }（省略時は当日ライブを内部解決）。 */
 function _payrollTableInnerHtml(src, model, opts = { plain:false }) {
@@ -15897,7 +15960,7 @@ function _payrollSectionHtml(src) {
     ? '<span class="payroll-note">控除は店舗設定の額・率による参考計算です（税務判断は行いません）</span>' : '';
   return '<div class="agg-box" style="margin-top:18px">'
     + '<div class="agg-box-head">'
-    + '<h3>日計表 <span class="payroll-note">※時給は表示されません（キャスト管理で管理）／社交名を固定して横にスクロールできます</span>' + deductionNote + '</h3>'
+    + '<h3 class="payroll-title"><span class="payroll-title-text">日計表 <span class="payroll-note">※時給は表示されません（キャスト管理で管理）／社交名を固定して横にスクロールできます</span>' + deductionNote + '</span><button type="button" class="payroll-rules-gear" onclick="payrollRulesOpenModal()" aria-label="給与計算ルールの設定">⚙</button></h3>'
     + '<div class="agg-box-actions">'
     + '<button onclick="printReport()">🖨 印刷</button>'
     + '<button onclick="exportPayrollCSV()">💾 CSV保存</button>'
@@ -20226,7 +20289,7 @@ function renderSettingsPanel() {
       <div class="settings-section-header"><span class="settings-section-title">💴 給与計算ルール</span></div>
       <div class="settings-section-body">
         <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:6px">
-          <div class="settings-label"><b>給与計算のしくみ</b><div class="settings-sub">日計表の日給はこの順で計算されます（値は現在の設定）</div></div>
+          <div class="settings-label" style="display:flex;align-items:center;gap:8px"><div><b>給与計算のしくみ</b><div class="settings-sub">日計表の日給はこの順で計算されます（値は現在の設定）</div></div><button type="button" class="payroll-rules-gear" style="margin-left:auto" onclick="payrollRulesOpenModal()" aria-label="給与計算ルールの設定">⚙</button></div>
           <ol class="pay-logic">
             <li>① <b>時間給</b> ＝ 時給 × 勤務分 ÷ 60（1円未満四捨五入）。出勤は ${cfg.payrollClockInRoundMin ?? 30} 分単位で切り上げ、退勤は ${cfg.payrollClockOutRoundMin ?? 30} 分単位（${cfg.payrollClockOutRoundThreshold ?? 15} 分を境に四捨五入）。時給はキャスト個別→空欄なら店標準時給 ¥${Number(cfg.defaultWage) || 0}</li>
             <li>② <b>バック</b> ＝ 本数 × バック単価（本指・本指名延長・延長指名・場内・同伴・指名ドリンク・フリードリンク）＋ 商品バック。単価はキャスト個別→空欄ならキャスト既定バック。本数は伝票から自動集計（日計表で手修正可）</li>
