@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.64">
+<meta name="app-version" content="1.0.65">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -7529,9 +7529,11 @@ function bizKeyToLabel(key) {
    アプリ内モーダルを毎回出すと現場が詰むので、セッション中1回だけ表示する
    （2回目以降はコンソール警告のみに留める）。 */
 let _loadBackupsErrorShown = false;
-function loadBackups() {
-  return Persist.read('backups', {
+function _readBackups() {
+  let ok = true;
+  const data = Persist.read('backups', {
     onError: () => {
+      ok = false;
       const alreadyShown = _loadBackupsErrorShown;
       _loadBackupsErrorShown = true;
       if (alreadyShown) {
@@ -7542,7 +7544,16 @@ function loadBackups() {
         appAlert('バックアップ履歴の読み込みに失敗しました。\n\nデータが壊れている可能性があります。\n壊れたデータは端末内に退避しました。\nこのまま営業は続けられますが、過去の営業日データが表示されなくなっている場合があります。\n必ずオーナーへ連絡してください。');
       }, 100);
     }
-  }) || [];
+  });
+  return { ok, data };
+}
+function loadBackups() {
+  return _readBackups().data || [];
+}
+/* 顧客再構築など「失敗時に処理を中止したい」呼び出し用。失敗時は null を返す */
+function loadBackupsStrict() {
+  const result = _readBackups();
+  return result.ok ? (result.data || []) : null;
 }
 function saveBackups(arr) {
   // データ復旧：上書き・削除で消える「中身のある」営業日を退避してから書き込む。
@@ -7834,7 +7845,7 @@ function showRestoreModal(backups) {
         <span style="font-size:16px">♻️</span>
         <div>
           <div style="font-size:13px;font-weight:700;letter-spacing:0.08em;color:var(--gold2)">保存データを復元</div>
-          <div style="font-size:10px;color:var(--tx3);margin-top:1px">営業日単位 · 最大60日 · 同日は上書き保存</div>
+          <div style="font-size:10px;color:var(--tx3);margin-top:1px">営業日単位 · 最大365日 · 同日は上書き保存</div>
         </div>
         <div style="margin-left:6px;padding:2px 8px;border-radius:10px;
           background:rgba(201,168,76,0.12);border:1px solid rgba(201,168,76,0.25);
@@ -21825,11 +21836,17 @@ function _customerStringList(values) {
 
 /* リスト表の精算済みデータから顧客情報を集計・マージ */
 function syncCustomers() {
+  const backups = loadBackupsStrict();
+  if (backups === null) {
+    try { showToast('顧客の再集計を中止しました（バックアップ読込失敗）'); } catch (_) {}
+    return;
+  }
+
+  const existingFull = loadCustomers();
   // 既存のメモ・別名は再集計しても保持する
   const existing = (() => {
-    const d = loadCustomers();
     const map = {};
-    Object.values(d).forEach(c => {
+    Object.values(existingFull).forEach(c => {
       map[c.name] = {
         memo: c.memo || '', name2: c.name2 || '', receiptName: c.receiptName || '',
         receiptNames: (() => {
@@ -21847,7 +21864,6 @@ function syncCustomers() {
   })();
 
   const allSnapshots = (() => {
-    const backups = loadBackups();
     const todayKey = getBizDayKey();
     const hasToday = backups.some(b => b.dayKey === todayKey);
     const snaps = [...backups];
@@ -22103,7 +22119,8 @@ function syncCustomers() {
     };
   });
 
-  saveCustomers(rebuilt);
+  const merged = { ...existingFull, ...rebuilt };
+  saveCustomers(merged);
 }
 
 /* ランクを返す */
