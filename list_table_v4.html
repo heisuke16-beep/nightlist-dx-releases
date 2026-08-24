@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.67">
+<meta name="app-version" content="1.0.68">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -711,6 +711,13 @@ select option { background: var(--sur2); }
   border-bottom-color: var(--gold);
   text-shadow: 0 0 8px rgba(201,168,76,0.4);
 }
+.tab-btn.demo-active {
+  color: var(--red);
+  background: rgba(232,64,96,0.08);
+  border-color: rgba(232,64,96,0.35);
+  text-shadow: none;
+}
+.tab-btn.demo-active:hover { background: rgba(232,64,96,0.15); }
 
 /* ================================================================
    POS PANEL (β) - 現場向けフィールドUI
@@ -4579,6 +4586,7 @@ html[data-display="tablet"] #list-table .col-ctrl-btn { min-width: 32px; min-hei
   <button class="tab-btn"        data-tab="bottle"   onclick="showTab('bottle')">🍾 ボトル</button>
   <button class="tab-btn"        data-tab="past"     onclick="showTab('past')">📅 過去のリスト</button>
   <button class="tab-btn"        data-tab="settings" onclick="showTab('settings')">⚙️ 設定</button>
+  <button class="tab-btn" id="tab-demo-btn" style="margin-left:auto" onclick="demoModeToggle()">🎬 デモ</button>
 </div>
 
 <!-- TOOLBAR -->
@@ -7180,6 +7188,15 @@ async function devResetTimetable() {
 /* デモモード開始: 現在の実データを確実にディスクへ書き切ってから、以降の保存を凍結する。
    デモ中の変更はUsbStore.writeSyncで凍結され（cacheのみ更新・flush対象外）、
    終了時のlocation.reloadで開始時点のディスク内容へ復帰する。 */
+function _updateDemoTabBtn() {
+  const btn = document.getElementById('tab-demo-btn');
+  if (!btn) return;
+  btn.textContent = _demoMode ? '⏹ デモ終了' : '🎬 デモ';
+  btn.classList.toggle('demo-active', _demoMode);
+}
+function demoModeToggle() {
+  return _demoMode ? demoModeEnd() : demoModeStart();
+}
 async function demoModeStart() {
   if (_demoMode) return;
   const ok = await appConfirm('デモモードを開始します。デモ中の伝票・リスト表の操作（作成・編集・精算など）は保存されず、終了するとデモ開始前の状態に戻ります。設定画面での変更（料金・メニュー・店ルールなど）はデモ中でも保存されます。');
@@ -7194,6 +7211,7 @@ async function demoModeStart() {
   renderSettingsPanel();
   updateClock();
   showToast('🎬 デモモードを開始しました（伝票・リスト表は保存されません／設定は保存されます）');
+  _updateDemoTabBtn();
 }
 
 /* デモモード終了: デモ中の変更は一切ディスクへ書かれていないため、
@@ -7372,8 +7390,9 @@ function checkAutoCloseDay() {
     _closeExtendedForKey = null;
     return;
   }
-  // 安全策：締める前の状態を「締める前の営業日キー」でバックアップしてから締める。
+  // 安全策：締める前の状態を日次締めに凍結し、「締める前の営業日キー」でバックアップしてから締める。
   // → 未精算客が残っていても ♻️復元 / 過去リストから戻せる。
+  try { dailyCloseLockForKey(prevKey); } catch (_) {}
   try { saveBackupForKey(prevKey); } catch (_) {}
   resetDayCore();
   // 出勤状態も新しい営業日のまっさらな状態へ戻す（バックアップ後なので♻️復元で戻せる）
@@ -7382,7 +7401,7 @@ function checkAutoCloseDay() {
     renderCastPanel();
     renderTimetable();
   } catch (_) {}
-  try { showToast('🕛 営業日が変わったため自動で営業終了しました（出勤キャストもリセット）'); } catch (_) {}
+  try { showToast('🕛 営業日が変わったため自動で営業終了しました（日次締めロック済み・出勤キャストもリセット）'); } catch (_) {}
 }
 let _lastTickMinute = -1;
 setInterval(() => {
@@ -7787,12 +7806,14 @@ function checkStaleBizDay(savedKey) {
       const ok = await appConfirm(
         `前営業日（${bizKeyToLabel(savedKey)}）の締め忘れデータが残っています。\n\n` +
         `未精算のお客様が画面に表示されています。\n` +
+        `日次締めもロックします。\n` +
         `今すぐ営業終了して新しい営業日（${bizKeyToLabel(curKey)}）を開始しますか？\n\n` +
         `［OK］前営業日分をバックアップしてから営業終了\n` +
         `［キャンセル］そのまま表示（手動で確認・精算する）`
       );
       if (!ok) return;               // キャンセル＝何もしない（データはそのまま表示）
-      // 締める前の状態を「締め忘れた営業日キー」でバックアップしてから締める
+      // 締める前の状態を日次締めに凍結し、「締め忘れた営業日キー」でバックアップしてから締める
+      try { dailyCloseLockForKey(savedKey); } catch (_) {}
       try { saveBackupForKey(savedKey); } catch (_) {}
       resetDayCore();                // 19-reset.js の締め処理本体（確認ダイアログなし）
       // 出勤状態も新しい営業日のまっさらな状態へ（バックアップ後なので♻️復元で戻せる）
@@ -14610,7 +14631,7 @@ function _castRankingStoreWithLiveToday() {
 }
 
 function _castRankingData(monthKey) {
-  return castRankingMonthTotals(_castRankingStoreWithLiveToday(), monthKey);
+  return castRankingMonthTotals(_castRankingBackfillFromBackups(_castRankingStoreWithLiveToday(), String(monthKey).slice(0, 6)), monthKey);
 }
 
 function _castRankingSortedRows(data) {
@@ -14778,6 +14799,12 @@ function _reportPeriodSwitchHtml() {
     + '.agg-card-total{color:var(--gold)}'
     + '.agg-card-line{display:flex;justify-content:space-between;gap:8px;padding:6px 12px;font-size:12px;border-top:1px solid var(--bdr)}'
     + '.agg-card-nm{flex:1;color:var(--tx2)}.agg-card-q{color:var(--tx3);min-width:20px;text-align:right}.agg-card-amt{min-width:60px;text-align:right;color:var(--tx)}'
+    + '.agg-share-btn{display:inline-flex;align-items:center;gap:2px;flex:0 0 auto;padding:1px 5px;border:1px solid var(--bdr2);border-radius:9px;background:var(--sur2);color:var(--gold);font-size:10px;line-height:1.4;cursor:pointer}'
+    + '.nominate-share-total{padding:10px 12px;border:1px solid var(--bdr);border-radius:8px;background:var(--sur2);color:var(--tx2);font-size:13px}.nominate-share-total strong{float:right;color:var(--gold);font-size:16px}'
+    + '.nominate-share-row{display:grid;grid-template-columns:minmax(80px,1fr) auto minmax(82px,auto);align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--bdr)}'
+    + '.nominate-share-cast{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--tx);font-weight:700}.nominate-share-stepper{display:flex;align-items:center;gap:7px}.nominate-share-stepper button{display:flex;align-items:center;justify-content:center;width:32px;height:32px;padding:0;border:1px solid var(--bdr2);border-radius:7px;background:var(--sur2);color:var(--tx);font-size:20px;cursor:pointer}.nominate-share-weight{min-width:18px;text-align:center;color:var(--gold);font-weight:800;font-variant-numeric:tabular-nums}.nominate-share-preview{text-align:right;color:var(--tx);font-family:var(--mono);font-weight:700}'
+    + '.nominate-share-actions{grid-template-columns:repeat(3,minmax(0,1fr))}.nominate-share-actions .pos-co-btn{height:48px;padding:6px;font-size:14px}.nominate-share-reset{background:#555}.nominate-share-save{background:#16a085}'
+    + '@media(max-width:560px){.nominate-share-row{grid-template-columns:minmax(70px,1fr) auto}.nominate-share-preview{grid-column:1/-1}.nominate-share-actions{grid-template-columns:1fr}.nominate-share-actions .pos-co-btn{height:44px}}'
     + '.agg-side-card{background:var(--sur);border:1px solid var(--bdr);border-radius:12px;padding:14px 16px;text-align:center}'
     + '.agg-side-card.total{background:linear-gradient(160deg,var(--sur2),var(--sur))}'
     + '.agg-side-label{font-size:11px;color:var(--tx3);margin-bottom:4px}'
@@ -14805,7 +14832,9 @@ function _reportPeriodSwitchHtml() {
     + '.payroll-table tbody td:nth-child(2){border-left:2px solid var(--bdr2)}'
     + '.payroll-table td.pay-name,.payroll-table th.pay-name{text-align:center;vertical-align:middle;color:var(--tx);font-weight:600;position:sticky;left:0;background:var(--sur);z-index:1}'
     + '.payroll-table th.pay-name{background:var(--sur2);z-index:4}'
-    + '.payroll-table td.pay-name-action{cursor:pointer}'
+    + '.payroll-table td.pay-name-action{cursor:pointer;padding-left:26px;padding-right:26px}'
+    + '.payroll-table td.pay-name-action .pay-name-label{display:flex;align-items:center;justify-content:center}'
+    + '.payroll-table td.pay-name-action .pay-bd-btn{position:absolute;right:6px;top:50%;transform:translateY(-50%);margin-left:0}'
     + '.payroll-table td.pay-name-action:focus-visible{outline:2px solid var(--gold);outline-offset:-2px}'
     + '.payroll-table tbody tr:nth-child(even):not(.pay-totalrow) td{background:var(--sur2)}'
     + '.payroll-table td.pay-amt{color:var(--tx2);text-align:right}'
@@ -14837,11 +14866,12 @@ function _reportPeriodSwitchHtml() {
     + '.payroll-table input.pay-in:focus{outline:none;border-color:var(--gold)}'
     + '.payroll-table input.pay-in.pay-edited{border-color:var(--gold);color:var(--gold);font-weight:700}'   /* #12 手修正セルを強調 */
     + '.payroll-table input.pay-in.pay-time{width:44px;text-align:center;font-family:var(--mono)}'   /* 出退勤HH:MM編集 */
-    + '.payroll-table select.pay-time{box-sizing:border-box;width:44px;font-size:11px;padding:3px 1px;background:var(--sur2);color:var(--tx);border:1px solid var(--bdr2);border-radius:5px;text-align:center;font-family:var(--mono);cursor:pointer}'   /* 出退勤30分刻みドロップダウン */
+    + '.payroll-table select.pay-time{box-sizing:border-box;width:58px;font-size:11px;padding:3px 1px;background:var(--sur2);color:var(--tx);border:1px solid var(--bdr2);border-radius:5px;text-align:center;font-family:var(--mono);cursor:pointer}'   /* 出退勤30分刻みドロップダウン */
     + '.payroll-table select.pay-time:focus{outline:none;border-color:var(--gold)}'
     + '.deduction-sheet tr.ded-zero td{color:var(--tx3)}'
     + '@media print{.report-end-business-day,.report-period-switch,.agg-box-actions,.pos-report-slip-actions,.pos-report-bar,.payroll-rules-gear{display:none}}'
     + '@media print{.payroll-table input.pay-in,.payroll-table select.pay-time{border:none;background:transparent;-webkit-appearance:none;appearance:none}}'
+    + '@media print{.payroll-table select.pay-time{width:44px}}'
     + '</style>'
     + '<div class="report-period-switch">'
     + [['day','日報'],['week','週報'],['month','月報']].map(([v,l]) =>
@@ -15143,6 +15173,26 @@ function _aggProductBack(order, isNominator) {
   return { isProductBack: back > 0 || hasBackFree, amount };
 }
 
+// 指名売上のweight按分。未設定・不正値はweight=1、端数は最後のキャストへ寄せる。
+function _nominateWeight(nominateShares, cast) {
+  const value = nominateShares && Number(nominateShares[cast]);
+  return value > 0 ? value : 1;
+}
+function _nominateAllocatedShares(total, casts, nominateShares) {
+  const list = Array.isArray(casts) ? casts : [];
+  if (!list.length) return [];
+  const weights = list.map(cast => _nominateWeight(nominateShares, cast));
+  const weightTotal = weights.reduce((sum, weight) => sum + weight, 0);
+  let allocated = 0;
+  return list.map((cast, index) => {
+    const share = index === list.length - 1
+      ? total - allocated
+      : Math.floor(total * weights[index] / weightTotal);
+    allocated += share;
+    return share;
+  });
+}
+
 function computeReportAgg(settled) {
   const modoriAgg = ['honen','honshimei','none'].includes(cfg?.modoriHonshimeiAgg) ? cfg.modoriHonshimeiAgg : 'honen';
   const modoriEnchoshimeiAgg = ['enchoshimei40','jounai','none'].includes(cfg?.modoriEnchoshimeiAgg) ? cfg.modoriEnchoshimeiAgg : 'enchoshimei40';
@@ -15166,7 +15216,7 @@ function computeReportAgg(settled) {
     }
     return prodByCast[c];
   };
-  // 指名売上：本指名/同伴で付いた卓の税込総計を、指名キャストの頭数で等分して計上（R2・卓単位）。
+  // 指名売上：本指名/同伴で付いた卓の税込総計を、指名キャストのweightで按分して計上（R2・卓単位）。
   // lines は卓ごとの寄与（No.X 会計種別 → その卓の税込総計）。total はその合計。
   const nameGroups = {};   // cast -> { total, totalSub, lines:{label:{qty,amt}} }
   const ensureN = c => (nameGroups[c] = nameGroups[c] || { total:0, totalSub:0, lines:{} });
@@ -15174,7 +15224,7 @@ function computeReportAgg(settled) {
   const SHIMEI_NOMINATE = ['honshimei', 'douban'];
   if (modoriAgg !== 'none') SHIMEI_NOMINATE.push('modori_honshimei');
   // 個人小計売上（2026-08-20新設・給率多指標化）: 指名系すべて（本指名・同伴・場内・延長指名）の
-  // 卓小計(税抜)を頭割り帰属した合計。nameGroups（本指名/同伴のみ・税込中心）とは別軸の集計。
+  // 卓小計(税抜)をweight按分で帰属した合計。nameGroups（本指名/同伴のみ・税込中心）とは別軸の集計。
   // SHIMEI_TYPES（01-constants.js）= ['honshimei','douban','jounai','enchoshimei']をそのまま使う。
   const personalSubtotalByCast = {};   // cast -> 円（税抜・頭割り後）
   const PERSONAL_NOMINATE_TYPES = new Set(SHIMEI_TYPES);
@@ -15217,36 +15267,27 @@ function computeReportAgg(settled) {
       const oc = _aggCastOf(o.name);
       if (oc && oc !== 'ボーイ' && oc !== 'ゲスト') nominators.add(oc);
     });
-    // R2: 1卓に指名系キャストが複数いる場合は卓総額を頭数で等分して各キャストへ計上する。
+    // R2: 1卓に指名系キャストが複数いる場合は卓総額をweight按分して各キャストへ計上する。
     //     （旧実装は各キャストへ満額加算→複数指名で多重計上し、指名売上合計が店総売上を超えていた）
-    // TODO(比率可変): 将来は等分でなく任意比率（例 7:3）で按分できるようにする。
-    //   その際は下の shares を「cast -> 比率」マップから算出する形に差し替える
-    //   （例: r.nominateShares = { '杏':7, '凛':3 } を受け取り weight/Σweight で配分）。
-    //   端数は最後のキャストへ寄せて合計＝tableTotal を厳守すること。
     const nomList = Array.from(nominators);
-    const nomCount = nomList.length;
-    let _allocated = 0;
-    let _allocatedSub = 0;
+    const nominateGrossShares = _nominateAllocatedShares(tableTotal, nomList, r.nominateShares);
+    const nominateSubtotalShares = _nominateAllocatedShares(tableSubtotal, nomList, r.nominateShares);
+    const nominateWeights = nomList.map(cast => _nominateWeight(r.nominateShares, cast));
     nomList.forEach((cast, idx) => {
       nominatedCasts[cast] = true;
       const g = ensureN(cast);
       const label = 'No.' + slipNoLabel(r) + (r.source ? ' ' + r.source : '');
-      const ln = g.lines[label] = g.lines[label] || { qty:0, amt:0 };
-      // 等分。端数は最後のキャストに寄せて Σ(share) = tableTotal を保証（多重計上・取りこぼし無し）。
-      const share = (idx === nomCount - 1)
-        ? (tableTotal - _allocated)
-        : Math.floor(tableTotal / nomCount);
-      const shareSub = (idx === nomCount - 1)
-        ? (tableSubtotal - _allocatedSub)
-        : Math.floor(tableSubtotal / nomCount);
-      _allocated += share;
-      _allocatedSub += shareSub;
+      const ln = g.lines[label] = g.lines[label] || {
+        qty:0, amt:0, rowId:r.id, casts:nomList.slice(), nominateWeights:nominateWeights.slice()
+      };
+      const share = nominateGrossShares[idx];
+      const shareSub = nominateSubtotalShares[idx];
       ln.qty += 1; ln.amt += share; g.total += share;
       g.totalSub += shareSub;
     });
 
     // --- 個人小計売上（2026-08-20新設）: 指名系すべて（本指名・同伴・場内・延長指名）を対象に
-    //     卓小計(税抜)を頭数で等分して計上。按分ロジック（等分・端数処理）はnameGroupsと同じR2方式。 ---
+    //     卓小計(税抜)をweight按分して計上。按分ロジック（weight・端数処理）はnameGroupsと同じR2方式。 ---
     const personalNominators = new Set();
     if (r.mainCast && PERSONAL_NOMINATE_TYPES.has(r.mainType)) personalNominators.add(r.mainCast);
     (r.subCasts || []).forEach(sc => {
@@ -15260,12 +15301,9 @@ function computeReportAgg(settled) {
       if (oc && oc !== 'ボーイ' && oc !== 'ゲスト') personalNominators.add(oc);
     });
     const pList = Array.from(personalNominators);
-    const pCount = pList.length;
-    let _personalAllocatedSub = 0;
+    const personalShares = _nominateAllocatedShares(tableSubtotal, pList, r.nominateShares);
     pList.forEach((cast, idx) => {
-      const share = (idx === pCount - 1) ? (tableSubtotal - _personalAllocatedSub) : Math.floor(tableSubtotal / pCount);
-      _personalAllocatedSub += share;
-      personalSubtotalByCast[cast] = (personalSubtotalByCast[cast] || 0) + share;
+      personalSubtotalByCast[cast] = (personalSubtotalByCast[cast] || 0) + personalShares[idx];
     });
 
     posOrders(r).forEach(o => {
@@ -15383,7 +15421,7 @@ function _aggProdTableHtml(prodByCast, backByCast, stampedLabels) {
 }
 
 function _aggNameCardsHtml(nameGroups, nominatedCasts) {
-  // 指名売上：本指名/同伴で付いた卓の税込総計を指名頭数で等分して計上（R2）。明細は卓ごとの寄与。
+  // 指名売上：本指名/同伴で付いた卓の税込総計を指名weightで按分して計上（R2）。明細は卓ごとの寄与。
   const nom = nominatedCasts || {};
   const dispTotal = c => nameGroups[c].total;
   let casts = Object.keys(nameGroups).filter(c => nom[c] && nameGroups[c].total > 0);
@@ -15398,7 +15436,14 @@ function _aggNameCardsHtml(nameGroups, nominatedCasts) {
     const g = nameGroups[c];
     const lines = Object.keys(g.lines).map(l => {
       const ln = g.lines[l];
+      const weights = Array.isArray(ln.nominateWeights) ? ln.nominateWeights : [];
+      const hasCustomRatio = weights.length > 1 && weights.some(weight => weight !== weights[0]);
+      const ratio = hasCustomRatio ? weights.join(':') : '';
+      const shareButton = Array.isArray(ln.casts) && ln.casts.length > 1 && ln.rowId != null
+        ? '<button type="button" class="agg-share-btn" data-row-id="' + escAttr(String(ln.rowId)) + '" onclick="nominateSharesOpenModal(this.dataset.rowId)" aria-label="指名売上の配分を変更">⚖' + (ratio ? '<span>' + escHtml(ratio) + '</span>' : '') + '</button>'
+        : '';
       return '<div class="agg-card-line"><span class="agg-card-nm">' + escHtml(l) + '</span>'
+        + shareButton
         + '<span class="agg-card-q">' + ln.qty + '</span>'
         + '<span class="agg-card-amt">¥' + ln.amt.toLocaleString() + '</span></div>';
     }).join('');
@@ -15406,6 +15451,119 @@ function _aggNameCardsHtml(nameGroups, nominatedCasts) {
       + '<span class="agg-card-total">¥' + dispTotal(c).toLocaleString() + '</span></div>' + lines + '</div>';
   }).join('');
   return '<div class="agg-card-grid">' + cards + '</div>';
+}
+
+let _nominateSharesEditor = null;
+
+function _nominateSharesFindTarget(rowId) {
+  const src = _reportDaySource();
+  const row = (src.rows || []).find(r => r.isFirst && String(r.id) === String(rowId));
+  if (!row) return null;
+  const agg = computeReportAgg([row]);
+  let casts = [];
+  Object.values(agg.nameGroups || {}).some(group => Object.values(group.lines || {}).some(line => {
+    if (String(line.rowId) !== String(rowId) || !Array.isArray(line.casts)) return false;
+    casts = line.casts.slice();
+    return true;
+  }));
+  if (casts.length < 2) return null;
+  return { src, row, casts, total:rowSales(row) };
+}
+
+function nominateSharesOpenModal(rowId) {
+  const target = _nominateSharesFindTarget(rowId);
+  if (!target) {
+    if (typeof showToast === 'function') showToast('配分対象の伝票が見つかりません');
+    return;
+  }
+  nominateSharesCloseModal();
+  _nominateSharesEditor = {
+    dayKey: target.src.dayKey,
+    rowId: target.row.id,
+    casts: target.casts,
+    total: target.total,
+    weights: target.casts.map(cast => Math.min(9, Math.max(1, Math.round(_nominateWeight(target.row.nominateShares, cast)))))
+  };
+  const editor = _nominateSharesEditor;
+  const rows = editor.casts.map((cast, index) => '<div class="nominate-share-row">'
+    + '<div class="nominate-share-cast">' + escHtml(cast) + '</div>'
+    + '<div class="nominate-share-stepper"><button type="button" onclick="nominateSharesAdjust(' + index + ',-1)" aria-label="' + escAttr(cast) + 'の比率を下げる">−</button><span id="nominate-share-weight-' + index + '" class="nominate-share-weight">' + editor.weights[index] + '</span><button type="button" onclick="nominateSharesAdjust(' + index + ',1)" aria-label="' + escAttr(cast) + 'の比率を上げる">＋</button></div>'
+    + '<div id="nominate-share-preview-' + index + '" class="nominate-share-preview"></div></div>').join('');
+  const html = '<div id="nominate-shares-overlay" class="pos-co-overlay" onclick="if(event.target===this)nominateSharesCloseModal()">'
+    + '<div class="pos-co-panel pay-bd-panel"><div class="pay-bd-head"><div><div class="pay-bd-title">指名売上の配分 — No.' + escHtml(slipNoLabel(target.row)) + '</div><div class="pay-bd-date">weight 1〜9で調整</div></div><button type="button" class="pay-bd-close" onclick="nominateSharesCloseModal()" aria-label="閉じる">×</button></div>'
+    + '<div class="pay-bd-body"><div class="nominate-share-total">卓総額（税込）<strong>¥' + editor.total.toLocaleString() + '</strong></div>' + rows
+    + '<div class="pos-co-actions nominate-share-actions"><button type="button" class="pos-co-btn nominate-share-reset" onclick="nominateSharesResetEven()">均等に戻す</button><button type="button" class="pos-co-btn cancel" onclick="nominateSharesCloseModal()">キャンセル</button><button type="button" class="pos-co-btn nominate-share-save" onclick="nominateSharesSave()">保存</button></div></div></div></div>';
+  document.body.insertAdjacentHTML('beforeend', html);
+  _nominateSharesRenderPreview();
+}
+
+function nominateSharesCloseModal() {
+  document.getElementById('nominate-shares-overlay')?.remove();
+}
+
+function nominateSharesAdjust(index, delta) {
+  const editor = _nominateSharesEditor;
+  if (!editor || index < 0 || index >= editor.weights.length) return;
+  editor.weights[index] = Math.min(9, Math.max(1, editor.weights[index] + Number(delta || 0)));
+  _nominateSharesRenderPreview();
+}
+
+function _nominateSharesRenderPreview() {
+  const editor = _nominateSharesEditor;
+  if (!editor) return;
+  const map = Object.fromEntries(editor.casts.map((cast, index) => [cast, editor.weights[index]]));
+  const shares = _nominateAllocatedShares(editor.total, editor.casts, map);
+  editor.casts.forEach((cast, index) => {
+    const weightNode = document.getElementById('nominate-share-weight-' + index);
+    const previewNode = document.getElementById('nominate-share-preview-' + index);
+    if (weightNode) weightNode.textContent = editor.weights[index];
+    if (previewNode) previewNode.textContent = '¥' + shares[index].toLocaleString();
+  });
+}
+
+function _nominateSharesPersist(nextShares) {
+  const editor = _nominateSharesEditor;
+  if (!editor) return false;
+  const liveKey = getLoadedDayKey();
+  if (editor.dayKey === liveKey) {
+    const row = (state.rows || []).find(r => r.isFirst && String(r.id) === String(editor.rowId));
+    if (!row) return false;
+    if (nextShares) row.nominateShares = nextShares;
+    else delete row.nominateShares;
+    saveState();
+    return true;
+  }
+  const backups = (typeof loadBackups === 'function') ? loadBackups() : [];
+  const snap = backups.find(item => item.dayKey === editor.dayKey);
+  const row = snap && Array.isArray(snap.rows)
+    ? snap.rows.find(r => r.isFirst && String(r.id) === String(editor.rowId))
+    : null;
+  if (!row) return false;
+  if (nextShares) row.nominateShares = nextShares;
+  else delete row.nominateShares;
+  saveBackups(backups);
+  return true;
+}
+
+function nominateSharesSave() {
+  const editor = _nominateSharesEditor;
+  if (!editor) return;
+  const nextShares = Object.fromEntries(editor.casts.map((cast, index) => [cast, editor.weights[index]]));
+  if (!_nominateSharesPersist(nextShares)) {
+    if (typeof showToast === 'function') showToast('配分を保存できませんでした');
+    return;
+  }
+  nominateSharesCloseModal();
+  renderReportPanel();
+}
+
+function nominateSharesResetEven() {
+  if (!_nominateSharesPersist(null)) {
+    if (typeof showToast === 'function') showToast('均等配分へ戻せませんでした');
+    return;
+  }
+  nominateSharesCloseModal();
+  renderReportPanel();
 }
 
 function _aggKpiBarHtml(a, bizKey) {
@@ -15808,7 +15966,7 @@ function _payrollTableInnerHtml(src, model, opts = { plain:false }) {
     return '<tr>'
       + (opts.plain === true
         ? '<td class="pay-name">' + escHtml(c) + '</td>'
-        : '<td class="pay-name pay-name-action" role="button" tabindex="0" onclick="payrollShowBreakdown(\'' + cj + '\')" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();payrollShowBreakdown(\'' + cj + '\')}">' + escHtml(c) + '<span class="pay-bd-btn" aria-hidden="true">ⓘ</span></td>')
+        : '<td class="pay-name pay-name-action" role="button" tabindex="0" onclick="payrollShowBreakdown(\'' + cj + '\')" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();payrollShowBreakdown(\'' + cj + '\')}"><span class="pay-name-label">' + escHtml(c) + '</span><span class="pay-bd-btn" aria-hidden="true">ⓘ</span></td>')
       + visibleColumns.map((col, index) => col.cell(ctx, index === 0 || col.group !== visibleColumns[index - 1].group)).join('')
       + '</tr>';
   }).join('');
@@ -16370,6 +16528,35 @@ function castRankingMonthTotals(store, bizKey) {
   };
 }
 
+/* 対象月のうち dailyclose に締め済みレコードが無い営業日を、
+   バックアップから frozen.castRows 相当を合成して store に補完した複製を返す（保存しない） */
+function _castRankingBackfillFromBackups(store, monthKey) {
+  const source = store && typeof store === 'object' && !Array.isArray(store) ? store : {};
+  const merged = { ...source };
+  const month = String(monthKey || '').slice(0, 6);
+  const today = getLoadedDayKey();
+  (loadBackups() || []).forEach(snap => {
+    const dayKey = String(snap?.dayKey || '');
+    if (dayKey.slice(0, 6) !== month || dayKey === today) return;
+    if (_dailyCloseNormalizeFrozen(source[dayKey]?.frozen).closedAt > 0) return;
+    const rows = Array.isArray(snap?.rows) ? snap.rows : [];
+    const settled = rows.filter(row => row.isFirst && row.settled);
+    const payrollRows = computePayrollTable(settled, {
+      dayKey: snap.dayKey,
+      tt: snap.timetableSnap || {},
+      activeCasts: Array.isArray(snap.activeCasts) ? snap.activeCasts : [],
+    });
+    merged[dayKey] = {
+      ...(source[dayKey] || {}),
+      frozen: {
+        ..._dailyCloseNormalizeFrozen(source[dayKey]?.frozen),
+        castRows: _dailyCloseNormalizeCastRows(payrollRows),
+      },
+    };
+  });
+  return merged;
+}
+
 function loadDailyClose() {
   const value = Persist.read('dailyclose', {
     onError: () => setTimeout(() => { try { showToast('⚠ 日次締めの読込に失敗しました'); } catch (_) {} }, 100),
@@ -16456,6 +16643,21 @@ function dailyCloseSetListValue(field, index, prop, value) {
   if (!item || ![textProp, 'amount'].includes(prop)) return;
   item[prop] = prop === 'amount' ? _dailyCloseNum(value) : String(value || '');
   if (_dailyCloseSaveCurrent(rec)) _dailyCloseRerender();
+}
+
+/* 指定営業日キーで日次締めを凍結する（自動締め用）。既に凍結済みなら false を返す。
+   ライブの state.rows / タイムテーブルから計算するため、リセット（resetDayCore）前に呼ぶこと。 */
+function dailyCloseLockForKey(dayKey) {
+  const store = loadDailyClose();
+  const rec = _dailyCloseNormalizeRecord(store[dayKey]);
+  if (_dailyCloseNormalizeFrozen(rec.frozen).closedAt > 0) return false;
+  const src = { dayKey, rows: state.rows || [], tt: (typeof loadTimetableState === 'function') ? loadTimetableState() : {}, activeCasts: state.activeCasts || [] };
+  const settled = (src.rows || []).filter(r => r.isFirst && r.settled);
+  const agg = computeReportAgg(settled);
+  const payrollRows = computePayrollTable(settled, { dayKey, tt: src.tt, activeCasts: src.activeCasts });
+  rec.frozen = { ..._dailyCloseLiveAuto(src, agg, payrollRows), closedAt: Date.now() };
+  store[dayKey] = rec;
+  return saveDailyClose(store);
 }
 
 function dailyCloseLockNow() {
