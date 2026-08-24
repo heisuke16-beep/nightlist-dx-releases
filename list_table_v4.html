@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.65">
+<meta name="app-version" content="1.0.66">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -4840,6 +4840,8 @@ function _baseMainType(t) {
    exportAll/importAll は文字列のまま入出力する（既存JSON形式と互換）。
 ================================================================ */
 const Persist = {
+  failedReads: new Set(),
+  _lockAlerted: new Set(),
   KEYS: {
     listState: 'nightlist__state_v2',
     backups:   'nightlist__backups_v2',
@@ -4867,9 +4869,12 @@ const Persist = {
     try {
       // 本番の永続化処理はUSBゲート解決後に走り、先行するdevTime読取もゲート後に再同期される。
       raw = UsbStore.readSync(name);
-      return JSON.parse(raw || 'null');
+      const parsed = JSON.parse(raw || 'null');
+      this.failedReads.delete(name);
+      return parsed;
     }
     catch(e) {
+      this.failedReads.add(name);
       console.error(`[Persist] read('${name}') parse failed:`, e);
       if (raw !== null && raw !== '') {
         try { localStorage.setItem(`nightlist__corrupt_${name}_${Date.now()}`, raw); }
@@ -4883,12 +4888,35 @@ const Persist = {
   write(name, value) {
     const key = this.KEYS[name];
     if (!key) { console.error(`[Persist] unknown key: ${name}`); return false; }
+    if (this.failedReads.has(name)) {
+      if (!this._lockAlerted.has(name)) {
+        this._lockAlerted.add(name);
+        const message = `『${name}』の読み込みに失敗しているため、このデータの上書き保存を停止しています。\n\n営業はこのまま続けられます（他のデータは通常どおり保存されます）。\nバックアップの復元またはデータのインポートで復旧するか、オーナーへ連絡してください。`;
+        if (typeof appAlert === 'function') {
+          try {
+            const pending = appAlert(message);
+            if (pending && typeof pending.catch === 'function') {
+              pending.catch(e => console.error(`[Persist] lock notification for '${name}' failed:`, e));
+            }
+          } catch(e) { console.error(`[Persist] lock notification for '${name}' failed:`, e); }
+        } else {
+          console.error(`[Persist] ${message}`);
+        }
+      }
+      return false;
+    }
     try {
       const raw = JSON.stringify(value);
       UsbStore.writeSync(name, raw);
       return true;
     }
     catch(e) { console.error(`[Persist] write('${name}') failed:`, e); return false; }
+  },
+  unlock(name) {
+    this.failedReads.delete(name);
+  },
+  unlockAll() {
+    this.failedReads.clear();
   },
   /* 文字列キー → 文字列値の辞書を返す（export用、parse なし）。null を含み得る */
   exportAll() {
@@ -7776,6 +7804,7 @@ function checkStaleBizDay(savedKey) {
 }
 
 function applySnapshot(snap) {
+  Persist.unlockAll();
   pushUndo();
   Object.assign(state, snap);
   // バックアップに manualSort が無い場合は自動ソートに戻す（古いスナップ互換）
@@ -23477,6 +23506,8 @@ function onImportFileSelected(input) {
         { danger: true }
       ))) return;
 
+      Persist.unlockAll();
+
       // 新形式：各キーをそのままlocalStorageに書き込む
       if (isNewFormat) {
         Persist.importAll({
@@ -25133,7 +25164,9 @@ function calcPeriodDeductions(gross, items, opts) {
 }
 
 function loadPayslips() {
-  const stored = Persist.read('payslips');
+  const stored = Persist.read('payslips', {
+    onError: () => setTimeout(() => { try { showToast('⚠ 給与明細データの読込に失敗しました'); } catch (_) {} }, 100)
+  });
   return stored && typeof stored === 'object' && !Array.isArray(stored) ? stored : {};
 }
 
