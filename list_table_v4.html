@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.60">
+<meta name="app-version" content="1.0.61">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -2833,6 +2833,105 @@ table#customer-table { border-collapse: collapse; width: 100%; min-width: 800px;
   letter-spacing: 0.08em; text-transform: uppercase;
 }
 .settings-section-body { padding: 14px 16px; }
+.receipt-layout-note { margin-bottom:12px; }
+.receipt-layout-editor { display:flex; gap:16px; align-items:flex-start; }
+.receipt-layout-controls { flex:1 1 360px; min-width:0; }
+.receipt-preview-wrap { flex:0 0 300px; min-width:0; }
+.receipt-preview-title { margin-bottom:6px; font-size:10px; color:var(--tx3); text-align:center; }
+.receipt-preview {
+  width:272px; min-height:420px; margin:0 auto; padding:11px; box-sizing:border-box;
+  background:#fff; color:#000; box-shadow:0 2px 12px rgba(0,0,0,.28);
+  font-family:"Hiragino Kaku Gothic ProN","Meiryo",sans-serif; font-size:10pt;
+}
+.receipt-preview .logo { display:block; width:113px; max-width:100%; margin:0 auto 8px; }
+.receipt-preview .head { position:relative; margin-bottom:8px; min-height:20px; }
+.receipt-preview .head h2 { margin:0; }
+.receipt-preview .meta { position:absolute; top:0; right:0; text-align:right; font-size:8pt; line-height:1.5; }
+.receipt-preview .r-blk-meta { position:static; margin-bottom:8px; }
+.receipt-preview table.items { width:100%; border-collapse:collapse; font-size:10pt; }
+.receipt-preview table.items th { border-bottom:2px solid #000; padding:5px 4px; font-size:9pt; }
+.receipt-preview table.items th.q { width:34px; text-align:center; }
+.receipt-preview table.items th.a { width:83px; text-align:right; }
+.receipt-preview table.items td { border-bottom:1px solid #aaa; padding:2px 4px; height:14px; line-height:1.15; }
+.receipt-preview table.items td.q { text-align:center; }
+.receipt-preview table.items td.a { text-align:right; }
+.receipt-preview table.sum { width:100%; border-collapse:collapse; border:2px solid #000; margin-top:11px; }
+.receipt-preview table.sum td { border:1px solid #000; padding:7px 9px; }
+.receipt-preview table.sum .lbl { width:68px; text-align:center; font-weight:800; }
+.receipt-preview table.sum .k { text-align:left; font-weight:700; }
+.receipt-preview table.sum .v { text-align:right; font-size:13pt; font-weight:800; white-space:nowrap; }
+.receipt-preview .r-blk-text { line-height:1.5; margin-bottom:8px; }
+.receipt-preview .r-blk-image { display:block; max-width:100%; height:auto; }
+.receipt-preview .r-blk-divider { border:0; border-top-width:1px; border-top-color:#000; margin:8px 0; }
+.receipt-block { margin-bottom:7px; border:1px solid var(--bdr); border-radius:7px; background:var(--sur3); overflow:hidden; cursor:pointer; }
+.receipt-block.active { border-color:var(--gold); }
+.receipt-block-main { display:inline-flex; align-items:center; gap:8px; padding:9px 10px; font-size:12px; }
+.receipt-block-main span { color:var(--tx3); }
+.receipt-block-actions { float:right; display:flex; gap:4px; padding:6px; }
+.receipt-block-actions button { min-width:30px; padding:3px 6px; border:1px solid var(--bdr2); border-radius:4px; background:var(--sur4); color:var(--tx2); cursor:pointer; }
+.receipt-block-actions button.delete { color:#ef7a70; }
+.receipt-block-actions button:disabled { opacity:.35; cursor:default; }
+.receipt-block-edit { clear:both; display:flex; flex-wrap:wrap; gap:10px 14px; padding:10px; border-top:1px solid var(--bdr); background:var(--sur2); font-size:11px; }
+.receipt-block-edit label { display:flex; align-items:center; gap:6px; color:var(--tx2); }
+.receipt-block-edit textarea { display:block; width:100%; min-width:260px; margin-top:4px; }
+.receipt-block-edit input[type="number"], .receipt-block-edit select, .receipt-add-row select { padding:5px 7px; border:1px solid var(--bdr2); border-radius:4px; background:var(--sur3); color:var(--tx); }
+.receipt-block-edit > label:has(textarea) { width:100%; display:block; }
+.receipt-edit-grid { display:flex; flex-wrap:wrap; gap:10px 14px; width:100%; }
+.receipt-edit-image { max-width:160px; max-height:70px; object-fit:contain; padding:2px; background:#fff; }
+.receipt-editor-note, .receipt-editor-empty { padding:8px; font-size:10px; color:var(--tx3); }
+.receipt-add-row { display:flex; gap:7px; margin:10px 0 7px; }
+.receipt-add-row select { flex:1; }
+.receipt-wide-input, .receipt-footer-input { width:min(100%, 360px); box-sizing:border-box; }
+.print-layout-tabs { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:14px; }
+.print-layout-tabs .settings-nav-btn { width:auto; border:1px solid var(--bdr2); border-radius:6px; }
+.print-layout-tab-panel { display:none; }
+.print-layout-tab-panel.active { display:block; }
+.ext-trial-preview { min-height:360px; }
+.ext-trial-preview h2 { text-align:center; font-size:18pt; font-weight:800; letter-spacing:1px; margin-bottom:8px; }
+.ext-trial-preview .rule { border-top:3px solid #000; margin:11px 0; }
+.ext-trial-preview .dash { border-top:2px dashed #000; margin:14px 0; }
+.ext-trial-preview .sub { text-align:center; font-size:11pt; margin-bottom:8px; }
+.ext-trial-preview .cur { display:flex; align-items:flex-end; font-size:12pt; font-weight:700; margin:11px 0; }
+.ext-trial-preview .cur .lbl { white-space:nowrap; }
+.ext-trial-preview .cur .lead { flex:1; border-bottom:2px dotted #000; margin:0 8px 8px; }
+.ext-trial-preview .cur .amt { white-space:nowrap; }
+.ext-trial-preview .bar { border-top:2px solid #000; border-bottom:2px solid #000; text-align:center; font-size:13pt; font-weight:800; padding:6px 0; margin:14px 0 11px; }
+.ext-trial-preview table.ext-table { width:100%; border-collapse:collapse; table-layout:fixed; }
+.ext-trial-preview table.ext-table th { font-size:11pt; font-weight:700; padding-bottom:11px; border-bottom:2px solid #000; }
+.ext-trial-preview table.ext-table th.t { text-align:left; }
+.ext-trial-preview table.ext-table.show-card th.t { width:34%; }
+.ext-trial-preview table.ext-table.show-card th.amt { width:33%; }
+.ext-trial-preview table.ext-table.hide-card th.t, .ext-trial-preview table.ext-table.hide-card th.amt { width:50%; }
+.ext-trial-preview table.ext-table th.amt, .ext-trial-preview table.ext-table td.amt { text-align:center; }
+.ext-trial-preview table.ext-table td { font-size:12pt; font-weight:700; padding:18px 0; white-space:nowrap; }
+.ext-trial-preview table.ext-table td.time { text-align:left; }
+.ext-trial-preview table.ext-table tr.sep td { border-top:2px dashed #999; }
+.ryoshu-layout-editor { align-items:flex-start; }
+.ryoshu-toggle-list { display:flex; flex-wrap:wrap; gap:12px; }
+.ryoshu-preview-wrap { flex:0 0 300px; min-width:0; }
+.ryoshu-preview { width:216px; height:402px; margin:0 auto; overflow:hidden; background:#fff; color:#000; box-shadow:0 2px 12px rgba(0,0,0,.28); }
+.ryoshu-preview .r-stage { position:relative; width:72mm; height:134mm; transform:scale(.78); transform-origin:0 0; overflow:hidden; }
+.ryoshu-preview .r-sheet { position:absolute; top:0; left:0; width:134mm; height:72mm; transform-origin:0 0; transform:rotate(90deg) translateY(-72mm); padding:3mm 5mm; display:flex; flex-direction:column; box-sizing:border-box; color:#000; font-weight:700; }
+.ryoshu-preview .r-font-mincho { font-family:"Hiragino Mincho ProN","MS Mincho",serif; }
+.ryoshu-preview .r-font-gothic { font-family:"Hiragino Kaku Gothic ProN","Meiryo",sans-serif; }
+.ryoshu-preview .r-top { display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:5mm; }
+.ryoshu-preview .r-addr-line { flex:0 1 auto; border-bottom:1px solid #000; font-size:12pt; padding:0 1.5mm; min-height:6.5mm; display:flex; align-items:flex-end; white-space:nowrap; }
+.ryoshu-preview .r-title { position:absolute; top:3mm; left:50%; transform:translateX(-50%); font-size:22pt; letter-spacing:8px; text-indent:8px; white-space:nowrap; }
+.ryoshu-preview .r-no { font-size:9pt; text-align:right; padding-bottom:1mm; border-bottom:1px solid #000; }
+.ryoshu-preview .r-amt { text-align:center; margin:6mm 0 2mm; font-size:22pt; letter-spacing:2px; }
+.ryoshu-preview .r-amt-line { display:inline-block; border-bottom:1px solid #000; padding:0 5mm .8mm; }
+.ryoshu-preview .r-note, .ryoshu-preview .r-certify { font-size:10.5pt; text-align:center; }
+.ryoshu-preview .r-note { margin-bottom:1mm; }
+.ryoshu-preview .r-certify .r-date { margin-right:5mm; }
+.ryoshu-preview .r-bottom { display:flex; justify-content:space-between; align-items:flex-end; margin-top:auto; }
+.ryoshu-preview .r-inshi { width:12mm; height:12mm; border:1px dashed #000; display:flex; align-items:center; justify-content:center; text-align:center; font-size:6.5pt; line-height:1.5; flex-shrink:0; }
+.ryoshu-preview .r-sign { font-size:9pt; line-height:1.6; text-align:right; }
+.ryoshu-preview .r-sign .r-store { font-size:12pt; font-weight:700; margin-bottom:.5mm; }
+@media (max-width: 900px) {
+  .receipt-layout-editor { flex-direction:column; }
+  .receipt-preview-wrap { flex-basis:auto; width:100%; }
+  .ryoshu-preview-wrap { flex-basis:auto; width:100%; }
+}
 .settings-row {
   display: flex; align-items: center; gap: 12px;
   padding: 7px 0; border-bottom: 1px solid var(--bdr);
@@ -6748,6 +6847,13 @@ const CFG_DEFAULTS = {
   shimeiExtItems: shimeiExtDefaultItems(),
   drinkItems: drinkItemDefaults(),
   shotLabel: 'ショット',       // ショット計数グループの表示名（保存キーは不変）
+  // --- 印刷レイアウト（2026-08-24） null=未設定（従来出力と同一の既定値を使用） ---
+  receiptLayout:      null,
+  extTrialLayout:     null,
+  ryoshuOpts:         null,
+  receiptScale:       100,
+  extTrialScale:      100,
+  ryoshuScale:        100,
   // --- 領収書設定（印刷時の店舗固定情報） ---
   // 新規導入店舗にそのまま出荷されるデフォルト値なので、特定店舗の実データを置かない
   // （2026-07-03: 他店舗展開の洗い出しで「旧店舗の名義がそのまま領収書に出る」リスクとして指摘）。
@@ -17406,15 +17512,125 @@ function posPrintReceipt() {
   document.body.insertAdjacentHTML('beforeend', html);
 }
 
-/* 実際の印刷処理（row未指定なら選択中の伝票） */
-function posPrintReceiptDirect(row) {
-  row = row || posSelectedRow();
-  if (!row) { showToast('伝票を選択してください'); return; }
-  const b = _posCalcTotal(row);   // includes POS orders with correct tax
-  const tax = b.cash - b.subtotal;
-  const isSplit = row.settled && row.amountMethod === 'both';
-  const cashTotal = isSplit ? (parseInt(row.amountCash) || 0) : b.cash;
-  const cardFinal = isSplit ? (parseInt(row.amountCard) || 0) : b.card;
+function _receiptDefaultLayout() {
+  return [{ type:'header' }, { type:'meta' }, { type:'items' }, { type:'totals' }];
+}
+
+function _extTrialDefaultLayout() {
+  return [{ type:'title' }, { type:'divider', style:'rule' }, { type:'extTable' }];
+}
+
+const _PRINT_SCALE_VALUES = [90, 100, 110, 120];
+
+function _printScaleValue(value) {
+  const numeric = Number(value);
+  return _PRINT_SCALE_VALUES.includes(numeric) ? numeric : 100;
+}
+
+function _printScaleCss(value) {
+  const scale = _printScaleValue(value);
+  return scale === 100 ? '' : ';zoom:' + scale + '%';
+}
+
+const _RECEIPT_BLOCK_DEFAULTS = {
+  title: { text:'延長料金のご案内', size:18 },
+  header: {},
+  logo: { width:30 },
+  shopName: { size:14 },
+  text: { text:'', size:10.5, align:'center', bold:false },
+  image: { src:'', width:25, align:'center' },
+  meta: { showNo:true, showDate:true },
+  items: { mode:'detail', minRows:14 },
+  totals: { showSubtotal:true, showTax:true, paymentRows:'both' },
+  extTable: { showCard:true },
+  divider: { style:'solid' },
+  spacer: { height:3 },
+};
+
+function _receiptNormalizeBlock(block) {
+  if (!block || !Object.prototype.hasOwnProperty.call(_RECEIPT_BLOCK_DEFAULTS, block.type)) return null;
+  const type = block.type;
+  const out = { type, ..._RECEIPT_BLOCK_DEFAULTS[type], ...block };
+  if (type === 'title') {
+    out.text = String(out.text ?? '延長料金のご案内') || '延長料金のご案内';
+    out.size = [14, 18, 22].includes(Number(out.size)) ? Number(out.size) : 18;
+  }
+  if (type === 'logo') out.width = Math.max(1, Number(out.width) || 30);
+  if (type === 'shopName') out.size = Number.isFinite(Number(out.size)) && Number(out.size) > 0 ? Number(out.size) : 14;
+  if (type === 'text') {
+    out.text = String(out.text ?? '');
+    out.size = [9, 10.5, 12, 14, 18].includes(Number(out.size)) ? Number(out.size) : 10.5;
+    out.align = ['left', 'center', 'right'].includes(out.align) ? out.align : 'center';
+    out.bold = out.bold === true;
+  }
+  if (type === 'image') {
+    out.src = String(out.src ?? '');
+    out.width = Math.max(1, Number(out.width) || 25);
+    out.align = ['left', 'center', 'right'].includes(out.align) ? out.align : 'center';
+  }
+  if (type === 'meta') {
+    out.showNo = out.showNo !== false;
+    out.showDate = out.showDate !== false;
+  }
+  if (type === 'items') {
+    out.mode = ['detail', 'category', 'none'].includes(out.mode) ? out.mode : 'detail';
+    const minRows = Number(out.minRows);
+    out.minRows = Number.isFinite(minRows) ? Math.max(0, Math.trunc(minRows)) : 14;
+  }
+  if (type === 'totals') {
+    out.showSubtotal = out.showSubtotal !== false;
+    out.showTax = out.showTax !== false;
+    out.paymentRows = ['both', 'auto'].includes(out.paymentRows) ? out.paymentRows : 'both';
+  }
+  if (type === 'extTable') out.showCard = out.showCard !== false;
+  if (type === 'divider') out.style = ['solid', 'dashed', 'rule'].includes(out.style) ? out.style : 'solid';
+  if (type === 'spacer') {
+    const height = Number(out.height);
+    out.height = Number.isFinite(height) ? Math.max(0, height) : 3;
+  }
+  return out;
+}
+
+function _receiptBlocks() {
+  const source = Array.isArray(cfg.receiptLayout) && cfg.receiptLayout.length
+    ? cfg.receiptLayout : _receiptDefaultLayout();
+  return source.map(_receiptNormalizeBlock).filter(Boolean);
+}
+
+function _extTrialBlocks() {
+  const source = Array.isArray(cfg.extTrialLayout) && cfg.extTrialLayout.length
+    ? cfg.extTrialLayout : _extTrialDefaultLayout();
+  return source.map(_receiptNormalizeBlock).filter(Boolean);
+}
+
+function _receiptHeaderHtml(type, block) {
+  const logo = escAttr((cfg && cfg.shopLogo) || '');
+  if (type === 'header') {
+    return logo
+      ? '<img class="logo" src="' + logo + '">'
+      : (cfg.shopName
+          ? '<h2 style="text-align:center;margin:0 0 0.5mm;font-size:14pt">' + escHtml(cfg.shopName) + '</h2>'
+            + '<div style="text-align:center;font-size:8pt;margin:0 0 2mm">お会計伝票</div>'
+          : '<h2 style="text-align:center;margin:0 0 2mm">お会計伝票</h2>');
+  }
+  if (type === 'logo') return logo ? '<img class="logo" src="' + logo + '" style="width:' + block.width + 'mm">' : '';
+  if (type === 'shopName') return cfg.shopName
+    ? '<h2 class="r-blk-shop" style="text-align:center;font-size:' + block.size + 'pt">' + escHtml(cfg.shopName) + '</h2>' : '';
+  return '';
+}
+
+function _receiptMetaHtml(row, block, inHead) {
+  const parts = [];
+  if (block.showNo) parts.push('No.' + slipNoLabel(row));
+  if (block.showDate) {
+    const bizKey = getLoadedDayKey();
+    parts.push(+bizKey.slice(0, 4) + '/' + +bizKey.slice(4, 6) + '/' + +bizKey.slice(6, 8));
+  }
+  if (!parts.length) return '';
+  return '<div class="meta' + (inHead ? '' : ' r-blk-meta') + '">' + parts.join('<br>') + '</div>';
+}
+
+function _receiptDetailRows(row, minRows) {
   const orders = posOrders(row);
   const itemRows = [];
   const setOrders   = orders.filter(o => o.category === 'set');
@@ -17441,29 +17657,216 @@ function posPrintReceiptDirect(row) {
   const depLines = (typeof _posDepartedLines === 'function') ? _posDepartedLines(row) : [];
   // 伝票見た目: 最低行数まで空行で埋める。注文が超えれば行は自動で増える
   // （16→14へ削減: 2026-07-14 実機テスト・オーナー指示）
-  const MIN_ROWS = 14;
-  while (itemRows.length < MIN_ROWS - depLines.length) itemRows.push('<tr><td>&nbsp;</td><td class="q"></td><td class="a"></td></tr>');
+  while (itemRows.length < minRows - depLines.length) itemRows.push('<tr><td>&nbsp;</td><td class="q"></td><td class="a"></td></tr>');
   depLines.forEach((label, i) => {
     const sep = i === 0 ? 'border-top:1px dashed #000;' : '';
     itemRows.push('<tr><td style="' + sep + 'color:#555">' + escHtml(label) + '</td><td class="q" style="' + sep + '"></td><td class="a" style="' + sep + '"></td></tr>');
   });
-  const lines = itemRows.join('');
+  return itemRows.join('');
+}
+
+function _receiptCategoryRows(row) {
+  const groups = {
+    set: { label:'セット', qty:0, amount:0 },
+    designation: { label:'指名料', qty:0, amount:0 },
+    extension: { label:'延長', qty:0, amount:0 },
+    extDesignation: { label:'延長指名料', qty:0, amount:0 },
+    other: { label:'ドリンク・その他', qty:0, amount:0 },
+  };
+  const add = (key, qty, amount) => {
+    const numericQty = Number(qty);
+    const q = qty === '' || qty === null || qty === undefined || !Number.isFinite(numericQty) ? 1 : numericQty;
+    groups[key].qty += q;
+    groups[key].amount += (Number(amount) || 0) * q;
+  };
+  posOrders(row).forEach(o => {
+    const category = String(o.category || '');
+    if (category === 'jonai_empty') return;
+    if (category === 'set') add('set', o.qty, o.amount);
+    else if (['nominate', 'dohan', 'jonai'].includes(category)) add('designation', o.qty, o.amount);
+    else if (/^(enshi|honen)/.test(category)) add('extDesignation', o.qty, o.amount);
+    else add('other', o.qty, o.amount);
+  });
+  _posSeatLineItems(row).forEach(item => {
+    const label = String(item.label || '');
+    const numericQty = Number(item.qty);
+    const q = item.qty === '' || item.qty === null || item.qty === undefined || !Number.isFinite(numericQty) ? 1 : numericQty;
+    const amount = (Number(item.amount) || 0) * q + (Number(item.extra) || 0);
+    let key = 'designation';
+    if (label.startsWith('SET:')) key = 'set';
+    else if (item.extMin != null || label.startsWith('延長')) key = 'extension';
+    groups[key].qty += q;
+    groups[key].amount += amount;
+  });
+  return Object.values(groups).filter(group => group.qty || group.amount).map(group =>
+    '<tr><td>' + group.label + '</td><td class="q">' + group.qty + '</td><td class="a">' + group.amount.toLocaleString() + '</td></tr>'
+  ).join('');
+}
+
+function _receiptItemsHtml(row, block) {
+  if (block.mode === 'none') return '';
+  const lines = block.mode === 'category'
+    ? _receiptCategoryRows(row) : _receiptDetailRows(row, block.minRows);
+  return '<table class="items"><thead><tr><th style="text-align:left">品目</th><th class="q">数</th><th class="a">金額</th></tr></thead><tbody>' + lines + '</tbody></table>';
+}
+
+function _receiptTotalsHtml(row, block) {
+  if (!block.showSubtotal && !block.showTax) return '';
+  const b = _posCalcTotal(row);
+  const tax = b.cash - b.subtotal;
+  const isSplit = row.settled && row.amountMethod === 'both';
+  const cashTotal = isSplit ? (parseInt(row.amountCash) || 0) : b.cash;
+  const cardFinal = isSplit ? (parseInt(row.amountCard) || 0) : b.card;
+  const rows = [];
+  if (block.showSubtotal) rows.push({ label:'合計', amount:b.subtotal });
+  if (block.showTax) rows.push({ label:'税サ', amount:tax });
+  let payment = 'both';
+  if (block.paymentRows === 'auto' && row.settled) payment = row.amountMethod || 'cash';
+  if (payment === 'cash' || payment === 'both') rows.push({ label:'現金' + (isSplit ? '(分割)' : ''), amount:cashTotal });
+  if (payment === 'card' || payment === 'both') rows.push({ label:'カード' + (isSplit ? '(分割)' : ''), amount:cardFinal });
+  if (payment === 'urikake') {
+    const urikake = Object.prototype.hasOwnProperty.call(row, 'amountUrikake') ? Number(row.amountUrikake) : NaN;
+    rows.push({ label:'売掛', amount:Number.isFinite(urikake) ? urikake : cashTotal });
+  }
+  if (!rows.length) return '';
+  const tnum = row.tableNum ? escHtml(posTableLabel(row.tableNum)) : '';
+  return '<table class="sum">' + rows.map((item, index) => '<tr>'
+    + (index === 0 ? '<td class="lbl" rowspan="' + rows.length + '">' + (row.gcount || 1) + '名様' + (tnum ? '<br>' + tnum : '') + '</td>' : '')
+    + '<td class="k">' + item.label + '</td><td class="v">¥' + item.amount.toLocaleString() + '</td></tr>').join('')
+    + '</table>';
+}
+
+function _commonPrintBlockHtml(block) {
+  if (block.type === 'logo' || block.type === 'shopName') return _receiptHeaderHtml(block.type, block);
+  if (block.type === 'text' && block.text) {
+    const content = escHtml(block.text).replace(/\r?\n/g, '<br>');
+    return '<div class="r-blk-text" style="font-size:' + block.size + 'pt;text-align:' + block.align + ';font-weight:' + (block.bold ? '700' : '400') + '">' + content + '</div>';
+  }
+  if (block.type === 'image' && block.src) {
+    const margin = block.align === 'left' ? '0 auto 2mm 0' : (block.align === 'right' ? '0 0 2mm auto' : '0 auto 2mm');
+    return '<img class="r-blk-image" src="' + escAttr(block.src) + '" style="width:' + block.width + 'mm;margin:' + margin + '">';
+  }
+  if (block.type === 'divider') {
+    if (block.style === 'rule') return '<div class="rule"></div>';
+    return '<hr class="r-blk-divider" style="border-top-style:' + block.style + '">';
+  }
+  if (block.type === 'spacer') return '<div class="r-blk-spacer" style="height:' + block.height + 'mm"></div>';
+  return '';
+}
+
+function _receiptDocBodyHtml(row, blocks) {
+  const normalized = (Array.isArray(blocks) ? blocks : _receiptBlocks()).map(_receiptNormalizeBlock).filter(Boolean);
+  let html = '';
+  for (let i = 0; i < normalized.length; i++) {
+    const block = normalized[i];
+    if (['header', 'logo', 'shopName'].includes(block.type)) {
+      const headParts = [_receiptHeaderHtml(block.type, block)];
+      while (i + 1 < normalized.length && ['header', 'logo', 'shopName'].includes(normalized[i + 1].type)) {
+        i++;
+        headParts.push(_receiptHeaderHtml(normalized[i].type, normalized[i]));
+      }
+      if (normalized[i + 1]?.type === 'meta') {
+        i++;
+        headParts.push(_receiptMetaHtml(row, normalized[i], true));
+      }
+      const inner = headParts.join('');
+      if (inner) html += '<div class="head">' + inner + '</div>';
+      continue;
+    }
+    if (block.type === 'meta') html += _receiptMetaHtml(row, block, false);
+    else if (block.type === 'items') html += _receiptItemsHtml(row, block);
+    else if (block.type === 'totals') html += _receiptTotalsHtml(row, block);
+    else html += _commonPrintBlockHtml(block);
+  }
+  return html;
+}
+
+function _extTrialTableHtml(row, block) {
+  const b = _posCalcTotal(row);
+  const cardFeePct = cfg.cardFeeRate || 0;
+  const cardFeeRound = cfg.cardFeeRound || 100;
+  const advance = (typeof _posAdvancePrincipal === 'function') ? _posAdvancePrincipal(row) : 0;
+  const curCash = advance ? Math.max(0, b.cash - advance) : (parseInt(row.amountCash) || b.cash);
+  const curCard = advance ? ceilAddRate(curCash, cardFeePct, cardFeeRound) : (parseInt(row.amountCard) || ceilAddRate(curCash, cardFeePct, cardFeeRound));
+  const showCard = block.showCard !== false;
+  let rows = '';
+  (Array.isArray(row.extTrialOptions) ? row.extTrialOptions : (cfg.extOptions || [])).forEach((min, i) => {
+    const trial = _posExtTrial(row, min);
+    const extCash = advance ? trial.dueCash : curCash + (trial.cash - b.cash);
+    const extCard = advance ? trial.dueCard : ceilAddRate(extCash, cardFeePct, cardFeeRound);
+    rows += '<tr class="' + (i > 0 ? 'sep' : '') + '">'
+      + '<td class="time">⏱ ' + min + '分</td>'
+      + '<td class="amt">¥' + extCash.toLocaleString() + '</td>'
+      + (showCard ? '<td class="amt">¥' + extCard.toLocaleString() + '</td>' : '') + '</tr>';
+  });
+  return '<div class="cur"><span class="lbl">現在の金額（現金）</span><span class="lead"></span><span class="amt">¥' + curCash.toLocaleString() + '</span></div>'
+    + (showCard ? '<div class="cur"><span class="lbl">現在の金額（カード）</span><span class="lead"></span><span class="amt">¥' + curCard.toLocaleString() + '</span></div>' : '')
+    + (advance ? '<div class="cur"><span class="lbl">前金</span><span class="lead"></span><span class="amt">−¥' + advance.toLocaleString() + '</span></div>' : '')
+    + (advance ? '<div class="cur"><span class="lbl">残金</span><span class="lead"></span><span class="amt">¥' + curCash.toLocaleString() + '</span></div>' : '')
+    + '<div class="dash"></div>'
+    + '<div class="bar">延長された場合の合計金額</div>'
+    + '<table class="ext-table ' + (showCard ? 'show-card' : 'hide-card') + '">'
+    + '<tr><th class="t">延長時間</th><th class="amt">現金</th>' + (showCard ? '<th class="amt">カード</th>' : '') + '</tr>'
+    + rows + '</table>';
+}
+
+function _extTrialDocBodyHtml(row, blocks) {
+  const allowed = new Set(['title', 'logo', 'shopName', 'text', 'image', 'extTable', 'divider', 'spacer']);
+  const normalized = (Array.isArray(blocks) ? blocks : _extTrialBlocks())
+    .map(_receiptNormalizeBlock).filter(block => block && allowed.has(block.type));
+  let html = '';
+  normalized.forEach(block => {
+    if (block.type === 'title') {
+      html += '<h2' + (block.size === 18 ? '' : ' style="font-size:' + block.size + 'pt"') + '>' + escHtml(block.text) + '</h2>'
+        + (row.tableNum ? '<div class="sub">' + escHtml(posTableDisplay(posTableLabel(row.tableNum))) + '</div>' : '');
+    } else if (block.type === 'extTable') html += _extTrialTableHtml(row, block);
+    else html += _commonPrintBlockHtml(block);
+  });
+  return html;
+}
+
+function _printDocBodyHtml(doc, row, blocks) {
+  return doc === 'extTrial' ? _extTrialDocBodyHtml(row, blocks) : _receiptDocBodyHtml(row, blocks);
+}
+
+function _receiptBodyHtml(row, blocks) {
+  return _printDocBodyHtml('receipt', row, blocks);
+}
+
+function _receiptSampleRow() {
+  return {
+    id:'receipt-sample', gid:999, gidx:0, isFirst:true, posManaged:true,
+    tableNum:1, gcount:2, guestName:'サンプル卓', mainType:'honshimei', mainCast:'花子', subCasts:[],
+    startMin:1200, endMin:1280, extensions:['40'], extSeats:[2], settled:true,
+    extTrialOptions:[20, 40, 60],
+    amountMethod:'cash', amountCash:30000, amountCard:0,
+    posOrders:[
+      { category:'set', name:'SET', amount:cfg.setPrice || 7000, qty:2, startMin:1200, endMin:1240 },
+      { category:'nominate', name:'本指名:花子', amount:cfg.nominateFee || 2000, qty:1 },
+      { category:'enshi40', name:'延指40:花子', amount:shimeiExtItem('enshi40')?.amount || 2000, qty:1 },
+      { category:'drink', name:'S:花子', amount:1500, qty:1 },
+      { category:'bottle', name:'ボトル', amount:5000, qty:1 },
+    ],
+  };
+}
+
+/* 実際の印刷処理（row未指定なら選択中の伝票） */
+function posPrintReceiptDirect(row) {
+  row = row || posSelectedRow();
+  if (!row) { showToast('伝票を選択してください'); return; }
 
   const w = window.open('', '_blank', 'width=320,height=760');
   if (!w) { showToast('ポップアップがブロックされました'); return; }
+  const scaleCss = _printScaleCss(cfg.receiptScale);
   // 店舗ロゴ：設定(cfg.shopLogo)が無ければロゴ無し扱い（下の分岐で店名の見出しに自動フォールバック）。
   // 2026-07-03: 以前はここで特定店舗（Embellir）のロゴにフォールバックしていたため、
   // 新規導入店舗がロゴ未設定のまま印刷すると前店舗のロゴが出てしまっていた（他店舗展開の洗い出しで発見・修正）。
-  const logo = escAttr((cfg && cfg.shopLogo) || '');
-  const tnum = row.tableNum ? escHtml(posTableLabel(row.tableNum)) : '';
-  const bizKey = getLoadedDayKey();
-  const bizDateStr = +bizKey.slice(0, 4) + '/' + +bizKey.slice(4, 6) + '/' + +bizKey.slice(6, 8);
   w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>伝票</title>'
     + '<style>'
     + '@page{size:80mm auto;margin:0}'
     + '*{box-sizing:border-box;margin:0;padding:0}'
     // 幅72mm＝TM-T20IIの印字可能幅。margin:0 auto で80mm用紙の中央に置く（延長案内と同じ実機補正）
-    + 'body{font-family:"Hiragino Kaku Gothic ProN","Meiryo",sans-serif;color:#000;width:72mm;padding:3mm;margin:0 auto}'
+    + 'body{font-family:"Hiragino Kaku Gothic ProN","Meiryo",sans-serif;color:#000;width:72mm;padding:3mm;margin:0 auto' + scaleCss + '}'
     // ロゴ: 42mm→30mmへ縮小・上マージン0（2026-07-14 実機テスト「でかすぎる・上の空白不要」）
     + '.logo{display:block;width:30mm;margin:0 auto 2mm}'
     + '.head{position:relative;margin-bottom:2mm}'
@@ -17479,27 +17882,11 @@ function posPrintReceiptDirect(row) {
     + 'table.sum .k{text-align:left;font-size:10pt;font-weight:700}'
     + 'table.sum .v{text-align:right;font-size:13pt;font-weight:800;white-space:nowrap}'
     + '.foot{text-align:center;font-size:8pt;margin-top:2mm;color:#333}'
+    + '.r-blk-shop{margin:0 0 2mm}.r-blk-meta{position:static;text-align:right;margin-bottom:2mm}.r-blk-text{line-height:1.5;margin-bottom:2mm;white-space:normal}.r-blk-image{display:block;max-width:100%;height:auto}.r-blk-divider{border:0;border-top-width:1px;border-top-color:#000;margin:2mm 0}.r-blk-spacer{width:100%}'
     // 上余白0: カット後のヘッド位置まで物理オフセット約15mmが必ず付くため（延長案内と同じ実機補正）
     + '@media print{body{padding:0 3mm}}</style>'
     + '</head><body>'
-    // 見出しの3段フォールバック: ロゴ → 店舗名(＋小さく「お会計伝票」) → 「お会計伝票」
-    // （ロゴを入れずに運用する店でも、店舗名を設定するだけで自店の伝票の体裁になる）
-    + '<div class="head">'
-    + (logo
-        ? '<img class="logo" src="' + logo + '">'
-        : (cfg.shopName
-            ? '<h2 style="text-align:center;margin:0 0 0.5mm;font-size:14pt">' + escHtml(cfg.shopName) + '</h2>'
-              + '<div style="text-align:center;font-size:8pt;margin:0 0 2mm">お会計伝票</div>'
-            : '<h2 style="text-align:center;margin:0 0 2mm">お会計伝票</h2>'))
-    // 伝票番号: アプリ画面の伝票カードと同じ組番号(gid)＋営業日（2026-07-21 オーナー要望。紙とアプリの突き合わせ用）
-    + '<div class="meta">No.' + slipNoLabel(row) + '<br>' + bizDateStr + '</div></div>'
-    + '<table class="items"><thead><tr><th style="text-align:left">品目</th><th class="q">数</th><th class="a">金額</th></tr></thead><tbody>' + lines + '</tbody></table>'
-    + '<table class="sum">'
-    + '<tr><td class="lbl" rowspan="4">' + (row.gcount || 1) + '名様' + (tnum ? '<br>' + tnum : '') + '</td><td class="k">合計</td><td class="v">¥' + b.subtotal.toLocaleString() + '</td></tr>'
-    + '<tr><td class="k">税サ</td><td class="v">¥' + tax.toLocaleString() + '</td></tr>'
-    + '<tr><td class="k">現金' + (isSplit ? '(分割)' : '') + '</td><td class="v">¥' + cashTotal.toLocaleString() + '</td></tr>'
-    + '<tr><td class="k">カード' + (isSplit ? '(分割)' : '') + '</td><td class="v">¥' + cardFinal.toLocaleString() + '</td></tr>'
-    + '</table>'
+    + _receiptBodyHtml(row, _receiptBlocks())
     // 下余白の自前確保: カット位置は「最後に印字された黒」の直後で決まり、末尾の空白はドライバに
     // 切り詰められる（2026-07-14実機実証）。ドライバ「紙送り量」設定はPC個体ごとに漏れ・不発が
     // 起きるため、末尾10mm下に極小ドット(1px)を印字してそこまで確実に紙を送らせる（2026-07-21）。
@@ -17510,36 +17897,19 @@ function posPrintReceiptDirect(row) {
 }
 
 /* 延長試算の印刷：延長3パターンの金額を一覧で出す（お客さん提示用） */
-function posPrintExtTrial() {
-  const row = posSelectedRow();
+function posPrintExtTrial(row) {
+  row = row || posSelectedRow();
   if (!row) { showToast('伝票を選択してください'); return; }
-  const b     = _posCalcTotal(row);
-  const cardFeePct   = cfg.cardFeeRate  || 0;
-  const cardFeeRound = cfg.cardFeeRound || 100;
-  const advance = (typeof _posAdvancePrincipal === 'function') ? _posAdvancePrincipal(row) : 0;
-  const curCash = advance ? Math.max(0, b.cash - advance) : (parseInt(row.amountCash) || b.cash);
-  const curCard = advance ? ceilAddRate(curCash, cardFeePct, cardFeeRound) : (parseInt(row.amountCard) || ceilAddRate(curCash, cardFeePct, cardFeeRound));
-  const opts = cfg.extOptions || [];
-
-  let rows = '';
-  opts.forEach((min, i) => {
-    const t = _posExtTrial(row, min);
-    const extCash = advance ? t.dueCash : curCash + (t.cash - b.cash);
-    const extCard = advance ? t.dueCard : ceilAddRate(extCash, cardFeePct, cardFeeRound);
-    rows += '<tr class="' + (i > 0 ? 'sep' : '') + '">'
-      + '<td class="time">⏱ ' + min + '分</td>'
-      + '<td class="amt">¥' + extCash.toLocaleString() + '</td>'
-      + '<td class="amt">¥' + extCard.toLocaleString() + '</td></tr>';
-  });
 
   const w = window.open('', '_blank', 'width=320,height=820');
   if (!w) { showToast('ポップアップがブロックされました'); return; }
+  const scaleCss = _printScaleCss(cfg.extTrialScale);
   w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>延長料金のご案内</title>'
     + '<style>'
     + '@page{size:80mm auto;margin:0}'
     + '*{box-sizing:border-box;margin:0;padding:0}'
     // 幅72mm＝TM-T20IIの印字可能幅。margin:0 auto で80mm用紙の中央に置く（左寄せだと右に8mm余って全体が左にずれる）
-    + 'body{font-family:"Hiragino Kaku Gothic ProN","Meiryo",sans-serif;color:#000;width:72mm;padding:4mm 3mm;margin:0 auto}'
+    + 'body{font-family:"Hiragino Kaku Gothic ProN","Meiryo",sans-serif;color:#000;width:72mm;padding:4mm 3mm;margin:0 auto' + scaleCss + '}'
     + 'h2{text-align:center;font-size:18pt;font-weight:800;letter-spacing:1px;margin-bottom:2mm}'
     + '.rule{border-top:3px solid #000;margin:3mm 0}'
     + '.dash{border-top:2px dashed #000;margin:4mm 0}'
@@ -17553,30 +17923,18 @@ function posPrintExtTrial() {
     + '.bar{border-top:2px solid #000;border-bottom:2px solid #000;text-align:center;font-size:13pt;font-weight:800;padding:1.5mm 0;margin:4mm 0 3mm}'
     + 'table{width:100%;border-collapse:collapse;table-layout:fixed}'
     + 'th{font-size:11pt;font-weight:700;padding-bottom:3mm;border-bottom:2px solid #000}'
-    + 'th.t{text-align:left;width:34%}th.amt{text-align:center;width:33%}'
+    + 'th.t{text-align:left}.ext-table.show-card th.t{width:34%}.ext-table.show-card th.amt{width:33%}.ext-table.hide-card th.t,.ext-table.hide-card th.amt{width:50%}th.amt{text-align:center}'
     + 'td{font-size:12pt;font-weight:700;padding:5mm 0;white-space:nowrap}'
     + 'td.time{text-align:left}td.amt{text-align:center}'
     + 'tr.sep td{border-top:2px dashed #999}'
+    + '.logo{display:block;width:30mm;margin:0 auto 2mm}.r-blk-shop{margin:0 0 2mm}.r-blk-text{line-height:1.5;margin:3mm 0;white-space:normal}.r-blk-image{display:block;max-width:100%;height:auto}.r-blk-divider{border:0;border-top-width:1px;border-top-color:#000;margin:2mm 0}.r-blk-spacer{width:100%}'
     // 上下余白はドライバ側が持つ（2026-07-14 実機TM-T20IIで確認）:
     //   上 = カッター〜印字ヘッドの物理オフセット（約15mm、必ず付く）→ コード側の上余白は0にする
     //   下 = ドライバ設定「紙送りとカット→印刷終了→紙送り量」（末尾の空白はドライバに切り詰められるため
     //        コード側の空白では送れない。導入手順書に設定値を記載）
     + '@media print{body{padding:0 4mm}}</style>'
     + '</head><body>'
-    + '<h2>延長料金のご案内</h2>'
-    // 卓番: タイトル直下に中央表示（2026-07-21 オーナー要望。「T-5」→「5卓」表記、未設定なら行ごと出さない）
-    + (row.tableNum ? '<div class="sub">' + escHtml(posTableDisplay(posTableLabel(row.tableNum))) + '</div>' : '')
-    + '<div class="rule"></div>'
-    + '<div class="cur"><span class="lbl">現在の金額（現金）</span><span class="lead"></span><span class="amt">¥' + curCash.toLocaleString() + '</span></div>'
-    + '<div class="cur"><span class="lbl">現在の金額（カード）</span><span class="lead"></span><span class="amt">¥' + curCard.toLocaleString() + '</span></div>'
-    + (advance ? '<div class="cur"><span class="lbl">前金</span><span class="lead"></span><span class="amt">−¥' + advance.toLocaleString() + '</span></div>' : '')
-    + (advance ? '<div class="cur"><span class="lbl">残金</span><span class="lead"></span><span class="amt">¥' + curCash.toLocaleString() + '</span></div>' : '')
-    + '<div class="dash"></div>'
-    + '<div class="bar">延長された場合の合計金額</div>'
-    + '<table>'
-    + '<tr><th class="t">延長時間</th><th class="amt">現金</th><th class="amt">カード</th></tr>'
-    + rows
-    + '</table>'
+    + _printDocBodyHtml('extTrial', row, _extTrialBlocks())
     // 下余白の自前確保: 末尾の空白はドライバに切り詰められるため、10mm下に極小ドットを印字して
     // そこまで紙を送らせる（ドライバ「紙送り量」の設定漏れPCでも下が切れない。2026-07-21）
     + '<div style="margin:10mm auto 0;width:0.5mm;height:0;border-top:1px solid #000;print-color-adjust:exact;-webkit-print-color-adjust:exact"></div>'
@@ -19029,6 +19387,303 @@ function _feeMasterShotRowHTML(label, backShimei, backFree) {
   </tr>`;
 }
 
+let _receiptLayoutDraft;
+let _extTrialLayoutDraft;
+let _ryoshuOptsDraft;
+let _receiptScaleDraft = 100;
+let _extTrialScaleDraft = 100;
+let _ryoshuScaleDraft = 100;
+let _receiptEditIndex = 0;
+let _extTrialEditIndex = 0;
+let _printLayoutActiveTab = 'receipt';
+
+const _RECEIPT_BLOCK_LABELS = {
+  title:'見出し', header:'見出し', logo:'ロゴ', shopName:'店舗名', text:'自由テキスト', image:'自由画像',
+  meta:'伝票情報', items:'明細表', totals:'合計枠', extTable:'延長料金表', divider:'罫線', spacer:'余白',
+};
+const _RECEIPT_ADD_TYPES = ['header', 'logo', 'shopName', 'text', 'image', 'meta', 'items', 'totals', 'divider', 'spacer'];
+const _EXT_TRIAL_ADD_TYPES = ['title', 'logo', 'shopName', 'text', 'image', 'extTable', 'divider', 'spacer'];
+
+function _printLayoutDraftBlocks(source, doc) {
+  const blocks = Array.isArray(source) && source.length
+    ? source : (doc === 'extTrial' ? _extTrialDefaultLayout() : _receiptDefaultLayout());
+  return blocks.map(_receiptNormalizeBlock).filter(Boolean);
+}
+function _receiptDraftBlocks(source) { return _printLayoutDraftBlocks(source, 'receipt'); }
+function _extTrialDraftBlocks(source) { return _printLayoutDraftBlocks(source, 'extTrial'); }
+
+function _receiptBlockSummary(block) {
+  if (block.type === 'title') return String(block.text || '').replace(/\s+/g, ' ').slice(0, 12) || '未入力';
+  if (block.type === 'text') return String(block.text || '').replace(/\s+/g, ' ').slice(0, 12) || '未入力';
+  if (block.type === 'image') return block.src ? '画像あり' : '未登録';
+  if (block.type === 'items') return { detail:'明細', category:'分類集約', none:'非表示' }[block.mode];
+  if (block.type === 'totals') return block.paymentRows === 'auto' ? '支払方法に連動' : '現金・カード';
+  if (block.type === 'extTable') return block.showCard ? '現金・カード' : '現金のみ';
+  if (block.type === 'divider') return block.style === 'rule' ? '太罫線' : (block.style === 'dashed' ? '破線' : '実線');
+  if (block.type === 'spacer') return block.height + 'mm';
+  if (block.type === 'logo') return block.width + 'mm';
+  if (block.type === 'shopName') return block.size + 'pt';
+  if (block.type === 'meta') return [block.showNo && 'No.', block.showDate && '営業日'].filter(Boolean).join('・') || '非表示';
+  return '';
+}
+
+function _receiptSelectOptions(values, current, labels = {}) {
+  return values.map(value => '<option value="' + value + '"' + (String(value) === String(current) ? ' selected' : '') + '>' + (labels[value] || value) + '</option>').join('');
+}
+
+function _receiptBlockEditHTML(block, index, doc) {
+  const fn = doc === 'extTrial' ? 'extTrialLayoutProp' : 'receiptLayoutProp';
+  const imageFn = doc === 'extTrial' ? 'extTrialLayoutImageSelected' : 'receiptLayoutImageSelected';
+  const prop = (key, expr = 'this.value') => `oninput="${fn}(${index},'${key}',${expr})" onchange="${fn}(${index},'${key}',${expr})"`;
+  if (block.type === 'title') return `<label>見出し文言<textarea rows="2" ${prop('text')}>${escHtml(block.text)}</textarea></label><div class="receipt-edit-grid"><label>文字サイズ <select ${prop('size','Number(this.value)')}>${_receiptSelectOptions([14,18,22], block.size)}</select></label></div>`;
+  if (block.type === 'header') return '<div class="receipt-editor-empty">ロゴ→店舗名→「お会計伝票」の順で自動フォールバックします。</div>';
+  if (block.type === 'logo') return `<label>幅 <input type="number" min="1" max="68" step="1" value="${block.width}" ${prop('width','Number(this.value)')}> mm</label><div class="receipt-editor-note">店舗基本で登録したロゴを使用します。PNG/JPEG、目安200KB以下。</div>`;
+  if (block.type === 'shopName') return `<label>文字サイズ <input type="number" min="6" max="36" step="0.5" value="${block.size}" ${prop('size','Number(this.value)')}> pt</label>`;
+  if (block.type === 'text') return `<label>文言<textarea rows="3" ${prop('text')}>${escHtml(block.text)}</textarea></label><div class="receipt-edit-grid"><label>文字サイズ <select ${prop('size','Number(this.value)')}>${_receiptSelectOptions([9,10.5,12,14,18], block.size)}</select></label><label>配置 <select ${prop('align')}>${_receiptSelectOptions(['left','center','right'], block.align, {left:'左',center:'中央',right:'右'})}</select></label><label><input type="checkbox" ${block.bold ? 'checked' : ''} ${prop('bold','this.checked')}> 太字</label></div>`;
+  if (block.type === 'image') return `<label>画像 <input type="file" accept="image/png,image/jpeg" onchange="${imageFn}(${index},this)"></label>${block.src ? `<img class="receipt-edit-image" src="${escAttr(block.src)}" alt="登録画像">` : ''}<div class="receipt-edit-grid"><label>幅 <input type="number" min="1" max="68" step="1" value="${block.width}" ${prop('width','Number(this.value)')}> mm</label><label>配置 <select ${prop('align')}>${_receiptSelectOptions(['left','center','right'], block.align, {left:'左',center:'中央',right:'右'})}</select></label></div><div class="receipt-editor-note">PNG/JPEG、目安200KB以下。</div>`;
+  if (block.type === 'meta') return `<label><input type="checkbox" ${block.showNo ? 'checked' : ''} ${prop('showNo','this.checked')}> 伝票番号</label><label><input type="checkbox" ${block.showDate ? 'checked' : ''} ${prop('showDate','this.checked')}> 営業日</label>`;
+  if (block.type === 'items') return `<div class="receipt-edit-grid"><label>表示 <select ${prop('mode')}>${_receiptSelectOptions(['detail','category','none'], block.mode, {detail:'明細',category:'分類集約',none:'非表示'})}</select></label><label>明細の最低行数 <input type="number" min="0" max="50" step="1" value="${block.minRows}" ${prop('minRows','Number(this.value)')}></label></div>`;
+  if (block.type === 'totals') return `<label><input type="checkbox" ${block.showSubtotal ? 'checked' : ''} ${prop('showSubtotal','this.checked')}> 合計を表示</label><label><input type="checkbox" ${block.showTax ? 'checked' : ''} ${prop('showTax','this.checked')}> 税サを表示</label><label>支払欄 <select ${prop('paymentRows')}>${_receiptSelectOptions(['both','auto'], block.paymentRows, {both:'現金・カード',auto:'支払方法に連動'})}</select></label>`;
+  if (block.type === 'extTable') return `<label><input type="checkbox" ${block.showCard ? 'checked' : ''} ${prop('showCard','this.checked')}> カード金額を表示</label>`;
+  if (block.type === 'divider') {
+    const values = doc === 'extTrial' ? ['rule', 'solid', 'dashed'] : ['solid', 'dashed'];
+    return `<label>線種 <select ${prop('style')}>${_receiptSelectOptions(values, block.style, {rule:'太罫線',solid:'実線',dashed:'破線'})}</select></label>`;
+  }
+  if (block.type === 'spacer') return `<label>高さ <input type="number" min="0" max="50" step="0.5" value="${block.height}" ${prop('height','Number(this.value)')}> mm</label>`;
+  return '';
+}
+
+function _receiptSettingsSectionHTML() {
+  const receiptTypeOptions = _RECEIPT_ADD_TYPES.map(type => `<option value="${type}">${_RECEIPT_BLOCK_LABELS[type]}</option>`).join('');
+  const extTypeOptions = _EXT_TRIAL_ADD_TYPES.map(type => `<option value="${type}">${_RECEIPT_BLOCK_LABELS[type]}</option>`).join('');
+  const ro = _ryoshuOptsDraft || _ryoshuOpts();
+  const scaleOptions = scale => _receiptSelectOptions(_PRINT_SCALE_VALUES, scale, {90:'90%',100:'100%',110:'110%',120:'120%'});
+  return `<div class="settings-section" data-setcat="slip">
+    <div class="settings-section-header"><span class="settings-section-title">🧾 印刷レイアウト</span></div>
+    <div class="settings-section-body">
+      <div class="settings-sub receipt-layout-note">何も変更しない場合、3帳票とも今までどおり印刷されます。</div>
+      <div class="print-layout-tabs" role="tablist">
+        <button type="button" class="settings-nav-btn${_printLayoutActiveTab === 'receipt' ? ' active' : ''}" data-print-tab="receipt" onclick="printLayoutSelectTab('receipt')">お会計伝票</button>
+        <button type="button" class="settings-nav-btn${_printLayoutActiveTab === 'extTrial' ? ' active' : ''}" data-print-tab="extTrial" onclick="printLayoutSelectTab('extTrial')">延長料金のご案内</button>
+        <button type="button" class="settings-nav-btn${_printLayoutActiveTab === 'ryoshu' ? ' active' : ''}" data-print-tab="ryoshu" onclick="printLayoutSelectTab('ryoshu')">領収書</button>
+      </div>
+      <div class="print-layout-tab-panel${_printLayoutActiveTab === 'receipt' ? ' active' : ''}" data-print-panel="receipt">
+        <div class="receipt-layout-editor">
+          <div class="receipt-layout-controls">
+            <div class="settings-row"><div class="settings-label">全体の文字サイズ</div><select id="cfg-receiptScale" class="settings-input" onchange="printLayoutScaleUpdate('receipt',Number(this.value))">${scaleOptions(_receiptScaleDraft)}</select></div>
+            <div id="receipt-block-list"></div>
+            <div class="receipt-add-row"><select id="receipt-add-type">${receiptTypeOptions}</select><button type="button" class="btn" onclick="receiptLayoutAdd()">＋ ブロックを追加</button></div>
+            <button type="button" class="btn" onclick="receiptLayoutReset()">既定に戻す</button>
+          </div>
+          <div class="receipt-preview-wrap"><div class="receipt-preview-title">実寸プレビュー（72mm）</div><div class="receipt-preview" id="receipt-layout-preview"></div></div>
+        </div>
+      </div>
+      <div class="print-layout-tab-panel${_printLayoutActiveTab === 'extTrial' ? ' active' : ''}" data-print-panel="extTrial">
+        <div class="receipt-layout-editor">
+          <div class="receipt-layout-controls">
+            <div class="settings-row"><div class="settings-label">全体の文字サイズ</div><select id="cfg-extTrialScale" class="settings-input" onchange="printLayoutScaleUpdate('extTrial',Number(this.value))">${scaleOptions(_extTrialScaleDraft)}</select></div>
+            <div id="ext-trial-block-list"></div>
+            <div class="receipt-add-row"><select id="ext-trial-add-type">${extTypeOptions}</select><button type="button" class="btn" onclick="extTrialLayoutAdd()">＋ ブロックを追加</button></div>
+            <button type="button" class="btn" onclick="extTrialLayoutReset()">既定に戻す</button>
+          </div>
+          <div class="receipt-preview-wrap"><div class="receipt-preview-title">サンプル卓の延長試算（20／40／60分）</div><div class="receipt-preview ext-trial-preview" id="ext-trial-layout-preview"></div></div>
+        </div>
+      </div>
+      <div class="print-layout-tab-panel${_printLayoutActiveTab === 'ryoshu' ? ' active' : ''}" data-print-panel="ryoshu">
+        <div class="receipt-layout-editor ryoshu-layout-editor">
+          <div class="receipt-layout-controls">
+            <div class="settings-row"><div class="settings-label">全体の文字サイズ</div><select id="cfg-ryoshuScale" class="settings-input" onchange="printLayoutScaleUpdate('ryoshu',Number(this.value))">${scaleOptions(_ryoshuScaleDraft)}</select></div>
+            <div class="settings-row"><div class="settings-label">タイトル文言</div><input id="cfg-ryoshu-titleText" type="text" class="settings-input receipt-wide-input" value="${escAttr(ro.titleText)}" oninput="ryoshuDraftUpdate('titleText',this.value)"></div>
+            <div class="settings-row"><div class="settings-label">但し書き前置き</div><input id="cfg-ryoshu-notePrefix" type="text" class="settings-input receipt-wide-input" value="${escAttr(ro.notePrefix)}" oninput="ryoshuDraftUpdate('notePrefix',this.value)"></div>
+            <div class="settings-row"><div class="settings-label">証明文言</div><input id="cfg-ryoshu-certifyText" type="text" class="settings-input receipt-wide-input" value="${escAttr(ro.certifyText)}" oninput="ryoshuDraftUpdate('certifyText',this.value)"></div>
+            <div class="settings-row"><div class="settings-label">収入印紙枠</div><label><input id="cfg-ryoshu-showInshi" type="checkbox" ${ro.showInshi ? 'checked' : ''} onchange="ryoshuDraftUpdate('showInshi',this.checked)"> 表示する</label></div>
+            <div class="settings-row"><div class="settings-label">印紙枠を出す金額</div><input id="cfg-ryoshu-inshiThreshold" type="number" class="settings-input" min="0" step="1000" value="${ro.inshiThreshold}" oninput="ryoshuDraftUpdate('inshiThreshold',Number(this.value))"> 円以上</div>
+            <div class="settings-row"><div class="settings-label">書体</div><select id="cfg-ryoshu-font" class="settings-input" onchange="ryoshuDraftUpdate('font',this.value)">${_receiptSelectOptions(['mincho','gothic'], ro.font, {mincho:'明朝',gothic:'ゴシック'})}</select></div>
+            <div class="settings-row"><div class="settings-label">No.表示</div><label><input id="cfg-ryoshu-showNo" type="checkbox" ${ro.showNo ? 'checked' : ''} onchange="ryoshuDraftUpdate('showNo',this.checked)"> 表示する</label></div>
+            <div class="settings-row"><div class="settings-label">社判エリア</div><div class="ryoshu-toggle-list"><label><input id="cfg-ryoshu-showAddr" type="checkbox" ${ro.showAddr ? 'checked' : ''} onchange="ryoshuDraftUpdate('showAddr',this.checked)"> 住所</label><label><input id="cfg-ryoshu-showTel" type="checkbox" ${ro.showTel ? 'checked' : ''} onchange="ryoshuDraftUpdate('showTel',this.checked)"> TEL</label><label><input id="cfg-ryoshu-showInvoice" type="checkbox" ${ro.showInvoice ? 'checked' : ''} onchange="ryoshuDraftUpdate('showInvoice',this.checked)"> 登録番号</label></div></div>
+            <div class="receipt-editor-note">店名・住所・TEL・登録番号の値は「店舗基本」で編集します。</div>
+            <button type="button" class="btn" onclick="ryoshuOptsReset()">既定に戻す</button>
+          </div>
+          <div class="ryoshu-preview-wrap"><div class="receipt-preview-title">実寸プレビュー（80mm紙・実際の印字向き）</div><div class="ryoshu-preview" id="ryoshu-layout-preview"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function _printLayoutRenderEditor(doc) {
+  const isExt = doc === 'extTrial';
+  const list = document.getElementById(isExt ? 'ext-trial-block-list' : 'receipt-block-list');
+  const draft = isExt ? _extTrialLayoutDraft : _receiptLayoutDraft;
+  let editIndex = isExt ? _extTrialEditIndex : _receiptEditIndex;
+  if (!list || !Array.isArray(draft)) return;
+  if (editIndex >= draft.length) editIndex = Math.max(0, draft.length - 1);
+  if (isExt) _extTrialEditIndex = editIndex; else _receiptEditIndex = editIndex;
+  const prefix = isExt ? 'extTrialLayout' : 'receiptLayout';
+  list.innerHTML = draft.map((block, index) => `<div class="receipt-block${index === editIndex ? ' active' : ''}" onclick="${prefix}Select(${index})">
+    <div class="receipt-block-main"><b>${_RECEIPT_BLOCK_LABELS[block.type] || block.type}</b><span id="${prefix}-block-summary-${index}">${escHtml(_receiptBlockSummary(block))}</span></div>
+    <div class="receipt-block-actions"><button type="button" onclick="event.stopPropagation();${prefix}Move(${index},-1)" ${index === 0 ? 'disabled' : ''}>↑</button><button type="button" onclick="event.stopPropagation();${prefix}Move(${index},1)" ${index === draft.length - 1 ? 'disabled' : ''}>↓</button><button type="button" class="delete" onclick="event.stopPropagation();${prefix}Delete(${index})">削除</button></div>
+    ${index === editIndex ? `<div class="receipt-block-edit" onclick="event.stopPropagation()">${_receiptBlockEditHTML(block, index, doc)}</div>` : ''}
+  </div>`).join('') || '<div class="receipt-editor-empty">ブロックがありません。「＋ ブロックを追加」から追加してください。</div>';
+  _printLayoutUpdatePreview(doc);
+}
+function _receiptRenderEditor() { _printLayoutRenderEditor('receipt'); }
+function _extTrialRenderEditor() { _printLayoutRenderEditor('extTrial'); }
+
+function _printLayoutUpdatePreview(doc) {
+  const isExt = doc === 'extTrial';
+  const preview = document.getElementById(isExt ? 'ext-trial-layout-preview' : 'receipt-layout-preview');
+  const draft = isExt ? _extTrialLayoutDraft : _receiptLayoutDraft;
+  if (preview) {
+    const scale = isExt ? _extTrialScaleDraft : _receiptScaleDraft;
+    const html = _printDocBodyHtml(doc, _receiptSampleRow(), draft || []);
+    preview.innerHTML = scale === 100 ? html : '<div class="receipt-preview-scale" style="zoom:' + scale + '%">' + html + '</div>';
+  }
+}
+function _receiptUpdatePreview() { _printLayoutUpdatePreview('receipt'); }
+
+function _printLayoutSelect(doc, index) {
+  if (doc === 'extTrial') _extTrialEditIndex = index; else _receiptEditIndex = index;
+  _printLayoutRenderEditor(doc);
+}
+function receiptLayoutSelect(index) { _printLayoutSelect('receipt', index); }
+function extTrialLayoutSelect(index) { _printLayoutSelect('extTrial', index); }
+
+function _printLayoutProp(doc, index, key, value) {
+  const draft = doc === 'extTrial' ? _extTrialLayoutDraft : _receiptLayoutDraft;
+  const block = draft?.[index];
+  if (!block) return;
+  block[key] = value;
+  const normalized = _receiptNormalizeBlock(block);
+  if (normalized) draft[index] = normalized;
+  const prefix = doc === 'extTrial' ? 'extTrialLayout' : 'receiptLayout';
+  const summary = document.getElementById(prefix + '-block-summary-' + index);
+  if (summary) summary.textContent = _receiptBlockSummary(draft[index]);
+  _printLayoutUpdatePreview(doc);
+  _settingsMarkDirty();
+}
+function receiptLayoutProp(index, key, value) { _printLayoutProp('receipt', index, key, value); }
+function extTrialLayoutProp(index, key, value) { _printLayoutProp('extTrial', index, key, value); }
+
+function _printLayoutMove(doc, index, delta) {
+  const draft = doc === 'extTrial' ? _extTrialLayoutDraft : _receiptLayoutDraft;
+  const target = index + delta;
+  if (!draft?.[index] || target < 0 || target >= draft.length) return;
+  [draft[index], draft[target]] = [draft[target], draft[index]];
+  if (doc === 'extTrial') _extTrialEditIndex = target; else _receiptEditIndex = target;
+  _printLayoutRenderEditor(doc);
+  _settingsMarkDirty();
+}
+function receiptLayoutMove(index, delta) { _printLayoutMove('receipt', index, delta); }
+function extTrialLayoutMove(index, delta) { _printLayoutMove('extTrial', index, delta); }
+
+function _printLayoutDelete(doc, index) {
+  const draft = doc === 'extTrial' ? _extTrialLayoutDraft : _receiptLayoutDraft;
+  if (!draft?.[index]) return;
+  draft.splice(index, 1);
+  if (doc === 'extTrial') _extTrialEditIndex = Math.min(index, Math.max(0, draft.length - 1));
+  else _receiptEditIndex = Math.min(index, Math.max(0, draft.length - 1));
+  _printLayoutRenderEditor(doc);
+  _settingsMarkDirty();
+}
+function receiptLayoutDelete(index) { _printLayoutDelete('receipt', index); }
+function extTrialLayoutDelete(index) { _printLayoutDelete('extTrial', index); }
+
+function _printLayoutAdd(doc) {
+  const isExt = doc === 'extTrial';
+  const draft = isExt ? _extTrialLayoutDraft : _receiptLayoutDraft;
+  const type = document.getElementById(isExt ? 'ext-trial-add-type' : 'receipt-add-type')?.value;
+  const block = _receiptNormalizeBlock({ type });
+  if (!block) return;
+  draft.push(block);
+  if (isExt) _extTrialEditIndex = draft.length - 1; else _receiptEditIndex = draft.length - 1;
+  _printLayoutRenderEditor(doc);
+  _settingsMarkDirty();
+}
+function receiptLayoutAdd() { _printLayoutAdd('receipt'); }
+function extTrialLayoutAdd() { _printLayoutAdd('extTrial'); }
+
+async function receiptLayoutReset() {
+  if (!(await appConfirm('お会計伝票のレイアウトを既定に戻しますか？'))) return;
+  _receiptLayoutDraft = _receiptDraftBlocks(_receiptDefaultLayout());
+  _receiptEditIndex = 0;
+  _receiptRenderEditor();
+  _settingsMarkDirty();
+}
+async function extTrialLayoutReset() {
+  if (!(await appConfirm('延長料金のご案内を既定に戻しますか？'))) return;
+  _extTrialLayoutDraft = _extTrialDraftBlocks(_extTrialDefaultLayout());
+  _extTrialEditIndex = 0;
+  _extTrialRenderEditor();
+  _settingsMarkDirty();
+}
+
+function _printLayoutImageSelected(doc, index, input) {
+  const file = input.files?.[0];
+  if (!file) return;
+  if (!['image/png', 'image/jpeg'].includes(file.type)) { showToast('PNGまたはJPEGを選択してください'); input.value = ''; return; }
+  const reader = new FileReader();
+  reader.onload = () => {
+    _printLayoutProp(doc, index, 'src', String(reader.result || ''));
+    if (doc === 'extTrial') _extTrialEditIndex = index; else _receiptEditIndex = index;
+    _printLayoutRenderEditor(doc);
+  };
+  reader.readAsDataURL(file);
+}
+function receiptLayoutImageSelected(index, input) { _printLayoutImageSelected('receipt', index, input); }
+function extTrialLayoutImageSelected(index, input) { _printLayoutImageSelected('extTrial', index, input); }
+
+function printLayoutSelectTab(tab) {
+  if (!['receipt', 'extTrial', 'ryoshu'].includes(tab)) return;
+  _printLayoutActiveTab = tab;
+  document.querySelectorAll('[data-print-tab]').forEach(button => button.classList.toggle('active', button.dataset.printTab === tab));
+  document.querySelectorAll('[data-print-panel]').forEach(panel => panel.classList.toggle('active', panel.dataset.printPanel === tab));
+}
+
+function printLayoutScaleUpdate(doc, value) {
+  const scale = _printScaleValue(value);
+  if (doc === 'receipt') {
+    _receiptScaleDraft = scale;
+    _printLayoutUpdatePreview('receipt');
+  } else if (doc === 'extTrial') {
+    _extTrialScaleDraft = scale;
+    _printLayoutUpdatePreview('extTrial');
+  } else if (doc === 'ryoshu') {
+    _ryoshuScaleDraft = scale;
+    _ryoshuUpdatePreview();
+  } else return;
+  _settingsMarkDirty();
+}
+
+function _ryoshuUpdatePreview() {
+  const preview = document.getElementById('ryoshu-layout-preview');
+  if (!preview) return;
+  preview.innerHTML = _ryoshuSheetHtml({ guestName:'山田', amount:55000, note:'ご飲食代として', slipNo:'260824-01', blankDate:false }, _ryoshuOptsDraft);
+  const sheet = preview.querySelector('.r-sheet');
+  if (sheet) sheet.style.zoom = _ryoshuScaleDraft === 100 ? '' : _ryoshuScaleDraft + '%';
+}
+
+function ryoshuDraftUpdate(key, value) {
+  _ryoshuOptsDraft = _ryoshuOpts({ ..._ryoshuOptsDraft, [key]:value });
+  _ryoshuUpdatePreview();
+  _settingsMarkDirty();
+}
+
+async function ryoshuOptsReset() {
+  if (!(await appConfirm('領収書の表示設定を既定に戻しますか？'))) return;
+  _ryoshuOptsDraft = _ryoshuOpts(null);
+  ['titleText', 'notePrefix', 'certifyText', 'inshiThreshold', 'font'].forEach(key => {
+    const input = document.getElementById('cfg-ryoshu-' + key);
+    if (input) input.value = _ryoshuOptsDraft[key];
+  });
+  ['showInshi', 'showNo', 'showAddr', 'showTel', 'showInvoice'].forEach(key => {
+    const input = document.getElementById('cfg-ryoshu-' + key);
+    if (input) input.checked = _ryoshuOptsDraft[key];
+  });
+  _ryoshuUpdatePreview();
+  _settingsMarkDirty();
+}
+
 function renderSettingsPanel() {
   // 設定欄を触ったら未保存フラグを立てる→タブ離脱時に showTab() が自動保存(applySettings)する
   if (!renderSettingsPanel._dirtyBound) {
@@ -19043,6 +19698,14 @@ function renderSettingsPanel() {
   if (!form) return;
   _settingsClearDirty();
   _shopLogoDraft = undefined;  // ロゴの下書きを破棄（再描画＝編集やり直し）
+  _receiptLayoutDraft = _receiptDraftBlocks(cfg.receiptLayout);
+  _extTrialLayoutDraft = _extTrialDraftBlocks(cfg.extTrialLayout);
+  _ryoshuOptsDraft = _ryoshuOpts();
+  _receiptScaleDraft = _printScaleValue(cfg.receiptScale);
+  _extTrialScaleDraft = _printScaleValue(cfg.extTrialScale);
+  _ryoshuScaleDraft = _printScaleValue(cfg.ryoshuScale);
+  _receiptEditIndex = 0;
+  _extTrialEditIndex = 0;
 
   // タグエディタHTML生成
   function tagEditor(id, values) {
@@ -19159,7 +19822,7 @@ function renderSettingsPanel() {
           <input type="text" class="settings-input" id="cfg-shopName" value="${escAttr(cfg.shopName ?? '')}" placeholder="例: キャバレー〇〇 八王子店" style="width:240px">
         </div>
         <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:6px">
-          <div class="settings-label" style="width:100%">伝票ロゴ画像<div class="settings-sub">POS伝票の一番上に印字されます（未設定なら「伝票」の文字見出し）。<b>推奨: PNG・横800px前後の横長・白背景に黒/濃色1色</b>。レシート印刷は白黒のため、グレーや薄い色・写真は網点で滲みます。選択時に横800pxまで自動縮小して取り込みます</div></div>
+          <div class="settings-label" style="width:100%">伝票ロゴ画像<div class="settings-sub">POS伝票の一番上に印字されます（未設定なら「伝票」の文字見出し）。<b>推奨: PNG/JPEG・目安200KB以下・横800px前後の横長・白背景に黒/濃色1色</b>。レシート印刷は白黒のため、グレーや薄い色・写真は網点で滲みます。選択時に横800pxまで自動縮小して取り込みます</div></div>
           <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
             <input type="file" id="cfg-shopLogo-file" accept="image/png,image/jpeg" style="font-size:12px;max-width:230px" onchange="shopLogoFileSelected(this)">
             <img id="cfg-shopLogo-preview" src="${escAttr(cfg.shopLogo || '')}" alt="" style="height:40px;max-width:180px;object-fit:contain;background:#fff;border:1px solid var(--bdr);border-radius:4px;padding:2px;${cfg.shopLogo ? '' : 'display:none'}">
@@ -19757,6 +20420,8 @@ function renderSettingsPanel() {
 
     ${slipNumberSection}
 
+    ${_receiptSettingsSectionHTML()}
+
     <!-- 日次締め項目 -->
     <div class="settings-section" data-setcat="slip">
       <div class="settings-section-header"><span class="settings-section-title">📒 日次締め項目</span></div>
@@ -19913,6 +20578,9 @@ function renderSettingsPanel() {
   `;
 
   _posMenuInitDndAll();
+  _receiptRenderEditor();
+  _extTrialRenderEditor();
+  _ryoshuUpdatePreview();
   settingsSelectCategory(_settingsActiveCat);
   // キャスト管理一覧: アコーディオン廃止（2026-08-20仕様B）につき常時描画。
   // 旧仕様はtoggleCastMgmt()が開閉時にだけ描画していたが、その関数ごと撤去したためここで描く。
@@ -20700,6 +21368,18 @@ async function applySettings() {
   const receiptStoreTel   = _rcpt('cfg-receiptStoreTel',   'receiptStoreTel');
   const receiptInvoiceNo  = _rcpt('cfg-receiptInvoiceNo',  'receiptInvoiceNo');
   const receiptNote       = _rcpt('cfg-receiptNote',       'receiptNote');
+  const receiptDraft = _receiptDraftBlocks(_receiptLayoutDraft);
+  const receiptDefault = _receiptDraftBlocks(_receiptDefaultLayout());
+  const receiptLayout = JSON.stringify(receiptDraft) === JSON.stringify(receiptDefault) ? null : receiptDraft;
+  const extTrialDraft = _extTrialDraftBlocks(_extTrialLayoutDraft);
+  const extTrialDefault = _extTrialDraftBlocks(_extTrialDefaultLayout());
+  const extTrialLayout = JSON.stringify(extTrialDraft) === JSON.stringify(extTrialDefault) ? null : extTrialDraft;
+  const ryoshuDraft = _ryoshuOpts(_ryoshuOptsDraft);
+  const ryoshuDefault = _ryoshuOpts(null);
+  const ryoshuOpts = JSON.stringify(ryoshuDraft) === JSON.stringify(ryoshuDefault) ? null : ryoshuDraft;
+  const receiptScale = _printScaleValue(_receiptScaleDraft);
+  const extTrialScale = _printScaleValue(_extTrialScaleDraft);
+  const ryoshuScale = _printScaleValue(_ryoshuScaleDraft);
 
   cfg = {
     shopName,
@@ -20718,6 +21398,7 @@ async function applySettings() {
     taxRate, taxRound, discountAfterTax, cardFeeRate, cardFeeRound, tillFloat,
     showCountdown, fullscreenOnBoot, posMenu, posCatLayout, posCustomCats, posPrices, shimeiExtItems, drinkItems, shotLabel,
     receiptStoreName1, receiptStoreAddr, receiptStoreTel, receiptInvoiceNo, receiptNote,
+    receiptLayout, extTrialLayout, ryoshuOpts, receiptScale, extTrialScale, ryoshuScale,
     payrollClockInRoundMin, payrollClockOutRoundMin, payrollClockOutRoundThreshold,
     payrollLateFineUnitMin, payrollLateFineAmt, payrollBottleSpRate, defaultWage, payrollPeriod,
     payrollDouhanAddsHonshimei, payrollDouhanAddsHonenFirst, payrollSpInBackTotal,
@@ -20741,6 +21422,12 @@ async function applySettings() {
 
   _settingsClearDirty();
   _shopLogoDraft = undefined;  // ロゴ下書きは確定済み
+  _receiptLayoutDraft = _receiptDraftBlocks(receiptLayout);
+  _extTrialLayoutDraft = _extTrialDraftBlocks(extTrialLayout);
+  _ryoshuOptsDraft = _ryoshuOpts(ryoshuOpts);
+  _receiptScaleDraft = receiptScale;
+  _extTrialScaleDraft = extTrialScale;
+  _ryoshuScaleDraft = ryoshuScale;
   showToast('設定を保存・反映しました');
 }
 
@@ -24895,6 +25582,36 @@ function _receiptSlipNo(row) {
 
 const _RECEIPT_CARD_SUFFIX = '(カード決済)';
 
+const _RYOSHU_DEFAULT_OPTS = {
+  titleText:'領収書',
+  notePrefix:'但し',
+  certifyText:'上記正に領収いたしました',
+  showInshi:true,
+  inshiThreshold:50000,
+  font:'mincho',
+  showNo:true,
+  showAddr:true,
+  showTel:true,
+  showInvoice:true,
+};
+
+function _ryoshuOpts(source) {
+  const saved = source === undefined ? cfg.ryoshuOpts : source;
+  const opts = { ..._RYOSHU_DEFAULT_OPTS, ...(saved && typeof saved === 'object' ? saved : {}) };
+  opts.titleText = String(opts.titleText ?? _RYOSHU_DEFAULT_OPTS.titleText);
+  opts.notePrefix = String(opts.notePrefix ?? _RYOSHU_DEFAULT_OPTS.notePrefix);
+  opts.certifyText = String(opts.certifyText ?? _RYOSHU_DEFAULT_OPTS.certifyText);
+  opts.showInshi = opts.showInshi !== false;
+  const threshold = Number(opts.inshiThreshold);
+  opts.inshiThreshold = Number.isFinite(threshold) ? Math.max(0, threshold) : _RYOSHU_DEFAULT_OPTS.inshiThreshold;
+  opts.font = opts.font === 'gothic' ? 'gothic' : 'mincho';
+  opts.showNo = opts.showNo !== false;
+  opts.showAddr = opts.showAddr !== false;
+  opts.showTel = opts.showTel !== false;
+  opts.showInvoice = opts.showInvoice !== false;
+  return opts;
+}
+
 function _receiptCardPaymentOn(amountValue, noteValue, rate, round) {
   const originalAmount = String(amountValue ?? '');
   const baseAmount = Math.max(0, Number(originalAmount) || 0);
@@ -25021,8 +25738,8 @@ function _receiptDoPrint(slipNo) {
   _receiptOpenWindow({ guestName, amount, note, slipNo, blankDate });
 }
 
-/* 領収書HTMLを組み立てて別ウィンドウで印刷（80mmレシート向け） */
-function _receiptOpenWindow(data) {
+function _ryoshuSheetHtml(data, sourceOpts) {
+  const opts = _ryoshuOpts(sourceOpts);
   const d = getBizDate();
   const dateStr = data.blankDate ? '　　年　　月　　日' : d.getFullYear() + '年' + (d.getMonth() + 1) + '月' + d.getDate() + '日';
   const name1 = cfg.receiptStoreName1 || '';
@@ -25031,6 +25748,34 @@ function _receiptOpenWindow(data) {
   const inv   = cfg.receiptInvoiceNo  || '';
   const amtStr = (Number(data.amount) || 0).toLocaleString('ja-JP');
   const addrName = data.guestName ? escHtml(data.guestName) + ' 様' : '　　　　　 様';
+  const noteText = escHtml(opts.notePrefix) + (opts.notePrefix && data.note ? ' ' : '') + escHtml(data.note || '');
+  return '<div class="r-stage"><div class="r-sheet r-font-' + opts.font + '">'
+    + '<div class="r-top">'
+    +   '<div class="r-addr-line"' + (data.guestName ? '' : ' style="min-width:30mm"') + '>' + addrName + '</div>'
+    +   (opts.showNo ? '<div class="r-no">No. ' + escHtml(data.slipNo || '') + '</div>' : '')
+    + '</div>'
+    + '<div class="r-title">' + escHtml(opts.titleText) + '</div>'
+    + '<div class="r-amt"><span class="r-amt-line">¥ ' + amtStr + ' －</span></div>'
+    + '<div class="r-note">' + noteText + '</div>'
+    + '<div class="r-certify"><span class="r-date">' + dateStr + '</span>' + escHtml(opts.certifyText) + '</div>'
+    + '<div class="r-bottom">'
+    +   (opts.showInshi && (Number(data.amount) || 0) >= opts.inshiThreshold
+        ? '<div class="r-inshi">収入<br>印紙</div>'
+        : '<div></div>')
+    +   '<div class="r-sign">'
+    +     '<div class="r-store">' + escHtml(name1) + '</div>'
+    +     (opts.showAddr && addr ? '<div>' + escHtml(addr) + '</div>' : '')
+    +     (opts.showTel && tel ? '<div>TEL ' + escHtml(tel) + '</div>' : '')
+    +     (opts.showInvoice && inv ? '<div>登録番号 ' + escHtml(inv) + '</div>' : '')
+    +   '</div>'
+    + '</div>'
+    + '</div></div>';
+}
+
+/* 領収書HTMLを組み立てて別ウィンドウで印刷（80mmレシート向け） */
+function _receiptOpenWindow(data) {
+  const opts = _ryoshuOpts();
+  const scaleCss = _printScaleCss(cfg.ryoshuScale);
 
   const w = window.open('', '_blank', 'width=720,height=420');
   if (!w) { showToast('ポップアップがブロックされました'); return; }
@@ -25045,6 +25790,7 @@ function _receiptOpenWindow(data) {
     + '*{box-sizing:border-box;margin:0;padding:0}'
     // 全体太字: 明朝の細い横画がサーマル印刷で薄くなるため（2026-07-14 実機フィードバック「文字が薄い」）
     + 'html,body{font-family:"Hiragino Mincho ProN","MS Mincho",serif;color:#000;font-weight:700}'
+    + '.r-font-mincho{font-family:"Hiragino Mincho ProN","MS Mincho",serif}.r-font-gothic{font-family:"Hiragino Kaku Gothic ProN","Meiryo",sans-serif}'
     // 回転ステージ: 印字可能幅72mm×134mmの中に、134mm(横)×72mm(縦)の領収書を90度回転して配置。
     // ※80mm基準だと印字可能幅(72mm)の外＝回転後の領収書の上下端が切れる（2026-07-14 実機で確認・修正）
     // 送り方向(上下)の余白は r-sheet の左右パディング(5mm)で確保。
@@ -25052,7 +25798,7 @@ function _receiptOpenWindow(data) {
     + '.r-stage{position:relative;width:72mm;height:134mm;overflow:hidden;margin:0 auto}'
     + '.r-sheet{position:absolute;top:0;left:0;width:134mm;height:72mm;'
     +   'transform-origin:0 0;transform:rotate(90deg) translateY(-72mm);'
-    +   'padding:3mm 5mm;display:flex;flex-direction:column}'
+    +   'padding:3mm 5mm;display:flex;flex-direction:column' + scaleCss + '}'
     // 横長領収書の中身レイアウト（2026-07-14 オーナー指定: 宛名=左上／No.=右上／金額=中央／
     // 但し→日付＋定型文言→店舗情報の順。ハンコ丸なし。グレー不使用・5万円以上のみ収入印紙枠）
     + '.r-top{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:5mm}'
@@ -25079,27 +25825,7 @@ function _receiptOpenWindow(data) {
     + '.r-sign{font-size:9pt;line-height:1.6;text-align:right}'
     + '.r-sign .r-store{font-size:12pt;font-weight:700;margin-bottom:0.5mm}'
     + '</style></head><body>'
-    + '<div class="r-stage"><div class="r-sheet">'
-    + '<div class="r-top">'
-    +   '<div class="r-addr-line"' + (data.guestName ? '' : ' style="min-width:30mm"') + '>' + addrName + '</div>'
-    +   '<div class="r-no">No. ' + escHtml(data.slipNo || '') + '</div>'
-    + '</div>'
-    + '<div class="r-title">領収書</div>'
-    + '<div class="r-amt"><span class="r-amt-line">¥ ' + amtStr + ' －</span></div>'
-    + '<div class="r-note">但し ' + escHtml(data.note || '') + '</div>'
-    + '<div class="r-certify"><span class="r-date">' + dateStr + '</span>上記正に領収いたしました</div>'
-    + '<div class="r-bottom">'
-    +   ((Number(data.amount) || 0) >= 50000
-        ? '<div class="r-inshi">収入<br>印紙</div>'
-        : '<div></div>')
-    +   '<div class="r-sign">'
-    +     '<div class="r-store">' + escHtml(name1) + '</div>'
-    +     (addr ? '<div>' + escHtml(addr) + '</div>' : '')
-    +     (tel  ? '<div>TEL ' + escHtml(tel) + '</div>' : '')
-    +     (inv  ? '<div>登録番号 ' + escHtml(inv) + '</div>' : '')
-    +   '</div>'
-    + '</div>'
-    + '</div></div>'
+    + _ryoshuSheetHtml(data, opts)
     // 下余白の自前確保: 末尾の空白はドライバに切り詰められるため、10mm下に極小ドットを印字して
     // そこまで紙を送らせる（ドライバ「紙送り量」の設定漏れPCでも送り方向の端が切れない。2026-07-21）
     + '<div style="margin:10mm auto 0;width:0.5mm;height:0;border-top:1px solid #000;print-color-adjust:exact;-webkit-print-color-adjust:exact"></div>'
