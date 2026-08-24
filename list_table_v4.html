@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.69">
+<meta name="app-version" content="1.0.70">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -14598,18 +14598,34 @@ function _castRankingShiftMonth(key, delta) {
   const d = new Date(y, m - 1 + delta, 1);
   return String(d.getFullYear()) + String(d.getMonth() + 1).padStart(2, '0');
 }
+function _castRankingRefreshSection() {
+  const host = document.getElementById('cast-ranking-host');
+  if (host) host.innerHTML = _castRankingSectionHtml();
+}
 function castRankingMoveMonth(delta) {
   castRankingMonth = _castRankingShiftMonth(_castRankingMonthKey(), Number(delta) || 0);
-  renderReportPanel();
+  _castRankingRefreshSection();
 }
 function castRankingSetSalesBase(value) {
   castRankingSalesBase = value === 'total' ? 'total' : 'subtotal';
-  renderReportPanel();
+  _castRankingRefreshSection();
   _castRankingRefreshOverlay();
 }
 function castRankingSetSort(value) {
   castRankingSort = value === 'points' ? 'points' : 'sales';
-  renderReportPanel();
+  _castRankingRefreshSection();
+  _castRankingRefreshOverlay();
+}
+
+async function castRankingReaggregateMonth() {
+  const monthKey = _castRankingMonthKey();
+  const monthLabel = monthKey.slice(0, 4) + '年' + Number(monthKey.slice(4, 6)) + '月';
+  const confirmed = await appConfirm(`⚖ ${monthLabel}の全営業日をバックアップから今の設定で再集計し、日次締めをロック（確定）します。\n・手入力（現金実査・経費・入出金など）はそのまま残ります\n・締め済みの日も今の設定で計算し直します\n・設定を変えた後にもう一度押せば、その設定で再確定できます\nよろしいですか？`, { danger: true });
+  if (!confirmed) return;
+  const count = dailyCloseReaggregateMonth(monthKey);
+  if (count === null) return;
+  showToast(`🔄 ${count}日分を再集計しました（締めロック済み）`);
+  _castRankingRefreshSection();
   _castRankingRefreshOverlay();
 }
 
@@ -14682,9 +14698,9 @@ function _castRankingSectionHtml() {
   const monthLabel = monthKey.slice(0, 4) + '年' + Number(monthKey.slice(4, 6)) + '月';
   return `<section class="agg-box cr-section">
     <style>
-      .cr-section{margin-top:18px}.cr-head,.cr-actions,.cr-month-nav,.cr-toggle{display:flex;align-items:center;gap:8px}.cr-head{justify-content:space-between;flex-wrap:wrap;margin-bottom:12px}.cr-head h3{margin:0}.cr-actions{flex-wrap:wrap}.cr-month-nav strong{min-width:100px;text-align:center}.cr-section button,.cr-overlay button{border:1px solid var(--bdr2);border-radius:7px;background:var(--sur2);color:var(--tx2);padding:6px 10px;cursor:pointer}.cr-toggle{border:1px solid var(--bdr2);border-radius:7px;overflow:hidden;gap:0}.cr-toggle button{border:0;border-radius:0}.cr-toggle button.active{background:linear-gradient(180deg,var(--gold),var(--gold2));color:#1a1410}.cr-table-wrap{overflow-x:auto}.cr-table{width:100%;border-collapse:collapse}.cr-table th,.cr-table td{border-bottom:1px solid var(--bdr);padding:10px;text-align:right}.cr-table th{font-size:12px;color:var(--tx3);background:var(--sur2)}.cr-table th:nth-child(2),.cr-table td.cr-name{text-align:left}.cr-rank{text-align:center!important;font-size:18px;font-weight:800;color:var(--gold)}.cr-points{font-weight:800;color:var(--gold)}.cr-note{margin-top:10px;color:#e5a84b;font-size:12px}.cr-empty{text-align:center;color:var(--tx3);padding:28px}
+      .cr-section{margin-top:18px;background:var(--sur);border:1px solid var(--bdr);border-radius:12px;padding:16px 18px}.cr-head,.cr-actions,.cr-month-nav,.cr-toggle{display:flex;align-items:center;gap:8px}.cr-head{justify-content:space-between;flex-wrap:wrap;margin-bottom:12px}.cr-head h3{margin:0}.cr-actions{flex-wrap:wrap}.cr-month-nav strong{min-width:100px;text-align:center}.cr-section button,.cr-overlay button{border:1px solid var(--bdr2);border-radius:7px;background:var(--sur2);color:var(--tx2);padding:6px 10px;cursor:pointer}.cr-toggle{border:1px solid var(--bdr2);border-radius:7px;overflow:hidden;gap:0}.cr-toggle button{border:0;border-radius:0}.cr-toggle button.active{background:linear-gradient(180deg,var(--gold),var(--gold2));color:#1a1410}.cr-table-wrap{overflow-x:auto}.cr-table{width:100%;border-collapse:collapse}.cr-table th,.cr-table td{border-bottom:1px solid var(--bdr);padding:10px;text-align:right}.cr-table th{font-size:12px;color:var(--tx3);background:var(--sur2)}.cr-table th:nth-child(2),.cr-table td.cr-name{text-align:left}.cr-rank{text-align:center!important;font-size:18px;font-weight:800;color:var(--gold)}.cr-points{font-weight:800;color:var(--gold)}.cr-note{margin-top:10px;color:#e5a84b;font-size:12px}.cr-empty{text-align:center;color:var(--tx3);padding:28px}
     </style>
-    <div class="cr-head"><div><h3>🏆 月間ランキング</h3><div class="cr-month-nav"><button type="button" onclick="castRankingMoveMonth(-1)">◀ 前月</button><strong>${monthLabel}</strong><button type="button" onclick="castRankingMoveMonth(1)">翌月 ▶</button></div></div>
+    <div class="cr-head"><div><h3>🏆 月間ランキング</h3><div class="cr-month-nav"><button type="button" onclick="castRankingMoveMonth(-1)">◀ 前月</button><strong>${monthLabel}</strong><button type="button" onclick="castRankingMoveMonth(1)">翌月 ▶</button><button type="button" onclick="castRankingReaggregateMonth()">🔄 再集計</button></div></div>
       <div class="cr-actions">${_castRankingToggleHtml()}<button type="button" onclick="castRankingOpenOverlay()">📺 キャスト表示</button></div>
     </div>
     ${_castRankingTableHtml(data, false)}${_castRankingNoteHtml(data)}
@@ -14800,11 +14816,11 @@ function _reportPeriodSwitchHtml() {
     + '.agg-card-line{display:flex;justify-content:space-between;gap:8px;padding:6px 12px;font-size:12px;border-top:1px solid var(--bdr)}'
     + '.agg-card-nm{flex:1;color:var(--tx2)}.agg-card-q{color:var(--tx3);min-width:20px;text-align:right}.agg-card-amt{min-width:60px;text-align:right;color:var(--tx)}'
     + '.agg-share-btn{display:inline-flex;align-items:center;gap:2px;flex:0 0 auto;padding:1px 5px;border:1px solid var(--bdr2);border-radius:9px;background:var(--sur2);color:var(--gold);font-size:10px;line-height:1.4;cursor:pointer}'
-    + '.nominate-share-total{padding:10px 12px;border:1px solid var(--bdr);border-radius:8px;background:var(--sur2);color:var(--tx2);font-size:13px}.nominate-share-total strong{float:right;color:var(--gold);font-size:16px}'
-    + '.nominate-share-row{display:grid;grid-template-columns:minmax(80px,1fr) auto minmax(82px,auto);align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--bdr)}'
-    + '.nominate-share-cast{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--tx);font-weight:700}.nominate-share-stepper{display:flex;align-items:center;gap:7px}.nominate-share-stepper button{display:flex;align-items:center;justify-content:center;width:32px;height:32px;padding:0;border:1px solid var(--bdr2);border-radius:7px;background:var(--sur2);color:var(--tx);font-size:20px;cursor:pointer}.nominate-share-weight{min-width:18px;text-align:center;color:var(--gold);font-weight:800;font-variant-numeric:tabular-nums}.nominate-share-preview{text-align:right;color:var(--tx);font-family:var(--mono);font-weight:700}'
-    + '.nominate-share-actions{grid-template-columns:repeat(3,minmax(0,1fr))}.nominate-share-actions .pos-co-btn{height:48px;padding:6px;font-size:14px}.nominate-share-reset{background:#555}.nominate-share-save{background:#16a085}'
-    + '@media(max-width:560px){.nominate-share-row{grid-template-columns:minmax(70px,1fr) auto}.nominate-share-preview{grid-column:1/-1}.nominate-share-actions{grid-template-columns:1fr}.nominate-share-actions .pos-co-btn{height:44px}}'
+    + '.nominate-share-total{padding:10px 12px;border:1px solid var(--bdr);border-radius:8px;background:var(--sur2);color:var(--tx2);font-size:13px;font-weight:700;text-align:right;font-variant-numeric:tabular-nums}.nominate-share-total.warn{border-color:#e67e22;color:#ffb36b}'
+    + '.nominate-share-row{display:grid;grid-template-columns:minmax(80px,1fr) minmax(130px,180px);align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--bdr)}'
+    + '.nominate-share-cast{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--tx);font-weight:700}.nominate-share-input-wrap{display:flex;align-items:center;gap:6px;color:var(--tx2);font-family:var(--mono);font-weight:700}.nominate-share-input{width:100%;min-width:0;padding:8px 10px;border:1px solid var(--bdr2);border-radius:7px;background:var(--sur2);color:var(--tx);font:700 15px var(--mono);text-align:right}.nominate-share-input[readonly]{color:var(--gold);background:var(--sur)}.nominate-share-input.warn{border-color:#e67e22;color:#ffb36b}'
+    + '.nominate-share-actions{grid-template-columns:repeat(3,minmax(0,1fr))}.nominate-share-actions .pos-co-btn{height:48px;padding:6px;font-size:14px}.nominate-share-reset{background:#555}.nominate-share-save{background:#16a085}.nominate-share-save:disabled{opacity:.45;cursor:not-allowed}'
+    + '@media(max-width:560px){.nominate-share-row{grid-template-columns:minmax(70px,1fr) minmax(120px,1fr)}.nominate-share-actions{grid-template-columns:1fr}.nominate-share-actions .pos-co-btn{height:44px}}'
     + '.agg-side-card{background:var(--sur);border:1px solid var(--bdr);border-radius:12px;padding:14px 16px;text-align:center}'
     + '.agg-side-card.total{background:linear-gradient(160deg,var(--sur2),var(--sur))}'
     + '.agg-side-label{font-size:11px;color:var(--tx3);margin-bottom:4px}'
@@ -15173,16 +15189,20 @@ function _aggProductBack(order, isNominator) {
   return { isProductBack: back > 0 || hasBackFree, amount };
 }
 
-// 指名売上のweight按分。未設定・不正値はweight=1、端数は最後のキャストへ寄せる。
+// 指名売上のweight按分。明示0は有効、未設定・不正値はweight=1、端数は最後のキャストへ寄せる。
 function _nominateWeight(nominateShares, cast) {
-  const value = nominateShares && Number(nominateShares[cast]);
-  return value > 0 ? value : 1;
+  const value = nominateShares && nominateShares[cast];
+  return Number.isFinite(value) && value >= 0 ? value : 1;
 }
 function _nominateAllocatedShares(total, casts, nominateShares) {
   const list = Array.isArray(casts) ? casts : [];
   if (!list.length) return [];
-  const weights = list.map(cast => _nominateWeight(nominateShares, cast));
-  const weightTotal = weights.reduce((sum, weight) => sum + weight, 0);
+  let weights = list.map(cast => _nominateWeight(nominateShares, cast));
+  let weightTotal = weights.reduce((sum, weight) => sum + weight, 0);
+  if (weightTotal === 0) {
+    weights = list.map(() => 1);
+    weightTotal = weights.length;
+  }
   let allocated = 0;
   return list.map((cast, index) => {
     const share = index === list.length - 1
@@ -15273,13 +15293,16 @@ function computeReportAgg(settled) {
     const nominateGrossShares = _nominateAllocatedShares(tableTotal, nomList, r.nominateShares);
     const nominateSubtotalShares = _nominateAllocatedShares(tableSubtotal, nomList, r.nominateShares);
     const nominateWeights = nomList.map(cast => _nominateWeight(r.nominateShares, cast));
+    const evenGrossShares = _nominateAllocatedShares(tableTotal, nomList, null);
+    const nominateAdjusted = !!r.nominateShares && nominateGrossShares.some((share, index) => share !== evenGrossShares[index]);
     nomList.forEach((cast, idx) => {
       nominatedCasts[cast] = true;
       const g = ensureN(cast);
       const label = 'No.' + slipNoLabel(r) + (r.source ? ' ' + r.source : '');
       const ln = g.lines[label] = g.lines[label] || {
-        qty:0, amt:0, rowId:r.id, casts:nomList.slice(), nominateWeights:nominateWeights.slice()
+        qty:0, amt:0, rowId:r.id, casts:nomList.slice(), nominateWeights:nominateWeights.slice(), nominateAdjusted:false
       };
+      ln.nominateAdjusted = ln.nominateAdjusted || nominateAdjusted;
       const share = nominateGrossShares[idx];
       const shareSub = nominateSubtotalShares[idx];
       ln.qty += 1; ln.amt += share; g.total += share;
@@ -15436,11 +15459,8 @@ function _aggNameCardsHtml(nameGroups, nominatedCasts) {
     const g = nameGroups[c];
     const lines = Object.keys(g.lines).map(l => {
       const ln = g.lines[l];
-      const weights = Array.isArray(ln.nominateWeights) ? ln.nominateWeights : [];
-      const hasCustomRatio = weights.length > 1 && weights.some(weight => weight !== weights[0]);
-      const ratio = hasCustomRatio ? weights.join(':') : '';
       const shareButton = Array.isArray(ln.casts) && ln.casts.length > 1 && ln.rowId != null
-        ? '<button type="button" class="agg-share-btn" data-row-id="' + escAttr(String(ln.rowId)) + '" onclick="nominateSharesOpenModal(this.dataset.rowId)" aria-label="指名売上の配分を変更">⚖' + (ratio ? '<span>' + escHtml(ratio) + '</span>' : '') + '</button>'
+        ? '<button type="button" class="agg-share-btn" data-row-id="' + escAttr(String(ln.rowId)) + '" onclick="nominateSharesOpenModal(this.dataset.rowId)" aria-label="指名売上の配分を変更">⚖' + (ln.nominateAdjusted ? '<span>調整済</span>' : '') + '</button>'
         : '';
       return '<div class="agg-card-line"><span class="agg-card-nm">' + escHtml(l) + '</span>'
         + shareButton
@@ -15481,44 +15501,62 @@ function nominateSharesOpenModal(rowId) {
     dayKey: target.src.dayKey,
     rowId: target.row.id,
     casts: target.casts,
-    total: target.total,
-    weights: target.casts.map(cast => Math.min(9, Math.max(1, Math.round(_nominateWeight(target.row.nominateShares, cast)))))
+    total: Math.max(0, Math.round(Number(target.total) || 0)),
+    amounts: _nominateAllocatedShares(target.total, target.casts, target.row.nominateShares)
   };
   const editor = _nominateSharesEditor;
+  const lastIndex = editor.casts.length - 1;
   const rows = editor.casts.map((cast, index) => '<div class="nominate-share-row">'
     + '<div class="nominate-share-cast">' + escHtml(cast) + '</div>'
-    + '<div class="nominate-share-stepper"><button type="button" onclick="nominateSharesAdjust(' + index + ',-1)" aria-label="' + escAttr(cast) + 'の比率を下げる">−</button><span id="nominate-share-weight-' + index + '" class="nominate-share-weight">' + editor.weights[index] + '</span><button type="button" onclick="nominateSharesAdjust(' + index + ',1)" aria-label="' + escAttr(cast) + 'の比率を上げる">＋</button></div>'
-    + '<div id="nominate-share-preview-' + index + '" class="nominate-share-preview"></div></div>').join('');
+    + '<label class="nominate-share-input-wrap">¥<input id="nominate-share-amount-' + index + '" class="nominate-share-input" type="number" inputmode="numeric" min="0" step="100" value="' + editor.amounts[index] + '"' + (editor.casts.length > 2 && index === lastIndex ? ' readonly' : ' oninput="nominateSharesInput(' + index + ',this.value)"') + ' aria-label="' + escAttr(cast) + 'の配分金額"></label></div>').join('');
+  const helper = editor.casts.length > 2 ? '最後のキャストは残額を自動計算' : '片方を入力すると、もう片方を自動計算';
   const html = '<div id="nominate-shares-overlay" class="pos-co-overlay" onclick="if(event.target===this)nominateSharesCloseModal()">'
-    + '<div class="pos-co-panel pay-bd-panel"><div class="pay-bd-head"><div><div class="pay-bd-title">指名売上の配分 — No.' + escHtml(slipNoLabel(target.row)) + '</div><div class="pay-bd-date">weight 1〜9で調整</div></div><button type="button" class="pay-bd-close" onclick="nominateSharesCloseModal()" aria-label="閉じる">×</button></div>'
-    + '<div class="pay-bd-body"><div class="nominate-share-total">卓総額（税込）<strong>¥' + editor.total.toLocaleString() + '</strong></div>' + rows
-    + '<div class="pos-co-actions nominate-share-actions"><button type="button" class="pos-co-btn nominate-share-reset" onclick="nominateSharesResetEven()">均等に戻す</button><button type="button" class="pos-co-btn cancel" onclick="nominateSharesCloseModal()">キャンセル</button><button type="button" class="pos-co-btn nominate-share-save" onclick="nominateSharesSave()">保存</button></div></div></div></div>';
+    + '<div class="pos-co-panel pay-bd-panel"><div class="pay-bd-head"><div><div class="pay-bd-title">指名売上の配分 — No.' + escHtml(slipNoLabel(target.row)) + '</div><div class="pay-bd-date">' + helper + '</div></div><button type="button" class="pay-bd-close" onclick="nominateSharesCloseModal()" aria-label="閉じる">×</button></div>'
+    + '<div class="pay-bd-body"><div id="nominate-share-total" class="nominate-share-total"></div>' + rows
+    + '<div class="pos-co-actions nominate-share-actions"><button type="button" class="pos-co-btn nominate-share-reset" onclick="nominateSharesResetEven()">均等に戻す</button><button type="button" class="pos-co-btn cancel" onclick="nominateSharesCloseModal()">キャンセル</button><button id="nominate-share-save" type="button" class="pos-co-btn nominate-share-save" onclick="nominateSharesSave()">保存</button></div></div></div></div>';
   document.body.insertAdjacentHTML('beforeend', html);
-  _nominateSharesRenderPreview();
+  _nominateSharesRenderAmounts();
 }
 
 function nominateSharesCloseModal() {
   document.getElementById('nominate-shares-overlay')?.remove();
 }
 
-function nominateSharesAdjust(index, delta) {
+function nominateSharesInput(index, value) {
   const editor = _nominateSharesEditor;
-  if (!editor || index < 0 || index >= editor.weights.length) return;
-  editor.weights[index] = Math.min(9, Math.max(1, editor.weights[index] + Number(delta || 0)));
-  _nominateSharesRenderPreview();
+  if (!editor || index < 0 || index >= editor.amounts.length) return;
+  let amount = Math.max(0, Math.round(Number(value) || 0));
+  if (editor.amounts.length === 2) {
+    amount = Math.min(editor.total, amount);
+    editor.amounts[index] = amount;
+    editor.amounts[index === 0 ? 1 : 0] = editor.total - amount;
+  } else if (index < editor.amounts.length - 1) {
+    editor.amounts[index] = amount;
+  }
+  _nominateSharesRenderAmounts();
 }
 
-function _nominateSharesRenderPreview() {
+function _nominateSharesRenderAmounts() {
   const editor = _nominateSharesEditor;
   if (!editor) return;
-  const map = Object.fromEntries(editor.casts.map((cast, index) => [cast, editor.weights[index]]));
-  const shares = _nominateAllocatedShares(editor.total, editor.casts, map);
+  const lastIndex = editor.amounts.length - 1;
+  const editableTotal = editor.amounts.slice(0, lastIndex).reduce((sum, amount) => sum + amount, 0);
+  if (editor.amounts.length > 2) editor.amounts[lastIndex] = Math.max(0, editor.total - editableTotal);
+  const amountTotal = editor.amounts.reduce((sum, amount) => sum + amount, 0);
+  const isBalanced = amountTotal === editor.total;
   editor.casts.forEach((cast, index) => {
-    const weightNode = document.getElementById('nominate-share-weight-' + index);
-    const previewNode = document.getElementById('nominate-share-preview-' + index);
-    if (weightNode) weightNode.textContent = editor.weights[index];
-    if (previewNode) previewNode.textContent = '¥' + shares[index].toLocaleString();
+    const input = document.getElementById('nominate-share-amount-' + index);
+    if (input) input.value = editor.amounts[index];
   });
+  const lastInput = document.getElementById('nominate-share-amount-' + lastIndex);
+  if (lastInput) lastInput.classList.toggle('warn', editor.amounts.length > 2 && editableTotal > editor.total);
+  const totalNode = document.getElementById('nominate-share-total');
+  if (totalNode) {
+    totalNode.textContent = '合計 ¥' + amountTotal.toLocaleString() + ' ／ 卓総額 ¥' + editor.total.toLocaleString();
+    totalNode.classList.toggle('warn', !isBalanced);
+  }
+  const saveButton = document.getElementById('nominate-share-save');
+  if (saveButton) saveButton.disabled = !isBalanced;
 }
 
 function _nominateSharesPersist(nextShares) {
@@ -15548,7 +15586,11 @@ function _nominateSharesPersist(nextShares) {
 function nominateSharesSave() {
   const editor = _nominateSharesEditor;
   if (!editor) return;
-  const nextShares = Object.fromEntries(editor.casts.map((cast, index) => [cast, editor.weights[index]]));
+  if (editor.amounts.reduce((sum, amount) => sum + amount, 0) !== editor.total) {
+    if (typeof showToast === 'function') showToast('配分合計を卓総額と一致させてください');
+    return;
+  }
+  const nextShares = Object.fromEntries(editor.casts.map((cast, index) => [cast, editor.amounts[index]]));
   if (!_nominateSharesPersist(nextShares)) {
     if (typeof showToast === 'function') showToast('配分を保存できませんでした');
     return;
@@ -16209,7 +16251,8 @@ function _reportDaySelectHtml() {
   const sel = _reportDayKey();
   const fmt = (k) => {
     const y = k.slice(0,4), m = k.slice(4,6), d = k.slice(6,8);
-    const label = `${y}/${m}/${d}` + (k === todayKey ? '（当日）' : '');
+    const wd = WEEKDAYS[new Date(+y, +m - 1, +d).getDay()];
+    const label = `${y}/${m}/${d}（${wd}${k === todayKey ? '・当日' : ''}）`;
     return `<option value="${k}"${k===sel?' selected':''}>${label}</option>`;
   };
   return '<label class="pos-report-sort" style="margin-left:auto">営業日 '
@@ -16276,7 +16319,6 @@ function _renderReportDay() {
     ${_payrollSectionHtml(src)}
     ${_deductionSheetSectionHtml(src)}
     ${_dailyCloseSectionHtml(src, agg, _payRows, isPast)}
-    ${_castRankingSectionHtml()}
     <div class="pos-report-bar" style="margin-top:24px">
       <h3 class="pos-report-subtitle">
         <span style="display:block;width:3px;height:14px;background:linear-gradient(180deg,var(--gold),var(--gold2));border-radius:2px"></span>
@@ -16568,6 +16610,37 @@ function loadDailyClose() {
 
 function saveDailyClose(store) {
   return Persist.write('dailyclose', store);
+}
+
+/* 実装ノート: バックアップがある過去営業日だけを再計算する。既存レコードを正規化して
+   手入力欄を保持し、frozen のみを置換するため、同じ月を何度でも現在設定で再確定できる。 */
+function dailyCloseReaggregateMonth(monthKey) {
+  const month = String(monthKey || '').slice(0, 6);
+  const loadedDayKey = getLoadedDayKey();
+  const store = loadDailyClose();
+  let count = 0;
+  (loadBackups() || []).forEach(snap => {
+    const dayKey = String(snap?.dayKey || '');
+    if (dayKey.slice(0, 6) !== month || dayKey === loadedDayKey) return;
+    const src = {
+      dayKey,
+      rows: Array.isArray(snap?.rows) ? snap.rows : [],
+      tt: snap?.timetableSnap || {},
+      activeCasts: Array.isArray(snap?.activeCasts) ? snap.activeCasts : [],
+    };
+    const settled = src.rows.filter(row => row.isFirst && row.settled);
+    const agg = computeReportAgg(settled);
+    const payrollRows = computePayrollTable(settled, { dayKey, tt: src.tt, activeCasts: src.activeCasts });
+    const rec = _dailyCloseNormalizeRecord(store[dayKey]);
+    rec.frozen = { ..._dailyCloseLiveAuto(src, agg, payrollRows), closedAt: Date.now() };
+    store[dayKey] = rec;
+    count++;
+  });
+  if (!saveDailyClose(store)) {
+    showToast('再集計した日次締めの保存に失敗しました');
+    return null;
+  }
+  return count;
 }
 
 function _dailyCloseLiveAuto(src, agg, payrollRows) {
@@ -17403,8 +17476,9 @@ function renderBusinessAnalyticsPanel() {
   if (!panel) return;
   const range = _analyticsRange();
   const controls = _analyticsControlsHtml(range);
+  const ranking = `<div id="cast-ranking-host">${_castRankingSectionHtml()}</div>`;
   if (!range.start || !range.end || range.start > range.end) {
-    panel.innerHTML = `<div class="analytics-title"><h2>📈 経営分析</h2></div>${controls}<div class="analytics-empty">開始日と終了日を正しく指定してください</div>`;
+    panel.innerHTML = `<div class="analytics-title"><h2>📈 経営分析</h2></div>${controls}<div class="analytics-empty">開始日と終了日を正しく指定してください</div>${ranking}`;
     return;
   }
   const snapshots = _analyticsSnapshots();
@@ -17433,7 +17507,7 @@ function renderBusinessAnalyticsPanel() {
   previous.店舗給率_総売上基準 = previousPayrollRatio.totalRatio;
   const hasPrevious = !!(compareRange && (previous.組数 > 0 || previousGrossProfit.days > 0));
   if (!summary.組数) {
-    panel.innerHTML = `<div class="analytics-title"><h2>📈 経営分析</h2><span>${_analyticsInputDate(range.start)} 〜 ${_analyticsInputDate(range.end)}</span></div>${controls}<div class="analytics-empty">対象期間に精算データがありません</div>`;
+    panel.innerHTML = `<div class="analytics-title"><h2>📈 経営分析</h2><span>${_analyticsInputDate(range.start)} 〜 ${_analyticsInputDate(range.end)}</span></div>${controls}<div class="analytics-empty">対象期間に精算データがありません</div>${ranking}`;
     return;
   }
   const daily = bizDailyTrend(snapshots, range);
@@ -17449,7 +17523,8 @@ function renderBusinessAnalyticsPanel() {
       <section class="analytics-chart-card"><h3>曜日別売上平均</h3>${_analyticsTrendHtml(weekday, 'sales', _analyticsMoney, 'weekday')}</section>
       <section class="analytics-chart-card"><h3>時間帯別入客数</h3>${_analyticsHourlyHtml(hourly)}</section>
       <section class="analytics-chart-card"><h3>支払方法構成比</h3>${_analyticsPaymentHtml(payments)}</section>
-    </div>`;
+    </div>
+    ${ranking}`;
 }
 /* ================================================================
    POS 履歴修正（選択伝票のオーダー編集）
