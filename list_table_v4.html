@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.63">
+<meta name="app-version" content="1.0.64">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -14733,8 +14733,6 @@ function _reportPeriodSwitchHtml() {
     + '.agg-side-empty{color:var(--tx3);font-size:12px}'
     /* ---- 日計表（給料一覧） ---- */
     + '.payroll-note{font-size:11px;color:var(--tx3);font-weight:400}'
-    + '.payroll-title{display:flex;align-items:center;gap:8px;flex:1;min-width:0}'
-    + '.payroll-title-text{min-width:0}'
     + '.payroll-rules-gear{display:flex;align-items:center;justify-content:center;flex:0 0 32px;width:32px;height:32px;padding:0;border:1px solid var(--bdr2);border-radius:8px;background:var(--sur2);color:var(--tx);font-size:17px;line-height:1;cursor:pointer}'
     + '.payroll-scroll{overflow-x:auto;scrollbar-gutter:stable;border:1px solid var(--bdr);border-radius:8px}'
     + '.payroll-scroll:focus-visible{outline:2px solid var(--gold);outline-offset:2px}'
@@ -15960,8 +15958,9 @@ function _payrollSectionHtml(src) {
     ? '<span class="payroll-note">控除は店舗設定の額・率による参考計算です（税務判断は行いません）</span>' : '';
   return '<div class="agg-box" style="margin-top:18px">'
     + '<div class="agg-box-head">'
-    + '<h3 class="payroll-title"><span class="payroll-title-text">日計表 <span class="payroll-note">※時給は表示されません（キャスト管理で管理）／社交名を固定して横にスクロールできます</span>' + deductionNote + '</span><button type="button" class="payroll-rules-gear" onclick="payrollRulesOpenModal()" aria-label="給与計算ルールの設定">⚙</button></h3>'
+    + '<h3>日計表 <span class="payroll-note">※時給は表示されません（キャスト管理で管理）／社交名を固定して横にスクロールできます</span>' + deductionNote + '</h3>'
     + '<div class="agg-box-actions">'
+    + '<button type="button" onclick="payrollRulesOpenModal()">💴 給与ルール</button>'
     + '<button onclick="printReport()">🖨 印刷</button>'
     + '<button onclick="exportPayrollCSV()">💾 CSV保存</button>'
     + '<div class="payroll-cols-wrap"><button type="button" class="payroll-cols-toggle" aria-label="日計表の表示列を設定" aria-expanded="false" onclick="togglePayrollColumnPicker(event)">⚙</button>'
