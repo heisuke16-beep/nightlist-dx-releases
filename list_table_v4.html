@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.66">
+<meta name="app-version" content="1.0.67">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -13775,6 +13775,7 @@ function posSetEntryStep(field, delta) {
 /* taxIncluded=false: 入力額＝小計(税サ別)。 true: 入力額＝税込総額(税サを上乗せしない)。 */
 function posSetEntryApply(taxIncluded) {
   if (!_posSetEntry) return;
+  const fromHistEdit = _posSetEntry.fromHistEdit === true;
   const row = state.rows.find(r => r.gid === _posSetEntry.gid && r.isFirst);
   if (!row) return;
   pushUndo();
@@ -13809,15 +13810,29 @@ function posSetEntryApply(taxIncluded) {
   saveState();
   renderTable();
   showToast(isEdit ? 'セットを更新しました' : 'セットを追加しました');
-  // オーダー画面は閉じず、次の追加に備えてフォームを再初期化する
   posBetaState.viewMode = 'normal';
+  if (fromHistEdit) {
+    _posSetEntry = null;
+    renderPOSPanel();
+    posOpenOrderEdit();
+    return;
+  }
+  // 通常追加ではオーダー画面を閉じず、次の追加に備えてフォームを再初期化する
   _posInitSetEntry();
   renderPOSPanel();
+}
+
+function posSetEntryCancelHistEdit() {
+  if (!_posSetEntry || _posSetEntry.fromHistEdit !== true) return;
+  _posSetEntry = null;
+  renderPOSPanel();
+  posOpenOrderEdit();
 }
 
 function _posSetEntryHTML() {
   if (!_posSetEntry) return '<div class="pos-empty-state">伝票を選択してください</div>';
   const e = _posSetEntry;
+  const fromHistEdit = e.fromHistEdit === true;
   const subtotal = e.price * e.people;
   const spin = (label, controls) =>
       '<div class="pos-setentry-row">'
@@ -13827,6 +13842,9 @@ function _posSetEntryHTML() {
   const btn = (txt, step) => '<button class="pos-setentry-arrow" onclick="posSetEntryStep(' + step + ')">' + txt + '</button>';
   const val = txt => '<div class="pos-setentry-val">' + txt + '</div>';
   return '<div class="pos-setentry">'
+    + (fromHistEdit
+      ? '<div style="margin-bottom:14px;padding:10px 12px;border:1px solid var(--gold);border-radius:6px;background:rgba(212,175,55,.12);color:var(--gold);font-weight:700;line-height:1.5">✏️ セットを修正中 — 保存すると既存のSET明細と組の開始・終了時刻が書き換わります</div>'
+      : '')
     + spin('開始',
         btn('&lt;&lt;', "'startMin',-5") + btn('&lt;', "'startMin',-1")
         + val(minToHHMM(e.startMin))
@@ -13842,8 +13860,9 @@ function _posSetEntryHTML() {
     + '<span class="pos-setentry-subtotal-val">¥' + subtotal.toLocaleString() + '</span>'
     + '</div>'
     + '<div class="pos-setentry-actions">'
-    + '<button class="pos-setentry-add taxadd" onclick="posSetEntryApply(false)">セット追加</button>'
-    + '<button class="pos-setentry-add incl" onclick="posSetEntryApply(true)">セット追加[込]</button>'
+    + '<button class="pos-setentry-add taxadd" onclick="posSetEntryApply(false)">' + (fromHistEdit ? '修正を保存' : 'セット追加') + '</button>'
+    + '<button class="pos-setentry-add incl" onclick="posSetEntryApply(true)">' + (fromHistEdit ? '修正を保存[込]' : 'セット追加[込]') + '</button>'
+    + (fromHistEdit ? '<button class="pos-setentry-add" style="border-color:var(--bdr2);background:var(--sur3);color:var(--tx2)" onclick="posSetEntryCancelHistEdit()">キャンセル</button>' : '')
     + '</div></div>';
 }
 
@@ -17474,6 +17493,7 @@ function posOrderEditSet(idx) {
   _posSetEntry = {
     gid: row.gid,
     editIdx: idx,
+    fromHistEdit: true,
     startMin: start,
     duration: Math.max(5, end - start),
     price: Math.max(0, order.amount || 0),
@@ -17498,6 +17518,7 @@ function posOrderEditSeatSet() {
   const end   = (typeof row.endMin === 'number') ? row.endMin : start;
   _posSetEntry = {
     gid: row.gid,
+    fromHistEdit: true,
     startMin: start,
     duration: Math.max(5, end - start),
     price: Math.max(0, seat ? seat.amount : (cfg.setPrice || 0)),
