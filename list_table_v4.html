@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.70">
+<meta name="app-version" content="1.0.71">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -118,6 +118,38 @@ input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
   --gc3-bg: #ffeef8; --gc3-hbg: #ffd8ee;
   --gc4-bg: #f3eeff; --gc4-hbg: #e4d8ff;
   --gc5-bg: #fff8ee; --gc5-hbg: #fff0d8;
+}
+
+/* リスト表タブのみ白背景（現場要望 2026-08-29）。変数再宣言のみで実現し、描画コードは触らない */
+html[data-list-white="1"] #toolbar,
+html[data-list-white="1"] #list-panel {
+  --sur:      #ffffff;
+  --sur2:     #f4f6fc;
+  --sur3:     #e8ecf5;
+  --sur4:     #dde2f0;
+  --bdr:      #cdd3e8;
+  --bdr2:     #bcc3d8;
+  --bdr3:     #9aa5c5;
+  --tx:       #111728;
+  --tx2:      #3a4870;
+  --tx3:      #7880a8;
+  --gold:     #9a7a28;
+  --gold2:    #b09038;
+  --gold3:    #8a6818;
+  --goldglow: rgba(154,122,40,0.12);
+  --red:      #c82040;
+  --pink:     #c83880;
+  --green:    #128050;
+  --cyan:     #1870a0;
+  --shadow:   0 4px 24px rgba(0,0,0,0.10);
+  --gc0-bg: #eef5ff; --gc0-hbg: #deeeff;
+  --gc1-bg: #fdf9ee; --gc1-hbg: #f8f0d8;
+  --gc2-bg: #eefff5; --gc2-hbg: #d8ffec;
+  --gc3-bg: #ffeef8; --gc3-hbg: #ffd8ee;
+  --gc4-bg: #f3eeff; --gc4-hbg: #e4d8ff;
+  --gc5-bg: #fff8ee; --gc5-hbg: #fff0d8;
+  background: #eef1f8;
+  color: var(--tx);
 }
 
 /* ================================================================
@@ -4613,6 +4645,7 @@ html[data-display="tablet"] #list-table .col-ctrl-btn { min-width: 32px; min-hei
   <button class="btn" onclick="resetGroupOrder()"
           title="ドラッグで動かした並びを破棄し、開始時刻の早い順に自動で並べ直します">⇅ 開始時刻順に戻す</button>
   <span style="margin-left:auto;display:flex;align-items:center;gap:8px">
+    <button class="btn" id="list-white-btn" onclick="toggleListWhite()" title="リスト表を白背景にする">☀ 白表示</button>
     <button class="btn" onclick="doPrint()">🖨 印刷</button>
   </span>
 </div>
@@ -4865,6 +4898,7 @@ const Persist = {
     slipCounter: 'nightlist__slip_counter_v1',
     deletedSlips: 'nightlist__deleted_slips_v1',
     theme:     'nightlist_theme',          // テーマ選択（端末別。export/importに含めて店舗設定として持ち運べる）
+    listWhite: 'nightlist__list_white_v1', // リスト表の白背景トグル（現場要望 2026-08-29。扱いはthemeと同じ＝export/importに同梱）
     displayMode: 'nightlist_display_mode', // 表示モード（desktop/tablet。扱いはthemeと同じ）
     auth:      'nightlist__auth_v1',
   },
@@ -24189,6 +24223,7 @@ function initThemeFromPersist() {
     saved = (typeof cfg !== 'undefined' && cfg && cfg.defaultTheme) || 'aurum';
   }
   applyTheme('night', false);
+  initListWhiteFromPersist();
 }
 
 // IME変換中フラグをinput要素のdata属性で管理
@@ -24203,6 +24238,32 @@ document.addEventListener('compositionend', e => {
     if (rowId) onNameInputSuggestOnly(e.target, rowId);
   }
 });
+
+function applyListWhite(on, persist = true) {
+  if (on) document.documentElement.setAttribute('data-list-white', '1');
+  else document.documentElement.removeAttribute('data-list-white');
+  _updateListWhiteBtn(on);
+  if (persist && typeof Persist !== 'undefined') Persist.write('listWhite', on ? 1 : 0);
+}
+
+function toggleListWhite() {
+  applyListWhite(!document.documentElement.hasAttribute('data-list-white'));
+}
+
+function _updateListWhiteBtn(on) {
+  const btn = document.getElementById('list-white-btn');
+  if (!btn) return;
+  btn.textContent = on ? '🌙 黒表示' : '☀ 白表示';
+  btn.title = on ? 'リスト表を黒背景に戻す' : 'リスト表を白背景にする';
+}
+
+function initListWhiteFromPersist() {
+  let saved = null;
+  if (typeof Persist !== 'undefined') {
+    try { saved = Persist.read('listWhite'); } catch (_) {}
+  }
+  applyListWhite(saved === 1 || saved === '1' || saved === true, false);
+}
 /* ================================================================
    タブレットモード（表示モード管理）
    13〜14インチタブレットや拡大150%のノートPC（実効1280×720前後）向けの表示モード。
