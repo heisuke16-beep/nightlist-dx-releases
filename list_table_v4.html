@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.74">
+<meta name="app-version" content="1.0.75">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -14177,6 +14177,12 @@ function buildMonitorSnapshot() {
       settledAmount: state.rows
         .filter(row => row.isFirst && row.settled)
         .reduce((sum, row) => sum + _posFloorTotal(row), 0),
+      // 本日累計の入店（精算済み・在店中・ウェイト全て含む当営業日の全組）
+      entered: {
+        groups: state.rows.filter(row => row.isFirst).length,
+        guests: state.rows.filter(row => row.isFirst)
+          .reduce((sum, row) => sum + (Number(row.gcount) || 0), 0),
+      },
     },
   };
 }
