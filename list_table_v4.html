@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.78">
+<meta name="app-version" content="1.0.79">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -11260,12 +11260,14 @@ function showTab(tab) {
   try { sessionStorage.setItem('nightlist_active_tab', tab); } catch (_) {}
 }
 
-/* 起動時にリロード前のタブを復元（46-init.js から呼ばれる） */
+/* 起動時にリロード前のタブを復元（46-init.js から呼ばれる）。
+   復元対象が無い新規起動はPOSレジを開く（2026-08-31 オーナー要望。
+   旧仕様「新規起動はリスト表から」(2026-07-14)を置き換え） */
 function restoreActiveTab() {
   let saved = null;
   try { saved = sessionStorage.getItem('nightlist_active_tab'); } catch (_) {}
   const valid = ['pos', 'list', 'cast', 'customer', 'bottle', 'report', 'analytics', 'past', 'settings'];
-  if (saved && saved !== 'list' && valid.indexOf(saved) >= 0) showTab(saved);
+  showTab(saved && valid.indexOf(saved) >= 0 ? saved : 'pos');
 }
 
 /* ================================================================
