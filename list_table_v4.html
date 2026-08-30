@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.76">
+<meta name="app-version" content="1.0.77">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -14182,6 +14182,12 @@ function buildMonitorSnapshot() {
         guests: state.rows.filter(row => row.isFirst)
           .reduce((sum, row) => sum + (Number(row.gcount) || 0), 0),
       },
+      // 本体下部バー（summaryStats）そのままのミラー。数値のみ・PIIなし
+      summary: (() => {
+        const s = summaryStats();
+        return { guests: s.guests, groups: s.groups, sales: s.sales, cash: s.cash,
+          card: s.card, unsettled: s.unsettled, forecast: s.forecast, avg: s.avg };
+      })(),
     },
   };
 }
