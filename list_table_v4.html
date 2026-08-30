@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.79">
+<meta name="app-version" content="1.0.80">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -14104,6 +14104,22 @@ function typeLabelFor(type) {
   return MAIN_TYPES[type]?.label || null;
 }
 
+/* 会計明細（伝票ビューと同一の行構成: _posSeatLineItems + posOrders。退席行は含めない） */
+function _monitorBillFor(row) {
+  const lines = [];
+  _posSeatLineItems(row).forEach(item => {
+    const qty = item.qty || 1;
+    lines.push({ label: item.label, unit: Number(item.amount) || 0, qty,
+      sum: (Number(item.amount) || 0) * qty + (Number(item.extra) || 0) });
+  });
+  posOrders(row).forEach(o => {
+    const qty = o.qty || 1;
+    lines.push({ label: o.name, unit: Number(o.amount) || 0, qty,
+      sum: (Number(o.amount) || 0) * qty });
+  });
+  return { lines, subtotal: lines.reduce((sum, line) => sum + line.sum, 0) };
+}
+
 function buildMonitorSnapshot() {
   const activeRows = posFirstRows();
   const seatedRows = activeRows.filter(row => !row.isWaiting);
@@ -14137,6 +14153,7 @@ function buildMonitorSnapshot() {
       exts,
       isWaiting: !!row.isWaiting,
       amount,
+      bill: _monitorBillFor(row),
       casts: _posFloorCastChipData(row).map(cast => ({
         name: cast.cast,
         type: typeLabelFor(cast.type),
