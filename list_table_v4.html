@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.77">
+<meta name="app-version" content="1.0.78">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -14261,6 +14261,14 @@ const RemoteMonitor = (() => {
   return { start, stop, sendNow, canSend, renderQr };
 })();
 
+function monitorToggleConnRows(btn) {
+  const rows = document.getElementById('monitor-conn-rows');
+  if (!rows) return;
+  const hidden = rows.style.display === 'none';
+  rows.style.display = hidden ? '' : 'none';
+  if (btn) btn.textContent = hidden ? '隠す' : '表示して変更';
+}
+
 async function monitorReissueQr() {
   const approved = await appConfirm('今までのQRで登録したスマホは全て見られなくなります。よろしいですか?', { danger:true });
   if (!approved) return;
@@ -21382,33 +21390,6 @@ function renderSettingsPanel() {
     </div>
 
     <div class="settings-section" data-setcat="system">
-      <div class="settings-section-header"><span class="settings-section-title">📡 店外モニター</span></div>
-      <div class="settings-section-body">
-        <div class="settings-row">
-          <div class="settings-label">店外モニターを有効にする<div class="settings-sub">匿名の店内状況を30秒ごとに送信します</div></div>
-          <label style="display:flex;align-items:center;gap:6px;min-height:44px;cursor:pointer">
-            <input type="checkbox" id="cfg-monitorEnabled" ${cfg.monitorEnabled ? 'checked' : ''}>
-            <span>有効</span>
-          </label>
-        </div>
-        <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:6px">
-          <div class="settings-label" style="width:100%">エンドポイントURL</div>
-          <input type="url" class="settings-input" id="cfg-monitorEndpoint" value="${escAttr(cfg.monitorEndpoint || '')}" placeholder="https://xxx.workers.dev" style="width:min(100%,520px)">
-        </div>
-        <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:6px">
-          <div class="settings-label" style="width:100%">送信トークン</div>
-          <input type="password" class="settings-input" id="cfg-monitorWriteToken" value="${escAttr(cfg.monitorWriteToken || '')}" autocomplete="off" style="width:min(100%,520px)">
-        </div>
-        <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:8px">
-          <div class="settings-label" style="width:100%">閲覧用QRコード</div>
-          <div class="monitor-qr-wrap" id="monitor-settings-qr"></div>
-          <button type="button" class="btn danger" onclick="monitorReissueQr()" style="min-height:44px">🔄 QRを再発行</button>
-          <div class="settings-sub" style="line-height:1.7">QRを読み込んだスマホだけが店内状況を見られます。スタッフが辞めた時は再発行してください。再発行したら新しいQRをスタッフに読み直してもらってください。</div>
-        </div>
-      </div>
-    </div>
-
-    <div class="settings-section" data-setcat="system">
       <div class="settings-section-header"><span class="settings-section-title">💾 データ保存先（USB運用）</span></div>
       <div class="settings-section-body">
         <div class="settings-row">
@@ -21482,6 +21463,40 @@ function renderSettingsPanel() {
             </div>`;
           }).join('')}
           <button type="button" class="btn" onclick="event.stopPropagation();settingsResetUiZoom()">すべて標準（100%）に戻す</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-section" data-setcat="system">
+      <div class="settings-section-header"><span class="settings-section-title">📡 店外モニター</span></div>
+      <div class="settings-section-body">
+        <div class="settings-row">
+          <div class="settings-label">店外モニターを有効にする<div class="settings-sub">匿名の店内状況を30秒ごとに送信します</div></div>
+          <label style="display:flex;align-items:center;gap:6px;min-height:44px;cursor:pointer">
+            <input type="checkbox" id="cfg-monitorEnabled" ${cfg.monitorEnabled ? 'checked' : ''}>
+            <span>有効</span>
+          </label>
+        </div>
+        ${(cfg.monitorEndpoint && cfg.monitorWriteToken) ? `
+        <div class="settings-row">
+          <div class="settings-label">接続設定<div class="settings-sub">✓ 設定済み（通常は変更不要です）</div></div>
+          <button type="button" class="btn" onclick="monitorToggleConnRows(this)" style="min-height:44px">表示して変更</button>
+        </div>` : ''}
+        <div id="monitor-conn-rows" style="${(cfg.monitorEndpoint && cfg.monitorWriteToken) ? 'display:none' : ''}">
+        <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:6px">
+          <div class="settings-label" style="width:100%">エンドポイントURL</div>
+          <input type="url" class="settings-input" id="cfg-monitorEndpoint" value="${escAttr(cfg.monitorEndpoint || '')}" placeholder="https://xxx.workers.dev" style="width:min(100%,520px)">
+        </div>
+        <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:6px">
+          <div class="settings-label" style="width:100%">送信トークン</div>
+          <input type="password" class="settings-input" id="cfg-monitorWriteToken" value="${escAttr(cfg.monitorWriteToken || '')}" autocomplete="off" style="width:min(100%,520px)">
+        </div>
+        </div>
+        <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:8px">
+          <div class="settings-label" style="width:100%">閲覧用QRコード</div>
+          <div class="monitor-qr-wrap" id="monitor-settings-qr"></div>
+          <button type="button" class="btn danger" onclick="monitorReissueQr()" style="min-height:44px">🔄 QRを再発行</button>
+          <div class="settings-sub" style="line-height:1.7">QRを読み込んだスマホだけが店内状況を見られます。スタッフが辞めた時は再発行してください。再発行したら新しいQRをスタッフに読み直してもらってください。</div>
         </div>
       </div>
     </div>
