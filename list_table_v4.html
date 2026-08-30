@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.73">
+<meta name="app-version" content="1.0.74">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -14121,6 +14121,9 @@ function buildMonitorSnapshot() {
   const groups = activeRows.map(row => {
     const endMin = calcEndMin(row);
     const amount = _posFloorTotal(row);
+    const exts = (Array.isArray(row.extensions) ? row.extensions : [])
+      .map(value => parseInt(value))
+      .filter(value => value > 0);
     return {
       table: posTableLabel(row.tableNum),
       size: Number(row.gcount) || 0,
@@ -14128,7 +14131,8 @@ function buildMonitorSnapshot() {
       endMin,
       elapsedMin: now - row.startMin,
       remainMin: endMin - now,
-      extCount: (Array.isArray(row.extensions) ? row.extensions : []).filter(value => parseInt(value) > 0).length,
+      extCount: exts.length,
+      exts,
       isWaiting: !!row.isWaiting,
       amount,
       casts: _posFloorCastChipData(row).map(cast => ({
@@ -14170,6 +14174,9 @@ function buildMonitorSnapshot() {
       guestCount: countedGroups.reduce((sum, row) => sum + (Number(row.gcount) || 0), 0),
       level: occupancy < 0.4 ? 'low' : occupancy <= 0.75 ? 'mid' : 'high',
       totalAmount: groups.filter(group => !group.isWaiting).reduce((sum, group) => sum + group.amount, 0),
+      settledAmount: state.rows
+        .filter(row => row.isFirst && row.settled)
+        .reduce((sum, row) => sum + _posFloorTotal(row), 0),
     },
   };
 }
