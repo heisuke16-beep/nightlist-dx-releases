@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.71">
+<meta name="app-version" content="1.0.72">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -6909,6 +6909,10 @@ const CFG_DEFAULTS = {
   tillFloat:       60000,   // レジ常備金（超過分を本社へ振込）
   showCountdown:   true,    // 残り時間カウントダウン表示
   fullscreenOnBoot: true,   // 営業開始時にフルスクリーンにする
+  monitorEnabled: false,    // 店外モニターへの送信ON/OFF
+  monitorEndpoint: '',      // Cloudflare WorkerのベースURL
+  monitorWriteToken: '',    // 店外モニター送信認証トークン
+  monitorReadToken: '',     // 店外モニター閲覧トークン（初回有効化時に生成）
   posMenu:         {},      // POSカスタムメニュー { shot:[{name,amount},...], bottle:[...], ... }
   posCatLayout:    [],      // POSカテゴリの並び・表示 [{key,visible}]。空=既定順・全表示
   posCustomCats:   [        // 店舗独自のPOSカテゴリ（keyはラベル変更後も不変）
@@ -13042,6 +13046,33 @@ function _posFloorEmptyCard(table, tableIndex) {
     + '</button>';
 }
 
+function posCloseMonitorQr() {
+  document.getElementById('pos-monitor-qr-modal')?.remove();
+}
+
+function posOpenMonitorQr() {
+  posCloseMonitorQr();
+  const overlay = document.createElement('div');
+  overlay.id = 'pos-monitor-qr-modal';
+  overlay.className = 'pos-nsm-overlay';
+  const configured = !!monitorViewUrl();
+  overlay.innerHTML = '<div class="pos-nsm pos-monitor-dialog" role="dialog" aria-modal="true" aria-labelledby="pos-monitor-qr-title">'
+    + '<div class="pos-nsm-header"><span id="pos-monitor-qr-title">📱 スマホ連携</span>'
+    + '<button type="button" class="pos-nsm-close" aria-label="閉じる">×</button></div>'
+    + '<div class="pos-monitor-dialog-body">'
+    + (configured
+      ? '<div class="monitor-qr-wrap" id="pos-monitor-qr-code"></div><div>スマホのカメラで読み取ると店内状況ページが開きます</div>'
+      : '<div class="monitor-qr-guide">設定 →「📡 店外モニター」で有効化するとQRが表示されます</div>')
+    + '<button type="button" class="btn primary pos-monitor-close-btn" style="min-height:44px">閉じる</button>'
+    + '</div></div>';
+  const close = () => posCloseMonitorQr();
+  overlay.querySelector('.pos-nsm-close').addEventListener('click', close);
+  overlay.querySelector('.pos-monitor-close-btn').addEventListener('click', close);
+  overlay.addEventListener('click', event => { if (event.target === overlay) close(); });
+  document.body.appendChild(overlay);
+  if (configured) RemoteMonitor.renderQr('pos-monitor-qr-code', 300);
+}
+
 function renderPOSSlipView(firsts, selected) {
   const isPaper = posBetaState.slipView === 'paper';
   const toggle = '<div class="pos-slip-view-toggle">'
@@ -13072,6 +13103,7 @@ function renderPOSSlipView(firsts, selected) {
   return '<div class="pos-slip-view-shell" onclick="posCastRailBlankTap(event)">'
     + '<div class="pos-slip-view-head">' + _posActiveCastRail() + legend + toggle + '</div>'
     + '<div class="pos-floor-grid">' + cards + '</div>'
+    + '<button type="button" class="pos-monitor-fab" onclick="event.stopPropagation();posOpenMonitorQr()">📱 スマホ連携</button>'
     + '</div>';
 }
 
@@ -13790,6 +13822,436 @@ function posConfirmNewSlip() {
   renderPOSPanel();
 }
 
+/*
+ * QRCode generator (byte mode, error correction level L)
+ * Based on the qrcode-generator algorithm by Kazuhiko Arase.
+ * Copyright (c) 2009 Kazuhiko Arase
+ * Licensed under the MIT License.
+ */
+const QRCodeVendor = (() => {
+  const ECC_CODEWORDS_L = [-1,
+    7,10,15,20,26,18,20,24,30,18,20,24,26,30,22,24,28,30,28,28,
+    28,28,30,30,26,28,30,30,30,30,30,30,30,30,30,30,30,30,30,30,
+  ];
+  const ECC_BLOCKS_L = [-1,
+    1,1,1,1,1,2,2,2,2,4,4,4,4,4,6,6,6,6,7,8,
+    8,9,9,10,12,12,12,13,14,15,16,17,18,19,19,20,21,22,24,25,
+  ];
+  const EXP = new Array(512);
+  const LOG = new Array(256);
+  let value = 1;
+  for (let i = 0; i < 255; i++) {
+    EXP[i] = value;
+    LOG[value] = i;
+    value <<= 1;
+    if (value & 0x100) value ^= 0x11d;
+  }
+  for (let i = 255; i < EXP.length; i++) EXP[i] = EXP[i - 255];
+
+  function utf8Bytes(text) {
+    const out = [];
+    for (const ch of String(text)) {
+      const cp = ch.codePointAt(0);
+      if (cp <= 0x7f) out.push(cp);
+      else if (cp <= 0x7ff) out.push(0xc0 | (cp >>> 6), 0x80 | (cp & 0x3f));
+      else if (cp <= 0xffff) out.push(0xe0 | (cp >>> 12), 0x80 | ((cp >>> 6) & 0x3f), 0x80 | (cp & 0x3f));
+      else out.push(0xf0 | (cp >>> 18), 0x80 | ((cp >>> 12) & 0x3f), 0x80 | ((cp >>> 6) & 0x3f), 0x80 | (cp & 0x3f));
+    }
+    return out;
+  }
+
+  class BitBuffer {
+    constructor() { this.bytes = []; this.length = 0; }
+    put(value, length) {
+      for (let i = length - 1; i >= 0; i--) this.putBit(((value >>> i) & 1) === 1);
+    }
+    putBit(bit) {
+      const index = this.length >>> 3;
+      if (this.bytes.length <= index) this.bytes.push(0);
+      if (bit) this.bytes[index] |= 0x80 >>> (this.length & 7);
+      this.length++;
+    }
+  }
+
+  function polyMultiply(a, b) {
+    const out = new Array(a.length + b.length - 1).fill(0);
+    for (let i = 0; i < a.length; i++) for (let j = 0; j < b.length; j++) {
+      if (a[i] && b[j]) out[i + j] ^= EXP[LOG[a[i]] + LOG[b[j]]];
+    }
+    return out;
+  }
+
+  function errorCorrection(data, count) {
+    let generator = [1];
+    for (let i = 0; i < count; i++) generator = polyMultiply(generator, [1, EXP[i]]);
+    const result = new Array(count).fill(0);
+    data.forEach(byte => {
+      const factor = byte ^ result[0];
+      result.shift();
+      result.push(0);
+      if (!factor) return;
+      for (let i = 0; i < count; i++) result[i] ^= EXP[LOG[factor] + LOG[generator[i + 1]]];
+    });
+    return result;
+  }
+
+  function blockList(version) {
+    if (version < 1 || version > 40) throw new Error('QRコードに収まらないURLです');
+    let rawModules = (16 * version + 128) * version + 64;
+    if (version >= 2) {
+      const alignCount = Math.floor(version / 7) + 2;
+      rawModules -= (25 * alignCount - 10) * alignCount - 55;
+      if (version >= 7) rawModules -= 36;
+    }
+    const rawCodewords = Math.floor(rawModules / 8);
+    const count = ECC_BLOCKS_L[version];
+    const eccCount = ECC_CODEWORDS_L[version];
+    const shortTotal = Math.floor(rawCodewords / count);
+    const shortCount = count - rawCodewords % count;
+    const blocks = [];
+    for (let i = 0; i < count; i++) {
+      const total = shortTotal + (i >= shortCount ? 1 : 0);
+      blocks.push({ total, data:total - eccCount });
+    }
+    return blocks;
+  }
+
+  function dataCodewords(bytes, version, blocks) {
+    const capacity = blocks.reduce((sum, block) => sum + block.data, 0);
+    const bits = new BitBuffer();
+    bits.put(0x4, 4);
+    bits.put(bytes.length, version < 10 ? 8 : 16);
+    bytes.forEach(byte => bits.put(byte, 8));
+    if (bits.length > capacity * 8) return null;
+    bits.put(0, Math.min(4, capacity * 8 - bits.length));
+    while (bits.length % 8) bits.putBit(false);
+    let pad = true;
+    while (bits.bytes.length < capacity) {
+      bits.bytes.push(pad ? 0xec : 0x11);
+      pad = !pad;
+    }
+    return bits.bytes;
+  }
+
+  function interleave(data, blocks) {
+    const dataBlocks = [];
+    const eccBlocks = [];
+    let offset = 0;
+    blocks.forEach(block => {
+      const chunk = data.slice(offset, offset + block.data);
+      offset += block.data;
+      dataBlocks.push(chunk);
+      eccBlocks.push(errorCorrection(chunk, block.total - block.data));
+    });
+    const out = [];
+    const maxData = Math.max(...dataBlocks.map(block => block.length));
+    const maxEcc = Math.max(...eccBlocks.map(block => block.length));
+    for (let i = 0; i < maxData; i++) dataBlocks.forEach(block => { if (i < block.length) out.push(block[i]); });
+    for (let i = 0; i < maxEcc; i++) eccBlocks.forEach(block => { if (i < block.length) out.push(block[i]); });
+    return out;
+  }
+
+  function bchTypeInfo(data) {
+    let d = data << 10;
+    while ((31 - Math.clz32(d)) >= 10) d ^= 0x537 << ((31 - Math.clz32(d)) - 10);
+    return ((data << 10) | d) ^ 0x5412;
+  }
+
+  function bchTypeNumber(data) {
+    let d = data << 12;
+    while ((31 - Math.clz32(d)) >= 12) d ^= 0x1f25 << ((31 - Math.clz32(d)) - 12);
+    return (data << 12) | d;
+  }
+
+  function alignmentPositions(version) {
+    if (version === 1) return [];
+    const count = Math.floor(version / 7) + 2;
+    const step = version === 32 ? 26 : Math.ceil((version * 4 + count * 2 + 1) / (count * 2 - 2)) * 2;
+    const positions = [6];
+    for (let pos = version * 4 + 10; positions.length < count; pos -= step) positions.splice(1, 0, pos);
+    return positions;
+  }
+
+  function makeMatrix(version, codewords) {
+    const size = version * 4 + 17;
+    const modules = Array.from({ length:size }, () => new Array(size).fill(null));
+    function finder(row, col) {
+      for (let r = -1; r <= 7; r++) for (let c = -1; c <= 7; c++) {
+        const y = row + r, x = col + c;
+        if (y < 0 || y >= size || x < 0 || x >= size) continue;
+        modules[y][x] = r >= 0 && r <= 6 && c >= 0 && c <= 6
+          && (r === 0 || r === 6 || c === 0 || c === 6 || (r >= 2 && r <= 4 && c >= 2 && c <= 4));
+      }
+    }
+    finder(0, 0);
+    finder(size - 7, 0);
+    finder(0, size - 7);
+
+    const positions = alignmentPositions(version);
+    positions.forEach(row => positions.forEach(col => {
+      if (modules[row][col] !== null) return;
+      for (let r = -2; r <= 2; r++) for (let c = -2; c <= 2; c++) {
+        modules[row + r][col + c] = Math.max(Math.abs(r), Math.abs(c)) !== 1;
+      }
+    }));
+    for (let i = 8; i < size - 8; i++) {
+      if (modules[i][6] === null) modules[i][6] = i % 2 === 0;
+      if (modules[6][i] === null) modules[6][i] = i % 2 === 0;
+    }
+
+    const typeInfo = bchTypeInfo((1 << 3) | 0);
+    for (let i = 0; i < 15; i++) {
+      const bit = ((typeInfo >>> i) & 1) === 1;
+      if (i < 6) modules[i][8] = bit;
+      else if (i < 8) modules[i + 1][8] = bit;
+      else modules[size - 15 + i][8] = bit;
+      if (i < 8) modules[8][size - i - 1] = bit;
+      else if (i === 8) modules[8][7] = bit;
+      else modules[8][15 - i - 1] = bit;
+    }
+    modules[size - 8][8] = true;
+
+    if (version >= 7) {
+      const typeNumber = bchTypeNumber(version);
+      for (let i = 0; i < 18; i++) {
+        const bit = ((typeNumber >>> i) & 1) === 1;
+        modules[Math.floor(i / 3)][i % 3 + size - 11] = bit;
+        modules[i % 3 + size - 11][Math.floor(i / 3)] = bit;
+      }
+    }
+
+    let row = size - 1;
+    let upward = true;
+    let byteIndex = 0;
+    let bitIndex = 7;
+    for (let col = size - 1; col > 0; col -= 2) {
+      if (col === 6) col--;
+      while (true) {
+        for (let c = 0; c < 2; c++) {
+          const x = col - c;
+          if (modules[row][x] !== null) continue;
+          let bit = false;
+          if (byteIndex < codewords.length) bit = ((codewords[byteIndex] >>> bitIndex) & 1) === 1;
+          if ((row + x) % 2 === 0) bit = !bit;
+          modules[row][x] = bit;
+          bitIndex--;
+          if (bitIndex < 0) { byteIndex++; bitIndex = 7; }
+        }
+        row += upward ? -1 : 1;
+        if (row < 0 || row >= size) { row += upward ? 1 : -1; upward = !upward; break; }
+      }
+    }
+    return modules;
+  }
+
+  function matrix(text) {
+    const bytes = utf8Bytes(text);
+    for (let version = 1; version <= 40; version++) {
+      const blocks = blockList(version);
+      const data = dataCodewords(bytes, version, blocks);
+      if (data) return makeMatrix(version, interleave(data, blocks));
+    }
+    throw new Error('QRコードに収まらないURLです');
+  }
+
+  function svg(text, size = 220) {
+    const modules = matrix(text);
+    const quiet = 4;
+    const span = modules.length + quiet * 2;
+    let path = '';
+    modules.forEach((line, y) => line.forEach((dark, x) => {
+      if (dark) path += `M${x + quiet} ${y + quiet}h1v1h-1z`;
+    }));
+    return `<svg xmlns="http://www.w3.org/2000/svg" role="img" aria-label="閲覧用QRコード" viewBox="0 0 ${span} ${span}" width="${size}" height="${size}" shape-rendering="crispEdges"><rect width="100%" height="100%" fill="#fff"/><path d="${path}" fill="#000"/></svg>`;
+  }
+
+  return { matrix, svg };
+})();
+/* ================================================================
+   REMOTE MONITOR（店外モニター）
+================================================================ */
+function monitorGenerateReadToken() {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('');
+}
+
+function monitorBaseEndpoint(endpoint = cfg.monitorEndpoint) {
+  return String(endpoint || '').trim().replace(/\/+$/, '');
+}
+
+function monitorViewUrl(endpoint = cfg.monitorEndpoint, readToken = cfg.monitorReadToken) {
+  const base = monitorBaseEndpoint(endpoint);
+  const token = String(readToken || '').trim();
+  return base && token ? base + '/m/' + token : '';
+}
+
+function _monitorTableLabel(tableNum) {
+  const label = posTableLabel(tableNum);
+  return label && label !== '-' ? label : '';
+}
+
+function buildMonitorSnapshot() {
+  const activeRows = posFirstRows();
+  const seatedRows = activeRows.filter(row => !row.isWaiting);
+  const seatedGids = new Set(seatedRows.map(row => row.gid));
+  const occupiedSet = new Set();
+  seatedRows.forEach(row => {
+    const label = _monitorTableLabel(row.tableNum);
+    if (label) occupiedSet.add(label);
+  });
+  state.rows.forEach(row => {
+    if (row._indivTable !== true || row.settled || !seatedGids.has(row.gid)) return;
+    const label = _monitorTableLabel(row.tableNum);
+    if (label) occupiedSet.add(label);
+  });
+
+  const now = getNowMin();
+  const groups = activeRows.map(row => {
+    const endMin = calcEndMin(row);
+    return {
+      table: posTableLabel(row.tableNum),
+      size: Number(row.gcount) || 0,
+      startMin: row.startMin,
+      endMin,
+      elapsedMin: now - row.startMin,
+      remainMin: endMin - now,
+      extCount: (Array.isArray(row.extensions) ? row.extensions : []).filter(value => parseInt(value) > 0).length,
+      isWaiting: !!row.isWaiting,
+    };
+  });
+  const status = calcStoreStatus();
+  const working = getEffectiveActiveCasts();
+  const vipSeats = cfg.vipEnabled && Array.isArray(cfg.vipSeats)
+    ? cfg.vipSeats.map(seat => String(seat?.name || '')).filter(Boolean) : [];
+  const tableMax = Number(cfg.tableMax) || 0;
+  const totalTables = tableMax + vipSeats.length;
+  const occupancy = totalTables > 0 ? occupiedSet.size / totalTables : 0;
+  const countedGroups = seatedRows;
+
+  return {
+    v: 1,
+    shopName: cfg.shopName || '',
+    bizDay: getBizDayKey(),
+    sentAt: Date.now(),
+    tables: {
+      max: cfg.tableMax,
+      vipSeats,
+      occupied: Array.from(occupiedSet),
+      freeCount: totalTables - occupiedSet.size,
+    },
+    groups,
+    casts: {
+      working: Array.isArray(working) ? [...working] : [],
+      inTable: Array.isArray(status.inCastList) ? [...status.inCastList] : [],
+      waitingCount: Number(status.outCount) || 0,
+      douban: Array.isArray(status.doubanCasts) ? [...status.doubanCasts] : [],
+    },
+    crowd: {
+      groupCount: countedGroups.length,
+      guestCount: countedGroups.reduce((sum, row) => sum + (Number(row.gcount) || 0), 0),
+      level: occupancy < 0.4 ? 'low' : occupancy <= 0.75 ? 'mid' : 'high',
+    },
+  };
+}
+
+const RemoteMonitor = (() => {
+  let initialTimer = null;
+  let intervalTimer = null;
+  let sending = false;
+
+  function canSend() {
+    return !!(cfg.monitorEnabled && cfg.monitorEndpoint && cfg.monitorWriteToken && cfg.monitorReadToken)
+      && _devNowMin === null && !_demoMode;
+  }
+
+  async function sendNow() {
+    if (!canSend() || sending) return false;
+    sending = true;
+    try {
+      const response = await fetch(monitorBaseEndpoint() + '/push', {
+        method: 'POST',
+        body: JSON.stringify({
+          writeToken: cfg.monitorWriteToken,
+          readToken: cfg.monitorReadToken,
+          snap: buildMonitorSnapshot(),
+        }),
+        headers: { 'Content-Type':'text/plain' },
+      });
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+      return true;
+    } catch (error) {
+      console.warn('[RemoteMonitor] push failed:', error);
+      return false;
+    } finally {
+      sending = false;
+    }
+  }
+
+  function stop() {
+    if (initialTimer !== null) clearTimeout(initialTimer);
+    if (intervalTimer !== null) clearInterval(intervalTimer);
+    initialTimer = null;
+    intervalTimer = null;
+  }
+
+  function start() {
+    stop();
+    initialTimer = setTimeout(() => {
+      initialTimer = null;
+      sendNow();
+      intervalTimer = setInterval(sendNow, 30000);
+    }, 5000);
+  }
+
+  function renderQr(target, size = 220, values = {}) {
+    const element = typeof target === 'string' ? document.getElementById(target) : target;
+    if (!element) return;
+    const url = monitorViewUrl(values.endpoint ?? cfg.monitorEndpoint, values.readToken ?? cfg.monitorReadToken);
+    if (!url) {
+      element.innerHTML = '<div class="monitor-qr-guide">エンドポイントを入力して有効化するとQRが表示されます</div>';
+      return;
+    }
+    try {
+      element.innerHTML = '<div class="monitor-qr-image">' + QRCodeVendor.svg(url, size) + '</div>'
+        + '<div class="monitor-qr-url">' + escHtml(url) + '</div>';
+    } catch (error) {
+      element.innerHTML = '<div class="monitor-qr-guide">QRコードを生成できませんでした</div>';
+      console.warn('[RemoteMonitor] QR generation failed:', error);
+    }
+  }
+
+  return { start, stop, sendNow, canSend, renderQr };
+})();
+
+async function monitorReissueQr() {
+  const approved = await appConfirm('今までのQRで登録したスマホは全て見られなくなります。よろしいですか?', { danger:true });
+  if (!approved) return;
+  cfg.monitorReadToken = monitorGenerateReadToken();
+  saveCfg();
+  const endpoint = document.getElementById('cfg-monitorEndpoint')?.value.trim() || cfg.monitorEndpoint;
+  RemoteMonitor.renderQr('monitor-settings-qr', 220, { endpoint, readToken:cfg.monitorReadToken });
+  showToast('新しいQRを発行しました。スタッフに読み直してもらってください');
+}
+
+(function injectRemoteMonitorCss() {
+  const style = document.createElement('style');
+  style.id = 'remote-monitor-css';
+  style.textContent = `
+    .monitor-qr-wrap{width:100%;display:flex;flex-direction:column;align-items:center;gap:8px;padding:12px;border:1px solid var(--bdr);border-radius:8px;background:var(--sur3)}
+    .monitor-qr-image{display:flex;justify-content:center;max-width:100%;padding:8px;background:#fff;border-radius:8px}
+    .monitor-qr-image svg{display:block;max-width:100%;height:auto}
+    .monitor-qr-url{max-width:100%;overflow-wrap:anywhere;font:11px/1.5 var(--mono);color:var(--tx2);text-align:center;user-select:all}
+    .monitor-qr-guide{padding:18px 10px;color:var(--tx3);font-size:12px;text-align:center}
+    .pos-monitor-fab{position:fixed;right:18px;bottom:72px;z-index:80;min-height:44px;padding:0 14px;border:1px solid var(--gold2);border-radius:22px;background:var(--sur2);color:var(--gold2);font-weight:800;box-shadow:0 4px 16px rgba(0,0,0,.35);cursor:pointer}
+    .pos-monitor-fab:active{transform:scale(.96)}
+    .pos-monitor-dialog{width:min(440px,92vw);max-height:90vh;overflow-y:auto}
+    .pos-monitor-dialog-body{display:flex;flex-direction:column;align-items:center;gap:12px;padding:18px;color:var(--tx);text-align:center}
+    .pos-monitor-dialog-body .monitor-qr-wrap{border:0;background:transparent;padding:0}
+    @media(max-width:600px){.pos-monitor-fab{right:12px;bottom:68px}.pos-monitor-dialog-body{padding:14px}}
+  `;
+  document.head.appendChild(style);
+})();
 /* ================================================================
    POS セット入力スピナー画面（オーダー画面のセットカテゴリ）
 ================================================================ */
@@ -20883,6 +21345,33 @@ function renderSettingsPanel() {
     </div>
 
     <div class="settings-section" data-setcat="system">
+      <div class="settings-section-header"><span class="settings-section-title">📡 店外モニター</span></div>
+      <div class="settings-section-body">
+        <div class="settings-row">
+          <div class="settings-label">店外モニターを有効にする<div class="settings-sub">匿名の店内状況を30秒ごとに送信します</div></div>
+          <label style="display:flex;align-items:center;gap:6px;min-height:44px;cursor:pointer">
+            <input type="checkbox" id="cfg-monitorEnabled" ${cfg.monitorEnabled ? 'checked' : ''}>
+            <span>有効</span>
+          </label>
+        </div>
+        <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:6px">
+          <div class="settings-label" style="width:100%">エンドポイントURL</div>
+          <input type="url" class="settings-input" id="cfg-monitorEndpoint" value="${escAttr(cfg.monitorEndpoint || '')}" placeholder="https://xxx.workers.dev" style="width:min(100%,520px)">
+        </div>
+        <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:6px">
+          <div class="settings-label" style="width:100%">送信トークン</div>
+          <input type="password" class="settings-input" id="cfg-monitorWriteToken" value="${escAttr(cfg.monitorWriteToken || '')}" autocomplete="off" style="width:min(100%,520px)">
+        </div>
+        <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:8px">
+          <div class="settings-label" style="width:100%">閲覧用QRコード</div>
+          <div class="monitor-qr-wrap" id="monitor-settings-qr"></div>
+          <button type="button" class="btn danger" onclick="monitorReissueQr()" style="min-height:44px">🔄 QRを再発行</button>
+          <div class="settings-sub" style="line-height:1.7">QRを読み込んだスマホだけが店内状況を見られます。スタッフが辞めた時は再発行してください。再発行したら新しいQRをスタッフに読み直してもらってください。</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-section" data-setcat="system">
       <div class="settings-section-header"><span class="settings-section-title">💾 データ保存先（USB運用）</span></div>
       <div class="settings-section-body">
         <div class="settings-row">
@@ -21027,6 +21516,7 @@ function renderSettingsPanel() {
   _extTrialRenderEditor();
   _ryoshuUpdatePreview();
   settingsSelectCategory(_settingsActiveCat);
+  if (typeof RemoteMonitor !== 'undefined') RemoteMonitor.renderQr('monitor-settings-qr', 220);
   // キャスト管理一覧: アコーディオン廃止（2026-08-20仕様B）につき常時描画。
   // 旧仕様はtoggleCastMgmt()が開閉時にだけ描画していたが、その関数ごと撤去したためここで描く。
   if (typeof renderCastMgmt === 'function') renderCastMgmt();
@@ -21684,6 +22174,11 @@ async function applySettings() {
   const modoriEnchoshimeiAgg = ['enchoshimei40','jounai','none'].includes(modoriEnchoshimeiAggValue) ? modoriEnchoshimeiAggValue : 'enchoshimei40';
   const showCountdown   = !!(get('cfg-showCountdown')?.checked);
   const fullscreenOnBoot = !!(get('cfg-fullscreenOnBoot')?.checked);
+  const monitorEnabled = !!(get('cfg-monitorEnabled')?.checked);
+  const monitorEndpoint = (get('cfg-monitorEndpoint')?.value || '').trim();
+  const monitorWriteToken = (get('cfg-monitorWriteToken')?.value || '').trim();
+  let monitorReadToken = String(cfg.monitorReadToken || '').trim();
+  if (monitorEnabled && !monitorReadToken) monitorReadToken = monitorGenerateReadToken();
 
   // POSカテゴリ: DOM順を保存。削除済みキーは採番の欠番を再利用しないためlayout末尾に保持する。
   const posCatRows = Array.from(document.querySelectorAll('#cfg-pos-cat-layout tr[data-key]'));
@@ -21841,7 +22336,8 @@ async function applySettings() {
     extFeeOnHonshimei, extFeeOnJounai, extFeeOnEnchoshimei, extPrices,
     extAutoShimeiFee, extBasePerSeat, extFeePerSeat, doubanAsHonshimeiExt, modoriHonshimeiAgg, modoriEnchoshimeiAgg,
     taxRate, taxRound, discountAfterTax, cardFeeRate, cardFeeRound, tillFloat,
-    showCountdown, fullscreenOnBoot, posMenu, posCatLayout, posCustomCats, posPrices, shimeiExtItems, drinkItems, shotLabel,
+    showCountdown, fullscreenOnBoot, monitorEnabled, monitorEndpoint, monitorWriteToken, monitorReadToken,
+    posMenu, posCatLayout, posCustomCats, posPrices, shimeiExtItems, drinkItems, shotLabel,
     receiptStoreName1, receiptStoreAddr, receiptStoreTel, receiptInvoiceNo, receiptNote,
     receiptLayout, extTrialLayout, ryoshuOpts, receiptScale, extTrialScale, ryoshuScale,
     payrollClockInRoundMin, payrollClockOutRoundMin, payrollClockOutRoundThreshold,
@@ -21858,6 +22354,7 @@ async function applySettings() {
   state.castDefaults = { ...(state.castDefaults || {}), ...feeMasterValues.castDefaults };
   saveCfg();
   saveState();
+  if (typeof RemoteMonitor !== 'undefined') RemoteMonitor.renderQr('monitor-settings-qr', 220);
 
   // ビュー全体を即時再描画
   renderTable();
@@ -24172,6 +24669,7 @@ async function __boot() {
   });
 
   try { SelfUpdate.startAutoCheck(); } catch (e) { console.warn('[SelfUpdate] auto check setup failed:', e); }
+  try { RemoteMonitor.start(); } catch (e) { console.warn('[RemoteMonitor] start failed:', e); }
 }
 __boot();
 /* ================================================================
