@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.72">
+<meta name="app-version" content="1.0.73">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -12444,7 +12444,7 @@ function _posOrderCastHistory(row) {
     + '<div class="pos-order-cast-history-list">' + history + '</div></div>';
 }
 
-function _posFloorCastChips(row) {
+function _posFloorCastChipData(row) {
   const nominatedTypes = ['honshimei', 'douban', 'modori_honshimei'];
   const silverNominatedTypes = ['jounai', 'enchoshimei', 'modori_enchoshimei'];
   const chips = [];
@@ -12485,7 +12485,13 @@ function _posFloorCastChips(row) {
       });
     });
   });
-  return chips.map(item => {
+  return chips;
+}
+
+function _posFloorCastChips(row) {
+  const nominatedTypes = ['honshimei', 'douban', 'modori_honshimei'];
+  const silverNominatedTypes = ['jounai', 'enchoshimei', 'modori_enchoshimei'];
+  return _posFloorCastChipData(row).map(item => {
     const nominated = nominatedTypes.includes(item.type);
     const silverNominated = silverNominatedTypes.includes(item.type);
     const isDesignation = nominated || silverNominated;
@@ -14091,6 +14097,11 @@ function _monitorTableLabel(tableNum) {
   return label && label !== '-' ? label : '';
 }
 
+function typeLabelFor(type) {
+  if (!type || type === 'free' || type === 'modori_free' || type === 'rot') return null;
+  return MAIN_TYPES[type]?.label || null;
+}
+
 function buildMonitorSnapshot() {
   const activeRows = posFirstRows();
   const seatedRows = activeRows.filter(row => !row.isWaiting);
@@ -14109,6 +14120,7 @@ function buildMonitorSnapshot() {
   const now = getNowMin();
   const groups = activeRows.map(row => {
     const endMin = calcEndMin(row);
+    const amount = _posFloorTotal(row);
     return {
       table: posTableLabel(row.tableNum),
       size: Number(row.gcount) || 0,
@@ -14118,6 +14130,12 @@ function buildMonitorSnapshot() {
       remainMin: endMin - now,
       extCount: (Array.isArray(row.extensions) ? row.extensions : []).filter(value => parseInt(value) > 0).length,
       isWaiting: !!row.isWaiting,
+      amount,
+      casts: _posFloorCastChipData(row).map(cast => ({
+        name: cast.cast,
+        type: typeLabelFor(cast.type),
+        away: !!cast.away,
+      })),
     };
   });
   const status = calcStoreStatus();
@@ -14151,6 +14169,7 @@ function buildMonitorSnapshot() {
       groupCount: countedGroups.length,
       guestCount: countedGroups.reduce((sum, row) => sum + (Number(row.gcount) || 0), 0),
       level: occupancy < 0.4 ? 'low' : occupancy <= 0.75 ? 'mid' : 'high',
+      totalAmount: groups.filter(group => !group.isWaiting).reduce((sum, group) => sum + group.amount, 0),
     },
   };
 }
