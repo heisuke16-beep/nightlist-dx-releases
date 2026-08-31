@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.80">
+<meta name="app-version" content="1.0.81">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -13054,33 +13054,6 @@ function _posFloorEmptyCard(table, tableIndex) {
     + '</button>';
 }
 
-function posCloseMonitorQr() {
-  document.getElementById('pos-monitor-qr-modal')?.remove();
-}
-
-function posOpenMonitorQr() {
-  posCloseMonitorQr();
-  const overlay = document.createElement('div');
-  overlay.id = 'pos-monitor-qr-modal';
-  overlay.className = 'pos-nsm-overlay';
-  const configured = !!monitorViewUrl();
-  overlay.innerHTML = '<div class="pos-nsm pos-monitor-dialog" role="dialog" aria-modal="true" aria-labelledby="pos-monitor-qr-title">'
-    + '<div class="pos-nsm-header"><span id="pos-monitor-qr-title">📱 スマホ連携</span>'
-    + '<button type="button" class="pos-nsm-close" aria-label="閉じる">×</button></div>'
-    + '<div class="pos-monitor-dialog-body">'
-    + (configured
-      ? '<div class="monitor-qr-wrap" id="pos-monitor-qr-code"></div><div>スマホのカメラで読み取ると店内状況ページが開きます</div>'
-      : '<div class="monitor-qr-guide">設定 →「📡 店外モニター」で有効化するとQRが表示されます</div>')
-    + '<button type="button" class="btn primary pos-monitor-close-btn" style="min-height:44px">閉じる</button>'
-    + '</div></div>';
-  const close = () => posCloseMonitorQr();
-  overlay.querySelector('.pos-nsm-close').addEventListener('click', close);
-  overlay.querySelector('.pos-monitor-close-btn').addEventListener('click', close);
-  overlay.addEventListener('click', event => { if (event.target === overlay) close(); });
-  document.body.appendChild(overlay);
-  if (configured) RemoteMonitor.renderQr('pos-monitor-qr-code', 300);
-}
-
 function renderPOSSlipView(firsts, selected) {
   const isPaper = posBetaState.slipView === 'paper';
   const toggle = '<div class="pos-slip-view-toggle">'
@@ -13111,7 +13084,6 @@ function renderPOSSlipView(firsts, selected) {
   return '<div class="pos-slip-view-shell" onclick="posCastRailBlankTap(event)">'
     + '<div class="pos-slip-view-head">' + _posActiveCastRail() + legend + toggle + '</div>'
     + '<div class="pos-floor-grid">' + cards + '</div>'
-    + '<button type="button" class="pos-monitor-fab" onclick="event.stopPropagation();posOpenMonitorQr()">📱 スマホ連携</button>'
     + '</div>';
 }
 
@@ -14307,12 +14279,6 @@ async function monitorReissueQr() {
     .monitor-qr-image svg{display:block;max-width:100%;height:auto}
     .monitor-qr-url{max-width:100%;overflow-wrap:anywhere;font:11px/1.5 var(--mono);color:var(--tx2);text-align:center;user-select:all}
     .monitor-qr-guide{padding:18px 10px;color:var(--tx3);font-size:12px;text-align:center}
-    .pos-monitor-fab{position:fixed;right:18px;bottom:72px;z-index:80;min-height:44px;padding:0 14px;border:1px solid var(--gold2);border-radius:22px;background:var(--sur2);color:var(--gold2);font-weight:800;box-shadow:0 4px 16px rgba(0,0,0,.35);cursor:pointer}
-    .pos-monitor-fab:active{transform:scale(.96)}
-    .pos-monitor-dialog{width:min(440px,92vw);max-height:90vh;overflow-y:auto}
-    .pos-monitor-dialog-body{display:flex;flex-direction:column;align-items:center;gap:12px;padding:18px;color:var(--tx);text-align:center}
-    .pos-monitor-dialog-body .monitor-qr-wrap{border:0;background:transparent;padding:0}
-    @media(max-width:600px){.pos-monitor-fab{right:12px;bottom:68px}.pos-monitor-dialog-body{padding:14px}}
   `;
   document.head.appendChild(style);
 })();
