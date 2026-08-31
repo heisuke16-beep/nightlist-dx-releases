@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.83">
+<meta name="app-version" content="1.0.84">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -6913,6 +6913,7 @@ const CFG_DEFAULTS = {
   monitorEndpoint: '',      // Cloudflare WorkerのベースURL
   monitorWriteToken: '',    // 店外モニター送信認証トークン
   monitorReadToken: '',     // 店外モニター閲覧トークン（初回有効化時に生成）
+  monitorOpsToken: '',      // 店外モニター操作トークン（初回有効化時に生成）
   posMenu:         {},      // POSカスタムメニュー { shot:[{name,amount},...], bottle:[...], ... }
   posCatLayout:    [],      // POSカテゴリの並び・表示 [{key,visible}]。空=既定順・全表示
   posCustomCats:   [        // 店舗独自のPOSカテゴリ（keyはラベル変更後も不変）
@@ -14060,10 +14061,11 @@ function monitorBaseEndpoint(endpoint = cfg.monitorEndpoint) {
   return String(endpoint || '').trim().replace(/\/+$/, '');
 }
 
-function monitorViewUrl(endpoint = cfg.monitorEndpoint, readToken = cfg.monitorReadToken) {
+function monitorViewUrl(endpoint = cfg.monitorEndpoint, readToken = cfg.monitorReadToken, opsToken = '') {
   const base = monitorBaseEndpoint(endpoint);
   const token = String(readToken || '').trim();
-  return base && token ? base + '/m/' + token : '';
+  const ops = String(opsToken || '').trim();
+  return base && token ? base + '/m/' + token + (ops ? '#ops=' + ops : '') : '';
 }
 
 function _monitorTableLabel(tableNum) {
@@ -14193,27 +14195,44 @@ const RemoteMonitor = (() => {
       && _devNowMin === null && !_demoMode;
   }
 
-  async function sendNow() {
+  async function sendNow(applyCommands = true) {
     if (!canSend() || sending) return false;
     sending = true;
+    let sent = false;
+    let appliedCommand = false;
     try {
       const response = await fetch(monitorBaseEndpoint() + '/push', {
         method: 'POST',
         body: JSON.stringify({
           writeToken: cfg.monitorWriteToken,
           readToken: cfg.monitorReadToken,
+          opsToken: cfg.monitorOpsToken,
           snap: buildMonitorSnapshot(),
         }),
         headers: { 'Content-Type':'text/plain' },
       });
       if (!response.ok) throw new Error('HTTP ' + response.status);
-      return true;
+      sent = true;
+      if (applyCommands && typeof response.json === 'function') {
+        let payload = null;
+        try { payload = await response.json(); }
+        catch (_) { payload = null; }
+        const commands = Array.isArray(payload?.commands) ? payload.commands : [];
+        commands.forEach(command => {
+          if (command?.type !== 'checkout' || !command.cast) return;
+          const activeCasts = getEffectiveActiveCasts();
+          if (!Array.isArray(activeCasts) || !activeCasts.includes(command.cast)) return;
+          ttCheckout(command.cast);
+          appliedCommand = true;
+        });
+      }
     } catch (error) {
       console.warn('[RemoteMonitor] push failed:', error);
-      return false;
     } finally {
       sending = false;
     }
+    if (sent && appliedCommand) await sendNow(false);
+    return sent;
   }
 
   function stop() {
@@ -14235,7 +14254,11 @@ const RemoteMonitor = (() => {
   function renderQr(target, size = 220, values = {}) {
     const element = typeof target === 'string' ? document.getElementById(target) : target;
     if (!element) return;
-    const url = monitorViewUrl(values.endpoint ?? cfg.monitorEndpoint, values.readToken ?? cfg.monitorReadToken);
+    const url = monitorViewUrl(
+      values.endpoint ?? cfg.monitorEndpoint,
+      values.readToken ?? cfg.monitorReadToken,
+      values.opsToken ?? ''
+    );
     if (!url) {
       element.innerHTML = '<div class="monitor-qr-guide">エンドポイントを入力して有効化するとQRが表示されます</div>';
       return;
@@ -14261,12 +14284,18 @@ function monitorToggleConnRows(btn) {
 }
 
 async function monitorReissueQr() {
-  const approved = await appConfirm('今までのQRで登録したスマホは全て見られなくなります。よろしいですか?', { danger:true });
+  const approved = await appConfirm('今までのQRで登録したスマホは全て見られなくなり、操作用QRも無効になります。よろしいですか?', { danger:true });
   if (!approved) return;
   cfg.monitorReadToken = monitorGenerateReadToken();
+  cfg.monitorOpsToken = monitorGenerateReadToken();
   saveCfg();
   const endpoint = document.getElementById('cfg-monitorEndpoint')?.value.trim() || cfg.monitorEndpoint;
   RemoteMonitor.renderQr('monitor-settings-qr', 220, { endpoint, readToken:cfg.monitorReadToken });
+  RemoteMonitor.renderQr('monitor-settings-ops-qr', 220, {
+    endpoint,
+    readToken:cfg.monitorReadToken,
+    opsToken:cfg.monitorOpsToken,
+  });
   showToast('新しいQRを発行しました。スタッフに読み直してもらってください');
 }
 
@@ -21547,6 +21576,9 @@ function renderSettingsPanel() {
         <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:8px">
           <div class="settings-label" style="width:100%">閲覧用QRコード</div>
           <div class="monitor-qr-wrap" id="monitor-settings-qr"></div>
+          <div class="settings-label" style="width:100%;margin-top:8px">管理者用QR（操作可）</div>
+          <div class="monitor-qr-wrap" id="monitor-settings-ops-qr"></div>
+          <div class="settings-sub" style="line-height:1.7">管理者用QRを読んだスマホは待機キャストの退勤操作ができます。渡す相手に注意してください</div>
           <button type="button" class="btn danger" onclick="monitorReissueQr()" style="min-height:44px">🔄 QRを再発行</button>
           <div class="settings-sub" style="line-height:1.7">QRを読み込んだスマホだけが店内状況を見られます。スタッフが辞めた時は再発行してください。再発行したら新しいQRをスタッフに読み直してもらってください。</div>
         </div>
@@ -21620,7 +21652,10 @@ function renderSettingsPanel() {
   _extTrialRenderEditor();
   _ryoshuUpdatePreview();
   settingsSelectCategory(_settingsActiveCat);
-  if (typeof RemoteMonitor !== 'undefined') RemoteMonitor.renderQr('monitor-settings-qr', 220);
+  if (typeof RemoteMonitor !== 'undefined') {
+    RemoteMonitor.renderQr('monitor-settings-qr', 220);
+    RemoteMonitor.renderQr('monitor-settings-ops-qr', 220, { opsToken:cfg.monitorOpsToken });
+  }
   // キャスト管理一覧: アコーディオン廃止（2026-08-20仕様B）につき常時描画。
   // 旧仕様はtoggleCastMgmt()が開閉時にだけ描画していたが、その関数ごと撤去したためここで描く。
   if (typeof renderCastMgmt === 'function') renderCastMgmt();
@@ -22283,6 +22318,8 @@ async function applySettings() {
   const monitorWriteToken = (get('cfg-monitorWriteToken')?.value || '').trim();
   let monitorReadToken = String(cfg.monitorReadToken || '').trim();
   if (monitorEnabled && !monitorReadToken) monitorReadToken = monitorGenerateReadToken();
+  let monitorOpsToken = String(cfg.monitorOpsToken || '').trim();
+  if (monitorEnabled && !monitorOpsToken) monitorOpsToken = monitorGenerateReadToken();
 
   // POSカテゴリ: DOM順を保存。削除済みキーは採番の欠番を再利用しないためlayout末尾に保持する。
   const posCatRows = Array.from(document.querySelectorAll('#cfg-pos-cat-layout tr[data-key]'));
@@ -22440,7 +22477,7 @@ async function applySettings() {
     extFeeOnHonshimei, extFeeOnJounai, extFeeOnEnchoshimei, extPrices,
     extAutoShimeiFee, extBasePerSeat, extFeePerSeat, doubanAsHonshimeiExt, modoriHonshimeiAgg, modoriEnchoshimeiAgg,
     taxRate, taxRound, discountAfterTax, cardFeeRate, cardFeeRound, tillFloat,
-    showCountdown, fullscreenOnBoot, monitorEnabled, monitorEndpoint, monitorWriteToken, monitorReadToken,
+    showCountdown, fullscreenOnBoot, monitorEnabled, monitorEndpoint, monitorWriteToken, monitorReadToken, monitorOpsToken,
     posMenu, posCatLayout, posCustomCats, posPrices, shimeiExtItems, drinkItems, shotLabel,
     receiptStoreName1, receiptStoreAddr, receiptStoreTel, receiptInvoiceNo, receiptNote,
     receiptLayout, extTrialLayout, ryoshuOpts, receiptScale, extTrialScale, ryoshuScale,
@@ -22458,7 +22495,10 @@ async function applySettings() {
   state.castDefaults = { ...(state.castDefaults || {}), ...feeMasterValues.castDefaults };
   saveCfg();
   saveState();
-  if (typeof RemoteMonitor !== 'undefined') RemoteMonitor.renderQr('monitor-settings-qr', 220);
+  if (typeof RemoteMonitor !== 'undefined') {
+    RemoteMonitor.renderQr('monitor-settings-qr', 220);
+    RemoteMonitor.renderQr('monitor-settings-ops-qr', 220, { opsToken:cfg.monitorOpsToken });
+  }
 
   // ビュー全体を即時再描画
   renderTable();
