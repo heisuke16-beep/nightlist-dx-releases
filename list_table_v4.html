@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.81">
+<meta name="app-version" content="1.0.82">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -15217,6 +15217,72 @@ function _castRankingNoteHtml(data) {
     ? '<div class="cr-note">この月のデータには小計・ポイントが記録されていません</div>' : '';
 }
 
+function _castRankingPrintTableHtml(data, rows, salesBase) {
+  const salesField = salesBase === 'subtotal' ? 'salesSubtotal' : 'sales';
+  const salesLabel = salesBase === 'subtotal' ? '売上（小計）' : '売上（総額）';
+  const totals = (rows || []).reduce((sum, row) => {
+    sum.sales += Number(row[salesField]) || 0;
+    sum.points += Number(row.pointsTotal) || 0;
+    sum.firstRepeat += Number(row.firstRepeatCount) || 0;
+    return sum;
+  }, { sales:0, points:0, firstRepeat:0 });
+  const yen = value => '¥' + (Number(value) || 0).toLocaleString('ja-JP');
+  const points = value => (Number(value) || 0).toLocaleString('ja-JP') + 'pt';
+  const body = (rows || []).map((row, index) => '<tr' + (index < 3 ? ' class="top-rank"' : '') + '>'
+    + '<td class="rank">' + (index + 1) + '</td>'
+    + '<td class="name">' + escHtml(row.castName) + '</td>'
+    + '<td class="amount">' + yen(row[salesField]) + '</td>'
+    + '<td class="points">' + points(row.pointsTotal) + '</td>'
+    + '<td class="repeat">' + (Number(row.firstRepeatCount) || 0).toLocaleString('ja-JP') + '</td>'
+    + '</tr>').join('');
+  return '<table class="ranking"><thead><tr>'
+    + '<th>順位</th><th>キャスト名</th><th>' + salesLabel + '</th><th>ポイント</th><th>初リピ</th>'
+    + '</tr></thead><tbody>' + body
+    + '<tr class="sum"><td></td><td class="name">合計</td><td class="amount">' + yen(totals.sales) + '</td>'
+    + '<td class="points">' + points(totals.points) + '</td><td class="repeat">' + totals.firstRepeat.toLocaleString('ja-JP') + '</td></tr>'
+    + '</tbody></table>';
+}
+
+function castRankingPrint() {
+  const monthKey = _castRankingMonthKey();
+  const data = _castRankingData(monthKey);
+  const rows = _castRankingSortedRows(data);
+  if (!rows.length) { showToast('この月のランキングデータがありません'); return; }
+  const salesBase = castRankingSalesBase;
+  const monthLabel = monthKey.slice(0, 4) + '年' + Number(monthKey.slice(4, 6)) + '月';
+  const sortLabel = castRankingSort === 'points' ? 'ポイント順' : '売上順';
+  const printedAt = new Date().toLocaleString('ja-JP');
+  const w = window.open('', '_blank', 'width=920,height=1240');
+  if (!w) { showToast('ポップアップがブロックされました'); return; }
+  w.document.write(
+    '<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>キャストランキング</title><style>'
+    + '@page{size:A4 portrait;margin:12mm 14mm}'
+    + 'html,body{background:#fff;color:#000}'
+    + 'body{font-family:"Hiragino Kaku Gothic ProN","Meiryo",sans-serif;margin:0}'
+    + '.top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:3mm}'
+    + '.shop{font-size:11pt;font-weight:700}.meta{font-size:8.5pt;line-height:1.5;text-align:right}'
+    + '.title{text-align:center;margin-bottom:5mm}.title h1{font-size:18pt;letter-spacing:.12em;margin:0 0 1mm}.month{font-size:11pt}'
+    + 'table.ranking{width:100%;border-collapse:collapse;table-layout:fixed}'
+    + 'table.ranking th,table.ranking td{border:1px solid #333;padding:2.4mm 2mm;font-size:9.5pt;white-space:nowrap}'
+    + 'table.ranking th{background:#e8e8e8;text-align:center;font-weight:700}'
+    + 'table.ranking th:nth-child(1){width:10mm}table.ranking th:nth-child(2){width:38mm}'
+    + 'table.ranking th:nth-child(4){width:24mm}table.ranking th:nth-child(5){width:17mm}'
+    + 'table.ranking td{text-align:right}.ranking td.rank{text-align:center}.ranking td.name{text-align:left}'
+    + 'table.ranking tr.top-rank td{font-weight:700}.ranking tr.sum td{background:#e8e8e8;font-weight:700;border-top:2px solid #000}'
+    + '.cr-note{margin-top:3mm;font-size:8pt;color:#555}thead{display:table-header-group}tr{break-inside:avoid}'
+    + '@media print{html,body{background:#fff!important;color:#000!important}}'
+    + '</style></head><body>'
+    + '<div class="top"><div class="shop">' + escHtml(cfg.shopName || '') + '</div>'
+    + '<div class="meta">印刷日時：' + escHtml(printedAt) + '<br>並び基準：' + sortLabel + '</div></div>'
+    + '<div class="title"><h1>キャストランキング</h1><div class="month">' + monthLabel + '</div></div>'
+    + _castRankingPrintTableHtml(data, rows, salesBase)
+    + _castRankingNoteHtml(data)
+    + '<script>window.onload=function(){window.print()}<\/script>'
+    + '</body></html>'
+  );
+  w.document.close();
+}
+
 function _castRankingSectionHtml() {
   if (!(typeof cfg !== 'undefined' && cfg.pointsEnabled)) return '';
   const monthKey = _castRankingMonthKey();
@@ -15227,7 +15293,7 @@ function _castRankingSectionHtml() {
       .cr-section{margin-top:18px;background:var(--sur);border:1px solid var(--bdr);border-radius:12px;padding:16px 18px}.cr-head,.cr-actions,.cr-month-nav,.cr-toggle{display:flex;align-items:center;gap:8px}.cr-head{justify-content:space-between;flex-wrap:wrap;margin-bottom:12px}.cr-head h3{margin:0}.cr-actions{flex-wrap:wrap}.cr-month-nav strong{min-width:100px;text-align:center}.cr-section button,.cr-overlay button{border:1px solid var(--bdr2);border-radius:7px;background:var(--sur2);color:var(--tx2);padding:6px 10px;cursor:pointer}.cr-toggle{border:1px solid var(--bdr2);border-radius:7px;overflow:hidden;gap:0}.cr-toggle button{border:0;border-radius:0}.cr-toggle button.active{background:linear-gradient(180deg,var(--gold),var(--gold2));color:#1a1410}.cr-table-wrap{overflow-x:auto}.cr-table{width:100%;border-collapse:collapse}.cr-table th,.cr-table td{border-bottom:1px solid var(--bdr);padding:10px;text-align:right}.cr-table th{font-size:12px;color:var(--tx3);background:var(--sur2)}.cr-table th:nth-child(2),.cr-table td.cr-name{text-align:left}.cr-rank{text-align:center!important;font-size:18px;font-weight:800;color:var(--gold)}.cr-points{font-weight:800;color:var(--gold)}.cr-note{margin-top:10px;color:#e5a84b;font-size:12px}.cr-empty{text-align:center;color:var(--tx3);padding:28px}
     </style>
     <div class="cr-head"><div><h3>🏆 月間ランキング</h3><div class="cr-month-nav"><button type="button" onclick="castRankingMoveMonth(-1)">◀ 前月</button><strong>${monthLabel}</strong><button type="button" onclick="castRankingMoveMonth(1)">翌月 ▶</button><button type="button" onclick="castRankingReaggregateMonth()">🔄 再集計</button></div></div>
-      <div class="cr-actions">${_castRankingToggleHtml()}<button type="button" onclick="castRankingOpenOverlay()">📺 キャスト表示</button></div>
+      <div class="cr-actions">${_castRankingToggleHtml()}<button type="button" onclick="castRankingPrint()">🖨 印刷</button><button type="button" onclick="castRankingOpenOverlay()">📺 キャスト表示</button></div>
     </div>
     ${_castRankingTableHtml(data, false)}${_castRankingNoteHtml(data)}
   </section>`;
