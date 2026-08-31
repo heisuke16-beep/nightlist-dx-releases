@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.82">
+<meta name="app-version" content="1.0.83">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -15251,11 +15251,12 @@ function castRankingPrint() {
   const salesBase = castRankingSalesBase;
   const monthLabel = monthKey.slice(0, 4) + '年' + Number(monthKey.slice(4, 6)) + '月';
   const sortLabel = castRankingSort === 'points' ? 'ポイント順' : '売上順';
+  const printTitle = castRankingSort === 'points' ? 'ポイントランキング' : '売上ランキング';
   const printedAt = new Date().toLocaleString('ja-JP');
   const w = window.open('', '_blank', 'width=920,height=1240');
   if (!w) { showToast('ポップアップがブロックされました'); return; }
   w.document.write(
-    '<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>キャストランキング</title><style>'
+    '<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>' + printTitle + '</title><style>'
     + '@page{size:A4 portrait;margin:12mm 14mm}'
     + 'html,body{background:#fff;color:#000}'
     + 'body{font-family:"Hiragino Kaku Gothic ProN","Meiryo",sans-serif;margin:0}'
@@ -15274,7 +15275,7 @@ function castRankingPrint() {
     + '</style></head><body>'
     + '<div class="top"><div class="shop">' + escHtml(cfg.shopName || '') + '</div>'
     + '<div class="meta">印刷日時：' + escHtml(printedAt) + '<br>並び基準：' + sortLabel + '</div></div>'
-    + '<div class="title"><h1>キャストランキング</h1><div class="month">' + monthLabel + '</div></div>'
+    + '<div class="title"><h1>' + printTitle + '</h1><div class="month">' + monthLabel + '</div></div>'
     + _castRankingPrintTableHtml(data, rows, salesBase)
     + _castRankingNoteHtml(data)
     + '<script>window.onload=function(){window.print()}<\/script>'
