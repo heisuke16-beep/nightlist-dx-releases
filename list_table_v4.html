@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.84">
+<meta name="app-version" content="1.0.85">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -14088,7 +14088,8 @@ function _monitorBillFor(row) {
   });
   posOrders(row).forEach(o => {
     const qty = o.qty || 1;
-    lines.push({ label: o.name, unit: Number(o.amount) || 0, qty,
+    // 税サ込み入力のオーダーは伝票ビューと同じく「(込)」を付ける（29-pos-panel.js:928と同一表記）
+    lines.push({ label: o.name + (o.taxIncluded ? '(込)' : ''), unit: Number(o.amount) || 0, qty,
       sum: (Number(o.amount) || 0) * qty });
   });
   return { lines, subtotal: lines.reduce((sum, line) => sum + line.sum, 0) };
