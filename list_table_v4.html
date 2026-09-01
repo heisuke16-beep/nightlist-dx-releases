@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.85">
+<meta name="app-version" content="1.0.86">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -14134,6 +14134,16 @@ function buildMonitorSnapshot() {
         type: typeLabelFor(cast.type),
         away: !!cast.away,
       })),
+      rot: (() => {
+        const r1 = Array.isArray(row.rotations) ? row.rotations : [];
+        const r2 = Array.isArray(row.rotations2) ? row.rotations2 : [];
+        const slots = [];
+        for (let i = 0; i < Math.max(r1.length, r2.length); i++) {
+          const names = [r1[i], r2[i]].map(v => String(v || '').trim()).filter(Boolean);
+          if (names.length) slots.push(names);
+        }
+        return slots;
+      })(),
     };
   });
   const status = calcStoreStatus();
