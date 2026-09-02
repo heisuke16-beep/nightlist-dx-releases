@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.86">
+<meta name="app-version" content="1.0.87">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -6914,6 +6914,7 @@ const CFG_DEFAULTS = {
   monitorWriteToken: '',    // 店外モニター送信認証トークン
   monitorReadToken: '',     // 店外モニター閲覧トークン（初回有効化時に生成）
   monitorOpsToken: '',      // 店外モニター操作トークン（初回有効化時に生成）
+  monitorShopId: '',        // オーナーダッシュボード用の不変店舗ID（初回送信時に生成）
   posMenu:         {},      // POSカスタムメニュー { shot:[{name,amount},...], bottle:[...], ... }
   posCatLayout:    [],      // POSカテゴリの並び・表示 [{key,visible}]。空=既定順・全表示
   posCustomCats:   [        // 店舗独自のPOSカテゴリ（keyはラベル変更後も不変）
@@ -11532,18 +11533,21 @@ function _posAutoExtShimeiFeeSync(row, min) {
     }
   });
 }
-/* 空場内（金額0円・キャスト無しの場内ボタン）の、延長1ラウンドあたりの繰延上乗せ額。
-   同一伝票（グループ先頭行）の posOrders から category==='jonai_empty' を集め、Σ(qty × defer) を返す。
-   defer は空場内投入時点の cfg.jonaiFee のスナップショット（posAddItem が刻印）。
-   後で cfg.jonaiFee を変更しても、この関数は保存済みの defer を読むだけなので過去分は不変。
+/* 空場内（金額0円・キャスト無しの場内ボタン）の、指定した延長ラウンドへの上乗せ額。
+   同一伝票（グループ先頭行）の posOrders から category==='jonai_empty' の qty 合計を求め、
+   そのラウンドの場内延長指名料を本数倍する。cfg.extFeePerSeat が true なら課金席数も掛ける。
+   defer の刻印は既存データ互換のため残すが、上乗せ額の計算には使わない。
    状態は一切持たず posOrders から都度導出するため、延長の入力経路（POS / リスト表直接編集）を
    問わず自動で追従する（オーナー確定事項: 以降の延長すべてに毎回上乗せ）。
    _posExtBaseTotal・_posSeatLineItems・_posExtTrial の3者が本関数を共通の窓口として使う。 */
-function _emptyJonaiPerRound(row) {
-  if (!row) return 0;
-  return posOrders(row)
+function _emptyJonaiForRound(row, idx, seats) {
+  if (!row || idx < 0) return 0;
+  const qty = posOrders(row)
     .filter(o => o.category === 'jonai_empty')
-    .reduce((sum, o) => sum + (Number(o.qty) || 1) * (Number(o.defer) || 0), 0);
+    .reduce((sum, o) => sum + (Number(o.qty) || 1), 0);
+  const fee = _posExtFeeForType('jounai', idx);
+  const mul = cfg.extFeePerSeat ? Math.max(1, seats || 1) : 1;
+  return qty * fee * mul;
 }
 /* 延長"基本料"の合計（単一式）。calcBill・_posSeatLineItems・_posExtTrial の3者が
    この式に揃う唯一の窓口。各延長ラウンドの「課金席数 × 単価(extPrices)」を合算して卓全体の
@@ -11551,7 +11555,7 @@ function _emptyJonaiPerRound(row) {
    cfg.extBasePerSeat===false の時は席数=1（卓単位）。
    ※旧 _posGroupExtBase の「先頭1席は calcBill・残り席は別足し」という二段持ちは廃止し、
      ここで全席ぶんをまとめて計上する（calcBill から本関数を呼ぶ）。
-   空場内の繰延上乗せ（_emptyJonaiPerRound）は延長1ラウンドにつき定額で加算する。席数には掛けない。 */
+   空場内の上乗せ（_emptyJonaiForRound）は各ラウンドの場内延長指名料を使い、設定に応じて席数を掛ける。 */
 function _posExtBaseTotal(row) {
   if (!row) return 0;
   const rounds = (typeof _posExtRounds === 'function')
@@ -11559,7 +11563,6 @@ function _posExtBaseTotal(row) {
     : (Array.isArray(row.extensions)
         ? row.extensions.map(v => ({ min: parseInt(v), seats: 1 })).filter(g => g.min)
         : []);
-  const perRound = _emptyJonaiPerRound(row);
   let sum = 0;
   rounds.forEach(g => {
     const idx = (cfg.extOptions || []).indexOf(g.min);
@@ -11567,7 +11570,7 @@ function _posExtBaseTotal(row) {
       const seats = (cfg.extBasePerSeat === false) ? 1 : Math.max(1, g.seats || 1);
       sum += cfg.extPrices[idx] * seats;
     }
-    sum += perRound;
+    sum += _emptyJonaiForRound(row, idx, g.seats);
   });
   return sum;
 }
@@ -11664,15 +11667,15 @@ function _posSeatLineItems(row) {
   // ※延長"指名料"は本ルールでは自動加算しない（源泉はボーイ手入力の本延/延指オーダーのみ。posOrders側で表示）。
   //   よって mainType/subCast 由来の延長指名料行はここでは一切出さない。
   const _rounds = (typeof _posExtRounds === 'function') ? _posExtRounds(row) : [];
-  // 空場内の繰延上乗せ：延長ラウンド単位の定額（席数には掛けない）。同じ分数へ集約する行では
-  // ラウンド数ぶん合算して extra（qty×amount とは別枠の加算額）へ乗せる。
-  const _emptyJonaiRound = (typeof _emptyJonaiPerRound === 'function') ? _emptyJonaiPerRound(row) : 0;
+  // 空場内の上乗せ：ラウンドの分数に対応する場内延長指名料を使い、設定に応じて課金席数を掛ける。
+  // 同じ分数へ集約する行ではラウンド数ぶんを extra（qty×amount とは別枠の加算額）へ乗せる。
   const _baseAgg = {};   // min → { min, qty, extra }
   _rounds.forEach(g => {
+    const idx = (cfg.extOptions || []).indexOf(g.min);
     const seats = (cfg.extBasePerSeat === false) ? 1 : Math.max(1, g.seats || 1);
     const agg = (_baseAgg[g.min] = _baseAgg[g.min] || { min: g.min, qty: 0, extra: 0 });
     agg.qty += seats;
-    agg.extra += _emptyJonaiRound;
+    agg.extra += _emptyJonaiForRound(row, idx, g.seats);
   });
   Object.values(_baseAgg).sort((a, b) => a.min - b.min).forEach(g => {
     const idx = (cfg.extOptions || []).indexOf(g.min);
@@ -14200,6 +14203,7 @@ const RemoteMonitor = (() => {
   let initialTimer = null;
   let intervalTimer = null;
   let sending = false;
+  let pushCount = 0;
 
   function canSend() {
     return !!(cfg.monitorEnabled && cfg.monitorEndpoint && cfg.monitorWriteToken && cfg.monitorReadToken)
@@ -14208,9 +14212,15 @@ const RemoteMonitor = (() => {
 
   async function sendNow(applyCommands = true) {
     if (!canSend() || sending) return false;
+    if (!cfg.monitorShopId) {
+      cfg.monitorShopId = monitorGenerateReadToken();
+      saveCfg();
+    }
     sending = true;
     let sent = false;
     let appliedCommand = false;
+    const wantHave = pushCount % 120 === 0;
+    pushCount++;
     try {
       const response = await fetch(monitorBaseEndpoint() + '/push', {
         method: 'POST',
@@ -14218,18 +14228,21 @@ const RemoteMonitor = (() => {
           writeToken: cfg.monitorWriteToken,
           readToken: cfg.monitorReadToken,
           opsToken: cfg.monitorOpsToken,
+          shopId: cfg.monitorShopId,
+          wantHave,
           snap: buildMonitorSnapshot(),
         }),
         headers: { 'Content-Type':'text/plain' },
       });
       if (!response.ok) throw new Error('HTTP ' + response.status);
       sent = true;
-      if (applyCommands && typeof response.json === 'function') {
+      if (typeof response.json === 'function') {
         let payload = null;
         try { payload = await response.json(); }
         catch (_) { payload = null; }
+        if (payload?.dataHave && typeof OwnerExport !== 'undefined') OwnerExport.setHave(payload.dataHave);
         const commands = Array.isArray(payload?.commands) ? payload.commands : [];
-        commands.forEach(command => {
+        if (applyCommands) commands.forEach(command => {
           if (command?.type !== 'checkout' || !command.cast) return;
           const activeCasts = getEffectiveActiveCasts();
           if (!Array.isArray(activeCasts) || !activeCasts.includes(command.cast)) return;
@@ -14243,6 +14256,7 @@ const RemoteMonitor = (() => {
       sending = false;
     }
     if (sent && appliedCommand) await sendNow(false);
+    if (sent && applyCommands && typeof OwnerExport !== 'undefined') await OwnerExport.syncOne();
     return sent;
   }
 
@@ -14321,6 +14335,359 @@ async function monitorReissueQr() {
     .monitor-qr-guide{padding:18px 10px;color:var(--tx3);font-size:12px;text-align:center}
   `;
   document.head.appendChild(style);
+})();
+/* ================================================================
+   OWNER EXPORT（オーナーダッシュボード用データ）
+================================================================ */
+function ownerDatasetHash(value) {
+  const text = JSON.stringify(value);
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+function _ownerDayLabel(value) {
+  const digits = String(value || '').replace(/-/g, '');
+  return /^\d{8}$/.test(digits)
+    ? digits.slice(0, 4) + '-' + digits.slice(4, 6) + '-' + digits.slice(6, 8)
+    : '';
+}
+
+function _ownerLocalDateTime(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return '';
+  const pad = number => String(number).padStart(2, '0');
+  return date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate())
+    + ' ' + pad(date.getHours()) + ':' + pad(date.getMinutes());
+}
+
+function _ownerMainTypeLabel(type) {
+  return MAIN_TYPES[type]?.label || type || '';
+}
+
+function buildOwnerDayDataset(inputRows, dayKey, ctx = {}) {
+  const rows = Array.isArray(inputRows) ? inputRows : [];
+  const day = String(dayKey || '').replace(/-/g, '');
+  const dayLabel = _ownerDayLabel(day);
+  const rotCols = Math.max(3, Number(ctx.rotCols) || 0, ...rows.map(row => (
+    Array.isArray(row?.rotations) ? row.rotations.length : 0
+  )));
+  const columns = [
+    { key:'day', label:'営業日' },
+    { key:'no', label:'行No' },
+    { key:'gid', label:'組No' },
+    { key:'isFirst', label:'先頭行' },
+    { key:'gcount', label:'組人数' },
+    { key:'slipNo', label:'伝票No' },
+    { key:'start', label:'開始' },
+    { key:'end', label:'終了' },
+    { key:'stayMin', label:'滞在分' },
+    { key:'table', label:'卓' },
+    { key:'guestName', label:'客名' },
+    { key:'source', label:'入店経路' },
+    { key:'condition', label:'条件' },
+    { key:'mainType', label:'指名種別' },
+    { key:'mainCast', label:'指名キャスト' },
+    { key:'subCasts', label:'サブ指名' },
+  ];
+  for (let i = 1; i <= rotCols; i++) columns.push({ key:'rot' + i, label:'席次' + i });
+  columns.push(
+    { key:'exts', label:'延長' },
+    { key:'extCount', label:'延長回数' },
+    { key:'settled', label:'精算済' },
+    { key:'method', label:'精算方法' },
+    { key:'cashAmt', label:'現金額' },
+    { key:'cardAmt', label:'カード額' },
+    { key:'urikakeAmt', label:'売掛額' },
+    { key:'advances', label:'前金合計' },
+    { key:'sales', label:'売上' },
+    { key:'waiting', label:'ウェイト' },
+    { key:'linkedFrom', label:'同一人物リンク元行No' },
+    { key:'settledAt', label:'精算時刻' },
+  );
+
+  const rowNumbers = new Map();
+  rows.forEach((row, index) => {
+    if (row?.id !== undefined && row?.id !== null) rowNumbers.set(row.id, index + 1);
+  });
+  const methodLabels = { cash:'現金', card:'カード', both:'併用', urikake:'売掛' };
+  const listRows = rows.map((rowValue, index) => {
+    const row = rowValue || {};
+    const extensions = (Array.isArray(row.extensions) ? row.extensions : [])
+      .filter(value => String(value || '').trim() !== '');
+    const isFirst = !!row.isFirst;
+    const out = {
+      day: dayLabel,
+      no: index + 1,
+      gid: row.gid ?? '',
+      isFirst: isFirst ? 1 : 0,
+      gcount: row.gcount || 1,
+      slipNo: row.slipNo || '',
+      start: typeof row.startMin === 'number' && Number.isFinite(row.startMin) ? minToHHMM(row.startMin) : '',
+      end: typeof row.endMin === 'number' && Number.isFinite(row.endMin) ? minToHHMM(row.endMin) : '',
+      stayMin: computeStayMin(row) ?? '',
+      table: row.tableNum ? posTableLabel(row.tableNum) : '',
+      guestName: row.guestName || '',
+      source: row.source || '',
+      condition: row.condition || '',
+      mainType: _ownerMainTypeLabel(row.mainType),
+      mainCast: row.mainCast || '',
+      subCasts: (Array.isArray(row.subCasts) ? row.subCasts : [])
+        .filter(item => String(item?.cast || '').trim())
+        .map(item => String(item.cast) + '(' + _ownerMainTypeLabel(item.type) + ')')
+        .join(' / '),
+    };
+    const rotations = Array.isArray(row.rotations) ? row.rotations : [];
+    const rotations2 = Array.isArray(row.rotations2) ? row.rotations2 : [];
+    for (let i = 0; i < rotCols; i++) {
+      out['rot' + (i + 1)] = [rotations[i], rotations2[i]]
+        .map(value => String(value || '').trim()).filter(Boolean).join('/');
+    }
+    out.exts = extensions.join('・');
+    out.extCount = extensions.length;
+    out.settled = row.settled ? 1 : 0;
+    // 行の精算方法フィールドは amountMethod（09-row-factory.js ROW_DEFAULTS）。rowSales/_reportDayStats と同じ源。
+    const amountMethod = row.amountMethod || '';
+    out.method = methodLabels[amountMethod] || amountMethod;
+    out.cashAmt = isFirst ? rowCash(row) : '';
+    out.cardAmt = isFirst ? rowCard(row) : '';
+    out.urikakeAmt = isFirst ? (parseInt(row.amountUrikake) || 0) : '';
+    out.advances = isFirst
+      ? (Array.isArray(row.advances) ? row.advances : []).reduce((sum, advance) => sum + (Number(advance?.amount) || 0), 0)
+      : '';
+    out.sales = isFirst && row.settled ? rowSales(row) : '';
+    out.waiting = row.isWaiting ? 1 : 0;
+    out.linkedFrom = rowNumbers.get(row.linkedParentId) || '';
+    out.settledAt = _ownerLocalDateTime(row.settledAt);
+    return out;
+  });
+
+  const orderColumns = [
+    { key:'day', label:'営業日' }, { key:'gid', label:'組No' },
+    { key:'slipNo', label:'伝票No' }, { key:'table', label:'卓' },
+    { key:'guestName', label:'客名' }, { key:'mainCast', label:'指名キャスト' },
+    { key:'name', label:'商品名' }, { key:'category', label:'カテゴリ' },
+    { key:'unit', label:'単価' }, { key:'qty', label:'数量' },
+    { key:'amount', label:'金額' }, { key:'taxIncluded', label:'税サ込' },
+    { key:'spCasts', label:'SP対象キャスト' }, { key:'createdAt', label:'注文時刻' },
+  ];
+  const orderRows = [];
+  rows.forEach(rowValue => {
+    const row = rowValue || {};
+    (Array.isArray(row.posOrders) ? row.posOrders : []).forEach(orderValue => {
+      const order = orderValue || {};
+      const unit = Number(order.amount) || 0;
+      const qty = Number(order.qty) || 1;
+      orderRows.push({
+        day: dayLabel,
+        gid: row.gid ?? '',
+        slipNo: row.slipNo || '',
+        table: row.tableNum ? posTableLabel(row.tableNum) : '',
+        guestName: row.guestName || '',
+        mainCast: row.mainCast || '',
+        name: order.name ?? '',
+        category: order.category || '',
+        unit,
+        qty,
+        amount: unit * qty,
+        taxIncluded: order.taxIncluded ? 1 : 0,
+        spCasts: Object.keys(order.spShares || {}).join('/'),
+        createdAt: _ownerLocalDateTime(order.createdAt),
+      });
+    });
+  });
+
+  const stats = _reportDayStats(rows);
+  const settledGuests = stats.guests;
+  const summary = {
+    groups: rows.filter(row => row?.isFirst).length,
+    guests: rows.filter(row => row?.isFirst).reduce((sum, row) => sum + (Number(row?.gcount) || 0), 0),
+    settledGroups: stats.count,
+    settledGuests,
+    sales: stats.total,
+    cash: stats.cashSum,
+    card: stats.cardSum,
+    urikake: stats.urikakeSum,
+    avg: settledGuests > 0 ? Math.round(stats.total / settledGuests) : 0,
+  };
+  const list = { columns, rows:listRows };
+  const orders = { columns:orderColumns, rows:orderRows };
+  return {
+    v:1, kind:'day', shopId:ctx.shopId || '', shopName:ctx.shopName || '', day,
+    generatedAt:Date.now(), hash:ownerDatasetHash([summary, list, orders]), summary, list, orders,
+  };
+}
+
+function buildOwnerCustomersDataset(customersMap, ctx = {}) {
+  const columns = [
+    { key:'name', label:'客名' }, { key:'name2', label:'別名' },
+    { key:'tags', label:'タグ' }, { key:'visits', label:'来店回数' },
+    { key:'totalSpend', label:'累計売上' }, { key:'avgSpend', label:'平均単価' },
+    { key:'avgStayMin', label:'平均滞在分' }, { key:'firstVisit', label:'初回来店' },
+    { key:'lastVisit', label:'最終来店' }, { key:'recentDates', label:'直近来店日' },
+    { key:'shimeiHistory', label:'指名履歴' }, { key:'attendedHistory', label:'着席キャスト履歴' },
+    { key:'sources', label:'入店経路' }, { key:'memo', label:'メモ' },
+    { key:'birthMonth', label:'誕生月' }, { key:'birthDay', label:'誕生日' },
+    { key:'birthYear', label:'誕生年' }, { key:'ageBand', label:'年代' },
+    { key:'occupation', label:'職業' }, { key:'workplace', label:'勤務先' },
+    { key:'referrer', label:'紹介者' }, { key:'holidays', label:'休日' },
+  ];
+  const source = customersMap && typeof customersMap === 'object' ? customersMap : {};
+  const rows = Object.entries(source).map(([key, value]) => {
+    const customer = value || {};
+    const historyLabel = (item, allowEmptyType) => {
+      const cast = String(item?.cast || '');
+      const type = item?.type;
+      return !type && allowEmptyType ? cast : cast + '(' + _ownerMainTypeLabel(type) + ')';
+    };
+    return {
+      name: customer.name || key,
+      name2: customer.name2 || '',
+      tags: (Array.isArray(customer.tags) ? customer.tags : []).join('/'),
+      visits: customer.visits || 0,
+      totalSpend: customer.totalSpend || 0,
+      avgSpend: customer.avgSpend || 0,
+      avgStayMin: customer.avgStayMin || 0,
+      firstVisit: _ownerDayLabel(customer.firstVisit),
+      lastVisit: _ownerDayLabel(customer.lastVisit),
+      recentDates: (Array.isArray(customer.recentDates) ? customer.recentDates : []).map(_ownerDayLabel).join('/'),
+      shimeiHistory: (Array.isArray(customer.shimeiHistory) ? customer.shimeiHistory : [])
+        .map(item => historyLabel(item, false)).join(' / '),
+      attendedHistory: (Array.isArray(customer.attendedHistory) ? customer.attendedHistory : [])
+        .map(item => historyLabel(item, true)).join(' / '),
+      sources: (Array.isArray(customer.autoMergeSources) ? customer.autoMergeSources : []).join('/'),
+      memo: customer.memo || '',
+      birthMonth: customer.birthMonth || '',
+      birthDay: customer.birthDay || '',
+      birthYear: customer.birthYear || '',
+      ageBand: customer.ageBand || '',
+      occupation: customer.occupation || '',
+      workplace: customer.workplace || '',
+      referrer: customer.referrer || '',
+      holidays: customer.holidays || '',
+    };
+  }).sort((a, b) => b.lastVisit.localeCompare(a.lastVisit) || a.name.localeCompare(b.name, 'ja'));
+  return {
+    v:1, kind:'customers', shopId:ctx.shopId || '', shopName:ctx.shopName || '',
+    generatedAt:Date.now(), hash:ownerDatasetHash(rows), columns, rows,
+  };
+}
+
+const OwnerExport = (() => {
+  let synced = { days:{}, customers:null };
+  let skippedDays = new Set();
+  let skippedCustomers = false;
+  let backupHashCache = new Map();
+
+  function context() {
+    return {
+      shopId:cfg.monitorShopId || '', shopName:cfg.shopName || '',
+      rotCols:Number(state.rotCols) || 0, extCols:Number(state.extCols) || 0,
+    };
+  }
+
+  function setHave(value) {
+    const days = value?.days && typeof value.days === 'object' ? { ...value.days } : {};
+    synced = { days, customers:typeof value?.customers === 'string' ? value.customers : null };
+  }
+
+  function markSkipped(candidate, reason) {
+    if (candidate.kind === 'day') skippedDays.add(candidate.day);
+    else skippedCustomers = true;
+    console.warn('[OwnerExport] skipped oversized dataset:', reason, candidate.kind, candidate.day || '');
+  }
+
+  async function send(candidate) {
+    const datasetText = JSON.stringify(candidate.dataset);
+    if (datasetText.length > 1500000) {
+      markSkipped(candidate, 'local size limit');
+      return false;
+    }
+    try {
+      const response = await fetch(monitorBaseEndpoint() + '/data', {
+        method:'POST',
+        headers:{ 'Content-Type':'text/plain' },
+        body:JSON.stringify({
+          writeToken:cfg.monitorWriteToken,
+          readToken:cfg.monitorReadToken,
+          shopId:cfg.monitorShopId,
+          kind:candidate.kind,
+          ...(candidate.kind === 'day' ? { day:candidate.day } : {}),
+          hash:candidate.dataset.hash,
+          dataset:candidate.dataset,
+        }),
+      });
+      if (response.status === 200) {
+        if (candidate.kind === 'day') synced.days[candidate.day] = candidate.dataset.hash;
+        else synced.customers = candidate.dataset.hash;
+        return true;
+      }
+      if (response.status === 413) markSkipped(candidate, 'HTTP 413');
+    } catch (_) {
+      // 次周期に再試行する。
+    }
+    return false;
+  }
+
+  async function syncOne() {
+    const ctx = context();
+    const currentDay = String(getLoadedDayKey() || '').replace(/-/g, '');
+    const currentRows = Array.isArray(state.rows) ? state.rows : [];
+    if (currentRows.length && !skippedDays.has(currentDay)) {
+      const dataset = buildOwnerDayDataset(currentRows, currentDay, ctx);
+      if (dataset.hash !== synced.days[currentDay]) return send({ kind:'day', day:currentDay, dataset });
+    }
+
+    if (!skippedCustomers) {
+      const dataset = buildOwnerCustomersDataset(loadCustomers(), ctx);
+      if (dataset.hash !== synced.customers) return send({ kind:'customers', dataset });
+    }
+
+    const loadedBackups = loadBackups();
+    const backups = (Array.isArray(loadedBackups) ? loadedBackups : [])
+      .map(backup => ({
+        source:backup || {},
+        day:String(backup?.dayKey || backup?.day || '').replace(/-/g, ''),
+        rows:Array.isArray(backup?.rows) ? backup.rows : (Array.isArray(backup?.snapshot?.rows) ? backup.snapshot.rows : []),
+      }))
+      .filter(backup => /^\d{8}$/.test(backup.day) && backup.day !== currentDay && backup.rows.length)
+      .sort((a, b) => b.day.localeCompare(a.day));
+    let calculated = 0;
+    for (const backup of backups) {
+      if (skippedDays.has(backup.day)) continue;
+      const savedAt = backup.source.savedAt ?? '';
+      const cached = backupHashCache.get(backup.day);
+      let dataset = null;
+      let hash;
+      if (cached && cached.savedAt === savedAt) {
+        hash = cached.hash;
+      } else {
+        if (calculated >= 10) break;
+        dataset = buildOwnerDayDataset(backup.rows, backup.day, ctx);
+        hash = dataset.hash;
+        backupHashCache.set(backup.day, { savedAt, hash });
+        calculated++;
+      }
+      if (hash !== synced.days[backup.day]) {
+        dataset ||= buildOwnerDayDataset(backup.rows, backup.day, ctx);
+        return send({ kind:'day', day:backup.day, dataset });
+      }
+    }
+    return false;
+  }
+
+  function reset() {
+    synced = { days:{}, customers:null };
+    skippedDays = new Set();
+    skippedCustomers = false;
+    backupHashCache = new Map();
+  }
+
+  return { syncOne, setHave, reset };
 })();
 /* ================================================================
    POS セット入力スピナー画面（オーダー画面のセットカテゴリ）
@@ -18491,9 +18858,9 @@ function _posExtTrial(row, extMin) {
   // 既存ラウンドぶんの延長基本料は calcBill(row).subtotal に全席ぶん込み（_posExtBaseTotal）なので、
   // ここでは増分ラウンドぶんだけを extraTaxable に足す（旧 _posGroupExtBase 加算は二重計上になるため廃止）。
   const extPriceTotal = extPrice * (cfg.extBasePerSeat !== false ? seatCount : 1);
-  // 空場内の繰延上乗せ：これから追加する1ラウンドぶん（既存ラウンドぶんは calcBill(row).subtotal に込み）。
-  // _posExtBaseTotal・_posSeatLineItems と同じ _emptyJonaiPerRound を使い、試算と実額を一致させる。
-  const emptyJonaiExtra = (typeof _emptyJonaiPerRound === 'function') ? _emptyJonaiPerRound(row) : 0;
+  // 空場内の上乗せ：今回の分数に対応する場内延長指名料を使う（既存ラウンドぶんは calcBill(row).subtotal に込み）。
+  // _posExtBaseTotal・_posSeatLineItems と同じ _emptyJonaiForRound を使い、試算と実額を一致させる。
+  const emptyJonaiExtra = (typeof _emptyJonaiForRound === 'function') ? _emptyJonaiForRound(row, idx, seatCount) : 0;
   const t = _posComputeTotals(calcBill(row).subtotal, posOrders(row), extPriceTotal + enchoshimeiExtra + emptyJonaiExtra);
   const advance = (typeof _posAdvancePrincipal === 'function') ? _posAdvancePrincipal(row) : 0;
   const dueCash = Math.max(0, t.cash - advance);
@@ -21584,6 +21951,10 @@ function renderSettingsPanel() {
           <input type="password" class="settings-input" id="cfg-monitorWriteToken" value="${escAttr(cfg.monitorWriteToken || '')}" autocomplete="off" style="width:min(100%,520px)">
         </div>
         </div>
+        <div class="settings-row">
+          <div class="settings-label">店舗ID（オーナーダッシュボード用）<div class="settings-sub">運営者に伝えると、ダッシュボードでこの店舗を見られるようになります</div></div>
+          <code id="monitor-shop-id" style="user-select:all">${escHtml(cfg.monitorShopId || '（初回送信時に自動発行）')}</code>
+        </div>
         <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:8px">
           <div class="settings-label" style="width:100%">閲覧用QRコード</div>
           <div class="monitor-qr-wrap" id="monitor-settings-qr"></div>
@@ -22489,6 +22860,7 @@ async function applySettings() {
     extAutoShimeiFee, extBasePerSeat, extFeePerSeat, doubanAsHonshimeiExt, modoriHonshimeiAgg, modoriEnchoshimeiAgg,
     taxRate, taxRound, discountAfterTax, cardFeeRate, cardFeeRound, tillFloat,
     showCountdown, fullscreenOnBoot, monitorEnabled, monitorEndpoint, monitorWriteToken, monitorReadToken, monitorOpsToken,
+    monitorShopId: cfg.monitorShopId || '',
     posMenu, posCatLayout, posCustomCats, posPrices, shimeiExtItems, drinkItems, shotLabel,
     receiptStoreName1, receiptStoreAddr, receiptStoreTel, receiptInvoiceNo, receiptNote,
     receiptLayout, extTrialLayout, ryoshuOpts, receiptScale, extTrialScale, ryoshuScale,
