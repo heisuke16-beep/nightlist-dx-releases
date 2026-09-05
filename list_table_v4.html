@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.87">
+<meta name="app-version" content="1.0.88">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -8331,6 +8331,41 @@ function addGroup(count) {
   }
   renderTable(); saveState();
 }
+function _setGroupRowCount(firstRow, count) {
+  const gid = firstRow.gid;
+  const grpRows = state.rows.filter(r => r.gid === gid);
+  count = Math.max(1, count | 0);
+
+  while (grpRows.length < count) {
+    const newRow = createRow({
+      gid, slipNo: firstRow.slipNo || 0, gidx: grpRows.length, gcount: count,
+      isFirst: false,
+      startMin: firstRow.startMin,
+      endMin:   firstRow.endMin,
+      tableNum: firstRow.tableNum,
+      rotations:  Array(state.rotCols).fill(''),
+      rotations2: Array(state.rotCols).fill(''),
+      extensions: Array(state.extCols).fill(''),
+      amountMethod: firstRow.amountMethod,
+      amountCash:   firstRow.amountCash,
+      amountCard:   firstRow.amountCard,
+      source:    firstRow.source    || cfg.sources[0]    || '',
+      condition: firstRow.condition || cfg.conditions[0] || '',
+      settled:   firstRow.settled,
+      settledAt: firstRow.settledAt,
+    });
+    const lastGrpIdx = state.rows.lastIndexOf(grpRows[grpRows.length - 1]);
+    state.rows.splice(lastGrpIdx + 1, 0, newRow);
+    grpRows.push(newRow);
+  }
+
+  while (grpRows.length > count) {
+    const lastRow = grpRows.pop();
+    state.rows = state.rows.filter(r => r.id !== lastRow.id);
+  }
+
+  state.rows.filter(r => r.gid === gid).forEach(r => { r.gcount = count; });
+}
 function removeMemberFromGroup(firstRowId) {
   const firstRow = state.rows.find(r => r.id === firstRowId);
   if (!firstRow) return;
@@ -8338,50 +8373,15 @@ function removeMemberFromGroup(firstRowId) {
   const grpRows = state.rows.filter(r => r.gid === gid);
   if (grpRows.length <= 1) { showToast('1人組はこれ以上減らせません'); return; }
   pushUndo();
-  // 最後の1人（gidxが最大）を削除
-  const lastRow = grpRows[grpRows.length - 1];
-  state.rows = state.rows.filter(r => r.id !== lastRow.id);
-  // 残りのgcountを更新
-  const newCount = grpRows.length - 1;
-  state.rows.filter(r => r.gid === gid).forEach(r => { r.gcount = newCount; });
+  _setGroupRowCount(firstRow, grpRows.length - 1);
   renderTable(); saveState();
 }
 function addMemberToGroup(firstRowId) {
   const firstRow = state.rows.find(r => r.id === firstRowId);
   if (!firstRow) return;
   pushUndo();
-
-  const gid       = firstRow.gid;
-  const grpRows   = state.rows.filter(r => r.gid === gid);
-  const newGcount = grpRows.length + 1;
-  const newGidx   = grpRows.length; // 0-based index of new member
-
-  // 新メンバーの開始時刻は組の先頭と同じ（個別変更可能）
-  const newRow = createRow({
-    gid, slipNo: firstRow.slipNo || 0, gidx: newGidx, gcount: newGcount,
-    isFirst: false,
-    startMin: firstRow.startMin,
-    endMin:   firstRow.endMin,
-    tableNum: firstRow.tableNum,
-    rotations:  Array(state.rotCols).fill(''),
-    rotations2: Array(state.rotCols).fill(''),
-    extensions: Array(state.extCols).fill(''),
-    amountMethod: firstRow.amountMethod,
-    amountCash:   firstRow.amountCash,
-    amountCard:   firstRow.amountCard,
-    source:    firstRow.source    || cfg.sources[0]    || '',
-    condition: firstRow.condition || cfg.conditions[0] || '',
-    settled:   firstRow.settled,
-    settledAt: firstRow.settledAt,
-  });
-
-  // 既存の同組メンバー全員のgcountを更新
-  grpRows.forEach(r => { r.gcount = newGcount; });
-
-  // グループの最後の行の直後に挿入
-  const lastGrpIdx = state.rows.lastIndexOf(grpRows[grpRows.length - 1]);
-  state.rows.splice(lastGrpIdx + 1, 0, newRow);
-
+  const grpRows = state.rows.filter(r => r.gid === firstRow.gid);
+  _setGroupRowCount(firstRow, grpRows.length + 1);
   renderTable();
   saveState();
 }
@@ -9845,6 +9845,7 @@ function renderTable() {
   });
 
   state.rows.forEach(row => {
+    const span = state.rows.filter(r => r.gid === row.gid).length;
     const tr   = document.createElement('tr');
     tr.dataset.gid = row.gid;   // グループD&Dのドロップ対象判定用
     const gOrd = groupOrderMap[row.gid];
@@ -9874,7 +9875,7 @@ function renderTable() {
     const guestCell = `<td class="row-num${grpHasExt?' has-ext':''}">${rowGuestMap[row.id]}${linkUi}</td>`;
 
     const groupCell = row.isFirst ? `
-      <td class="group-num${row.isWaiting?' waiting':''}" rowspan="${row.gcount}"
+      <td class="group-num${row.isWaiting?' waiting':''}" rowspan="${span}"
         draggable="true" data-gid="${row.gid}"
         title="ドラッグでこの組の並び順を変更">
         <div class="group-num-layout">
@@ -9959,7 +9960,7 @@ function renderTable() {
         : '';
       rotCells += `<td class="rot-cell${ci===0?' gline':''}"><div class="rot-slot-stack"><select class="${v ? '' : 'is-empty'}" onchange="updateRotation('${row.id}',${ci},this.value)">${castOptions(v)}</select>${second}</div></td>`;
     }
-    rotCells += row.isFirst ? `<td rowspan="${row.gcount}" style="min-width:46px"></td>` : '';
+    rotCells += row.isFirst ? `<td rowspan="${span}" style="min-width:46px"></td>` : '';
 
     let extCells = '';
     for (let ci=0; ci<visExt; ci++) {
@@ -9969,7 +9970,7 @@ function renderTable() {
           : extSelectHtml(row.id, ci, v)
       }</td>`;
     }
-    extCells += row.isFirst ? `<td rowspan="${row.gcount}" style="min-width:46px"></td>` : '';
+    extCells += row.isFirst ? `<td rowspan="${span}" style="min-width:46px"></td>` : '';
 
     let amountCell = '';
     if (row.isFirst) {
@@ -10014,7 +10015,7 @@ function renderTable() {
           </div>`;
         });
       }
-      amountCell = `<td class="amount-cell gline" rowspan="${row.gcount}"><div class="amount-layout"><div class="amount-method">${mBtns}</div>${inputs}</div></td>`;
+      amountCell = `<td class="amount-cell gline" rowspan="${span}"><div class="amount-layout"><div class="amount-method">${mBtns}</div>${inputs}</div></td>`;
     }
 
     const srcOpts = cfg.sources.map(s =>
@@ -10082,16 +10083,16 @@ function renderTable() {
     }
 
     const salesCell = row.isFirst
-      ? `<td class="sales-cell" rowspan="${row.gcount}">${row.settled ? '¥'+(cumulMap[row.id]||0).toLocaleString() : ''}</td>`
+      ? `<td class="sales-cell" rowspan="${span}">${row.settled ? '¥'+(cumulMap[row.id]||0).toLocaleString() : ''}</td>`
       : '';
 
     const settleCell = row.isFirst
       ? (row.settled
-          ? `<td rowspan="${row.gcount}" style="text-align:center;vertical-align:top;padding:4px">
+          ? `<td rowspan="${span}" style="text-align:center;vertical-align:top;padding:4px">
                <span class="settle-btn done">精算済</span>
                <button type="button" class="settle-btn cancel" data-rid="${row.id}" onclick="window._cancelSettle(this)">取消</button>
              </td>`
-          : `<td rowspan="${row.gcount}" style="text-align:center;padding:4px">
+          : `<td rowspan="${span}" style="text-align:center;padding:4px">
                <button type="button" class="settle-btn do" onclick="settle('${row.id}')">精算</button>
              </td>`)
       : '';
@@ -11842,8 +11843,8 @@ function posApplySlipEdit() {
   pushUndo();
   state.rows.filter(r => r.gid === _posSeIdx.gid).forEach(r => {
     if (!r._indivTable) r.tableNum = newTableNum;
-    r.gcount   = cnt;
   });
+  _setGroupRowCount(row, cnt);
   row.source   = source;
   row.posColor = colorObj.hex;
   row.guestName = String(_posSeIdx.guestName || '').trim();
@@ -13211,7 +13212,7 @@ function posAddGuest() {
   const row = posSelectedRow(); if (!row) return;
   const first = state.rows.find(r => r.gid === row.gid && r.isFirst) || row;
   pushUndo();
-  first.gcount = (Number(first.gcount) || 1) + 1;
+  _setGroupRowCount(first, state.rows.filter(r => r.gid === first.gid).length + 1);
   syncVipFeeOrder(first);
   saveState(); renderTable(); renderPOSPanel(); posOpenDepartedModal();
 }
@@ -19988,6 +19989,7 @@ function renderPastTable() {
   }
 
   ps.rows.forEach(row => {
+    const span = ps.rows.filter(r => r.gid === row.gid).length;
     const tr   = document.createElement('tr');
     const gOrd = goMap[row.gid];
     tr.className = 'gc-' + (gOrd % 6) + (gOrd % 2 ? ' grp-alt' : '');
@@ -20030,7 +20032,7 @@ function renderPastTable() {
         : '';
       rotCells += `<td class="rot-cell"><div class="rot-slot-stack"><select class="${v ? '' : 'is-empty'}" onchange="pastUpdateRot('${row.id}',${ci},this.value)">${pCastOpts(v)}</select>${second}</div></td>`;
     }
-    rotCells += row.isFirst ? `<td rowspan="${row.gcount}" style="min-width:46px"></td>` : '';
+    rotCells += row.isFirst ? `<td rowspan="${span}" style="min-width:46px"></td>` : '';
 
     let extCells = '';
     for (let ci = 0; ci < ps.extCols; ci++) {
@@ -20040,7 +20042,7 @@ function renderPastTable() {
           : pExtSel(row.id, ci, v)
       }</td>`;
     }
-    extCells += row.isFirst ? `<td rowspan="${row.gcount}" style="min-width:46px"></td>` : '';
+    extCells += row.isFirst ? `<td rowspan="${span}" style="min-width:46px"></td>` : '';
 
     let amountCell = '';
     if (row.isFirst) {
@@ -20085,7 +20087,7 @@ function renderPastTable() {
           </div>`;
         });
       }
-      amountCell = `<td class="amount-cell" rowspan="${row.gcount}"><div class="amount-method">${mBtns}</div>${inputs}</td>`;
+      amountCell = `<td class="amount-cell" rowspan="${span}"><div class="amount-method">${mBtns}</div>${inputs}</td>`;
     }
 
     const srcOpts = cfg.sources.map(s =>
@@ -20148,20 +20150,20 @@ function renderPastTable() {
     }
 
     const salesCell = row.isFirst
-      ? `<td class="sales-cell" rowspan="${row.gcount}">${row.settled ? '¥'+(cumulMap[row.id]||0).toLocaleString() : ''}</td>`
+      ? `<td class="sales-cell" rowspan="${span}">${row.settled ? '¥'+(cumulMap[row.id]||0).toLocaleString() : ''}</td>`
       : '';
     const settleCell = row.isFirst
       ? (row.settled
-          ? `<td rowspan="${row.gcount}" style="text-align:center;vertical-align:top;padding:4px">
+          ? `<td rowspan="${span}" style="text-align:center;vertical-align:top;padding:4px">
                <span class="settle-btn done">精算済</span>
                <button type="button" class="settle-btn cancel" onclick="pastCancelSettle('${row.id}')">取消</button>
              </td>`
-          : `<td rowspan="${row.gcount}" style="text-align:center;padding:4px">
+          : `<td rowspan="${span}" style="text-align:center;padding:4px">
                <button type="button" class="settle-btn do" onclick="pastSettle('${row.id}')">精算</button>
              </td>`)
       : '';
     const groupCell = row.isFirst
-      ? `<td class="group-num" rowspan="${row.gcount}">${CIRCLE[gOrd]||(gOrd+1)}
+      ? `<td class="group-num" rowspan="${span}">${CIRCLE[gOrd]||(gOrd+1)}
            <button type="button" class="group-del-btn" onclick="pastDeleteGroup('${row.id}')">✕</button>
          </td>`
       : '';
