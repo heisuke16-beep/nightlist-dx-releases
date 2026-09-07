@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.3">
+<meta name="app-version" content="1.1.4">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -6968,6 +6968,7 @@ const CFG_DEFAULTS = {
   extPrices:       [4000, 7000, 11000], // 延長料金（extOptionsと順番対応）
   taxRate:         20,      // 税サービス料率（%）
   taxRound:        100,     // 税サ端数単位（円、切り上げ）
+  specialRateRound: 100,    // 特殊割合: 100円単位切上げ。0は従来の1円未満切捨て
   discountAfterTax: true,   // true: 割引は税サ計算の後に差し引く（税サは割引前の額にかかる）/ false: 割引後に課税
   cardFeeRate:     10,      // カード手数料率（%）
   cardFeeRound:    100,     // カード手数料端数単位（円、切り上げ）
@@ -11464,13 +11465,21 @@ function _posBaseTotals(seatSubtotal, orders, extraTaxable) {
   const cash = ceilAddRate(taxable, cfg.taxRate || 0, taxRound) + incl + postTax;
   return { subtotal, cash };
 }
+function posSpecialRoundUnit() { return cfg.specialRateRound === 0 ? 0 : 100; }
 function posOrderUnitAmount(order, baseTotals) {
   if (order?.category !== 'special') return Number(order?.amount) || 0;
   const value = posSpecialValue(order);
   const mode = posSpecialMode(order);
-  if (mode === 'subtotalRate') return Math.floor((Number(baseTotals?.subtotal) || 0) * value / 100);
-  if (mode === 'totalRate') return Math.floor((Number(baseTotals?.cash) || 0) * value / 100);
-  return value;
+  if (mode === 'fixed') return value;
+  const base = Number(mode === 'subtotalRate' ? baseTotals?.subtotal : baseTotals?.cash) || 0;
+  const amount = base * value / 100;
+  const unit = posSpecialRoundUnit();
+  if (!unit) return Math.floor(amount);
+  const steps = amount / unit;
+  const nearest = Math.round(steps);
+  // 整数境界の浮動小数点誤差だけ除去。微小な正額を0円へ落とさない。
+  const exact = nearest !== 0 && Math.abs(steps - nearest) <= Number.EPSILON * Math.max(1, Math.abs(steps)) * 4;
+  return Math.ceil(exact ? nearest : steps) * unit;
 }
 function posOrderLineAmount(order, baseTotals) {
   return posOrderUnitAmount(order, baseTotals) * (Number(order?.qty) || 1);
@@ -22000,6 +22009,13 @@ function renderSettingsPanel() {
               </label>
             </div>
           </div>
+          <div class="settings-row">
+            <div class="settings-label"><label for="cfg-specialRateRound">特殊割合の端数処理</label><div class="settings-sub">小計・総計の%を1個ごとに処理（例：2,880円→2,900円）。固定金額は対象外です。</div></div>
+            <select class="settings-input" id="cfg-specialRateRound">
+              <option value="100" ${posSpecialRoundUnit() === 100 ? 'selected' : ''}>100円単位で切り上げ</option>
+              <option value="0" ${posSpecialRoundUnit() === 0 ? 'selected' : ''}>従来どおり（1円未満切り捨て）</option>
+            </select>
+          </div>
           <div id="pos-menu-editors">
             ${[
               ['shot',    shotLabel()],
@@ -23121,6 +23137,7 @@ async function applySettings() {
     showCountdown, fullscreenOnBoot, monitorEnabled, monitorEndpoint, monitorWriteToken, monitorReadToken, monitorOpsToken,
     monitorShopId: cfg.monitorShopId || '',
     posMenu, posCatLayout, posCustomCats, posPrices, shimeiExtItems, drinkItems, shotLabel,
+    specialRateRound: get('cfg-specialRateRound') ? (get('cfg-specialRateRound').value === '0' ? 0 : 100) : posSpecialRoundUnit(),
     receiptStoreName1, receiptStoreAddr, receiptStoreTel, receiptInvoiceNo, receiptNote,
     receiptLayout, extTrialLayout, ryoshuOpts, receiptScale, extTrialScale, ryoshuScale,
     extTrialCompareEnabled: document.getElementById('cfg-extTrialCompareEnabled')?.checked ?? (cfg.extTrialCompareEnabled === true),
