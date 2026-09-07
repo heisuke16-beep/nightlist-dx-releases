@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.89">
+<meta name="app-version" content="1.1.1">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -1925,7 +1925,6 @@ tr.gc-5 td:first-child { box-shadow: inset 4px 0 0 rgba(255,150,50,0.75); }
   padding-bottom: 30px !important;
   text-shadow: 0 0 8px var(--goldglow);
 }
-.group-num.waiting { color: #ffa000; }
 .group-num[draggable="true"] { cursor: grab; }
 .group-num[draggable="true"]:active { cursor: grabbing; }
 .grp-drag-grip {
@@ -1942,19 +1941,10 @@ tr.gc-5 td:first-child { box-shadow: inset 4px 0 0 rgba(255,150,50,0.75); }
 .group-num:hover .grp-drag-grip { opacity: 1; color: var(--gold2); }
 tr.grp-drag-over td { box-shadow: inset 0 2px 0 var(--gold) !important; }
 .group-num-circle {
-  cursor: pointer;
   display: inline-block;
   border-radius: 50%;
   padding: 1px 3px;
-  transition: all 0.15s;
   user-select: none;
-}
-.group-num-circle:hover { background: rgba(255,160,0,0.15); }
-.group-num-circle.waiting {
-  color: #ffa000;
-  text-shadow: 0 0 8px rgba(255,160,0,0.6);
-  background: rgba(255,160,0,0.12);
-  border: 1px solid rgba(255,160,0,0.4);
 }
 .group-del-btn {
   position: absolute; bottom: 2px; left: 50%; transform: translateX(-50%);
@@ -2177,26 +2167,6 @@ tr.grp-drag-over td { box-shadow: inset 0 2px 0 var(--gold) !important; }
 .settle-btn.cancel   { background: rgba(201,168,76,0.08); border: 1px solid rgba(201,168,76,0.4); color: var(--gold); }
 .settle-btn.cancel:hover { background: rgba(201,168,76,0.15); }
 
-/* ウェイト */
-.wait-btn {
-  font-size: 9px; padding: 2px 5px; border-radius: 3px; cursor: pointer;
-  font-family: var(--mono); font-weight: 700; letter-spacing: 0.05em;
-  display: inline-block; margin-top: 3px; transition: all 0.18s;
-  background: rgba(255,160,0,0.1); border: 1px solid rgba(255,160,0,0.4); color: #ffa000;
-}
-.wait-btn:hover  { background: rgba(255,160,0,0.22); }
-.wait-btn.on     { background: rgba(255,160,0,0.25); border-color: #ffa000; color: #ffcc40;
-                   box-shadow: 0 0 6px rgba(255,160,0,0.35); }
-/* ウェイト行のハイライト */
-tr.row-waiting td { background: rgba(255,160,0,0.04) !important; }
-tr.row-waiting     { outline: 1px solid rgba(255,160,0,0.25); }
-.wait-badge {
-  display: inline-block; font-size: 8px; font-family: var(--mono); font-weight: 700;
-  background: rgba(255,160,0,0.2); border: 1px solid rgba(255,160,0,0.5);
-  color: #ffa000; border-radius: 3px; padding: 0 4px; vertical-align: middle; margin-left: 3px;
-}
-/* バッジの3番目の数字（ウェイト） */
-.ss-wait { color: #ffa000; font-weight: 900; }
 .ss-dash { color: var(--tx3); margin: 0 1px; }
 
 /* ================================================================
@@ -2383,7 +2353,6 @@ tr.row-waiting     { outline: 1px solid rgba(255,160,0,0.25); }
 }
 .store-status-badge .ss-in { color: var(--green); }
 .store-status-badge .ss-out { color: var(--gold2); }
-.store-status-badge .ss-wait { color: #ffa000; }
 .store-status-badge .ss-sep {
   color: var(--tx3);
   font-size: 11px;
@@ -2872,6 +2841,67 @@ table#customer-table { border-collapse: collapse; width: 100%; min-width: 800px;
   letter-spacing: 0.08em; text-transform: uppercase;
 }
 .settings-section-body { padding: 14px 16px; }
+/* 給与設定: 現在値の一覧と、4分類の編集モーダル */
+.pay-settings-gear { margin-left:auto; min-height:36px; }
+.pay-settings-summary { display:grid; }
+.pay-settings-entry { display:flex; align-items:center; justify-content:space-between; gap:16px; width:100%; padding:15px 4px; border:0; border-bottom:1px solid var(--bdr); background:transparent; color:var(--tx); font-family:var(--font); text-align:left; cursor:pointer; }
+.pay-settings-entry:hover { background:var(--sur3); }
+.pay-settings-entry strong { display:block; font-size:14px; font-weight:700; }
+.pay-settings-entry span span { display:block; margin-top:5px; color:var(--tx2); font-size:12px; line-height:1.6; }
+.pay-settings-edit { flex-shrink:0; font-size:12px; color:var(--tx2); }
+.pay-settings-formula { padding-top:14px; font-size:12px; line-height:1.9; color:var(--tx2); }
+.pay-settings-modal { width:min(900px,calc(100vw - 32px)); max-width:900px; height:min(740px,90vh); max-height:90vh; display:flex; flex-direction:column; overflow:hidden; padding:0; text-align:left; background:var(--sur2); color:var(--tx); font-family:var(--font); }
+.pay-settings-head { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:20px 24px 16px; flex-shrink:0; }
+.pay-settings-head h2 { font-size:19px; line-height:1.4; margin:0; }
+.pay-settings-head p { margin:4px 0 0; color:var(--tx2); font-size:12px; }
+.pay-settings-close { min-width:40px; height:40px; border:1px solid var(--bdr2); border-radius:8px; background:var(--sur3); color:var(--tx); font-size:23px; cursor:pointer; }
+.pay-settings-tabs { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:4px; padding:0 24px; border-bottom:1px solid var(--bdr2); flex-shrink:0; }
+.pay-settings-tabs button { min-height:46px; border:0; border-bottom:3px solid transparent; background:transparent; color:var(--tx2); font:600 13px var(--font); cursor:pointer; }
+.pay-settings-tabs button[aria-selected="true"] { border-bottom-color:var(--gold); color:var(--tx); background:var(--sur3); }
+.pay-settings-body { overflow:auto; flex:1 1 auto; min-height:0; padding:8px 24px 24px; overscroll-behavior:contain; }
+.pay-settings-body [hidden], .pay-settings-error[hidden] { display:none; }
+.pay-settings-body h3 { margin:23px 0 8px; font-size:14px; font-weight:700; }
+.pay-settings-body p { margin:6px 0 10px; color:var(--tx2); font-size:12px; line-height:1.7; }
+.pay-settings-row { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:16px 0; border-bottom:1px solid var(--bdr); font-size:13px; }
+.pay-settings-row > div:first-child { min-width:0; }
+.pay-settings-row label { font-weight:600; }
+.pay-settings-row p { margin:5px 0 0; }
+.pay-settings-inputs { display:flex; align-items:center; justify-content:flex-end; gap:8px; flex-wrap:wrap; flex-shrink:0; font-size:12px; }
+.pay-settings-inputs .settings-input { width:96px; }
+.pay-settings-inputs select.settings-input { width:auto; }
+.pay-settings-modal .settings-input { min-height:38px; box-sizing:border-box; font-size:14px; }
+.pay-settings-modal input[type="number"] { text-align:right; font-variant-numeric:tabular-nums; }
+.pay-settings-choice { display:flex; align-items:center; gap:12px; padding:14px 0; border-bottom:1px solid var(--bdr); cursor:pointer; font-size:14px; }
+.pay-settings-choice input { width:20px; height:20px; accent-color:var(--gold); flex-shrink:0; }
+.pay-settings-choice small { display:block; margin-top:5px; color:var(--tx2); font-size:12px; line-height:1.5; }
+.pay-settings-details { margin-top:18px; font-size:12px; }
+.pay-settings-details > summary { padding:10px 0; color:var(--tx2); cursor:pointer; min-height:24px; line-height:24px; }
+.pay-settings-optional { margin-top:22px; border-top:1px solid var(--bdr2); padding-top:6px; }
+.pay-settings-optional > summary { color:var(--tx); font-size:14px; font-weight:700; }
+.pay-settings-optional > summary span { margin-left:8px; color:var(--tx2); font-size:12px; font-weight:400; }
+.pay-settings-table-wrap { overflow-x:auto; max-width:100%; }
+.pay-settings-table-wrap .pos-me-table { width:100%; min-width:600px; }
+#cfg-payroll-period-deductions-table { min-width:810px; }
+.pay-settings-table-wrap td:first-child { min-width:120px; }
+.pay-settings-modal .pos-me-del { min-height:36px; }
+.pay-settings-add { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:12px; }
+.pay-settings-add button { min-height:38px; }
+.pay-settings-footer { display:flex; align-items:center; justify-content:flex-end; gap:10px; padding:16px 24px; border-top:1px solid var(--bdr2); background:var(--sur3); flex-shrink:0; }
+.pay-settings-footer > span { margin-right:auto; color:var(--tx2); font-size:12px; }
+.pay-settings-footer .btn { min-height:40px; font-size:13px; }
+.pay-settings-error { color:var(--danger,#ef6d6d); padding:10px 24px; font-size:13px; }
+.pay-settings-entry:focus-visible,.pay-settings-modal button:focus-visible,.pay-settings-modal summary:focus-visible,.pay-settings-modal input:focus-visible,.pay-settings-modal select:focus-visible { outline:2px solid var(--gold); outline-offset:2px; }
+@media(max-width:680px) {
+  .pay-settings-modal { width:calc(100vw - 16px); height:94vh; max-height:94vh; }
+  .pay-settings-head { padding:16px; }
+  .pay-settings-tabs { padding:0 8px; gap:0; }
+  .pay-settings-tabs button { font-size:12px; }
+  .pay-settings-body { padding:4px 16px 16px; }
+  .pay-settings-row { align-items:flex-start; flex-direction:column; gap:12px; }
+  .pay-settings-inputs { justify-content:flex-start; flex-shrink:1; }
+  .pay-settings-footer { padding:12px 16px; flex-wrap:wrap; }
+  .pay-settings-footer > span { flex-basis:100%; }
+}
 .receipt-layout-note { margin-bottom:12px; }
 .receipt-layout-editor { display:flex; gap:16px; align-items:flex-start; }
 .receipt-layout-controls { flex:1 1 360px; min-width:0; }
@@ -3981,6 +4011,43 @@ html[data-display="tablet"] #list-table .col-ctrl-btn { min-width: 32px; min-hei
   box-shadow: 0 0 0 2px rgba(232,163,61,.12);
 }
 #pos-panel .pos-active-cast-chip.dragging { opacity: .3; cursor: grabbing; }
+#pos-panel .pos-showtime-chip { border-style: dashed; }
+#pos-panel .pos-showtime-count {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px;
+  min-height: 17px;
+  width: fit-content;
+}
+#pos-panel .pos-showtime-heart {
+  position: relative;
+  display: inline-block;
+  flex: 0 0 18px;
+  width: 18px;
+  height: 17px;
+  filter: drop-shadow(0 1px 1px rgba(0,0,0,.45));
+}
+#pos-panel .pos-showtime-heart svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  shape-rendering: geometricPrecision;
+}
+#pos-panel .pos-showtime-heart-fill { fill: #e45b54; }
+#pos-panel .pos-showtime-heart.is-half .pos-showtime-heart-fill { clip-path: inset(0 50% 0 0); }
+#pos-panel .pos-showtime-heart-outline {
+  fill: rgba(228,91,84,.06);
+  stroke: #f0a09a;
+  stroke-width: 1.8;
+  stroke-linejoin: round;
+}
+#pos-panel .pos-showtime-heart.is-empty .pos-showtime-heart-outline {
+  fill: rgba(255,255,255,.025);
+  stroke: var(--pos-tx2);
+}
 #pos-panel .pos-cast-assign-guide {
   padding: 0 4px 5px;
   color: var(--pos-amber);
@@ -4450,20 +4517,6 @@ html[data-display="tablet"] #list-table .col-ctrl-btn { min-width: 32px; min-hei
   transform: none;
 }
 #list-table .group-num-actions .group-del-btn { position: static; transform: none; }
-#list-table .group-wait-badge {
-  position: absolute;
-  top: 0;
-  right: -12px;
-  padding: 1px 2px;
-  border-radius: 3px;
-  background: #ffa000;
-  color: #211500;
-  font-size: 6px;
-  font-weight: 800;
-  line-height: 1;
-  letter-spacing: 0.02em;
-  pointer-events: none;
-}
 #list-table .remarks-row {
   display: flex;
   flex-wrap: wrap;
@@ -6844,8 +6897,19 @@ function isDrinkItemKey(key, settings) {
   return !!drinkItemByKey(key, settings) || key === 'castS' || key === 'castM' || key === 'castL' || /^drink_/.test(key);
 }
 
+const SHOP_BUSINESS_TYPES = [
+  { value: 'cabaret', label: 'キャバクラ' },
+  { value: 'sexy_cabaret', label: 'セクキャバ' },
+  { value: 'girls_bar', label: 'ガールズバー' },
+];
+function normalizeBusinessType(value) {
+  return SHOP_BUSINESS_TYPES.some(type => type.value === value) ? value : 'cabaret';
+}
+
 const CFG_DEFAULTS = {
   shopName: '',              // 店舗の通称・表示名（ヘッダー/印刷見出し用）
+  businessType: 'cabaret',   // 業態未登録の既存店舗もキャバクラで開始する
+  showtimeScope: 'table',    // セクキャバのショータイム: table=個別卓 / all=在店中の全卓
   timeStartH:   20,          // 営業開始時
   timeEndH:     29,          // 営業終了時（29=翌5時）
   bizDayBoundaryHour: 12,    // 営業日の境界時刻（この時刻より前は前日扱い）
@@ -6926,6 +6990,7 @@ const CFG_DEFAULTS = {
   // --- 印刷レイアウト（2026-08-24） null=未設定（従来出力と同一の既定値を使用） ---
   receiptLayout:      null,
   extTrialLayout:     null,
+  extTrialCompareEnabled: false, // フリー継続／延長指名の比較案内（店舗選択制）
   ryoshuOpts:         null,
   receiptScale:       100,
   extTrialScale:      100,
@@ -6971,7 +7036,7 @@ const CFG_DEFAULTS = {
   payrollSpInBackTotal:          true,  // SP（手入力＋ボトル折半）をバック合計（＝日給）に含める。false=参考表示のみ
   // --- 控除項目（店舗定義。空=控除機能オフ＝日計表の表示は従来どおり） ---
   // key はラベル変更後も不変。mode: fixed=固定額 / rate=日給×率% / manual=都度手入力
-  payrollDeductions:             [],
+  payrollDeductions:             [],  // fixed/rate/manual=店舗計算、boolean=本部計算用○×記録
   payrollHiddenCols:             [],     // 日計表で非表示にする列ID（空=全列表示）
   // --- テーマ既定値（端末別。アプリ起動時に Persist.theme が無ければこれを使う） ---
   defaultTheme:                  'aurum', // 'night' | 'light' | 'summer' | 'aurum'
@@ -6987,6 +7052,8 @@ let _cfgNeedsDrinkItemsMigration = false;
 
 function mergeCfgDefaults(saved) {
   const merged = { ...CFG_DEFAULTS, ...(saved || {}) };
+  merged.businessType = normalizeBusinessType(merged.businessType);
+  merged.showtimeScope = merged.showtimeScope === 'all' ? 'all' : 'table';
   // 旧既定値の28:00だけを30:00へ引き上げ、既存端末にも新しい選択肢を反映する。
   if (Number(merged.clockOutTo) === 1680) merged.clockOutTo = CFG_DEFAULTS.clockOutTo;
   return merged;
@@ -7504,12 +7571,14 @@ function undo() {
   redoStack.push(snapRows());
   Object.assign(state, JSON.parse(undoStack.pop()));
   renderTable(); saveState(); refreshHistoryBtns();
+  if (typeof posRefreshShowtimeCounts === 'function') posRefreshShowtimeCounts();
 }
 function redo() {
   if (!redoStack.length) return;
   undoStack.push(snapRows());
   Object.assign(state, JSON.parse(redoStack.pop()));
   renderTable(); saveState(); refreshHistoryBtns();
+  if (typeof posRefreshShowtimeCounts === 'function') posRefreshShowtimeCounts();
 }
 function refreshHistoryBtns() {
   const u = document.getElementById('undo-btn');
@@ -8208,9 +8277,9 @@ function ROW_DEFAULTS() {
     cardEntries: [],   // 複数カード入力 [{label:'', amount:''}]
     advances: [],      // 前金 [{ id, amount, method, fee, feeCut, at }]
     posOrders: [],     // POS β オーダー [{name, amount, qty, category}]
+    showtimeCount: 0,  // 卓ビューのショータイム回数（伝票先頭行で保持）
     guestName: '', source: '', condition: '',
     settled: false, settledAt: 0,
-    isWaiting: false,           // ウェイト中（席待ち）フラグ
     linkedParentId: null,
     storeIn: '', storeOut: '',  // 店内状況 例: storeIn=3, storeOut=5 → 3+5
   };
@@ -8441,7 +8510,6 @@ async function deleteGroup(firstRowId) {
 /* state.rows を gid 単位でグループ化し、開始時刻昇順に並べ替えてフラット化する。
    ・グループ内の行のまとまり（先頭行→子行）はそのまま保つ。
    ・ソートキーは「先頭行の startMin」。
-   ・ウェイト中グループ（先頭行 isWaiting）は startMin が未確定のため末尾にまとめる。
    ・同一キーは元の出現順を維持（安定ソート）。 */
 function sortRowsByStartTime() {
   // gid 出現順にグループ化（先頭行・子行の連続性を保持）
@@ -8455,12 +8523,9 @@ function sortRowsByStartTime() {
   groups.forEach((g, i) => {
     const first = g.rows.find(r => r.isFirst) || g.rows[0];
     g._orig = i;                         // 安定ソート用の元順
-    g._waiting = !!(first && first.isWaiting);
     g._start = (first && typeof first.startMin === 'number') ? first.startMin : 0;
   });
   groups.sort((a, b) => {
-    // ウェイト中は常に末尾へ
-    if (a._waiting !== b._waiting) return a._waiting ? 1 : -1;
     if (a._start !== b._start) return a._start - b._start;
     return a._orig - b._orig;            // 同キーは元順維持
   });
@@ -8823,27 +8888,6 @@ function clearExt(id, ci) { updateExtension(id, ci, ''); }
 
 /* 戻りボタンは廃止。出戻りは mainType の `modori_*` で表現する（21-render-table.js の TYPE_OPTS）。 */
 
-/* ウェイト（席待ち）トグル */
-function toggleWait(id) {
-  const row = state.rows.find(r => r.id === id);
-  if (!row || !row.isFirst) return;
-  const wasWaiting = row.isWaiting;
-  row.isWaiting = !row.isWaiting;
-  // ウェイト解除（入店）→ グループ全員に現在時刻で開始・終了を自動セット
-  if (wasWaiting && !row.isWaiting) {
-    const nowMin = getNowMin();
-    state.rows.filter(r => r.gid === row.gid).forEach(r => {
-      r.startMin = nowMin;
-      r.endMin   = calcEndMin(r);
-    });
-  }
-  saveState();
-  renderTable();          // 行の色 + WAITボタン表示 + バッジ更新
-  updateStoreStatusBadge();
-  showToast(row.isWaiting
-    ? `${row.guestName || '組'} をウェイト（席待ち）に設定しました`
-    : `${row.guestName || '組'} のウェイトを解除しました（入店）`);
-}
 function addSubCast(id) {
   const row = state.rows.find(r => r.id === id);
   if (!row) return;
@@ -9187,14 +9231,7 @@ function setCastDefault(field, value){
   state.castDefaults[field] = (value === '' ? '' : (Number(value) || 0));
   saveState();
 }
-/* 給与計算ルール（丸め単位・遅刻罰金・SP参考率）の入力欄そのものは
-   設定タブ「👥 キャスト・給与 → 💴 給与計算ルール」へ統合した（2026-07-25）。
-   保存方式は移設前と同じ cfg直書き＋即saveState のまま（設定タブの dirty-flag 方式は使わない）。 */
-function setPayrollCfgNum(key, value, fallback) {
-  const v = (value === '' || value == null) ? null : Number(value);
-  cfg[key] = (v == null || isNaN(v)) ? fallback : v;
-  saveState();
-}
+/* 給与計算ルールは専用モーダルで下書きし、saveCfgで保存する。 */
 
 /* キャスト一覧のボタン1つ分（No.＋名前のみ。仕様B・2026-08-20オーナー差し戻し）:
    仕様A（カード＋実効時給常時表示）は「金銭情報を一覧に出したくない」で撤回。
@@ -9298,7 +9335,8 @@ function _payslipPreviewHtml(data, period) {
       + '本</td><td class="num">' + _payslipYen(data.backAmounts[key] || 0) + '</td></tr>'
   ).join('');
   const deductionRows = data.deductions.map(item =>
-    '<tr><td>' + _payslipEsc(item.label || item.key) + '</td><td class="num">' + _payslipYen(item.amount) + '</td></tr>'
+    '<tr><td>' + _payslipEsc(item.label || item.key) + '</td><td class="num">'
+      + (item.mode === 'boolean' ? ((Number(item.checkedCount) || 0) > 0 ? '○ ' + Number(item.checkedCount) + '日' : '×') : _payslipYen(item.amount)) + '</td></tr>'
   ).join('');
   const periodDeductionRows = (data.periodDeductions?.list || []).map(item => {
     const notes = [];
@@ -9866,10 +9904,8 @@ function renderTable() {
     const tr   = document.createElement('tr');
     tr.dataset.gid = row.gid;   // グループD&Dのドロップ対象判定用
     const gOrd = groupOrderMap[row.gid];
-    // ウェイト中グループの判定（先頭行のisWaitingを参照）
-    const grpIsWaiting = state.rows.find(r => r.gid === row.gid && r.isFirst)?.isWaiting;
     // grp-alt: 1組おきの縞。行番号ベースだと組の途中で色が変わるため組順で塗る（2026-07-20）
-    tr.className = 'gc-' + (gOrd % 6) + (gOrd % 2 ? ' grp-alt' : '') + (grpIsWaiting ? ' row-waiting' : '');
+    tr.className = 'gc-' + (gOrd % 6) + (gOrd % 2 ? ' grp-alt' : '');
     // 精算済みグループは data-settled 付与（非表示トグル用）
     const grpSettled = state.rows.find(r => r.gid === row.gid && r.isFirst)?.settled;
     if (grpSettled) tr.dataset.settled = '1';
@@ -9892,18 +9928,15 @@ function renderTable() {
     const guestCell = `<td class="row-num${grpHasExt?' has-ext':''}">${rowGuestMap[row.id]}${linkUi}</td>`;
 
     const groupCell = row.isFirst ? `
-      <td class="group-num${row.isWaiting?' waiting':''}" rowspan="${span}"
+      <td class="group-num" rowspan="${span}"
         draggable="true" data-gid="${row.gid}"
         title="ドラッグでこの組の並び順を変更">
         <div class="group-num-layout">
           <div class="group-num-main">
             <span class="grp-drag-grip" title="ドラッグして並び替え">⠿</span>
-            <span class="group-num-circle${row.isWaiting?' waiting':''}"
-              onclick="toggleWait('${row.id}')"
-              title="${row.isWaiting?'クリックでウェイト解除（入店）':'クリックでウェイト（席待ち）に設定'}">
+            <span class="group-num-circle">
               ${CIRCLE[gOrd]||(gOrd+1)}
             </span>
-            ${row.isWaiting ? '<span class="group-wait-badge">WAIT</span>' : ''}
           </div>
           <div class="group-member-btns group-num-actions">
             <button type="button" class="group-rem-btn" onclick="removeMemberFromGroup('${row.id}')" title="この組から1人削除">－</button>
@@ -9921,23 +9954,17 @@ function renderTable() {
     const hasDiffTime = !row.isFirst && grpFirstRow && (row.startMin !== grpFirstRow.startMin || row.endMin !== grpFirstRow.endMin);
     const showStartSel = row.isFirst || hasDiffTime || row._indivTime;
 
-    // ウェイト中は時刻を非表示（—）にする
-    const waitDash = `<td class="time-col"><span style="color:var(--tx3);font-size:13px">—</span></td>`;
-    const startCell = grpIsWaiting
-      ? waitDash
-      : (showStartSel
-          ? `<td class="time-col"><select class="time-sel" onchange="updateRowIndivTime('${row.id}','startMin',parseInt(this.value))">${buildTimeOptions(row.startMin)}</select></td>`
-          : `<td class="time-col"><span class="vline" style="cursor:pointer;color:var(--bdr3)" title="クリックで個別時刻を設定" onclick="enableIndivTime('${row.id}')">│</span></td>`);
+    const startCell = showStartSel
+      ? `<td class="time-col"><select class="time-sel" onchange="updateRowIndivTime('${row.id}','startMin',parseInt(this.value))">${buildTimeOptions(row.startMin)}</select></td>`
+      : `<td class="time-col"><span class="vline" style="cursor:pointer;color:var(--bdr3)" title="クリックで個別時刻を設定" onclick="enableIndivTime('${row.id}')">│</span></td>`;
     // 終了時刻：先頭行 or 延長あり or 同伴組の非同伴メンバー or 個別時刻 → セレクト表示（手動変更可）
     const showEndSel = row.isFirst || hasExt || (!row.isFirst && grpHasDouban) || hasDiffTime || row._indivTime;
     const cdSpan = (row.isFirst && !row.settled && cfg.showCountdown)
       ? `<span class="countdown-badge" id="cd_${row.id}"></span>`
       : '';
-    const endCell = grpIsWaiting
-      ? waitDash
-      : (showEndSel
-          ? `<td class="time-col"><select class="time-sel" style="${endStyle}" onchange="updateRowIndivTime('${row.id}','endMin',parseInt(this.value))">${buildTimeOptions(row.endMin)}</select>${cdSpan}</td>`
-          : `<td class="time-col"><span class="vline">│</span></td>`);
+    const endCell = showEndSel
+      ? `<td class="time-col"><select class="time-sel" style="${endStyle}" onchange="updateRowIndivTime('${row.id}','endMin',parseInt(this.value))">${buildTimeOptions(row.endMin)}</select>${cdSpan}</td>`
+      : `<td class="time-col"><span class="vline">│</span></td>`;
 
     // 種別の選択肢は MAIN_TYPES（01-constants.js）に集約。出戻り3種を末尾に並べる。
     const TYPE_OPTS = Object.entries(MAIN_TYPES).map(([k, v]) => [k, v.label]);
@@ -10195,12 +10222,9 @@ function updateSummary() {
 function updateStoreStatusBadge() {
   const badge = document.getElementById('store-status-badge');
   if (!badge) return;
-  const { inCount, outCount, waitCount } = calcStoreStatus();
-  const waitPart = waitCount > 0
-    ? `<span class="ss-sep">・</span><span class="ss-item ss-item-wait"><span class="ss-badge-label">ウェイト</span><span class="ss-wait ss-badge-value">${waitCount}</span></span>`
-    : '';
+  const { inCount, outCount } = calcStoreStatus();
   const outZeroClass = outCount === 0 ? ' is-zero' : '';
-  badge.innerHTML = `<span class="ss-icon" aria-hidden="true">👥</span><span class="ss-item ss-item-in"><span class="ss-badge-label">在卓</span><span class="ss-in ss-badge-value">${inCount}</span></span><span class="ss-sep">・</span><span class="ss-item ss-item-out${outZeroClass}"><span class="ss-badge-label">待機</span><span class="ss-out ss-badge-value">${outCount}</span></span>${waitPart}`;
+  badge.innerHTML = `<span class="ss-icon" aria-hidden="true">👥</span><span class="ss-item ss-item-in"><span class="ss-badge-label">在卓</span><span class="ss-in ss-badge-value">${inCount}</span></span><span class="ss-sep">・</span><span class="ss-item ss-item-out${outZeroClass}"><span class="ss-badge-label">待機</span><span class="ss-out ss-badge-value">${outCount}</span></span>`;
 }
 
 /* ================================================================
@@ -11106,13 +11130,9 @@ function ttUpdateClockIn(castName, timeStr) {
 ================================================================ */
 
 function calcStoreStatus() {
-  // 在卓 = 未精算かつウェイト中でないグループの行数（席に座っている人数）
-  // settled・isWaiting は isFirst 行にしか付かないため、gid で判定する
+  // settled は isFirst 行にしか付かないため、gid で判定する
   const settledGids  = new Set(state.rows.filter(r => r.isFirst && r.settled).map(r => r.gid));
-  const waitingGids  = new Set(state.rows.filter(r => r.isFirst && r.isWaiting && !r.settled).map(r => r.gid));
-  const unsettledRows = state.rows.filter(r => !settledGids.has(r.gid) && !waitingGids.has(r.gid));
-  // ウェイト人数（席待ち中の人数。バッジに -N で別表示）
-  const waitCount = state.rows.filter(r => waitingGids.has(r.gid)).length;
+  const unsettledRows = state.rows.filter(r => !settledGids.has(r.gid));
 
   // 詳細表示用：各行の「現在接客中キャスト」= ローテーション列の最後の非空エントリ
   // ロテが未入力の場合はmainCastにフォールバック
@@ -11148,22 +11168,19 @@ function calcStoreStatus() {
   // 待機中 = 実質出勤済キャスト数 - 在卓キャスト数 - 同伴中数
   const freeCount = Math.max(0, effectiveActiveCasts.length - inCastList.length - doubanCasts.length);
 
-  return { inCount, outCount: freeCount, waitCount, inCastList, doubanCasts, activeCasts: effectiveActiveCasts };
+  return { inCount, outCount: freeCount, inCastList, doubanCasts, activeCasts: effectiveActiveCasts };
 }
 
 function openStoreStatusDetail(event) {
   const old = document.getElementById('ss-popover');
   if (old) { old.remove(); return; }
 
-  const { inCount, outCount, waitCount, inCastList, doubanCasts, activeCasts } = calcStoreStatus();
+  const { inCount, outCount, inCastList, doubanCasts, activeCasts } = calcStoreStatus();
   const total = activeCasts.length;
 
   const inCastSet  = new Set(inCastList);
   const doubanSet  = new Set(doubanCasts);
   const freeCasts  = activeCasts.filter(c => !inCastSet.has(c) && !doubanSet.has(c));
-  // ウェイト中の組情報（名前がある場合は表示）
-  const waitingRows = state.rows.filter(r => r.isFirst && r.isWaiting && !r.settled);
-
   const mkList = arr => arr.length
     ? arr.map(c => `<span style="display:inline-block;background:var(--sur3);border:1px solid var(--bdr2);border-radius:3px;padding:1px 6px;font-size:10px;margin:1px">${escHtml(c)}</span>`).join(' ')
     : `<span style="color:var(--tx3);font-size:10px">—</span>`;
@@ -11177,13 +11194,6 @@ function openStoreStatusDetail(event) {
   pop.style.top  = (rect.bottom + 6) + 'px';
   pop.style.left = popLeft + 'px';
 
-  const waitSection = waitCount > 0 ? `
-    <div style="font-size:10px;color:#ffa000;margin-bottom:4px;margin-top:8px">⏳ ウェイト（席待ち ${waitCount}人）</div>
-    <div style="line-height:1.8">${waitingRows.map(r =>
-      `<span style="display:inline-block;background:rgba(255,160,0,0.12);border:1px solid rgba(255,160,0,0.4);border-radius:3px;padding:1px 6px;font-size:10px;margin:1px;color:#ffa000">
-        ${escHtml(r.guestName || `${r.gcount}名組`)}
-      </span>`).join(' ')}</div>` : '';
-
   pop.innerHTML = `
     <div class="ss-popover-title">🎭 現在の店内状況</div>
     <div style="display:flex;gap:10px;margin-bottom:8px">
@@ -11195,11 +11205,6 @@ function openStoreStatusDetail(event) {
         <div style="font-size:20px;font-weight:900;color:var(--gold2);font-family:var(--mono)">${outCount}</div>
         <div style="font-size:9px;color:var(--tx3);margin-top:1px">待機中</div>
       </div>
-      ${waitCount > 0 ? `
-      <div style="flex:1;text-align:center;background:rgba(255,160,0,0.08);border:1px solid rgba(255,160,0,0.4);border-radius:6px;padding:6px 4px">
-        <div style="font-size:20px;font-weight:900;color:#ffa000;font-family:var(--mono)">${waitCount}</div>
-        <div style="font-size:9px;color:var(--tx3);margin-top:1px">ウェイト</div>
-      </div>` : ''}
       ${doubanCasts.length ? `
       <div style="flex:1;text-align:center;background:rgba(232,112,160,0.08);border:1px solid rgba(232,112,160,0.3);border-radius:6px;padding:6px 4px">
         <div style="font-size:20px;font-weight:900;color:var(--pink);font-family:var(--mono)">${doubanCasts.length}</div>
@@ -11209,11 +11214,10 @@ function openStoreStatusDetail(event) {
     <div style="font-size:10px;color:var(--tx3);margin-bottom:4px">在卓（${inCount}人 / 接客中キャスト）</div>
     <div style="margin-bottom:8px;line-height:1.8">${mkList(inCastList.length ? inCastList : [])}</div>
     <div style="font-size:10px;color:var(--tx3);margin-bottom:4px">待機中（${outCount}人）</div>
-    <div style="margin-bottom:${doubanCasts.length||waitCount?'8px':'0'};line-height:1.8">${mkList(freeCasts)}</div>
+    <div style="margin-bottom:${doubanCasts.length?'8px':'0'};line-height:1.8">${mkList(freeCasts)}</div>
     ${doubanCasts.length ? `
     <div style="font-size:10px;color:var(--tx3);margin-bottom:4px">同伴中（${doubanCasts.length}人）</div>
     <div style="line-height:1.8">${mkList(doubanCasts)}</div>` : ''}
-    ${waitSection}
     <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--bdr);font-size:10px;color:var(--tx3);text-align:right">
       出勤合計 <b style="color:var(--tx)">${total}</b> 人
     </div>`;
@@ -11339,7 +11343,8 @@ function resolvePosCatLayout(settings) {
   });
   return resolved;
 }
-let posBetaState = { selectedGid: null, category: 'set', sort: 'reg', viewMode: 'slip', slipView: 'floor', assignCast: null };
+let posBetaState = { selectedGid: null, category: 'set', sort: 'reg', viewMode: 'slip', slipView: 'floor', assignCast: null, assignShowtime: false };
+const POS_SHOWTIME_DRAG_TYPE = 'application/x-nightlist-showtime';
 
 function posMoney(n) { return (Number(n)||0).toLocaleString('ja-JP'); }
 function posFirstRows() { return state.rows.filter(r => r.isFirst && !r.settled).sort((a,b) => (a.gid||0) - (b.gid||0)); }
@@ -12032,12 +12037,6 @@ function _posSlipTimerText(row) {
   return { text: String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0'), cls };
 }
 
-/* 席待ちとタイマー停止は別状態のまま、フロア／オーダー表示だけウェイト表示を揃える。 */
-function _posDisplayTimerText(row) {
-  if (row && row.isWaiting === true) return { text: 'ウェイト中', cls: 'waiting' };
-  return _posSlipTimerText(row);
-}
-
 function _posFloorStatus(timer) {
   if (!timer || !timer.text) return 'none';
   if (timer.cls === 'waiting') return 'wait';
@@ -12067,7 +12066,7 @@ function _posFloorTimerHtml(timer) {
 
 function _posOrderTimerHtml(timer) {
   if (!timer || !timer.text) return '';
-  if (timer.cls === 'waiting') return '<small>ウェイト中</small><b>▶ スタート</b>';
+  if (timer.cls === 'waiting') return '<small>待機中</small><b>▶ スタート</b>';
   if (/^OVER/.test(timer.text)) return '<small>超過</small><b>' + escHtml(timer.text.replace(/^OVER\s*/, '')) + '</b>';
   return '<small>残り</small><b>' + escHtml(timer.text) + '</b>';
 }
@@ -12132,7 +12131,7 @@ function _posTimerTick() {
     const gid = parseInt(card.dataset.gid, 10);
     const row = state.rows.find(r => r.gid === gid && r.isFirst);
     if (!row) return;
-    const t = _posDisplayTimerText(row);
+    const t = _posSlipTimerText(row);
     const status = _posFloorStatus(t);
     card.classList.remove('status-none', 'status-ok', 'status-warn', 'status-over', 'status-wait');
     card.classList.add('status-' + status);
@@ -12140,8 +12139,7 @@ function _posTimerTick() {
     if (badge) {
       badge.className = 'pos-floor-timer status-' + status;
       badge.innerHTML = _posFloorTimerHtml(t);
-      if (row.isWaiting === true) badge.setAttribute('onclick', 'event.stopPropagation();posStartFromWait(' + row.gid + ')');
-      else badge.removeAttribute('onclick');
+      badge.removeAttribute('onclick');
     }
   });
   root.querySelectorAll('[data-pos-elapsed-gid]').forEach(el => {
@@ -12162,11 +12160,11 @@ function _posTimerTick() {
     const gid = parseInt(el.dataset.gid, 10);
     const row = state.rows.find(r => r.gid === gid && r.isFirst);
     if (!row) return;
-    const t = _posDisplayTimerText(row);
+    const t = _posSlipTimerText(row);
     const status = _posFloorStatus(t);
     el.className = 'pos-order-slip-remain status-' + status;
     el.disabled = false;
-    el.setAttribute('onclick', row.isWaiting === true ? 'posStartFromWait(' + row.gid + ')' : 'posToggleWait()');
+    el.setAttribute('onclick', 'posToggleWait()');
     el.innerHTML = _posOrderTimerHtml(t);
   });
 }
@@ -12182,7 +12180,6 @@ function _posStopTimer() {
 /* 待機モード切替 */
 function posToggleWait() {
   const row = posSelectedRow(); if (!row) return;
-  if (row.isWaiting === true) return;
   pushUndo();
   if (row.posWaitStart) {
     row.posTotalWaitMs = (row.posTotalWaitMs || 0) + (Date.now() - row.posWaitStart);
@@ -12191,31 +12188,6 @@ function posToggleWait() {
     row.posWaitStart = Date.now();
   }
   saveState();
-  renderPOSPanel();
-}
-
-async function posStartFromWait(gid) {
-  const row = state.rows.find(r => String(r.gid) === String(gid) && r.isFirst);
-  if (!row || row.isWaiting !== true) return;
-  if (!(await appConfirm('ウェイトを解除して開始しますか？'))) return;
-
-  const startMin = getNowMin();
-  const setOrders = posOrders(row).filter(o => o.category === 'set');
-  toggleWait(row.id);
-
-  if (setOrders.length) {
-    let nextStartMin = startMin;
-    setOrders.forEach(order => {
-      const hasRange = Number.isFinite(order.startMin) && Number.isFinite(order.endMin);
-      const duration = hasRange ? order.endMin - order.startMin : (cfg.defStay || 40);
-      order.startMin = nextStartMin;
-      order.endMin = nextStartMin + duration;
-      nextStartMin = order.endMin;
-    });
-    row.startMin = startMin;
-    row.endMin = nextStartMin;
-    saveState();
-  }
   renderPOSPanel();
 }
 
@@ -12313,7 +12285,7 @@ function _posSlipCard(r, isSelected, totalCount, mode, padRows) {
   const bgColor = r.posColor || '#fdfcf8';
   // 第4弾N: タップで選択のみ(posSlipSelect)ではなく、選択＋オーダー画面へ遷移(posOpenSlipOrder)
   // まで行う（両モード共通・オーナー指示2026-08-16）。カード内タイマー(_posSlipTimerBlock)は
-  // event.stopPropagation()済みのため、ウェイト切替タップがオーダー遷移に化けることはない
+  // event.stopPropagation()済みのため、タイマー待機切替タップがオーダー遷移に化けることはない
   const onClickAttr = isReport ? '' : ' onclick="posOpenSlipOrder(' + r.gid + ')"';
   // タブレットモード用の状態クラス: 非選択=compact（明細を畳んで正方形寄りに）/ 選択=selected。
   // タップすると選択されると同時にオーダー画面へ遷移するため、compactのまま留まって
@@ -12351,9 +12323,9 @@ function _posSlipCard(r, isSelected, totalCount, mode, padRows) {
     + '</div>';
 }
 
-/* 伝票ビューの並び順用: 残り秒（負=OVER）。タイマーを出さない伝票（ウェイト中・SET未追加等）は null */
+/* 伝票ビューの並び順用: 残り秒（負=OVER）。タイマーを出さない伝票（待機中・SET未追加等）は null */
 function _posSlipRemainSec(row) {
-  if (!row || row.isWaiting === true || row.posWaitStart) return null;
+  if (!row || row.posWaitStart) return null;
   if (typeof row.endMin !== 'number') return null;
   const hasSet = Array.isArray(row.posOrders) && row.posOrders.some(o => o.category === 'set');
   if (row.posManaged && !hasSet) return null;
@@ -12391,7 +12363,7 @@ function _posOrderSlipPanel(r) {
     ? escHtml(tableMatch[1]) + '<small>卓</small>'
     : escHtml(tableDisplay);
   const source = r.source || '-';
-  const timer = _posDisplayTimerText(r);
+  const timer = _posSlipTimerText(r);
   const status = _posFloorStatus(timer);
   const setOrders = orders.filter(o => o.category === 'set');
   const otherOrders = orders.filter(o => o.category !== 'set');
@@ -12444,7 +12416,7 @@ function _posOrderSlipPanel(r) {
     + '<div class="pos-order-slip-headrow"><span class="pos-order-slip-table">' + tableHTML + '</span>'
     + '<button type="button" class="pos-order-slip-people" onclick="posOpenDepartedModal()" aria-label="人数を調整"><small>人数 ±</small><b>' + escHtml(String(r.gcount || 1)) + '名</b></button>'
     + '<span class="pos-order-slip-elapsed"><small>経過</small><b data-pos-elapsed-gid="' + r.gid + '">' + _posElapsedText(r) + '</b></span>'
-    + (timer.text ? '<button class="pos-order-slip-remain status-' + status + '" data-gid="' + r.gid + '" onclick="' + (r.isWaiting === true ? 'posStartFromWait(' + r.gid + ')' : 'posToggleWait()') + '">' + _posOrderTimerHtml(timer) + '</button>' : '')
+    + (timer.text ? '<button class="pos-order-slip-remain status-' + status + '" data-gid="' + r.gid + '" onclick="posToggleWait()">' + _posOrderTimerHtml(timer) + '</button>' : '')
     + '</div>'
     + '<div class="pos-order-slip-meta"><span>来店 ' + escHtml(source) + '</span></div>'
     + '<div class="pos-order-slip-casts">' + casts + '</div>'
@@ -12573,7 +12545,6 @@ function _posFloorTotal(row) {
 function _posCastFloorTables(castName) {
   const tables = [];
   posFirstRows().forEach(first => {
-    if (first.isWaiting === true) return;
     const isAssigned = state.rows.some(groupRow => {
       if (String(groupRow.gid) !== String(first.gid)) return false;
       if (groupRow.mainCast === castName) return true;
@@ -12592,7 +12563,6 @@ function _posCastDesignationTables(castName) {
   const nominationTypes = ['honshimei', 'douban', 'modori_honshimei', 'jounai', 'enchoshimei', 'modori_enchoshimei'];
   const tables = [];
   posFirstRows().forEach(first => {
-    if (first.isWaiting === true) return;
     const isNominated = state.rows.some(groupRow => {
       if (String(groupRow.gid) !== String(first.gid)) return false;
       if (groupRow.mainCast === castName && nominationTypes.includes(groupRow.mainType)) return true;
@@ -12613,10 +12583,89 @@ function _posCastDesignationTables(castName) {
   });
 }
 
+function _posShowtimeEnabled() { return cfg.businessType === 'sexy_cabaret'; }
+function _posShowtimeCount(row) {
+  const count = Number(row?.showtimeCount);
+  return Number.isSafeInteger(count) && count >= 0 ? count : 0;
+}
+const POS_SHOWTIME_HEART_PATH = 'M12 21C10.8 19.7 3 14.7 3 8.4C3 5.1 5.5 3 8.4 3C10.1 3 11.3 3.8 12 5C12.7 3.8 13.9 3 15.6 3C18.5 3 21 5.1 21 8.4C21 14.7 13.2 19.7 12 21Z';
+function _posShowtimeHeartsHtml(countValue) {
+  const count = _posShowtimeCount({ showtimeCount:countValue });
+  const heartCount = Math.max(1, Math.ceil(count / 2));
+  return Array.from({ length:heartCount }, (_, index) => {
+    const remainder = count - index * 2;
+    const fill = remainder >= 2 ? 'full' : remainder === 1 ? 'half' : 'empty';
+    return '<span class="pos-showtime-heart is-' + fill + '" aria-hidden="true">'
+      + (fill === 'empty' ? '' : '<svg class="pos-showtime-heart-fill" viewBox="0 0 24 24" focusable="false"><path d="' + POS_SHOWTIME_HEART_PATH + '"></path></svg>')
+      + '<svg class="pos-showtime-heart-outline" viewBox="0 0 24 24" focusable="false"><path d="' + POS_SHOWTIME_HEART_PATH + '"></path></svg>'
+      + '</span>';
+  }).join('');
+}
+function _posShowtimeCountHtml(row) {
+  const count = _posShowtimeCount(row);
+  const label = 'ショータイム ' + count + '回';
+  return '<span class="pos-showtime-count" data-pos-showtime-gid="' + row.gid + '" data-showtime-count="' + count + '"'
+    + ' role="img" aria-label="' + escAttr(label) + '" title="' + escAttr(label) + '">'
+    + _posShowtimeHeartsHtml(count) + '</span>';
+}
+function _posShowtimeTargets(gid) {
+  const active = posFirstRows().filter(row => String(row.tableNum ?? '').trim() !== '');
+  const target = active.find(row => String(row.gid) === String(gid));
+  if (!target) return [];
+  return cfg.showtimeScope === 'all' ? active : [target];
+}
+function posAddShowtime(gid) {
+  if (!_posShowtimeEnabled()) return false;
+  const targets = _posShowtimeTargets(gid);
+  if (!targets.length) {
+    showToast('ショータイムは在店中の卓に追加できます');
+    return false;
+  }
+  // 全卓への一括加算も、1回の「元に戻す」でまとめて戻す。
+  pushUndo();
+  targets.forEach(row => { row.showtimeCount = Math.min(Number.MAX_SAFE_INTEGER, _posShowtimeCount(row) + 1); });
+  posBetaState.assignShowtime = false;
+  posBetaState.assignCast = null;
+  saveState();
+  renderPOSPanel();
+  const targetLabel = cfg.showtimeScope === 'all'
+    ? '在店中の全卓' : posTableDisplay(posTableLabel(targets[0].tableNum));
+  showToast('ショータイム：' + targetLabel + 'に＋1（取り消しは「元に戻す」）');
+  return true;
+}
+function posSelectShowtime() {
+  if (!_posShowtimeEnabled()) return;
+  posBetaState.assignCast = null;
+  posBetaState.assignShowtime = !posBetaState.assignShowtime;
+  renderPOSPanel();
+}
+function posShowtimeDragStart(event) {
+  if (!_posShowtimeEnabled()) { event.preventDefault(); return; }
+  posBetaState.assignCast = null;
+  posBetaState.assignShowtime = false;
+  event.dataTransfer.effectAllowed = 'copy';
+  event.dataTransfer.setData(POS_SHOWTIME_DRAG_TYPE, '1');
+  event.dataTransfer.setData('text/plain', 'ショータイム');
+  event.currentTarget.classList.add('dragging');
+}
+function posRefreshShowtimeCounts() {
+  document.querySelectorAll('[data-pos-showtime-gid]').forEach(el => {
+    const row = state.rows.find(row => row.isFirst && String(row.gid) === el.dataset.posShowtimeGid);
+    const count = _posShowtimeCount(row);
+    const label = 'ショータイム ' + count + '回';
+    el.dataset.showtimeCount = String(count);
+    el.innerHTML = _posShowtimeHeartsHtml(count);
+    el.title = label;
+    el.setAttribute('aria-label', label);
+  });
+}
+
 function _posActiveCastRail() {
-  // レールは「実際に出勤中」のみ表示（posActiveCastListの名簿フォールバックを使わない。出勤0人ならレール非表示）
+  // キャストは実際の出勤者のみ。出勤0人でもセクキャバではショータイムを表示する。
   const casts = (Array.isArray(state.activeCasts) ? state.activeCasts : []).filter(Boolean);
-  if (!casts.length) {
+  const showtimeEnabled = _posShowtimeEnabled();
+  if (!showtimeEnabled) posBetaState.assignShowtime = false;
+  if (!casts.length && !showtimeEnabled) {
     posBetaState.assignCast = null;
     return '';
   }
@@ -12638,26 +12687,37 @@ function _posActiveCastRail() {
       + (tableLabel ? '<small' + (hasNominationOverlap ? ' class="nomination-overlap"' : '') + '>' + escHtml(tableLabel) + '</small>' : '')
       + '</button>';
   }).join('');
-  const guide = posBetaState.assignCast
+  const showtimeChip = showtimeEnabled
+    ? '<button type="button" class="pos-active-cast-chip pos-showtime-chip' + (posBetaState.assignShowtime ? ' selected' : '') + '"'
+      + ' draggable="true" aria-pressed="' + (posBetaState.assignShowtime ? 'true' : 'false') + '"'
+      + ' onclick="event.stopPropagation();posSelectShowtime()"'
+      + ' ondragstart="posShowtimeDragStart(event)" ondragend="posCastDragEnd(event)">'
+      + '<span>ショータイム</span><small>' + (cfg.showtimeScope === 'all' ? '全卓' : '個別卓') + ' ＋1</small></button>'
+    : '';
+  const guide = posBetaState.assignShowtime
+    ? '<div class="pos-cast-assign-guide">' + (cfg.showtimeScope === 'all' ? '在店中の卓を1つタップすると、全卓に＋1' : 'ショータイムを追加する卓をタップ') + '</div>'
+    : posBetaState.assignCast
     ? '<div class="pos-cast-assign-guide">' + escHtml(posBetaState.assignCast) + 'を付ける卓をタップ</div>'
     : '';
   return '<div class="pos-active-cast-rail-wrap" onclick="event.stopPropagation();posClearCastAssignment()">'
-    + '<div class="pos-active-cast-rail">' + chips + '</div>' + guide + '</div>';
+    + '<div class="pos-active-cast-rail">' + showtimeChip + chips + '</div>' + guide + '</div>';
 }
 
 function posSelectCastForAssignment(castName) {
+  posBetaState.assignShowtime = false;
   posBetaState.assignCast = posBetaState.assignCast === castName ? null : castName;
   renderPOSPanel();
 }
 
 function posClearCastAssignment() {
-  if (!posBetaState.assignCast) return;
+  if (!posBetaState.assignCast && !posBetaState.assignShowtime) return;
   posBetaState.assignCast = null;
+  posBetaState.assignShowtime = false;
   renderPOSPanel();
 }
 
 function posCastRailBlankTap(event) {
-  if (!posBetaState.assignCast) return;
+  if (!posBetaState.assignCast && !posBetaState.assignShowtime) return;
   if (event.target.closest('.pos-active-cast-chip, .pos-floor-card, .pos-slip-view-toggle')) return;
   posClearCastAssignment();
 }
@@ -13029,6 +13089,10 @@ function _posAssignCastToFloor(gid, castName) {
 
 function posHandleFloorCardClick(event, gid) {
   event.stopPropagation();
+  if (posBetaState.assignShowtime) {
+    posAddShowtime(gid);
+    return;
+  }
   if (posBetaState.assignCast) {
     _posAssignCastToFloor(gid, posBetaState.assignCast);
     return;
@@ -13038,17 +13102,18 @@ function posHandleFloorCardClick(event, gid) {
 
 function posHandleEmptyFloorClick(event, tableIndex) {
   event.stopPropagation();
-  if (posBetaState.assignCast) return;
+  if (posBetaState.assignCast || posBetaState.assignShowtime) return;
   posOpenNewSlipModal(tableIndex);
 }
 
 function posHandleNewFloorClick(event) {
   event.stopPropagation();
-  if (posBetaState.assignCast) return;
+  if (posBetaState.assignCast || posBetaState.assignShowtime) return;
   posOpenNewSlipModal();
 }
 
 function posCastDragStart(event) {
+  posBetaState.assignShowtime = false;
   const castName = event.currentTarget.dataset.cast || '';
   event.dataTransfer.effectAllowed = 'copy';
   event.dataTransfer.setData('text/plain', castName);
@@ -13075,21 +13140,22 @@ function posCastDrop(event, gid) {
   event.preventDefault();
   event.stopPropagation();
   event.currentTarget.classList.remove('drop-target');
+  if (event.dataTransfer.getData(POS_SHOWTIME_DRAG_TYPE) === '1') {
+    posAddShowtime(gid);
+    return;
+  }
   _posAssignCastToFloor(gid, event.dataTransfer.getData('text/plain'));
 }
 
 function _posFloorCard(row) {
-  const timer = _posDisplayTimerText(row);
+  const timer = _posSlipTimerText(row);
   const status = _posFloorStatus(timer);
   const table = posTableLabel(row.tableNum) || '-';
   const timerHtml = timer.text
-    ? '<span class="pos-floor-timer status-' + status + '"'
-      + (row.isWaiting === true ? ' onclick="event.stopPropagation();posStartFromWait(' + row.gid + ')"' : '')
-      + '>' + _posFloorTimerHtml(timer) + '</span>'
+    ? '<span class="pos-floor-timer status-' + status + '">' + _posFloorTimerHtml(timer) + '</span>'
     : '';
-  // セット時間帯（開始〜終了）。ウェイト中・時間未確定は出さない
-  const rangeHtml = (timer.text && row.isWaiting !== true
-      && typeof row.startMin === 'number' && typeof row.endMin === 'number')
+  // セット時間帯（開始〜終了）。時間未確定は出さない
+  const rangeHtml = (timer.text && typeof row.startMin === 'number' && typeof row.endMin === 'number')
     ? '<span class="pos-floor-timerange">' + minToHHMM(row.startMin) + '〜' + minToHHMM(row.endMin) + '</span>'
     : '';
   const statusRow = (timerHtml || rangeHtml)
@@ -13105,6 +13171,7 @@ function _posFloorCard(row) {
     + '</span>'
     + statusRow
     + '<span class="pos-floor-casts">' + _posFloorCastChips(row) + '</span>'
+    + (_posShowtimeEnabled() ? _posShowtimeCountHtml(row) : '')
     + '<span class="pos-floor-total"><small>累計</small><b data-pos-floor-total-gid="' + row.gid + '">¥' + posMoney(_posFloorTotal(row)) + '</b></span>'
     + '</button>';
 }
@@ -13131,7 +13198,7 @@ function renderPOSSlipView(firsts, selected) {
     + '<span class="status-ok"><i></i>余裕</span>'
     + '<span class="status-warn"><i></i>10分前</span>'
     + '<span class="status-over"><i></i>超過</span>'
-    + '<span class="status-wait"><i></i>ウェイト</span>'
+    + '<span class="status-wait"><i></i>待機中</span>'
     + '</div>';
   const matchedRows = new Set();
   const tableCards = _posNsmLists().table.map((table, tableIndex) => {
@@ -13152,6 +13219,7 @@ function renderPOSSlipView(firsts, selected) {
 function posSetSlipView(mode) {
   posBetaState.slipView = mode === 'paper' ? 'paper' : 'floor';
   posBetaState.assignCast = null;
+  posBetaState.assignShowtime = false;
   renderPOSPanel();
 }
 
@@ -13429,7 +13497,7 @@ function posCreateSlip(count) {
 }
 
 /* ---- 新規伝票モーダル（スピナー形式） ---- */
-let _posNsmIdx = { source: 0, count: 0, table: 0, cast: 0, color: 0, waiting: false, firstRepeat: false };
+let _posNsmIdx = { source: 0, count: 0, table: 0, cast: 0, color: 0, firstRepeat: false };
 
 function _posNsmLists() {
   const casts = posActiveCastList();
@@ -13722,7 +13790,7 @@ async function posCatDelete(key) {
 }
 
 function posOpenNewSlipModal(tableIndex) {
-  _posNsmIdx = { source: 0, count: 0, table: 0, cast: 0, color: 0, waiting: false, firstRepeat: false, douban: false, startMin: getNowMin() };
+  _posNsmIdx = { source: 0, count: 0, table: 0, cast: 0, color: 0, firstRepeat: false, douban: false, startMin: getNowMin() };
   const tableList = _posNsmLists().table;
   if (Number.isInteger(tableIndex) && tableIndex >= 0 && tableIndex < tableList.length) {
     _posNsmIdx.table = tableIndex;
@@ -13779,13 +13847,6 @@ function _renderPosNsm() {
         ${_posNsmSpinner('count',  '人数',     countVal + '名')}
         ${_posNsmSpinner('table',  'テーブル', posTableDisplay(tableVal))}
         ${_posNsmColorSpinner(colorVal)}
-        <div class="pos-nsm-row">
-          <div class="pos-nsm-rowlabel">状態</div>
-          <label class="pos-nsm-check">
-            <input type="checkbox"${_posNsmIdx.waiting ? ' checked' : ''} onchange="_posNsmIdx.waiting=this.checked">
-            <span>ウェイト（席待ち）</span>
-          </label>
-        </div>
         <div class="pos-nsm-row">
           <div class="pos-nsm-rowlabel">同伴</div>
           <label class="pos-nsm-check">
@@ -13918,7 +13979,6 @@ function posConfirmNewSlip() {
     newest.endMin   = _posNsmIdx.startMin + (isDouban ? (Number(cfg.dohanStay) || 60) : (cfg.defStay || 40));
     newest.posManaged = true;
     newest.firstRepeat = !!_posNsmIdx.firstRepeat;
-    if (_posNsmIdx.waiting) newest.isWaiting = true;
     // 同伴一式（セット分数・同伴料・キャスト帰属）を明細へ自動投入
     if (isDouban) _posBuildDoubanOrders(newest, cast, _posNsmIdx.startMin);
     syncVipFeeOrder(newest);
@@ -14227,15 +14287,14 @@ function _monitorBillFor(row) {
 
 function buildMonitorSnapshot() {
   const activeRows = posFirstRows();
-  const seatedRows = activeRows.filter(row => !row.isWaiting);
-  const seatedGids = new Set(seatedRows.map(row => row.gid));
+  const activeGids = new Set(activeRows.map(row => row.gid));
   const occupiedSet = new Set();
-  seatedRows.forEach(row => {
+  activeRows.forEach(row => {
     const label = _monitorTableLabel(row.tableNum);
     if (label) occupiedSet.add(label);
   });
   state.rows.forEach(row => {
-    if (row._indivTable !== true || row.settled || !seatedGids.has(row.gid)) return;
+    if (row._indivTable !== true || row.settled || !activeGids.has(row.gid)) return;
     const label = _monitorTableLabel(row.tableNum);
     if (label) occupiedSet.add(label);
   });
@@ -14256,7 +14315,6 @@ function buildMonitorSnapshot() {
       remainMin: endMin - now,
       extCount: exts.length,
       exts,
-      isWaiting: !!row.isWaiting,
       amount,
       bill: _monitorBillFor(row),
       casts: _posFloorCastChipData(row).map(cast => ({
@@ -14283,7 +14341,7 @@ function buildMonitorSnapshot() {
   const tableMax = Number(cfg.tableMax) || 0;
   const totalTables = tableMax + vipSeats.length;
   const occupancy = totalTables > 0 ? occupiedSet.size / totalTables : 0;
-  const countedGroups = seatedRows;
+  const countedGroups = activeRows;
 
   return {
     v: 1,
@@ -14307,10 +14365,10 @@ function buildMonitorSnapshot() {
       groupCount: countedGroups.length,
       guestCount: countedGroups.reduce((sum, row) => sum + (Number(row.gcount) || 0), 0),
       level: occupancy < 0.4 ? 'low' : occupancy <= 0.75 ? 'mid' : 'high',
-      totalAmount: groups.filter(group => !group.isWaiting).reduce((sum, group) => sum + group.amount, 0),
+      totalAmount: groups.reduce((sum, group) => sum + group.amount, 0),
       // 日報の総売上と同一の式（精算時に記録された実額。再計算しない）
       settledAmount: _reportDayStats(state.rows).total,
-      // 本日累計の入店（精算済み・在店中・ウェイト全て含む当営業日の全組）
+      // 本日累計の入店（精算済み・在店中を含む当営業日の全組）
       entered: {
         groups: state.rows.filter(row => row.isFirst).length,
         guests: state.rows.filter(row => row.isFirst)
@@ -14532,7 +14590,6 @@ function buildOwnerDayDataset(inputRows, dayKey, ctx = {}) {
     { key:'urikakeAmt', label:'売掛額' },
     { key:'advances', label:'前金合計' },
     { key:'sales', label:'売上' },
-    { key:'waiting', label:'ウェイト' },
     { key:'linkedFrom', label:'同一人物リンク元行No' },
     { key:'settledAt', label:'精算時刻' },
   );
@@ -14587,7 +14644,6 @@ function buildOwnerDayDataset(inputRows, dayKey, ctx = {}) {
       ? (Array.isArray(row.advances) ? row.advances : []).reduce((sum, advance) => sum + (Number(advance?.amount) || 0), 0)
       : '';
     out.sales = isFirst && row.settled ? rowSales(row) : '';
-    out.waiting = row.isWaiting ? 1 : 0;
     out.linkedFrom = rowNumbers.get(row.linkedParentId) || '';
     out.settledAt = _ownerLocalDateTime(row.settledAt);
     return out;
@@ -15912,13 +15968,14 @@ function _reportPeriodSwitchHtml() {
     + '.report-range-table td.day{text-align:left}'
     + '.report-range-table tr.total td{background:var(--goldglow);font-weight:700}'
     + '.agg-kpibar{display:flex;flex-direction:column;gap:12px;margin-bottom:18px}'
-    + '.agg-kpi-tiles{display:grid;grid-template-columns:minmax(220px,1.3fr) repeat(2,minmax(140px,1fr));gap:12px}'
+    + '.agg-kpi-tiles{display:grid;grid-template-columns:minmax(220px,1.3fr) repeat(3,minmax(140px,1fr));gap:12px}'
     + '.agg-kpi-secs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-items:start}'
-    + '@media(max-width:900px){.agg-kpi-tiles{grid-template-columns:1fr 1fr 1fr}.agg-kpi-secs{grid-template-columns:1fr}}'
+    + '@media(max-width:900px){.agg-kpi-tiles{grid-template-columns:1fr 1fr}.agg-kpi-secs{grid-template-columns:1fr}}'
     + '.agg-box{background:var(--sur);border:1px solid var(--bdr);border-radius:12px;padding:16px 18px}'
     + '.agg-box-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:10px;flex-wrap:wrap}'
     + '.agg-box-head h3{font-size:14px;color:var(--tx2);margin:0}'
     + '.agg-box-actions{display:flex;gap:8px;align-items:center}'
+    + '.agg-nominate-total{font-size:12px;color:var(--tx2);white-space:nowrap}.agg-nominate-total b{margin-left:4px;color:var(--gold);font-size:15px;font-family:var(--mono)}'
     + '.agg-box-actions button,.agg-box-actions select{font-size:12px;padding:5px 10px;background:var(--sur2);color:var(--tx2);border:1px solid var(--bdr2);border-radius:6px;cursor:pointer}'
     + '.payroll-cols-wrap{position:relative}'
     + '.payroll-cols-toggle{min-width:34px}'
@@ -15993,16 +16050,6 @@ function _reportPeriodSwitchHtml() {
     + '.pay-bd-title{font-size:16px;font-weight:800;color:var(--tx)}.pay-bd-date{margin-top:2px;font-size:12px;color:var(--tx2)}'
     + '.pay-bd-close{display:flex;align-items:center;justify-content:center;flex:0 0 36px;width:36px;height:36px;padding:0;border:1px solid var(--bdr2);border-radius:8px;background:var(--sur);color:var(--tx);font-size:22px;cursor:pointer}'
     + '.pay-bd-body{padding:12px 16px;max-height:80vh;overflow-y:auto}'
-    + '.pqm-save-note{margin-bottom:8px;font-size:12px;color:var(--tx2)}'
-    + '.pqm-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 0;border-bottom:1px solid var(--bdr)}'
-    + '.pqm-label{min-width:0;font-size:13px;font-weight:600;color:var(--tx)}'
-    + '.pqm-sub{margin-top:3px;font-size:11px;line-height:1.5;font-weight:400;color:var(--tx3)}'
-    + '.pqm-check{display:flex;align-items:center;gap:5px;flex:0 0 auto;font-size:12px;color:var(--tx2)}'
-    + '.pqm-number{box-sizing:border-box;width:110px;padding:7px 8px;border:1px solid var(--bdr2);border-radius:7px;background:var(--sur2);color:var(--tx);font-size:13px;text-align:right}'
-    + '.pqm-unit{font-size:11px;color:var(--tx3)}'
-    + '.pqm-late-inputs{display:flex;align-items:center;justify-content:flex-end;gap:5px;flex:0 0 auto;white-space:nowrap}'
-    + '.pqm-late-inputs .pqm-number{width:82px}'
-    + '.pqm-footnote{margin-top:12px;font-size:11px;line-height:1.6;color:var(--tx3)}'
     + '.pay-bd-table{width:100%;border-collapse:collapse;font-size:14px}.pay-bd-table td{padding:9px 10px;border-bottom:1px solid var(--bdr)}.pay-bd-table tr:last-child td{border-bottom:none}.pay-bd-table td.k{color:var(--tx2);white-space:nowrap;width:6em}.pay-bd-table td.v{text-align:right;font-family:var(--mono)}'
     + '.pay-bd-table tr.pay-bd-back td.v{line-height:1.7}.pay-bd-table .pay-bd-amount{font-weight:800}.pay-bd-table tr.pay-bd-daily .pay-bd-amount{font-size:17px;color:var(--gold)}.pay-bd-table tr.pay-bd-net .pay-bd-amount{font-size:18px;color:var(--green)}.pay-bd-sub{margin-top:4px;font-size:12px;line-height:1.5;color:var(--tx2);white-space:normal}'
     + '.payroll-table tr.pay-totalrow td{background:var(--sur2);font-weight:700;border-top:2px solid var(--bdr2);color:var(--tx)}'
@@ -16010,6 +16057,7 @@ function _reportPeriodSwitchHtml() {
     + '.payroll-table input.pay-in:focus{outline:none;border-color:var(--gold)}'
     + '.payroll-table input.pay-in.pay-edited{border-color:var(--gold);color:var(--gold);font-weight:700}'   /* #12 手修正セルを強調 */
     + '.payroll-table input.pay-in.pay-time{width:44px;text-align:center;font-family:var(--mono)}'   /* 出退勤HH:MM編集 */
+    + '.payroll-table td.pay-flag-cell{text-align:center}.pay-deduction-flag{min-width:32px;height:28px;padding:0 7px;border:1px solid var(--bdr2);border-radius:7px;background:var(--sur2);color:var(--tx3);font-size:16px;font-weight:800;cursor:pointer}.pay-deduction-flag.is-on{border-color:var(--gold);background:var(--goldglow);color:var(--gold)}.pay-deduction-flag:focus-visible{outline:2px solid var(--gold);outline-offset:2px}'
     + '.payroll-table select.pay-time{box-sizing:border-box;width:58px;font-size:11px;padding:3px 1px;background:var(--sur2);color:var(--tx);border:1px solid var(--bdr2);border-radius:5px;text-align:center;font-family:var(--mono);cursor:pointer}'   /* 出退勤30分刻みドロップダウン */
     + '.payroll-table select.pay-time:focus{outline:none;border-color:var(--gold)}'
     + '.deduction-sheet tr.ded-zero td{color:var(--tx3)}'
@@ -16224,6 +16272,11 @@ function _payrollTableColumns(countCols, deductionItems, showPoints) {
       id:'deductions', group:'pay', label:item.label || '', optionLabel:deductionOptionLabel,
       cell:(x, start) => {
         const calculated = (x.r.deductions || [])[index] || {};
+        if (item.mode === 'boolean') {
+          return _payrollTd(x.plain
+            ? _payrollDeductionMark(calculated)
+            : _payrollDeductionFlagButton(x.cj, item.key, calculated.checked === true), 'pay-flag-cell', start);
+        }
         const hasMan = Object.prototype.hasOwnProperty.call(x.manualDeductions, item.key);
         if (x.plain) {
           const value = hasMan ? x.manualDeductions[item.key] : (calculated.auto || 0);
@@ -16545,11 +16598,13 @@ function computeReportAgg(settled) {
   });
 
   const total = cashSum + cardSum + urikakeSum;
+  const nominatedSalesTotal = Object.keys(nameGroups).reduce((sum, cast) =>
+    sum + (nominatedCasts[cast] ? (Number(nameGroups[cast]?.total) || 0) : 0), 0);
   return {
     prodByCast, prodBackByCast, prodPointsByCast, prodSalesByCast, nameGroups, nominatedCasts, byCategory, bySource, shimeiLabels,
     personalSubtotalByCast, subtotalSum,
     cashCount, cardCount, urikakeCount, cashSum, cardSum, urikakeSum,
-    guests, total, avg: guests ? Math.round(total/guests) : 0, count: settled.length
+    guests, total, nominatedSalesTotal, avg: guests ? Math.round(total/guests) : 0, count: settled.length
   };
 }
 
@@ -16737,7 +16792,11 @@ function nominateSharesResetEven() {
   renderReportPanel();
 }
 
-function _aggKpiBarHtml(a, bizKey) {
+function _reportLastSlipNo(rows) {
+  return liveMaxSlipNo((Array.isArray(rows) ? rows : []).filter(row => row && row.isFirst));
+}
+
+function _aggKpiBarHtml(a, bizKey, lastSlipNo) {
   const catLabels = { vip: 'VIP席', ...Object.fromEntries(resolvePosCatLayout(cfg).map(cat => [cat.key, cat.label])) };
   const catLabel = key => catLabels[key] || (String(key).startsWith('cust_') ? 'その他(' + key + ')' : key);
   const catRows = Object.keys(a.byCategory).filter(k => a.byCategory[k]).sort((x,y) => a.byCategory[y] - a.byCategory[x])
@@ -16755,6 +16814,7 @@ function _aggKpiBarHtml(a, bizKey) {
       + '<div class="agg-side-card total"><div class="agg-side-label">総売上</div><div class="agg-side-big" style="color:var(--green)">¥' + a.total.toLocaleString() + '</div></div>'
       + '<div class="agg-side-card"><div class="agg-side-label">総客数</div><div class="agg-side-val">' + a.guests + '</div></div>'
       + '<div class="agg-side-card"><div class="agg-side-label">平均客単価</div><div class="agg-side-val">¥' + a.avg.toLocaleString() + '</div></div>'
+      + '<div class="agg-side-card"><div class="agg-side-label">最終伝票番号</div><div class="agg-side-val">' + (lastSlipNo > 0 ? 'No.' + lastSlipNo : '—') + '</div></div>'
     + '</div>'
     + '<div class="agg-kpi-secs">'
     + '<div class="agg-side-sec"><h4>支払方法別</h4>'
@@ -16818,6 +16878,7 @@ function printReport() {
     .filter(x => x.t > 0).sort((a,b) => b.t - a.t)
     .map(x => '<div class="nb-item"><span>' + escHtml(x.c) + '</span><span class="a">¥' + x.t.toLocaleString() + '</span></div>').join('')
     || '<div style="color:#888;padding:6px">指名売上なし</div>';
+  const nominatedSalesTotal = Number(agg.nominatedSalesTotal) || 0;
 
   const w = window.open('', '_blank', 'width=920,height=1240');
   if (!w) { if (typeof showToast === 'function') showToast('ポップアップがブロックされました'); return; }
@@ -16849,7 +16910,7 @@ function printReport() {
     + '<h1>日計表</h1>'
     + '<div class="hd">' + (y || '____') + ' 年 ' + (mo || '__') + ' 月 ' + (da || '__') + ' 日 ' + (wd ? '（' + wd + '）' : '') + '</div>'
     + tableHtml
-    + '<div class="namebox"><h3>キャスト別指名売上</h3><div class="nb-list">' + nameItems + '</div></div>'
+    + '<div class="namebox"><h3>キャスト別指名売上　合計 ¥' + nominatedSalesTotal.toLocaleString() + '</h3><div class="nb-list">' + nameItems + '</div></div>'
     + '<script>window.onload=function(){window.print()}<\/script>'
     + '</body></html>'
   );
@@ -16911,6 +16972,11 @@ function _payWorkLabel(min) {
   return m ? (h + 'h ' + m + 'm') : (h + 'h');
 }
 function _payYen(n) { return '¥' + (Number(n) || 0).toLocaleString(); }
+function _payrollDeductionMark(item) { return item && item.checked === true ? '○' : '×'; }
+function _payrollDeductionFlagButton(castJs, key, checked) {
+  const mark = checked ? '○' : '×';
+  return '<button type="button" class="pay-deduction-flag' + (checked ? ' is-on' : '') + '" aria-pressed="' + (checked ? 'true' : 'false') + '" onclick="payrollSetDeductionFlag(\'' + castJs + '\',\'' + key + '\',' + (!checked) + ')">' + mark + '</button>';
+}
 
 /* SP/日払い/本数入力 → 保存 → 日計表のみ再描画。dayKey は閲覧中の営業日。 */
 function payrollSetSP(castName, value) {
@@ -16932,6 +16998,10 @@ function payrollSetCount(castName, colKey, value) {
 }
 function payrollSetDeduction(castName, key, value) {
   setPayrollDeduction(_reportDayKey(), castName, key, value);
+  _rerenderPayrollTable();
+}
+function payrollSetDeductionFlag(castName, key, checked) {
+  setPayrollDeductionFlagValue(_reportDayKey(), castName, key, checked === true);
   _rerenderPayrollTable();
 }
 function _rerenderPayrollTable() {
@@ -17018,7 +17088,7 @@ function _payrollBreakdownHtml(r, src, countCols) {
     `<tr class="pay-bd-back"><td class="k">バック</td><td class="v">${backLines.length ? backLines.join('<br>') + '<br>' : ''}商品バック ${_payYen(r.prodBack)}　SP ${_payYen(r.sp)}${spNote}<br>バック合計 ${_payYen(r.backTotal)}</td></tr>`,
     Number(r.lateFee) ? `<tr><td class="k">遅刻罰金</td><td class="v">−${_payYen(r.lateFee)}（${Number(r.chikokuMin) || 0}分）</td></tr>` : '',
     `<tr class="pay-bd-daily"><td class="k">日給</td><td class="v"><span class="pay-bd-amount">${_payYen(r.dailyPay)}</span><div class="pay-bd-sub">＝ 時間給 ${_payYen(r.hourlyPay)} ＋ バック ${_payYen(r.backTotal)} − 遅刻 ${_payYen(r.lateFee)}</div></td></tr>`,
-    deductions.length ? `<tr><td class="k">控除</td><td class="v">${deductions.map(item => `${escHtml(item.label || '')} ${_payYen(item.amount)}`).join(' ／ ')}<br>控除計 ${_payYen(r.deductionTotal)}</td></tr>` : '',
+    deductions.length ? `<tr><td class="k">控除・記録</td><td class="v">${deductions.map(item => `${escHtml(item.label || '')} ${item.mode === 'boolean' ? _payrollDeductionMark(item) : _payYen(item.amount)}`).join(' ／ ')}<br>控除計 ${_payYen(r.deductionTotal)}</td></tr>` : '',
     `<tr class="pay-bd-net"><td class="k">差引支給</td><td class="v"><span class="pay-bd-amount">${_payYen(r.netPay)}</span></td></tr>`,
     `<tr><td class="k">給率</td><td class="v">${Number(r.sales) > 0 && r.kyuuritsu != null ? `${Number(r.kyuuritsu).toFixed(1)}%（売上 ${_payYen(r.sales)}）` : '—'}</td></tr>`,
   ].filter(Boolean).join('');
@@ -17048,55 +17118,7 @@ function payrollShowBreakdown(castName) {
   document.body.insertAdjacentHTML('beforeend', _payrollBreakdownHtml(row, model.src, model.countCols));
 }
 
-function payrollRulesSetBool(key, checked) {
-  cfg[key] = !!checked;
-  saveState();
-}
-
-function payrollRulesOpenModal() {
-  document.getElementById('payroll-rules-overlay')?.remove();
-  const html = `<div id="payroll-rules-overlay" class="pos-co-overlay" onclick="if(event.target===this)payrollRulesCloseModal()">
-    <div class="pos-co-panel pay-bd-panel">
-      <div class="pay-bd-head"><div class="pay-bd-title">給与計算ルール</div><button type="button" class="pay-bd-close" onclick="payrollRulesCloseModal()" aria-label="閉じる">×</button></div>
-      <div class="pay-bd-body">
-        <div class="pqm-save-note">変更した時点で保存されます</div>
-        <div class="pqm-row">
-          <div class="pqm-label">同伴を本指名の本数に数える<div class="pqm-sub">ON: 同伴1件につき本指名+1（本指バックも付く）／OFF: 同伴バックのみ</div></div>
-          <label class="pqm-check"><input type="checkbox" id="pqm-payrollDouhanAddsHonshimei" ${cfg.payrollDouhanAddsHonshimei !== false ? 'checked' : ''} onchange="payrollRulesSetBool('payrollDouhanAddsHonshimei', this.checked)"> 有効にする</label>
-        </div>
-        <div class="pqm-row">
-          <div class="pqm-label">同伴を本指名延長の先頭項目に数える<div class="pqm-sub">ON: 同伴1件につき本指名延長の先頭項目（例: 本延20）+1／OFF: 加算しない</div></div>
-          <label class="pqm-check"><input type="checkbox" id="pqm-payrollDouhanAddsHonenFirst" ${cfg.payrollDouhanAddsHonenFirst !== false ? 'checked' : ''} onchange="payrollRulesSetBool('payrollDouhanAddsHonenFirst', this.checked)"> 有効にする</label>
-        </div>
-        <div class="pqm-row">
-          <div class="pqm-label">SPをバック合計（日給）に含める<div class="pqm-sub">ON: 手入力SP・ボトル折半を日給に含める／OFF: 参考表示のみで日給には含めない</div></div>
-          <label class="pqm-check"><input type="checkbox" id="pqm-payrollSpInBackTotal" ${cfg.payrollSpInBackTotal !== false ? 'checked' : ''} onchange="payrollRulesSetBool('payrollSpInBackTotal', this.checked)"> 有効にする</label>
-        </div>
-        <div class="pqm-row">
-          <div class="pqm-label">店標準時給<div class="pqm-sub">キャスト個別の時給が空欄のときに自動で適用（バックの標準額と同じ仕組み）。空欄=店標準を使わない旧挙動のまま。入力した時点で保存されます</div></div>
-          <span class="pqm-late-inputs"><input type="number" id="pqm-defaultWage" class="pqm-number" value="${cfg.defaultWage || ''}" min="0" step="100" placeholder="0" onchange="setPayrollCfgNum('defaultWage', this.value, 0)"><span class="pqm-unit">円/時</span></span>
-        </div>
-        <div class="pqm-row">
-          <div class="pqm-label">遅刻罰金<div class="pqm-sub">N分ごとに1段階。例：15なら1〜15分=1段階、16〜30分=2段階</div><div class="pqm-sub">1段階あたりの金額</div></div>
-          <span class="pqm-late-inputs"><input type="number" id="pqm-payrollLateFineUnitMin" class="pqm-number" value="${cfg.payrollLateFineUnitMin ?? 15}" min="1" max="60" step="1" onchange="setPayrollCfgNum('payrollLateFineUnitMin', this.value, 15)"><span class="pqm-unit">分ごとに ¥</span><input type="number" id="pqm-payrollLateFineAmt" class="pqm-number" value="${cfg.payrollLateFineAmt ?? 1000}" min="0" step="100" onchange="setPayrollCfgNum('payrollLateFineAmt', this.value, 1000)"></span>
-        </div>
-        <div class="pqm-footnote">締め期間・スライド時給・控除項目などの詳細は 設定 → 給与計算ルール で設定できます</div>
-      </div>
-    </div>
-  </div>`;
-  document.body.insertAdjacentHTML('beforeend', html);
-}
-
-function payrollRulesCloseModal() {
-  document.getElementById('payroll-rules-overlay')?.remove();
-  if (document.getElementById('payroll-table-host') && typeof _rerenderPayrollTable === 'function') {
-    _rerenderPayrollTable();
-  }
-  const settingsPanel = document.getElementById('settings-panel');
-  if (settingsPanel && settingsPanel.getClientRects().length > 0 && typeof renderSettingsPanel === 'function') {
-    renderSettingsPanel();
-  }
-}
+// 給与ルールの編集は 37a-payroll-settings.js の共通モーダルへ。
 
 /* テーブル本体（再描画対象）。computePayrollTable を呼び直して最新化。
    src = #15 の { dayKey, rows, tt }（省略時は当日ライブを内部解決）。 */
@@ -17184,12 +17206,18 @@ function _deductionSheetInnerHtml(src, opts = { plain:false }) {
     }
     const cells = deductionItems.map((item, index) => {
       const calculated = (r.deductions || [])[index] || {};
+      if (item.mode === 'boolean') {
+        return '<td class="pay-flag-cell">' + (opts.plain === true
+          ? _payrollDeductionMark(calculated)
+          : _payrollDeductionFlagButton(cj, item.key, calculated.checked === true)) + '</td>';
+      }
       const hasMan = Object.prototype.hasOwnProperty.call(manualDeductions, item.key);
       const value = hasMan ? manualDeductions[item.key] : (calculated.auto || 0);
       if (opts.plain === true) return '<td>' + (hasOut && value ? _payYen(value) : '') + '</td>';
       return '<td><input type="number" class="pay-in' + (hasMan ? ' pay-edited' : '') + '" value="' + (hasMan ? manualDeductions[item.key] : '') + '" placeholder="' + (calculated.auto || 0) + '" onchange="payrollSetDeduction(\'' + cj + '\', \'' + item.key + '\', this.value)"></td>';
     }).join('');
-    return '<tr' + (!hasOut || (Number(r.deductionTotal) || 0) === 0 ? ' class="ded-zero"' : '') + '>'
+    const hasRecordedFlag = (r.deductions || []).some(item => item.mode === 'boolean' && item.checked === true);
+    return '<tr' + (!hasOut || ((Number(r.deductionTotal) || 0) === 0 && !hasRecordedFlag) ? ' class="ded-zero"' : '') + '>'
       + '<td class="pay-name">' + escHtml(c) + '</td>'
       + '<td class="pay-daily' + (hasOut ? '' : ' pay-muted') + '">' + (hasOut ? _payYen(r.dailyPay) : '（時給未確定）') + '</td>'
       + cells
@@ -17225,6 +17253,11 @@ function _deductionSheetPrintTableHtml(src) {
       ? getPayrollManual(src.dayKey, c).deductions : {};
     const cells = deductionItems.map((item, index) => {
       const calculated = (r.deductions || [])[index] || {};
+      if (item.mode === 'boolean') {
+        const checked = calculated.checked === true;
+        if (checked) counts[index] += 1;
+        return '<td class="amt flag">' + (checked ? '○' : '×') + '</td>';
+      }
       const hasMan = Object.prototype.hasOwnProperty.call(manualDeductions, item.key);
       const value = Number(hasMan ? manualDeductions[item.key] : (calculated.auto || 0)) || 0;
       totals[index] += value;
@@ -17239,10 +17272,10 @@ function _deductionSheetPrintTableHtml(src) {
   const rowCount = Math.max(25, rows.length);
   for (let rowIndex = rows.length; rowIndex < rowCount; rowIndex += 1) {
     bodyRows.push('<tr><td class="cno"></td><td class="nm"></td>'
-      + deductionItems.map(() => '<td class="amt">¥</td>').join('') + '</tr>');
+      + deductionItems.map(item => '<td class="amt">' + (item.mode === 'boolean' ? '' : '¥') + '</td>').join('') + '</tr>');
   }
   const sumRow = '<tr class="sum"><td class="cno"></td><td class="nm">合計</td>'
-    + totals.map(value => '<td class="amt">' + yen(value) + '</td>').join('') + '</tr>';
+    + totals.map((value, index) => '<td class="amt">' + (deductionItems[index]?.mode === 'boolean' ? '—' : yen(value)) + '</td>').join('') + '</tr>';
   const countRow = '<tr class="sum"><td class="cno"></td><td class="nm">人数</td>'
     + counts.map(value => '<td class="amt">' + value + ' 人</td>').join('') + '</tr>';
   return '<table class="ded">' + head + '<tbody>' + bodyRows.join('') + sumRow + countRow + '</tbody></table>';
@@ -17324,7 +17357,7 @@ function exportPayrollCSV() {
       r.sp||0, r.backTotal||0, r.lateFee||0, r.nibarai||0,
       hasOut ? r.dailyPay : '',
     ];
-    out.push([...baseRow, ...(r.deductions || []).map(item => item.amount),
+    out.push([...baseRow, ...(r.deductions || []).map(item => item.mode === 'boolean' ? _payrollDeductionMark(item) : item.amount),
       ...(deductionItems.length ? [r.deductionTotal, hasOut ? r.netPay : ''] : []),
       r.kyuuritsu == null ? '' : r.kyuuritsu.toFixed(1)]);
   });
@@ -17343,12 +17376,12 @@ function _payrollSectionHtml(src) {
   const model = _payrollTableModel(src);
   const hasDeductions = typeof cfg !== 'undefined' && Array.isArray(cfg.payrollDeductions) && cfg.payrollDeductions.length > 0;
   const deductionNote = hasDeductions
-    ? '<span class="payroll-note">控除は店舗設定の額・率による参考計算です（税務判断は行いません）</span>' : '';
+    ? '<span class="payroll-note">金額方式は店舗計算、○×方式は本部計算用の発生記録です</span>' : '';
   return '<div class="agg-box" style="margin-top:18px">'
     + '<div class="agg-box-head">'
     + '<h3>日計表 <span class="payroll-note">※時給は表示されません（キャスト管理で管理）／社交名を固定して横にスクロールできます</span>' + deductionNote + '</h3>'
     + '<div class="agg-box-actions">'
-    + '<button type="button" onclick="payrollRulesOpenModal()">💴 給与ルール</button>'
+    + '<button type="button" id="report-payroll-rules" onclick="payrollRulesOpenModal()">💴 給与ルール</button>'
     + '<button onclick="printReport()">🖨 印刷</button>'
     + '<button onclick="exportPayrollCSV()">💾 CSV保存</button>'
     + '<div class="payroll-cols-wrap"><button type="button" class="payroll-cols-toggle" aria-label="日計表の表示列を設定" aria-expanded="false" onclick="togglePayrollColumnPicker(event)">⚙</button>'
@@ -17362,9 +17395,10 @@ function _deductionSheetSectionHtml(src) {
   const hasDeductions = typeof cfg !== 'undefined' && Array.isArray(cfg.payrollDeductions) && cfg.payrollDeductions.length > 0;
   return '<div class="agg-box" style="margin-top:18px">'
     + '<div class="agg-box-head">'
-    + '<h3>控除票 <span class="payroll-note">※出勤キャスト全員。控除額は日計表の控除列と同じ値（ここで直すと日計表にも反映）。差引支給＝日給−控除計</span></h3>'
+    + '<h3>控除票 <span class="payroll-note">※出勤キャスト全員。金額と○×は日計表に連動し、○×は控除計・差引支給に加算されません</span></h3>'
     + '<div class="agg-box-actions">'
     + '<button onclick="printDeductionSheet()"' + (hasDeductions ? '' : ' disabled') + '>🖨 印刷</button>'
+    + '<button type="button" onclick="payrollDeductionSettingsOpenModal()" aria-label="控除項目を設定" title="控除項目を設定">⚙</button>'
     + '</div></div>'
     + '<div id="deduction-sheet-host">' + _deductionSheetInnerHtml(src) + '</div>'
     + '</div>';
@@ -17395,6 +17429,7 @@ function _renderReportDay() {
   const closedToday = !!_reportClosedTodaySnap();
   const settled = (src.rows || []).filter(r => r.isFirst && r.settled);
   const agg = computeReportAgg(settled);
+  const lastSlipNo = _reportLastSlipNo(src.rows);
   const isPast = src.dayKey !== getLoadedDayKey();
   const _payRows = (typeof computePayrollTable === 'function')
     ? computePayrollTable(settled, { dayKey: src.dayKey, tt: src.tt, activeCasts: src.activeCasts }) : [];
@@ -17424,11 +17459,12 @@ function _renderReportDay() {
   const cardSortOpts = [['salesDesc','売上が高い順'],['salesAsc','売上が低い順'],['nameAsc','名前順'],['no','番号順']]
     .map(([v,l]) => `<option value="${v}"${reportCardSort===v?' selected':''}>${l}</option>`).join('');
 
-  const dash = _aggKpiBarHtml(agg, src.dayKey)
+  const dash = _aggKpiBarHtml(agg, src.dayKey, lastSlipNo)
     + `<div class="agg-box">
         <div class="agg-box-head">
           <h3>キャスト別指名売上 <span class="payroll-note">※本指名・同伴で付いた卓の税込総計（場内・延長指名は除外）。出戻り本指は設定「出戻り本指の集計扱い」に従う</span></h3>
           <div class="agg-box-actions">
+            <span class="agg-nominate-total">当日合計 <b>¥${agg.nominatedSalesTotal.toLocaleString()}</b></span>
             <select onchange="setReportCardSort(this.value)">${cardSortOpts}</select>
           </div>
         </div>
@@ -17547,6 +17583,7 @@ function _dailyCloseNormalizeCastRows(rows) {
         mode: String(item?.mode || ''),
         amount: _dailyCloseNum(item?.amount),
         auto: _dailyCloseNum(item?.auto),
+        checked: item?.checked === true,
       })),
     };
     numberFields.forEach(field => {
@@ -18943,7 +18980,7 @@ function posOrderEditSeatSet() {
    POS レシート印刷（独立ウィンドウ）
 ================================================================ */
 /* 延長試算ヘルパー */
-function _posExtTrial(row, extMin) {
+function _posExtTrial(row, extMin, trialCasts = []) {
   const idx = (cfg.extOptions || []).indexOf(extMin);
   const extPrice = (idx >= 0 && cfg.extPrices) ? (cfg.extPrices[idx] || 0) : 0;
   let enchoshimeiExtra = 0;
@@ -18980,6 +19017,8 @@ function _posExtTrial(row, extMin) {
     else if (c === 'jonai')    _bump(_castOf(o), 'jounai');
     else if (c === 'dohan')    _bump(_castOf(o), 'douban');
   });
+  // 仮の指名は次の延長分だけに適用する。現在の指名・注文・calcBillの起点は変更しない。
+  trialCasts.forEach(cast => { if (cast) _bump(cast, 'enchoshimei'); });
   const seatCount = (typeof _posExtSeats === 'function') ? _posExtSeats(row) : Math.max(1, row.gcount || 1);
   // 延長指名料：席数ぶん or 延長1回ぶん（設定）。延長基本料：席数ぶん or 卓単位（設定）。
   const _feeSeatMul = cfg.extFeePerSeat ? seatCount : 1;
@@ -19002,6 +19041,10 @@ function _posExtTrial(row, extMin) {
 function posPrintReceipt() {
   const row = posSelectedRow();
   if (!row) { showToast('伝票を選択してください'); return; }
+  if (cfg.extTrialCompareEnabled === true && _extComparisonCandidates(row).length) {
+    _posOpenExtComparison(row);
+    return;
+  }
   const b     = _posCalcTotal(row);
   const table = row.tableNum ? posTableLabel(row.tableNum) : '-';
   const opts  = cfg.extOptions || [];
@@ -19326,7 +19369,8 @@ function _receiptDocBodyHtml(row, blocks) {
   return html;
 }
 
-function _extTrialTableHtml(row, block) {
+function _extTrialTableHtml(row, block, comparison) {
+  if (comparison?.casts?.length) return _extComparisonTableHtml(row, block, comparison);
   const b = _posCalcTotal(row);
   const cardFeePct = cfg.cardFeeRate || 0;
   const cardFeeRound = cfg.cardFeeRound || 100;
@@ -19355,7 +19399,7 @@ function _extTrialTableHtml(row, block) {
     + rows + '</table>';
 }
 
-function _extTrialDocBodyHtml(row, blocks) {
+function _extTrialDocBodyHtml(row, blocks, comparison) {
   const allowed = new Set(['title', 'logo', 'shopName', 'text', 'image', 'extTable', 'divider', 'spacer']);
   const normalized = (Array.isArray(blocks) ? blocks : _extTrialBlocks())
     .map(_receiptNormalizeBlock).filter(block => block && allowed.has(block.type));
@@ -19364,14 +19408,14 @@ function _extTrialDocBodyHtml(row, blocks) {
     if (block.type === 'title') {
       html += '<h2' + (block.size === 18 ? '' : ' style="font-size:' + block.size + 'pt"') + '>' + escHtml(block.text) + '</h2>'
         + (row.tableNum ? '<div class="sub">' + escHtml(posTableDisplay(posTableLabel(row.tableNum))) + '</div>' : '');
-    } else if (block.type === 'extTable') html += _extTrialTableHtml(row, block);
+    } else if (block.type === 'extTable') html += _extTrialTableHtml(row, block, comparison);
     else html += _commonPrintBlockHtml(block);
   });
   return html;
 }
 
-function _printDocBodyHtml(doc, row, blocks) {
-  return doc === 'extTrial' ? _extTrialDocBodyHtml(row, blocks) : _receiptDocBodyHtml(row, blocks);
+function _printDocBodyHtml(doc, row, blocks, comparison) {
+  return doc === 'extTrial' ? _extTrialDocBodyHtml(row, blocks, comparison) : _receiptDocBodyHtml(row, blocks);
 }
 
 function _receiptBodyHtml(row, blocks) {
@@ -19442,9 +19486,18 @@ function posPrintReceiptDirect(row) {
 }
 
 /* 延長試算の印刷：延長3パターンの金額を一覧で出す（お客さん提示用） */
-function posPrintExtTrial(row) {
+function posPrintExtTrial(row, comparison) {
   row = row || posSelectedRow();
   if (!row) { showToast('伝票を選択してください'); return; }
+  // 直接呼出しでも選択を飛ばさない。nullはモーダルで明示した「比較しない」。
+  if (comparison === undefined && cfg.extTrialCompareEnabled === true && _extComparisonCandidates(row).length) {
+    _posOpenExtComparison(row);
+    return;
+  }
+  if (comparison && !_extComparisonIsValid(row, comparison)) {
+    showToast('卓の状態が変わりました。比較対象を選び直してください');
+    return;
+  }
 
   const w = window.open('', '_blank', 'width=320,height=820');
   if (!w) { showToast('ポップアップがブロックされました'); return; }
@@ -19479,7 +19532,7 @@ function posPrintExtTrial(row) {
     //        コード側の空白では送れない。導入手順書に設定値を記載）
     + '@media print{body{padding:0 4mm}}</style>'
     + '</head><body>'
-    + _printDocBodyHtml('extTrial', row, _extTrialBlocks())
+    + _printDocBodyHtml('extTrial', row, _extTrialBlocks(), comparison)
     // 下余白の自前確保: 末尾の空白はドライバに切り詰められるため、10mm下に極小ドットを印字して
     // そこまで紙を送らせる（ドライバ「紙送り量」の設定漏れPCでも下が切れない。2026-07-21）
     + '<div style="margin:10mm auto 0;width:0.5mm;height:0;border-top:1px solid #000;print-color-adjust:exact;-webkit-print-color-adjust:exact"></div>'
@@ -19913,6 +19966,181 @@ async function posConfirmCastSplit() {
   const rp = document.getElementById('report-panel');
   if (rp && !rp.classList.contains('hidden') && typeof renderReportPanel === 'function') renderReportPanel();
   showToast('バック ¥' + s.backTotal.toLocaleString() + ' を折半 → SPに ' + detail);
+}
+/* 延長案内専用。比較の選択・仮定は伝票や注文に保存しない。 */
+function _extComparisonRow(row) {
+  return { ...row, posOrders: Array.isArray(row.posOrders) ? row.posOrders : [] };
+}
+
+function _extComparisonCandidates(row) {
+  if (!row || row.settled) return [];
+  const group = (state.rows || []).filter(r => String(r.gid) === String(row.gid))
+    .sort((a, b) => (a.gidx || 0) - (b.gidx || 0));
+  const rows = group.length ? group : [row];
+  const departed = new Set(_posDepartedCasts(row).filter(Boolean));
+  const designated = new Set(rows.flatMap(r => _posTableDesignations(_extComparisonRow(r))).map(d => d.cast));
+  const result = [];
+  rows.forEach((r, index) => {
+    if (r.settled || (r.mainType && r.mainType !== 'free')) return;
+    const floor = _posCurrentFloorCasts(r);
+    const casts = [...new Set(floor.length ? floor : [r.mainCast].filter(Boolean))];
+    casts.forEach(cast => {
+      if (departed.has(cast) || designated.has(cast)) return;
+      result.push({ key:JSON.stringify([String(r.id), cast]), cast,
+        label: ((row.gcount || 1) > 1 ? '客' + (index + 1) + ' · ' : '') + cast + 'さん' });
+    });
+  });
+  return result;
+}
+
+function _extComparisonSelection(row, targets) {
+  return { rowId:String(row.id), gid:String(row.gid), targets:targets.map(t => t.key),
+    casts:[...new Set(targets.map(t => t.cast))], labels:targets.map(t => t.label) };
+}
+
+function _extComparisonIsValid(row, comparison) {
+  if (!row || row.settled || cfg.extTrialCompareEnabled !== true
+      || comparison.rowId !== String(row.id) || comparison.gid !== String(row.gid)) return false;
+  const live = (state.rows || []).find(r => String(r.id) === String(row.id) && String(r.gid) === String(row.gid));
+  if (live !== row) return false; // 削除済み行や古いコピーを直接印刷しない。
+  const candidates = _extComparisonCandidates(row);
+  const selected = candidates.filter(c => comparison.targets?.includes(c.key));
+  const fresh = _extComparisonSelection(row, selected);
+  return fresh.targets.length > 0 && fresh.targets.length === comparison.targets.length
+    && JSON.stringify(fresh.casts) === JSON.stringify(comparison.casts);
+}
+
+// 現在額の手入力差分を両案に同じように引き継ぎ、前金は税サ計算後に引く。
+function _extComparisonAmounts(sourceRow, casts) {
+  const row = _extComparisonRow(sourceRow);
+  const base = _posCalcTotal(row);
+  const advance = _posAdvancePrincipal(row);
+  const currentCash = advance ? Math.max(0, base.cash - advance) : (parseInt(row.amountCash) || base.cash);
+  const card = cash => ceilAddRate(cash, cfg.cardFeeRate || 0, cfg.cardFeeRound || 100);
+  const currentCard = advance ? card(currentCash) : (parseInt(row.amountCard) || card(currentCash));
+  const amount = trial => {
+    const cash = advance ? trial.dueCash : currentCash + trial.cash - base.cash;
+    return { cash, card:card(cash) };
+  };
+  const options = Array.isArray(row.extTrialOptions) ? row.extTrialOptions : (cfg.extOptions || []);
+  return { currentCash, currentCard, advance,
+    rows: options.map(min => ({ min, free:amount(_posExtTrial(row, min)), nominated:amount(_posExtTrial(row, min, casts)) })) };
+}
+
+function _extComparisonTableHtml(row, block, comparison) {
+  const amounts = _extComparisonAmounts(row, comparison.casts);
+  const showCard = block.showCard !== false;
+  const yen = value => '¥' + value.toLocaleString();
+  const hasDesignation = _posTableDesignations(_extComparisonRow(row)).some(d => !_posDepartedCasts(row).includes(d.cast))
+    || (state.rows || []).some(r => String(r.gid) === String(row.gid) && r.mainType && r.mainType !== 'free' && !r.settled);
+  const cell = amount => '<span class="extcmp-cash">' + (showCard ? '<small>現金</small>' : '') + yen(amount.cash) + '</span>'
+    + (showCard ? '<span class="extcmp-card"><small>カード</small>' + yen(amount.card) + '</span>' : '');
+  // 同じHTML/CSSをモーダル・設定プレビュー・印刷で使う。既存表には作用しない。
+  return '<style>'
+    + '.extcmp{color:#000;font:10pt/1.5 "Meiryo",sans-serif;text-align:left}'
+    + '.extcmp .extcmp-current{display:flex;justify-content:space-between;gap:2mm;font-size:9pt;margin:1mm 0;flex-wrap:wrap}'
+    + '.extcmp .extcmp-current strong{white-space:nowrap}'
+    + '.extcmp .extcmp-title{font-size:11pt;text-align:center;font-weight:800;border-block:2px solid #000;padding:2mm 0;margin:3mm 0 2mm}'
+    + '.extcmp .extcmp-target{font-size:9pt;margin:2mm 0;overflow-wrap:anywhere}'
+    + '.extcmp table.extcmp-table{width:100%;table-layout:fixed;border-collapse:collapse}'
+    + '.extcmp table.extcmp-table th{font-size:9pt;line-height:1.4;text-align:center;padding:2mm 0;border-bottom:1px solid #000;white-space:normal}'
+    + '.extcmp table.extcmp-table th:first-child{width:20%;text-align:left}'
+    + '.extcmp table.extcmp-table td{font-size:10pt;font-weight:700;line-height:1.5;padding:3mm 0;text-align:right;vertical-align:middle;white-space:normal;border-bottom:1px dashed #999}'
+    + '.extcmp table.extcmp-table td:first-child{text-align:left;font-size:9pt}'
+    + '.extcmp .extcmp-cash,.extcmp .extcmp-card{display:block;white-space:nowrap;font-variant-numeric:tabular-nums}'
+    + '.extcmp .extcmp-card{font-size:9pt;margin-top:1mm}.extcmp small{display:block;font-size:7pt;font-weight:400}'
+    + '.extcmp .extcmp-note{font-size:8pt;margin-top:2mm;overflow-wrap:anywhere}'
+    + '</style><section class="extcmp">'
+    + '<div class="extcmp-current"><span>' + (amounts.advance ? '現在の残金' : '現在の金額') + '（現金）</span><strong>' + yen(amounts.currentCash) + '</strong></div>'
+    + (showCard ? '<div class="extcmp-current"><span>' + (amounts.advance ? '現在の残金' : '現在の金額') + '（カード）</span><strong>' + yen(amounts.currentCard) + '</strong></div>' : '')
+    + (amounts.advance ? '<div class="extcmp-current"><span>前金受領済み</span><strong>' + yen(amounts.advance) + '</strong></div>' : '')
+    + '<div class="extcmp-title">' + (amounts.advance ? '延長後の残金' : '延長後の合計金額') + '</div>'
+    + '<div class="extcmp-target">延長指名：' + comparison.labels.map(escHtml).join('／') + '</div>'
+    + '<table class="extcmp-table"><thead><tr><th scope="col">延長</th><th scope="col">' + (hasDesignation ? '指名追加なし' : 'フリー継続') + '</th><th scope="col">延長指名</th></tr></thead><tbody>'
+    + amounts.rows.map(r => '<tr><td>' + escHtml(String(r.min)) + '分</td><td>' + cell(r.free) + '</td><td>' + cell(r.nominated) + '</td></tr>').join('')
+    + '</tbody></table>'
+    + '<div class="extcmp-note">卓全体の' + (amounts.advance ? '残金' : '合計') + 'です。追加注文で金額は変わります。</div>'
+    + '</section>';
+}
+
+function _extComparisonSample() {
+  const row = { ..._receiptSampleRow(), id:'ext-comparison-sample', gid:'ext-comparison-sample',
+    mainType:'free', mainCast:'花子', rotations:['花子'], settled:false, gcount:1,
+    extensions:[], extSeats:[], extTrialOptions:[...(cfg.extOptions || [])],
+    posOrders:[{ category:'set', name:'SET', amount:cfg.setPrice || 7000, qty:1 }], amountCash:0 };
+  return { row, comparison:_extComparisonSelection(row, _extComparisonCandidates(row)) };
+}
+
+function _posOpenExtComparison(row) {
+  const candidates = _extComparisonCandidates(row);
+  if (!candidates.length) return;
+  document.getElementById('pos-ext-overlay')?.remove();
+  const previousFocus = document.activeElement;
+  const overlay = document.createElement('div');
+  overlay.id = 'pos-ext-overlay';
+  overlay.className = 'pos-co-overlay';
+  const autoSelect = (row.gcount || 1) === 1 && candidates.length === 1;
+  overlay.innerHTML = '<div class="pos-co-panel" role="dialog" aria-modal="true" aria-labelledby="pos-ext-compare-title" style="max-width:560px;max-height:94dvh;display:flex;flex-direction:column;background:var(--bg);color:var(--tx)">'
+    + '<div class="pos-co-header" style="flex-shrink:0;background:var(--bg);color:var(--tx);border-bottom:1px solid var(--bdr)"><div class="pos-co-title" id="pos-ext-compare-title" style="color:inherit">延長料金のご案内 — ' + escHtml(row.tableNum ? posTableLabel(row.tableNum) : '-') + '</div>'
+    + '<button type="button" class="pos-co-close" data-action="close" aria-label="閉じる">×</button></div>'
+    + '<div class="pos-co-body" style="overflow-y:auto;min-height:0"><label style="display:flex;gap:8px;align-items:center;min-height:44px"><input type="checkbox" data-compare checked>フリー継続・延長指名を比較する</label>'
+    + '<fieldset data-targets style="border:1px solid var(--bdr);border-radius:8px;padding:8px 12px;margin:4px 0 12px"><legend style="font-size:12px">延長指名するキャスト</legend>'
+    + candidates.map((c, index) => '<label style="display:flex;align-items:center;gap:8px;min-height:44px;overflow-wrap:anywhere"><input type="checkbox" data-target="' + index + '"' + (autoSelect ? ' checked' : '') + '>' + escHtml(c.label) + '</label>').join('')
+    + '</fieldset><div style="font-size:12px;color:var(--tx2);margin-bottom:12px">'
+    + '案内のみ。実際の指名・注文は別途登録してください。'
+    + (cfg.extFeePerSeat ? '<br>店舗設定：指名1人につき在席' + _posExtSeats(row) + '名分の延長指名料。' : '')
+    + '</div><div data-preview></div><div data-hint role="status" style="padding:8px 0;font-size:12px;color:var(--tx2)"></div>'
+    + '<div class="pos-co-actions" style="margin-top:12px;position:sticky;bottom:0;padding:8px 0;background:var(--bg)">'
+    + '<button type="button" class="pos-co-btn cash" data-action="print">🖨️ 案内を印刷</button>'
+    + '<button type="button" class="pos-co-btn card" data-action="bill">🧾 伝票を印刷</button>'
+    + '<button type="button" class="pos-co-btn" style="background:#2a7a4a" data-action="receipt">🧾 領収書を発行</button>'
+    + '<button type="button" class="pos-co-btn cancel" data-action="close">閉じる</button>'
+    + '</div></div></div>';
+  const close = () => { overlay.remove(); if (previousFocus?.isConnected) previousFocus.focus(); };
+  const liveRow = () => (state.rows || []).find(r => String(r.id) === String(row.id) && String(r.gid) === String(row.gid) && !r.settled);
+  const selected = () => _extComparisonSelection(row, candidates.filter((c, i) => overlay.querySelector('[data-target="' + i + '"]').checked));
+  const update = () => {
+    const enabled = overlay.querySelector('[data-compare]').checked;
+    overlay.querySelector('[data-targets]').hidden = !enabled;
+    const comparison = enabled ? selected() : null;
+    const ready = !enabled || comparison.casts.length > 0;
+    overlay.querySelector('[data-action="print"]').disabled = !ready;
+    overlay.querySelector('[data-hint]').textContent = ready ? '' : '比較するキャストを選んでください。';
+    overlay.querySelector('[data-preview]').innerHTML = ready
+      ? '<div class="ext-trial-preview" style="background:#fff;color:#000;padding:12px;max-width:320px;margin:auto">'
+        + _printDocBodyHtml('extTrial', _extComparisonRow(liveRow() || row), _extTrialBlocks(), comparison) + '</div>' : '';
+  };
+  overlay.addEventListener('change', update);
+  overlay.addEventListener('click', event => {
+    if (event.target === overlay) { close(); return; }
+    const action = event.target.closest('[data-action]')?.dataset.action;
+    if (!action) return;
+    if (action === 'close') { close(); return; }
+    const current = liveRow();
+    if (!current) { close(); showToast('この伝票は精算済みか削除されています'); return; }
+    if (action === 'print') {
+      const comparison = overlay.querySelector('[data-compare]').checked ? selected() : null;
+      if (comparison && !_extComparisonIsValid(current, comparison)) {
+        close(); showToast('卓の状態が変わりました。比較対象を選び直してください');
+        _posOpenExtComparison(current);
+        return;
+      }
+      posPrintExtTrial(current, comparison);
+    } else if (action === 'bill') posPrintReceiptDirect(current);
+    else if (action === 'receipt') printReceipt(current.id);
+    close();
+  });
+  overlay.addEventListener('keydown', event => {
+    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(); }
+    if (event.key !== 'Tab') return;
+    const items = [...overlay.querySelectorAll('button:not(:disabled),input:not(:disabled)')].filter(el => el.getClientRects().length);
+    const first = items[0], last = items[items.length - 1];
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+  });
+  document.body.appendChild(overlay);
+  update();
+  overlay.querySelector('[data-compare]').focus();
 }
 /* ================================================================
    PAST LIST PANEL
@@ -21033,6 +21261,7 @@ function _receiptSettingsSectionHTML() {
       <div class="print-layout-tab-panel${_printLayoutActiveTab === 'extTrial' ? ' active' : ''}" data-print-panel="extTrial">
         <div class="receipt-layout-editor">
           <div class="receipt-layout-controls">
+            <div class="settings-row" style="display:block"><label style="display:flex;align-items:center;gap:8px;min-height:36px;cursor:pointer"><input type="checkbox" id="cfg-extTrialCompareEnabled" ${cfg.extTrialCompareEnabled === true ? 'checked' : ''} onchange="_printLayoutUpdatePreview('extTrial');_settingsMarkDirty()">フリー継続・延長指名を比較する</label><div class="settings-sub">OFFは従来どおり。ONは印刷前に対象キャストを選択。料金は「料金・会計」の延長指名料を使用します。</div></div>
             <div class="settings-row"><div class="settings-label">全体の文字サイズ</div><select id="cfg-extTrialScale" class="settings-input" onchange="printLayoutScaleUpdate('extTrial',Number(this.value))">${scaleOptions(_extTrialScaleDraft)}</select></div>
             <div id="ext-trial-block-list"></div>
             <div class="receipt-add-row"><select id="ext-trial-add-type">${extTypeOptions}</select><button type="button" class="btn" onclick="extTrialLayoutAdd()">＋ ブロックを追加</button></div>
@@ -21088,7 +21317,9 @@ function _printLayoutUpdatePreview(doc) {
   const draft = isExt ? _extTrialLayoutDraft : _receiptLayoutDraft;
   if (preview) {
     const scale = isExt ? _extTrialScaleDraft : _receiptScaleDraft;
-    const html = _printDocBodyHtml(doc, _receiptSampleRow(), draft || []);
+    const compare = isExt && (document.getElementById('cfg-extTrialCompareEnabled')?.checked ?? cfg.extTrialCompareEnabled) === true;
+    const sample = compare ? _extComparisonSample() : null;
+    const html = _printDocBodyHtml(doc, sample ? sample.row : _receiptSampleRow(), draft || [], sample?.comparison);
     preview.innerHTML = scale === 100 ? html : '<div class="receipt-preview-scale" style="zoom:' + scale + '%">' + html + '</div>';
   }
 }
@@ -21421,6 +21652,26 @@ function renderSettingsPanel() {
         <div class="settings-row">
           <div class="settings-label">営業日の境界時刻<div class="settings-sub">この時刻より前は前日の営業日扱い（例：12なら翌朝11:59まで前日扱い）</div></div>
           <input type="number" class="settings-input" id="cfg-bizDayBoundaryHour" value="${cfg.bizDayBoundaryHour ?? 12}" min="5" max="18"> 時
+        </div>
+      </div>
+    </div>
+
+    <!-- 業態設定 -->
+    <div class="settings-section" data-setcat="basic">
+      <div class="settings-section-header"><span class="settings-section-title">🏪 業態設定</span></div>
+      <div class="settings-section-body">
+        <div class="settings-row">
+          <div class="settings-label"><label for="cfg-businessType">業態</label><div class="settings-sub">店舗の業態を選択してください</div></div>
+          <select class="settings-input" id="cfg-businessType" style="width:180px" onchange="settingsBusinessTypeChanged(this.value)">
+            ${SHOP_BUSINESS_TYPES.map(type => `<option value="${type.value}" ${normalizeBusinessType(cfg.businessType) === type.value ? 'selected' : ''}>${type.label}</option>`).join('')}
+          </select>
+        </div>
+        <div class="settings-row" id="cfg-showtime-row" style="display:${cfg.businessType === 'sexy_cabaret' ? '' : 'none'}">
+          <div class="settings-label"><label for="cfg-showtimeScope">ショータイムの加算範囲</label><div class="settings-sub">ショータイムを卓に落としたときの対象。空卓・精算済みは含みません</div></div>
+          <select class="settings-input" id="cfg-showtimeScope" style="width:180px">
+            <option value="table" ${cfg.showtimeScope !== 'all' ? 'selected' : ''}>個別卓に＋1</option>
+            <option value="all" ${cfg.showtimeScope === 'all' ? 'selected' : ''}>在店中の全卓に＋1</option>
+          </select>
         </div>
       </div>
     </div>
@@ -21766,133 +22017,7 @@ function renderSettingsPanel() {
       </div>
     </div>
 
-    <!-- 給与計算ルール -->
-    <div class="settings-section" data-setcat="cast">
-      <div class="settings-section-header"><span class="settings-section-title">💴 給与計算ルール</span></div>
-      <div class="settings-section-body">
-        <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:6px">
-          <div class="settings-label" style="display:flex;align-items:center;gap:8px"><div><b>給与計算のしくみ</b><div class="settings-sub">日計表の日給はこの順で計算されます（値は現在の設定）</div></div><button type="button" class="payroll-rules-gear" style="margin-left:auto" onclick="payrollRulesOpenModal()" aria-label="給与計算ルールの設定">⚙</button></div>
-          <ol class="pay-logic">
-            <li>① <b>時間給</b> ＝ 時給 × 勤務分 ÷ 60（1円未満四捨五入）。出勤は ${cfg.payrollClockInRoundMin ?? 30} 分単位で切り上げ、退勤は ${cfg.payrollClockOutRoundMin ?? 30} 分単位（${cfg.payrollClockOutRoundThreshold ?? 15} 分を境に四捨五入）。時給はキャスト個別→空欄なら店標準時給 ¥${Number(cfg.defaultWage) || 0}</li>
-            <li>② <b>バック</b> ＝ 本数 × バック単価（本指・本指名延長・延長指名・場内・同伴・指名ドリンク・フリードリンク）＋ 商品バック。単価はキャスト個別→空欄ならキャスト既定バック。本数は伝票から自動集計（日計表で手修正可）</li>
-            <li>③ <b>SP</b> ＝ 手入力 ＋ ボトル折半ぶん（SP参考値の率 ${(Number(cfg.payrollBottleSpRate ?? 0.2) * 100).toLocaleString('ja-JP')}%）</li>
-            <li>④ <b>遅刻罰金</b> ＝ ${cfg.payrollLateFineUnitMin ?? 15} 分ごとに ¥${Number(cfg.payrollLateFineAmt ?? 1000).toLocaleString('ja-JP')}</li>
-            <li>⑤ <b>日給</b> ＝ 時間給 ＋ バック合計（＝②＋③） − 遅刻罰金</li>
-            <li>⑥ <b>控除計</b> ＝ 控除項目の合計（${(Array.isArray(cfg.payrollDeductions) ? cfg.payrollDeductions : []).map(item => escHtml(item.label || '')).filter(Boolean).join('・') || '未設定'}）／ <b>差引支給</b> ＝ 日給 − 控除計</li>
-            <li>⑦ <b>給率</b> ＝ 日給 ÷ キャスト帰属売上 × 100（参考値）</li>
-          </ol>
-        </div>
-        <div class="settings-row">
-          <div class="settings-label">同伴を本指名の本数に数える<div class="settings-sub">ON: 同伴1件につき本指名+1（本指バックも付く）／OFF: 同伴バックのみ</div></div>
-          <label><input type="checkbox" id="cfg-payrollDouhanAddsHonshimei" ${cfg.payrollDouhanAddsHonshimei !== false ? 'checked' : ''}> 有効にする</label>
-        </div>
-        <div class="settings-row">
-          <div class="settings-label">同伴を本指名延長の先頭項目に数える<div class="settings-sub">ON: 同伴1件につき本指名延長の先頭項目（例: 本延20）+1／OFF: 加算しない</div></div>
-          <label><input type="checkbox" id="cfg-payrollDouhanAddsHonenFirst" ${cfg.payrollDouhanAddsHonenFirst !== false ? 'checked' : ''}> 有効にする</label>
-        </div>
-        <div class="settings-row">
-          <div class="settings-label">SPをバック合計（日給）に含める<div class="settings-sub">ON: 手入力SP・ボトル折半を日給に含める／OFF: 参考表示のみで日給には含めない</div></div>
-          <label><input type="checkbox" id="cfg-payrollSpInBackTotal" ${cfg.payrollSpInBackTotal !== false ? 'checked' : ''}> 有効にする</label>
-        </div>
-        <div class="settings-row">
-          <div class="settings-label">店標準時給<div class="settings-sub">キャスト個別の時給が空欄のときに自動で適用（バックの標準額と同じ仕組み）。空欄=店標準を使わない旧挙動のまま。入力した時点で保存されます</div></div>
-          <span style="display:flex;gap:6px;align-items:center">
-            <input type="number" id="cfg-defaultWage" class="settings-input" value="${cfg.defaultWage || ''}" min="0" step="100" placeholder="0" style="width:110px" onchange="setPayrollCfgNum('defaultWage', this.value, 0)"><span style="font-size:11px;color:var(--tx3)">円/時</span>
-          </span>
-        </div>
-        <div class="settings-row">
-          <div class="settings-label">給与明細の締め期間<div class="settings-sub">給与明細の期間ナビと合算範囲に使用</div></div>
-          <select class="settings-input" id="cfg-payrollPeriod" style="width:140px">
-            <option value="month"${cfg.payrollPeriod === 'half' ? '' : ' selected'}>月払い</option>
-            <option value="half"${cfg.payrollPeriod === 'half' ? ' selected' : ''}>半月払い</option>
-          </select>
-        </div>
-        <div class="settings-row">
-          <div class="settings-label">スライド時給の判定元<div class="settings-sub">キャスト管理で「スライド時給を適用」したキャストだけに使用</div></div>
-          <select class="settings-input" id="cfg-payrollSlideSource" style="width:190px">
-            <option value="current"${cfg.payrollSlideSource === 'prev' ? '' : ' selected'}>今期の成績 → 今期</option>
-            <option value="prev"${cfg.payrollSlideSource === 'prev' ? ' selected' : ''}>前期の成績 → 今期</option>
-          </select>
-        </div>
-        <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:8px">
-          <div class="settings-label">スライド時給テーブル<div class="settings-sub">期間の帰属売上がしきい値以上となる最大行の時給を適用。空なら機能OFFです。</div></div>
-          <table class="pos-me-table" id="cfg-payroll-slide-table">
-            <thead><tr><th>売上しきい値</th><th>時給</th><th style="width:56px"></th></tr></thead>
-            <tbody>${(Array.isArray(cfg.payrollSlideTable) ? cfg.payrollSlideTable : []).map(_payrollSlideRowHTML).join('')}</tbody>
-          </table>
-          <button type="button" class="pos-me-add-btn" onclick="payrollSlideAdd()">＋ スライド行を追加</button>
-        </div>
-        <div class="settings-row">
-          <div class="settings-label">給与端数の丸め<div class="settings-sub">スライド調整・期間控除の各行に1回だけ適用</div></div>
-          <span style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-            <select class="settings-input" id="cfg-payrollRoundMode" style="width:120px">
-              <option value="round"${cfg.payrollRoundMode === 'floor' || cfg.payrollRoundMode === 'ceil' ? '' : ' selected'}>四捨五入</option>
-              <option value="floor"${cfg.payrollRoundMode === 'floor' ? ' selected' : ''}>切り捨て</option>
-              <option value="ceil"${cfg.payrollRoundMode === 'ceil' ? ' selected' : ''}>切り上げ</option>
-            </select>
-            <select class="settings-input" id="cfg-payrollRoundUnit" style="width:100px">
-              ${[1,10,100].map(unit => `<option value="${unit}"${Number(cfg.payrollRoundUnit) === unit ? ' selected' : ''}>${unit}円単位</option>`).join('')}
-            </select>
-          </span>
-        </div>
-        <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:8px">
-          <div class="settings-label">期間控除<div class="settings-sub">明細集計時に定義順で徴収します。率・速算表は日次控除前の支給合計を基底にします。</div></div>
-          <table class="pos-me-table" id="cfg-payroll-period-deductions-table">
-            <thead><tr><th>名称</th><th style="width:120px">方式</th><th>値・速算表</th><th style="width:110px">非課税枠/日</th><th style="width:64px">繰越</th><th style="width:56px"></th></tr></thead>
-            <tbody>${(Array.isArray(cfg.payrollPeriodDeductions) ? cfg.payrollPeriodDeductions : []).map(_payrollPeriodDeductionRowHTML).join('')}</tbody>
-          </table>
-          <button type="button" class="pos-me-add-btn" onclick="payrollPeriodDeductionAdd()">＋ 期間控除を追加</button>
-        </div>
-        <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:8px">
-          <div class="settings-label">控除項目<div class="settings-sub">店舗で使用する控除の名称と計算方式を設定します。率は日給に対する参考計算です。</div></div>
-          <table class="pos-me-table" id="cfg-payroll-deductions-table">
-            <thead><tr><th>名称</th><th style="width:130px">方式</th><th style="width:130px">値</th><th style="width:56px"></th></tr></thead>
-            <tbody>${(Array.isArray(cfg.payrollDeductions) ? cfg.payrollDeductions : []).map(_payrollDeductionRowHTML).join('')}</tbody>
-          </table>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-            <button type="button" class="pos-me-add-btn" onclick="payrollDeductionAdd()">＋ 控除項目を追加</button>
-            <span style="font-size:11px;color:var(--tx3)">よく使う項目:</span>
-            ${PAYROLL_DEDUCTION_PRESETS.map(label => `<button type="button" class="pos-me-add-btn" onclick="payrollDeductionAddPreset('${escAttr(label)}')">＋ ${label}</button>`).join('')}
-          </div>
-        </div>
-        <div class="settings-group-head">⏱ 出退勤の丸め・遅刻罰金・SP参考率</div>
-        <div class="settings-sub" style="margin-bottom:8px">1円もズレない計算なので変更は慎重に。この6項目は入力した時点で保存されます（保存ボタンを待ちません）。</div>
-        <div class="settings-row">
-          <div class="settings-label">出勤時刻の丸め単位<div class="settings-sub">N分ごとに切り上げ。例：30なら22:01→22:30</div></div>
-          <span style="display:flex;gap:6px;align-items:center">
-            <input type="number" class="settings-input" value="${cfg.payrollClockInRoundMin ?? 30}" min="1" max="60" step="1" style="width:90px" onchange="setPayrollCfgNum('payrollClockInRoundMin', this.value, 30)"><span style="font-size:11px;color:var(--tx3)">分</span>
-          </span>
-        </div>
-        <div class="settings-row">
-          <div class="settings-label">退勤時刻の丸め単位<div class="settings-sub">N分刻みで四捨五入</div></div>
-          <span style="display:flex;gap:6px;align-items:center">
-            <input type="number" class="settings-input" value="${cfg.payrollClockOutRoundMin ?? 30}" min="1" max="60" step="1" style="width:90px" onchange="setPayrollCfgNum('payrollClockOutRoundMin', this.value, 30)"><span style="font-size:11px;color:var(--tx3)">分</span>
-          </span>
-        </div>
-        <div class="settings-row">
-          <div class="settings-label">退勤丸めの四捨五入境界<div class="settings-sub">この分数未満は切り捨て・以上は切り上げ（30分単位なら通常15）</div></div>
-          <span style="display:flex;gap:6px;align-items:center">
-            <input type="number" class="settings-input" value="${cfg.payrollClockOutRoundThreshold ?? 15}" min="1" max="30" step="1" style="width:90px" onchange="setPayrollCfgNum('payrollClockOutRoundThreshold', this.value, 15)"><span style="font-size:11px;color:var(--tx3)">分</span>
-          </span>
-        </div>
-        <div class="settings-row">
-          <div class="settings-label">遅刻罰金の単位<div class="settings-sub">N分ごとに1段階。例：15なら1〜15分=1段階、16〜30分=2段階</div></div>
-          <span style="display:flex;gap:6px;align-items:center">
-            <input type="number" class="settings-input" value="${cfg.payrollLateFineUnitMin ?? 15}" min="1" max="60" step="1" style="width:90px" onchange="setPayrollCfgNum('payrollLateFineUnitMin', this.value, 15)"><span style="font-size:11px;color:var(--tx3)">分</span>
-          </span>
-        </div>
-        <div class="settings-row">
-          <div class="settings-label">遅刻罰金の単位額<div class="settings-sub">1段階あたりの金額</div></div>
-          <span style="display:flex;gap:6px;align-items:center">
-            <input type="number" class="settings-input" value="${cfg.payrollLateFineAmt ?? 1000}" min="0" step="100" style="width:110px" onchange="setPayrollCfgNum('payrollLateFineAmt', this.value, 1000)"><span style="font-size:11px;color:var(--tx3)">円</span>
-          </span>
-        </div>
-        <div class="settings-row">
-          <div class="settings-label">SP参考値の率（ボトルバック率）<div class="settings-sub">ボトル小計×この率。POSの「キャスト折半」のバック計算にも使用。SP最終額は手入力が優先（0.2 = 20%）</div></div>
-          <input type="number" class="settings-input" value="${cfg.payrollBottleSpRate ?? 0.2}" min="0" max="1" step="0.01" style="width:90px" onchange="setPayrollCfgNum('payrollBottleSpRate', this.value, 0.2)">
-        </div>
-      </div>
-    </div>
+    ${_payrollSettingsSectionHtml()}
 
     <!-- キャスト管理（時給・バック単価マスタ） -->
     <div class="settings-section" data-setcat="cast">
@@ -22696,6 +22821,12 @@ function shopLogoClear() {
   showToast('ロゴを削除します。設定タブを離れるときに確定します');
 }
 
+function settingsBusinessTypeChanged(value) {
+  const row = document.getElementById('cfg-showtime-row');
+  if (row) row.style.display = value === 'sexy_cabaret' ? '' : 'none';
+  _settingsMarkDirty();
+}
+
 /* 設定を保存して全体に即時反映 */
 async function applySettings() {
   const get = id => document.getElementById(id);
@@ -22911,65 +23042,17 @@ async function applySettings() {
 
   // 店舗情報
   const shopName = (get('cfg-shopName')?.value ?? '').trim();
+  const businessType = normalizeBusinessType(get('cfg-businessType')?.value ?? cfg.businessType);
+  const showtimeScope = (get('cfg-showtimeScope')?.value ?? cfg.showtimeScope) === 'all' ? 'all' : 'table';
 
-  // 給与計算ルール：既存の数値入力欄は「出勤キャスト」内の「キャスト管理」に移設済み（cfg直書き）。
-  // ここでは cfg = {...} の全置換で消えないよう既存値を素通りさせ、控除項目は上の編集表から収集する。
-  const _payNumGet = (id, def) => {
-    const el = get(id); if (!el) return cfg[def] ?? null;
-    const v = Number(el.value); return isNaN(v) ? (cfg[def] ?? null) : v;
-  };
-  const payrollClockInRoundMin        = _payNumGet('cfg-payrollClockInRoundMin', 'payrollClockInRoundMin') ?? 30;
-  const payrollClockOutRoundMin       = _payNumGet('cfg-payrollClockOutRoundMin', 'payrollClockOutRoundMin') ?? 30;
-  const payrollClockOutRoundThreshold = _payNumGet('cfg-payrollClockOutRoundThreshold', 'payrollClockOutRoundThreshold') ?? 15;
-  const payrollLateFineUnitMin        = _payNumGet('cfg-payrollLateFineUnitMin', 'payrollLateFineUnitMin') ?? 15;
-  const payrollLateFineAmt            = _payNumGet('cfg-payrollLateFineAmt', 'payrollLateFineAmt') ?? 1000;
-  const payrollBottleSpRate           = _payNumGet('cfg-payrollBottleSpRate', 'payrollBottleSpRate') ?? 0.2;
-  const _payBoolGet = (id, key) => {
-    const el = get(id);
-    return el ? !!el.checked : cfg[key] !== false;
-  };
-  const payrollDouhanAddsHonshimei = _payBoolGet('cfg-payrollDouhanAddsHonshimei', 'payrollDouhanAddsHonshimei');
-  const payrollDouhanAddsHonenFirst = _payBoolGet('cfg-payrollDouhanAddsHonenFirst', 'payrollDouhanAddsHonenFirst');
-  const payrollSpInBackTotal = _payBoolGet('cfg-payrollSpInBackTotal', 'payrollSpInBackTotal');
-  const defaultWage                   = _payNumGet('cfg-defaultWage', 'defaultWage') ?? 0;
-  const payrollPeriod                 = get('cfg-payrollPeriod')?.value === 'half' ? 'half' : 'month';
-  const payrollSlideSource            = get('cfg-payrollSlideSource')?.value === 'prev' ? 'prev' : 'current';
-  const payrollSlideTable = Array.from(document.querySelectorAll('#cfg-payroll-slide-table tbody > tr')).map(tr => ({
-    minSales: Math.max(0, Number(tr.querySelector('.payroll-slide-min')?.value) || 0),
-    wage: Math.max(0, Number(tr.querySelector('.payroll-slide-wage')?.value) || 0),
-  })).sort((a, b) => a.minSales - b.minSales);
-  const payrollRoundMode = ['floor', 'ceil'].includes(get('cfg-payrollRoundMode')?.value)
-    ? get('cfg-payrollRoundMode').value : 'round';
-  const payrollRoundUnit = [1, 10, 100].includes(Number(get('cfg-payrollRoundUnit')?.value))
-    ? Number(get('cfg-payrollRoundUnit').value) : 1;
-  const payrollPeriodDeductions = Array.from(document.querySelectorAll('#cfg-payroll-period-deductions-table tbody > tr.payroll-period-deduction-row')).map(tr => {
-    const mode = ['rate', 'bracket'].includes(tr.querySelector('.payroll-period-deduction-mode')?.value)
-      ? tr.querySelector('.payroll-period-deduction-mode').value : 'fixed';
-    const table = Array.from(tr.querySelectorAll('.payroll-bracket-table tbody > tr')).map(bracket => ({
-      min: Math.max(0, Number(bracket.querySelector('.payroll-bracket-min')?.value) || 0),
-      rate: Math.max(0, Number(bracket.querySelector('.payroll-bracket-rate')?.value) || 0),
-      sub: Math.max(0, Number(bracket.querySelector('.payroll-bracket-sub')?.value) || 0),
-    }));
-    return {
-      key: String(tr.dataset.key || ''),
-      label: tr.querySelector('.payroll-period-deduction-label')?.value.trim() || '',
-      mode,
-      value: mode === 'bracket' ? 0 : Math.max(0, Number(tr.querySelector('.payroll-period-deduction-value')?.value) || 0),
-      table,
-      exemptPerDay: Math.max(0, Number(tr.querySelector('.payroll-period-deduction-exempt')?.value) || 0),
-      carryover: !!tr.querySelector('.payroll-period-deduction-carryover')?.checked,
-    };
-  });
-  const payrollDeductions = Array.from(document.querySelectorAll('#cfg-payroll-deductions-table tbody tr')).map(tr => {
-    const mode = tr.querySelector('.payroll-deduction-mode')?.value || 'manual';
-    const rawValue = Number(tr.querySelector('.payroll-deduction-value')?.value);
-    return {
-      key: String(tr.dataset.key || ''),
-      label: tr.querySelector('.payroll-deduction-label')?.value.trim() || '',
-      mode,
-      value: mode === 'manual' ? 0 : (Number.isFinite(rawValue) ? rawValue : 0),
-    };
-  });
+  // 給与は専用モーダルで保存済み。全体保存で不在の入力を既定値に戻さない。
+  const {
+    payrollClockInRoundMin, payrollClockOutRoundMin, payrollClockOutRoundThreshold,
+    payrollLateFineUnitMin, payrollLateFineAmt, payrollBottleSpRate, defaultWage, payrollPeriod,
+    payrollDouhanAddsHonshimei, payrollDouhanAddsHonenFirst, payrollSpInBackTotal,
+    payrollSlideTable, payrollSlideSource, payrollPeriodDeductions, payrollRoundMode, payrollRoundUnit,
+    payrollDeductions,
+  } = _payrollSettingsSnapshot();
   const pointsEnabled = !!get('cfg-pointsEnabled')?.checked;
   const pointRules = feeMasterValues.pointRules;
   const rankingShowAmountToCast = get('cfg-rankingShowAmountToCast')?.checked !== false;
@@ -22996,7 +23079,7 @@ async function applySettings() {
   const ryoshuScale = _printScaleValue(_ryoshuScaleDraft);
 
   cfg = {
-    shopName,
+    shopName, businessType, showtimeScope,
     timeStartH, timeEndH, bizDayBoundaryHour: bizHour, defStay, dohanStay,
     clockInFrom, clockInTo, clockInStep,
     clockOutFrom, clockOutTo, clockOutStep,
@@ -23015,6 +23098,7 @@ async function applySettings() {
     posMenu, posCatLayout, posCustomCats, posPrices, shimeiExtItems, drinkItems, shotLabel,
     receiptStoreName1, receiptStoreAddr, receiptStoreTel, receiptInvoiceNo, receiptNote,
     receiptLayout, extTrialLayout, ryoshuOpts, receiptScale, extTrialScale, ryoshuScale,
+    extTrialCompareEnabled: document.getElementById('cfg-extTrialCompareEnabled')?.checked ?? (cfg.extTrialCompareEnabled === true),
     payrollClockInRoundMin, payrollClockOutRoundMin, payrollClockOutRoundThreshold,
     payrollLateFineUnitMin, payrollLateFineAmt, payrollBottleSpRate, defaultWage, payrollPeriod,
     payrollDouhanAddsHonshimei, payrollDouhanAddsHonenFirst, payrollSpInBackTotal,
@@ -23092,12 +23176,12 @@ function payrollSlideAdd() {
   if (!tbody) return;
   tbody.insertAdjacentHTML('beforeend', _payrollSlideRowHTML({ minSales: 0, wage: 0 }));
   tbody.querySelector('tr:last-child .payroll-slide-min')?.focus();
-  _settingsMarkDirty();
+  // 下書きの変更はモーダルの保存で反映する。
 }
 
 function payrollSlideDel(btn) {
   btn.closest('tr')?.remove();
-  _settingsMarkDirty();
+  // 下書きの変更はモーダルの保存で反映する。
 }
 
 function _payrollBracketRowHTML(row) {
@@ -23165,13 +23249,13 @@ function payrollPeriodDeductionAdd() {
   const key = 'pded_' + ((nums.length ? Math.max(...nums) : 0) + 1);
   tbody.insertAdjacentHTML('beforeend', _payrollPeriodDeductionRowHTML({ key, label: '', mode: 'fixed', value: 0, table: [], exemptPerDay: 0, carryover: false }));
   tbody.querySelector(':scope > tr:last-child .payroll-period-deduction-label')?.focus();
-  _settingsMarkDirty();
+  // 下書きの変更はモーダルの保存で反映する。
 }
 
 async function payrollPeriodDeductionDel(btn) {
   if (!(await appConfirm('この期間控除を削除しますか？', { danger: true }))) return;
   btn.closest('tr.payroll-period-deduction-row')?.remove();
-  _settingsMarkDirty();
+  // 下書きの変更はモーダルの保存で反映する。
 }
 
 function payrollBracketAdd(btn) {
@@ -23179,30 +23263,86 @@ function payrollBracketAdd(btn) {
   if (!tbody) return;
   tbody.insertAdjacentHTML('beforeend', _payrollBracketRowHTML({ min: 0, rate: 0, sub: 0 }));
   tbody.querySelector('tr:last-child .payroll-bracket-min')?.focus();
-  _settingsMarkDirty();
+  // 下書きの変更はモーダルの保存で反映する。
 }
 
 function payrollBracketDel(btn) {
   btn.closest('tr')?.remove();
-  _settingsMarkDirty();
+  // 下書きの変更はモーダルの保存で反映する。
 }
 
 function _payrollDeductionRowHTML(item) {
   const row = item || {};
-  const mode = ['fixed','rate','manual'].includes(row.mode) ? row.mode : 'manual';
-  const disabled = mode === 'manual' ? ' disabled' : '';
-  const unit = mode === 'rate' ? '%' : (mode === 'fixed' ? '円' : '—');
+  const mode = ['fixed','rate','manual','boolean'].includes(row.mode) ? row.mode : 'manual';
+  const disabled = mode === 'manual' || mode === 'boolean' ? ' disabled' : '';
+  const unit = mode === 'rate' ? '%' : (mode === 'fixed' ? '円' : (mode === 'boolean' ? '○／×' : '—'));
   const step = mode === 'rate' ? '0.01' : '1';
   return `<tr data-key="${escAttr(row.key || '')}">
     <td><input type="text" class="settings-input payroll-deduction-label" value="${escAttr(row.label || '')}" placeholder="名称" style="width:100%;box-sizing:border-box"></td>
-    <td><select class="settings-input payroll-deduction-mode" onchange="payrollDeductionModeChanged(this)" style="width:120px">
+    <td><select class="settings-input payroll-deduction-mode" onchange="payrollDeductionModeChanged(this)" style="width:160px">
       <option value="fixed"${mode === 'fixed' ? ' selected' : ''}>固定額</option>
       <option value="rate"${mode === 'rate' ? ' selected' : ''}>率%</option>
       <option value="manual"${mode === 'manual' ? ' selected' : ''}>都度手入力</option>
+      <option value="boolean"${mode === 'boolean' ? ' selected' : ''}>○×記録（本部計算）</option>
     </select></td>
-    <td><span style="display:inline-flex;align-items:center;gap:4px"><input type="number" class="settings-input payroll-deduction-value" value="${mode === 'manual' ? 0 : (Number(row.value) || 0)}" step="${step}" style="width:88px"${disabled}><span class="payroll-deduction-unit" style="font-size:11px;color:var(--tx3)">${unit}</span></span></td>
+    <td><span style="display:inline-flex;align-items:center;gap:4px"><input type="number" class="settings-input payroll-deduction-value" value="${mode === 'manual' || mode === 'boolean' ? 0 : (Number(row.value) || 0)}" step="${step}" style="width:88px"${disabled}><span class="payroll-deduction-unit" style="font-size:11px;color:var(--tx3)">${unit}</span></span></td>
     <td><button type="button" class="pos-me-del" onclick="payrollDeductionDel(this)">削除</button></td>
   </tr>`;
+}
+
+function _collectPayrollDeductionRows(tableId) {
+  return Array.from(document.querySelectorAll('#' + tableId + ' tbody tr')).map(tr => {
+    const mode = tr.querySelector('.payroll-deduction-mode')?.value || 'manual';
+    const rawValue = Number(tr.querySelector('.payroll-deduction-value')?.value);
+    return {
+      key: String(tr.dataset.key || ''),
+      label: tr.querySelector('.payroll-deduction-label')?.value.trim() || '',
+      mode,
+      value: mode === 'manual' || mode === 'boolean' ? 0 : (Number.isFinite(rawValue) ? rawValue : 0),
+    };
+  });
+}
+
+function _payrollDeductionEditorMarkDirty(node) {
+  const modal = node?.closest?.('#payroll-deduction-settings-overlay, #payroll-rules-overlay');
+  if (modal) modal.dataset.dirty = 'true';
+}
+
+function _payrollDeductionSettingsModalHtml() {
+  const items = Array.isArray(cfg.payrollDeductions) ? cfg.payrollDeductions : [];
+  return '<div id="payroll-deduction-settings-overlay" class="pos-co-overlay" onclick="if(event.target===this)payrollDeductionSettingsCloseModal()">'
+    + '<div class="pos-co-panel pay-bd-panel" style="width:min(760px,96vw);max-width:760px">'
+    + '<div class="pay-bd-head"><div><div class="pay-bd-title">控除項目設定</div><div class="pay-bd-date">金額計算または本部へ渡す○×記録を設定</div></div><button type="button" class="pay-bd-close" onclick="payrollDeductionSettingsCloseModal()" aria-label="閉じる">×</button></div>'
+    + '<div class="pay-bd-body" style="max-height:72vh;overflow-y:auto">'
+    + '<div style="overflow-x:auto"><table class="pos-me-table" id="payroll-deduction-settings-table" style="min-width:590px">'
+    + '<thead><tr><th>名称</th><th style="width:170px">方式</th><th style="width:130px">値</th><th style="width:56px"></th></tr></thead><tbody>'
+    + items.map(_payrollDeductionRowHTML).join('') + '</tbody></table></div>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px">'
+    + '<button type="button" class="pos-me-add-btn" onclick="payrollDeductionAdd(\'payroll-deduction-settings-table\')">＋ 控除項目を追加</button>'
+    + '<span style="font-size:11px;color:var(--tx3)">よく使う項目:</span>'
+    + PAYROLL_DEDUCTION_PRESETS.map(label => '<button type="button" class="pos-me-add-btn" onclick="payrollDeductionAddPreset(\'' + escAttr(label) + '\',\'payroll-deduction-settings-table\')">＋ ' + escHtml(label) + '</button>').join('')
+    + '</div><div class="pos-co-actions" style="margin-top:18px;padding:0">'
+    + '<button type="button" class="pos-co-btn cancel" onclick="payrollDeductionSettingsCloseModal()">キャンセル</button>'
+    + '<button type="button" class="pos-co-btn cash" onclick="payrollDeductionSettingsSave()">保存して反映</button>'
+    + '</div></div></div></div>';
+}
+
+function payrollDeductionSettingsOpenModal() {
+  payrollDeductionSettingsCloseModal();
+  document.body.insertAdjacentHTML('beforeend', _payrollDeductionSettingsModalHtml());
+}
+
+function payrollDeductionSettingsCloseModal() {
+  document.getElementById('payroll-deduction-settings-overlay')?.remove();
+}
+
+function payrollDeductionSettingsSave() {
+  cfg.payrollDeductions = _collectPayrollDeductionRows('payroll-deduction-settings-table');
+  saveCfg();
+  _payrollSettingsRefreshSummary();
+  payrollDeductionSettingsCloseModal();
+  if (typeof renderReportPanel === 'function') renderReportPanel();
+  if (typeof showToast === 'function') showToast('控除項目を保存・反映しました');
 }
 
 function payrollDeductionModeChanged(select) {
@@ -23211,11 +23351,12 @@ function payrollDeductionModeChanged(select) {
   const input = row.querySelector('.payroll-deduction-value');
   const unit = row.querySelector('.payroll-deduction-unit');
   if (input) {
-    input.disabled = select.value === 'manual';
+    input.disabled = select.value === 'manual' || select.value === 'boolean';
     input.step = select.value === 'rate' ? '0.01' : '1';
-    if (select.value === 'manual') input.value = '0';
+    if (select.value === 'manual' || select.value === 'boolean') input.value = '0';
   }
-  if (unit) unit.textContent = select.value === 'rate' ? '%' : (select.value === 'fixed' ? '円' : '—');
+  if (unit) unit.textContent = select.value === 'rate' ? '%' : (select.value === 'fixed' ? '円' : (select.value === 'boolean' ? '○／×' : '—'));
+  _payrollDeductionEditorMarkDirty(select);
 }
 
 /* 控除項目キー(ded_N)の次の空き番号を決める純関数。確定済みcfg.payrollDeductionsと
@@ -23246,13 +23387,13 @@ function _payrollDeductionNextKey(tbody) {
   return _payrollDeductionNextKeyFrom(cfg.payrollDeductions, domKeys);
 }
 
-function payrollDeductionAdd() {
-  const tbody = document.querySelector('#cfg-payroll-deductions-table tbody');
+function payrollDeductionAdd(tableId = 'cfg-payroll-deductions-table') {
+  const tbody = document.querySelector('#' + tableId + ' tbody');
   if (!tbody) return;
   const key = _payrollDeductionNextKey(tbody);
   tbody.insertAdjacentHTML('beforeend', _payrollDeductionRowHTML({ key, label: '', mode: 'fixed', value: 0 }));
   tbody.querySelector('tr:last-child .payroll-deduction-label')?.focus();
-  _settingsMarkDirty();
+  _payrollDeductionEditorMarkDirty(tbody);
 }
 
 /* 「＋よく使う項目を追加」（送迎/ヘアメイク/衣装代）。2026-08-20新設。
@@ -23261,8 +23402,8 @@ function payrollDeductionAdd() {
    確定済み・未保存(DOM上の未保存行)どちらにも同名があればスキップする。 */
 const PAYROLL_DEDUCTION_PRESETS = ['送迎', 'ヘアメイク', '衣装代'];
 
-function payrollDeductionAddPreset(label) {
-  const tbody = document.querySelector('#cfg-payroll-deductions-table tbody');
+function payrollDeductionAddPreset(label, tableId = 'cfg-payroll-deductions-table') {
+  const tbody = document.querySelector('#' + tableId + ' tbody');
   if (!tbody) return;
   const domLabels = Array.from(tbody.querySelectorAll('.payroll-deduction-label')).map(input => input.value);
   if (_payrollDeductionPresetDuplicate(label, cfg.payrollDeductions, domLabels)) {
@@ -23271,14 +23412,250 @@ function payrollDeductionAddPreset(label) {
   }
   const key = _payrollDeductionNextKey(tbody);
   tbody.insertAdjacentHTML('beforeend', _payrollDeductionRowHTML({ key, label, mode: 'manual', value: 0 }));
-  _settingsMarkDirty();
+  _payrollDeductionEditorMarkDirty(tbody);
   if (typeof showToast === 'function') showToast(`「${label}」を追加しました（保存ボタンで確定します）`);
 }
 
 async function payrollDeductionDel(btn) {
   if (!(await appConfirm('この控除項目を削除しますか？', { danger: true }))) return;
-  btn.closest('tr')?.remove();
-  _settingsMarkDirty();
+  const row = btn.closest('tr');
+  _payrollDeductionEditorMarkDirty(row);
+  row?.remove();
+}
+/* 給与設定はこのモーダルだけで編集する。設定フォームの下書きとは保存範囲を分ける。 */
+const PAYROLL_SETTINGS_GROUPS = [
+  ['work', '時給・勤怠'], ['back', 'バック・SP'],
+  ['deductions', '控除・記録'], ['period', '締め・明細'],
+];
+const PAYROLL_SETTINGS_KEYS = [
+  'defaultWage', 'payrollClockInRoundMin', 'payrollClockOutRoundMin', 'payrollClockOutRoundThreshold',
+  'payrollLateFineUnitMin', 'payrollLateFineAmt', 'payrollDouhanAddsHonshimei',
+  'payrollDouhanAddsHonenFirst', 'payrollSpInBackTotal', 'payrollBottleSpRate',
+  'payrollDeductions', 'payrollPeriodDeductions', 'payrollPeriod', 'payrollSlideSource',
+  'payrollSlideTable', 'payrollRoundMode', 'payrollRoundUnit',
+];
+let _payrollSettingsReturnFocus = null;
+
+function _payrollSettingsSnapshot() {
+  return Object.fromEntries(PAYROLL_SETTINGS_KEYS.map(key => [key, cfg[key]]));
+}
+
+function _payrollSettingsSummaryHtml() {
+  const yen = value => '¥' + (Number(value) || 0).toLocaleString('ja-JP');
+  const extra = [];
+  if (cfg.payrollDouhanAddsHonshimei !== false) extra.push('本指名');
+  if (cfg.payrollDouhanAddsHonenFirst !== false) extra.push('本指名延長');
+  const summaries = {
+    work: '標準時給 ' + yen(cfg.defaultWage) + ' / 出勤 ' + (cfg.payrollClockInRoundMin ?? 30) + '分・退勤 ' + (cfg.payrollClockOutRoundMin ?? 30) + '分単位',
+    back: '同伴時の追加：' + (extra.join('＋') || 'なし') + ' / SP：' + (cfg.payrollSpInBackTotal === false ? '参考のみ' : '日給に含む'),
+    deductions: '日ごと ' + (cfg.payrollDeductions || []).length + '項目 / 締めごと ' + (cfg.payrollPeriodDeductions || []).length + '項目',
+    period: (cfg.payrollPeriod === 'half' ? '半月払い' : '月払い') + ' / スライド時給：' + ((cfg.payrollSlideTable || []).length ? (cfg.payrollSlideTable.length + '段階') : '未設定'),
+  };
+  return '<div class="pay-settings-summary">' + PAYROLL_SETTINGS_GROUPS.map(([key, label]) =>
+    '<button type="button" id="pay-settings-open-' + key + '" class="pay-settings-entry" onclick="payrollRulesOpenModal(\'' + key + '\')" aria-label="' + label + 'を編集">'
+    + '<span><strong>' + label + '</strong><span>' + escHtml(summaries[key]) + '</span></span><span class="pay-settings-edit">編集 ›</span></button>'
+  ).join('') + '</div><div class="pay-settings-formula">日給 ＝ 時間給 ＋ バック合計 − 遅刻罰金<br>差引支給 ＝ 日給 − 日ごとの金額控除</div>';
+}
+
+function _payrollSettingsSectionHtml() {
+  return '<div class="settings-section" data-setcat="cast"><div class="settings-section-header">'
+    + '<span class="settings-section-title">💴 給与計算ルール</span>'
+    + '<button type="button" class="btn pay-settings-gear" onclick="payrollRulesOpenModal()" aria-label="給与計算ルールを編集">⚙ 編集</button></div>'
+    + '<div id="payroll-settings-summary" class="settings-section-body">' + _payrollSettingsSummaryHtml() + '</div></div>';
+}
+
+function _payrollSettingsRefreshSummary() {
+  const host = document.getElementById('payroll-settings-summary');
+  if (host) host.innerHTML = _payrollSettingsSummaryHtml();
+}
+
+function _payrollSettingsNumber(key, label, fallback, min, max, step = 1, scale = 1) {
+  const value = Number(cfg[key] ?? fallback) * scale;
+  return '<input type="number" id="cfg-' + key + '" class="settings-input" aria-label="' + label
+    + '" value="' + value + '" min="' + min + '"' + (max == null ? '' : ' max="' + max + '"')
+    + ' step="' + step + '" data-fallback="' + (fallback * scale) + '">';
+}
+
+function _payrollSettingsModalHtml() {
+  const num = _payrollSettingsNumber;
+  const checked = key => cfg[key] !== false ? ' checked' : '';
+  const options = (items, selected) => items.map(([value, label]) => '<option value="' + value + '"' + (String(value) === String(selected) ? ' selected' : '') + '>' + label + '</option>').join('');
+  return `<div id="payroll-rules-overlay" class="pos-co-overlay" onclick="if(event.target===this)payrollRulesCloseModal()">
+    <div class="pos-co-panel pay-settings-modal" role="dialog" aria-modal="true" aria-labelledby="payroll-settings-title" onkeydown="payrollSettingsKeydown(event)">
+      <div class="pay-settings-head"><div><h2 id="payroll-settings-title">給与計算ルール</h2><p>店舗共通の設定</p></div><button type="button" class="pay-settings-close" onclick="payrollRulesCloseModal()" aria-label="閉じる">×</button></div>
+      <div class="pay-settings-tabs" role="tablist" aria-label="給与設定の分類">${PAYROLL_SETTINGS_GROUPS.map(([key, label]) => '<button type="button" role="tab" id="pay-settings-tab-' + key + '" aria-controls="pay-settings-group-' + key + '" aria-selected="false" tabindex="-1" onclick="payrollSettingsSelectGroup(\'' + key + '\')">' + label + '</button>').join('')}</div>
+      <div class="pay-settings-body">
+        <section id="pay-settings-group-work" role="tabpanel" aria-labelledby="pay-settings-tab-work" data-pay-group="work">
+          <div class="pay-settings-row"><div><label for="cfg-defaultWage">店標準時給</label><p>個別時給が空欄のキャストに適用します。</p></div><div class="pay-settings-inputs">${num('defaultWage','店標準時給',0,0,null,100)}<span>円/時</span></div></div>
+          <h3>勤務時間の計算</h3>
+          <div class="pay-settings-row"><div><label for="cfg-payrollClockInRoundMin">出勤</label><p>指定した分単位で切り上げます。</p></div><div class="pay-settings-inputs">${num('payrollClockInRoundMin','出勤の計算単位',30,1,60)}<span>分単位</span></div></div>
+          <div class="pay-settings-row"><div><label for="cfg-payrollClockOutRoundMin">退勤</label><p>境目未満は切り捨て、境目以上は切り上げ。</p></div><div class="pay-settings-inputs">${num('payrollClockOutRoundMin','退勤の計算単位',30,1,60)}<span>分単位</span><label for="cfg-payrollClockOutRoundThreshold">境目</label>${num('payrollClockOutRoundThreshold','退勤の切り上げ境目',15,1,60)}<span>分</span></div></div>
+          <h3>遅刻罰金</h3>
+          <div class="pay-settings-row"><div><label for="cfg-payrollLateFineUnitMin">遅刻時間ごとの金額</label><p>例：15分なら、1〜15分で1回分。空欄・0円は既定の1,000円。</p></div><div class="pay-settings-inputs">${num('payrollLateFineUnitMin','遅刻罰金の分単位',15,1,60)}<span>分ごとに</span>${num('payrollLateFineAmt','遅刻罰金の金額',1000,0,null,100)}<span>円</span></div></div>
+          <details class="pay-settings-details"><summary>時間給の計算を確認</summary><p>時間給 ＝ 適用時給 × 計算後の勤務分 ÷ 60（1円未満は四捨五入）。個別時給が空欄なら店標準時給を使い、店標準も0円なら時間給は0円です。</p></details>
+        </section>
+        <section id="pay-settings-group-back" role="tabpanel" aria-labelledby="pay-settings-tab-back" data-pay-group="back" hidden>
+          <h3>同伴1件につき追加する本数</h3>
+          <p class="pay-settings-note">同伴バックに加えて支給する項目を選びます。</p>
+          <label class="pay-settings-choice"><input type="checkbox" id="cfg-payrollDouhanAddsHonshimei"${checked('payrollDouhanAddsHonshimei')}><span>本指名 ＋1<small>本指名バックも加算</small></span></label>
+          <label class="pay-settings-choice"><input type="checkbox" id="cfg-payrollDouhanAddsHonenFirst"${checked('payrollDouhanAddsHonenFirst')}><span>本指名延長 ＋1<small>延長項目の先頭（例：本延20）のバックを加算</small></span></label>
+          <h3>SP・ボトルバック</h3>
+          <label class="pay-settings-choice"><input type="checkbox" id="cfg-payrollSpInBackTotal"${checked('payrollSpInBackTotal')}><span>SPを日給に含める<small>OFFなら参考表示のみ。手入力SP・ボトル折半が対象。</small></span></label>
+          <div class="pay-settings-row"><div><label for="cfg-payrollBottleSpRate">ボトルバック率</label><p>ボトル小計に適用。SP参考額とPOSのキャスト折半に使用。</p></div><div class="pay-settings-inputs">${num('payrollBottleSpRate','ボトルバック率',0.2,0,100,1,100)}<span>%</span></div></div>
+          <details class="pay-settings-details"><summary>バックの計算を確認</summary><p>バック ＝ 伝票から集計した本数 × 単価 ＋ 商品バック。単価はキャスト個別設定を優先し、空欄なら既定バックを使います。本数は日計表で修正できます。</p><p>SPは手入力額とボトル折半分の合計です。参考額をそのまま支給する設定ではありません。</p><p>給率 ＝ 日給 ÷ キャストの帰属売上 × 100（参考値）。</p></details>
+        </section>
+        <section id="pay-settings-group-deductions" role="tabpanel" aria-labelledby="pay-settings-tab-deductions" data-pay-group="deductions" hidden>
+          <h3>日ごとの控除・○×記録</h3>
+          <p class="pay-settings-note">日計表・控除票に表示。○×は本部への記録用で、金額計算には含めません。</p>
+          <div class="pay-settings-table-wrap"><table class="pos-me-table" id="cfg-payroll-deductions-table"><thead><tr><th>名称</th><th>方式</th><th>金額・率</th><th></th></tr></thead><tbody>${(cfg.payrollDeductions || []).map(_payrollDeductionRowHTML).join('')}</tbody></table></div>
+          <div class="pay-settings-add"><button type="button" class="pos-me-add-btn" onclick="payrollDeductionAdd()">＋ 項目を追加</button>${PAYROLL_DEDUCTION_PRESETS.map(label => '<button type="button" class="btn" onclick="payrollDeductionAddPreset(\'' + escAttr(label) + '\')">＋ ' + label + '</button>').join('')}</div>
+          <details class="pay-settings-details"><summary>日ごとの控除の計算</summary><p>固定額は1日ごと、率は日給に対して計算します。都度手入力は日計表・控除票で入力します。</p></details>
+          <details class="pay-settings-details pay-settings-optional"${(cfg.payrollPeriodDeductions || []).length ? ' open' : ''}><summary>締めごとの控除 <span>${(cfg.payrollPeriodDeductions || []).length}項目</span></summary>
+            <p>給与明細で期間ごとに計算します。日ごとの控除とは別に設定してください。</p>
+            <div class="pay-settings-table-wrap"><table class="pos-me-table" id="cfg-payroll-period-deductions-table"><thead><tr><th>名称</th><th>方式</th><th>金額・率・速算表</th><th>非課税枠/日</th><th>未徴収を繰越</th><th></th></tr></thead><tbody>${(cfg.payrollPeriodDeductions || []).map(_payrollPeriodDeductionRowHTML).join('')}</tbody></table></div>
+            <div class="pay-settings-add"><button type="button" class="pos-me-add-btn" onclick="payrollPeriodDeductionAdd()">＋ 締め控除を追加</button></div>
+            <details class="pay-settings-details"><summary>計算基準・繰越を確認</summary><p>率・速算表の基準は日次控除前の支給合計から「非課税枠/日 × 期間日数」を引いた額です。上から順に徴収し、支給残額を超える未徴収分は「繰越」がONの項目だけ次期へ繰り越します。</p><p>速算表は基準額に該当する最大の行を選び、基準額 × 率 − 控除額で計算します。</p></details>
+          </details>
+        </section>
+        <section id="pay-settings-group-period" role="tabpanel" aria-labelledby="pay-settings-tab-period" data-pay-group="period" hidden>
+          <div class="pay-settings-row"><label for="cfg-payrollPeriod">給与明細の締め期間</label><select id="cfg-payrollPeriod" class="settings-input">${options([['month','月払い'],['half','半月払い']],cfg.payrollPeriod || 'month')}</select></div>
+          <details class="pay-settings-details pay-settings-optional"${(cfg.payrollSlideTable || []).length ? ' open' : ''}><summary>売上に応じたスライド時給 <span>${(cfg.payrollSlideTable || []).length ? cfg.payrollSlideTable.length + '段階' : '未設定'}</span></summary>
+            <p>キャスト管理で「スライド時給を適用」を選んだキャストが対象。表が空なら適用しません。</p>
+            <div class="pay-settings-row"><label for="cfg-payrollSlideSource">判定に使う売上</label><select id="cfg-payrollSlideSource" class="settings-input">${options([['current','今期の売上 → 今期の時給'],['prev','前期の売上 → 今期の時給']],cfg.payrollSlideSource || 'current')}</select></div>
+            <div class="pay-settings-table-wrap"><table class="pos-me-table" id="cfg-payroll-slide-table"><thead><tr><th>帰属売上がこの額以上</th><th>時給</th><th></th></tr></thead><tbody>${(cfg.payrollSlideTable || []).map(_payrollSlideRowHTML).join('')}</tbody></table></div>
+            <div class="pay-settings-add"><button type="button" class="pos-me-add-btn" onclick="payrollSlideAdd()">＋ 段階を追加</button></div>
+            <p>売上条件を満たす最大の段階を適用します。個別の保証時給があれば、その額を下回りません。</p>
+          </details>
+          <h3>調整額の端数処理</h3>
+          <div class="pay-settings-row"><div><label for="cfg-payrollRoundMode">方法・単位</label><p>スライド調整と締め控除の各行に適用します。</p></div><div class="pay-settings-inputs"><select id="cfg-payrollRoundMode" class="settings-input">${options([['round','四捨五入'],['floor','切り捨て'],['ceil','切り上げ']],cfg.payrollRoundMode || 'round')}</select><select id="cfg-payrollRoundUnit" class="settings-input" aria-label="調整額の端数単位">${options([[1,'1円単位'],[10,'10円単位'],[100,'100円単位']],cfg.payrollRoundUnit || 1)}</select></div></div>
+        </section>
+      </div>
+      <div class="pay-settings-error" id="payroll-settings-error" role="alert" hidden></div>
+      <div class="pay-settings-footer"><span>4つの分類をまとめて保存</span><button type="button" class="btn" onclick="payrollRulesCloseModal()">キャンセル</button><button type="button" class="btn primary" onclick="payrollSettingsSave()">保存して反映</button></div>
+    </div>
+  </div>`;
+}
+
+function payrollSettingsSelectGroup(group) {
+  const overlay = document.getElementById('payroll-rules-overlay');
+  if (!overlay) return;
+  const selected = PAYROLL_SETTINGS_GROUPS.some(([key]) => key === group) ? group : 'work';
+  overlay.querySelectorAll('[data-pay-group]').forEach(panel => { panel.hidden = panel.dataset.payGroup !== selected; });
+  overlay.querySelectorAll('[role="tab"]').forEach(tab => {
+    const active = tab.id === 'pay-settings-tab-' + selected;
+    tab.setAttribute('aria-selected', String(active));
+    tab.tabIndex = active ? 0 : -1;
+  });
+}
+
+function payrollRulesOpenModal(group = 'work') {
+  if (document.getElementById('payroll-rules-overlay')) return;
+  _payrollSettingsReturnFocus = document.activeElement;
+  document.body.insertAdjacentHTML('beforeend', _payrollSettingsModalHtml());
+  payrollSettingsSelectGroup(group);
+  document.querySelector('#payroll-rules-overlay [aria-selected="true"]')?.focus();
+}
+
+function payrollRulesCloseModal() {
+  const overlay = document.getElementById('payroll-rules-overlay');
+  if (!overlay) return;
+  overlay.remove();
+  const previous = _payrollSettingsReturnFocus;
+  if (previous?.isConnected !== false) previous?.focus();
+  else if (previous?.id) document.getElementById(previous.id)?.focus();
+  _payrollSettingsReturnFocus = null;
+}
+
+function payrollSettingsKeydown(event) {
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    event.stopPropagation();
+    payrollRulesCloseModal();
+    return;
+  }
+  const overlay = document.getElementById('payroll-rules-overlay');
+  const tabs = Array.from(overlay.querySelectorAll('[role="tab"]'));
+  const index = tabs.indexOf(event.target);
+  if (index >= 0 && ['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) {
+    event.preventDefault();
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1
+      : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+    payrollSettingsSelectGroup(PAYROLL_SETTINGS_GROUPS[next][0]);
+    tabs[next].focus();
+  }
+  if (event.key === 'Tab') {
+    const items = Array.from(overlay.querySelectorAll('button,input,select,summary,[tabindex="0"]')).filter(el => !el.disabled && el.getClientRects().length > 0);
+    if (!items.length) return;
+    const first = items[0], last = items[items.length - 1];
+    if (event.shiftKey && event.target === first) { event.preventDefault(); last.focus(); }
+    if (!event.shiftKey && event.target === last) { event.preventDefault(); first.focus(); }
+  }
+}
+
+function _collectPayrollSettings(overlay) {
+  const get = id => overlay.querySelector('#cfg-' + id);
+  const result = {};
+  ['defaultWage','payrollClockInRoundMin','payrollClockOutRoundMin','payrollClockOutRoundThreshold','payrollLateFineUnitMin','payrollLateFineAmt','payrollBottleSpRate'].forEach(key => {
+    const el = get(key);
+    result[key] = el.value === '' ? Number(el.dataset.fallback) : Number(el.value);
+  });
+  result.payrollBottleSpRate /= 100;
+  ['payrollDouhanAddsHonshimei','payrollDouhanAddsHonenFirst','payrollSpInBackTotal'].forEach(key => { result[key] = get(key).checked; });
+  ['payrollPeriod','payrollSlideSource','payrollRoundMode'].forEach(key => { result[key] = get(key).value; });
+  result.payrollRoundUnit = Number(get('payrollRoundUnit').value);
+  result.payrollSlideTable = Array.from(overlay.querySelectorAll('#cfg-payroll-slide-table tbody > tr')).map(tr => ({
+    minSales: Math.max(0, Number(tr.querySelector('.payroll-slide-min').value) || 0),
+    wage: Math.max(0, Number(tr.querySelector('.payroll-slide-wage').value) || 0),
+  })).sort((a, b) => a.minSales - b.minSales);
+  result.payrollDeductions = _collectPayrollDeductionRows('cfg-payroll-deductions-table');
+  result.payrollPeriodDeductions = Array.from(overlay.querySelectorAll('#cfg-payroll-period-deductions-table tbody > tr.payroll-period-deduction-row')).map(tr => {
+    const mode = tr.querySelector('.payroll-period-deduction-mode').value;
+    return {
+      key: String(tr.dataset.key || ''),
+      label: tr.querySelector('.payroll-period-deduction-label').value.trim(),
+      mode,
+      value: mode === 'bracket' ? 0 : Math.max(0, Number(tr.querySelector('.payroll-period-deduction-value').value) || 0),
+      table: Array.from(tr.querySelectorAll('.payroll-bracket-table tbody > tr')).map(row => ({
+        min: Math.max(0, Number(row.querySelector('.payroll-bracket-min').value) || 0),
+        rate: Math.max(0, Number(row.querySelector('.payroll-bracket-rate').value) || 0),
+        sub: Math.max(0, Number(row.querySelector('.payroll-bracket-sub').value) || 0),
+      })),
+      exemptPerDay: Math.max(0, Number(tr.querySelector('.payroll-period-deduction-exempt').value) || 0),
+      carryover: tr.querySelector('.payroll-period-deduction-carryover').checked,
+    };
+  });
+  return result;
+}
+
+function payrollSettingsSave() {
+  const overlay = document.getElementById('payroll-rules-overlay');
+  if (!overlay) return;
+  const error = overlay.querySelector('#payroll-settings-error');
+  const invalid = Array.from(overlay.querySelectorAll('input[type="number"]')).find(el =>
+    !el.disabled && !el.closest('.payroll-period-value-wrap[style*="display:none"],.payroll-period-value-wrap[style*="display: none"],.payroll-bracket-editor[style*="display:none"],.payroll-bracket-editor[style*="display: none"]')
+    && (el.validity.badInput || el.validity.rangeUnderflow || el.validity.rangeOverflow));
+  let invalidInput = invalid;
+  let message = invalid ? '数値の範囲・入力単位を確認してください。' : '';
+  const next = invalid ? null : _collectPayrollSettings(overlay);
+  if (next && next.payrollClockOutRoundThreshold > next.payrollClockOutRoundMin) {
+    invalidInput = overlay.querySelector('#cfg-payrollClockOutRoundThreshold');
+    message = '退勤の境目は、退勤の分単位以下にしてください。';
+  }
+  if (invalidInput) {
+    error.hidden = false;
+    error.textContent = message;
+    payrollSettingsSelectGroup(invalidInput.closest('[data-pay-group]').dataset.payGroup);
+    let parent = invalidInput.parentElement;
+    while (parent && parent !== overlay) { if (parent.tagName === 'DETAILS') parent.open = true; parent = parent.parentElement; }
+    invalidInput.focus();
+    return;
+  }
+  Object.assign(cfg, next);
+  saveCfg();
+  _payrollSettingsRefreshSummary();
+  if (document.getElementById('payroll-table-host') && typeof renderReportPanel === 'function') renderReportPanel();
+  payrollRulesCloseModal();
+  showToast('給与計算ルールを保存しました');
 }
 /* ================================================================
    DATA EXPORT / IMPORT
@@ -26125,8 +26502,9 @@ function _payrollManualCounts(raw, keys) {
   return counts;
 }
 
-/* dayKey/castName の手入力を取得（無ければ既定 {sp:0,nibarai:0,counts:{},deductions:{}}）。state は変更しない。
-   counts/deductions は「手修正されたキーのみ」を持つ（欠落＝自動値を使う合図）。 */
+/* dayKey/castName の手入力を取得（無ければ既定 {sp:0,nibarai:0,counts:{},deductions:{},deductionFlags:{}}）。state は変更しない。
+   counts/deductions は「手修正されたキーのみ」を持つ（欠落＝自動値を使う合図）。
+   deductionFlags は本部計算用の○×記録で、金額上書きとは別領域に保存する。 */
 function getPayrollManual(dayKey, castName) {
   const day = (state.payrollManual && state.payrollManual[dayKey]) || null;
   const rec = (day && day[castName]) || null;
@@ -26137,11 +26515,16 @@ function getPayrollManual(dayKey, castName) {
       if (rec.deductions[k] != null) deductions[k] = Number(rec.deductions[k]) || 0;
     });
   }
+  const deductionFlags = {};
+  if (rec && rec.deductionFlags && typeof rec.deductionFlags === 'object') {
+    Object.keys(rec.deductionFlags).forEach(k => { deductionFlags[k] = rec.deductionFlags[k] === true; });
+  }
   return {
     sp:      rec && rec.sp      != null ? (Number(rec.sp)      || 0) : 0,
     nibarai: rec && rec.nibarai != null ? (Number(rec.nibarai) || 0) : 0,
     counts,
     deductions,
+    deductionFlags,
   };
 }
 
@@ -26190,14 +26573,28 @@ function setPayrollDeduction(dayKey, castName, key, value) {
   return rec.deductions[key];
 }
 
+/* 本部計算用の○×記録。金額上書きと混在させず、方式変更後も履歴を保つ。 */
+function setPayrollDeductionFlagValue(dayKey, castName, key, checked) {
+  const day = _ensurePayrollManual(dayKey);
+  const rec = day[castName] = day[castName] || {};
+  if (!rec.deductionFlags) rec.deductionFlags = {};
+  rec.deductionFlags[key] = checked === true;
+  saveState();
+  return rec.deductionFlags[key];
+}
+
 /* 店舗定義の控除を日給から計算する純関数。 */
-function calcPayrollDeductions(dailyPay, items, overrides) {
+function calcPayrollDeductions(dailyPay, items, overrides, flags) {
   const basePay = Math.max(0, Number(dailyPay) || 0);
   const manual = overrides && typeof overrides === 'object' ? overrides : {};
+  const recorded = flags && typeof flags === 'object' ? flags : {};
   const list = (Array.isArray(items) ? items : []).map(item => {
     const key = String(item?.key || '');
     const label = String(item?.label || '');
     const mode = String(item?.mode || 'manual');
+    if (mode === 'boolean') {
+      return { key, label, mode, amount:0, auto:0, checked:recorded[key] === true };
+    }
     const value = Number(item?.value) || 0;
     const auto = mode === 'fixed' ? value
       : (mode === 'rate' ? Math.round(basePay * value / 100) : 0);
@@ -26315,7 +26712,7 @@ function computePayrollForCast(castName, prodByCast, opts) {
   /* --- 控除・差引支給 --- */
   const deductionItems = (typeof cfg !== 'undefined' && cfg && Array.isArray(cfg.payrollDeductions))
     ? cfg.payrollDeductions : [];
-  const deductionResult = calcPayrollDeductions(dailyPay, deductionItems, manualRec.deductions);
+  const deductionResult = calcPayrollDeductions(dailyPay, deductionItems, manualRec.deductions, manualRec.deductionFlags);
   const deductionTotal = deductionResult.total;
   const netPay = dailyPay - deductionTotal;
 
@@ -26593,9 +26990,11 @@ function computePayslip(dailycloseStore, castName, from, to) {
       (Array.isArray(row?.deductions) ? row.deductions : []).forEach(item => {
         const deductionKey = String(item?.key || '');
         if (!deductionKey) return;
-        if (!deductionMap[deductionKey]) deductionMap[deductionKey] = { key: deductionKey, label: '', amount: 0 };
+        if (!deductionMap[deductionKey]) deductionMap[deductionKey] = { key: deductionKey, label: '', mode:'', amount: 0, checkedCount:0 };
         deductionMap[deductionKey].label = String(item?.label || '');
+        deductionMap[deductionKey].mode = String(item?.mode || '');
         deductionMap[deductionKey].amount += _payslipNum(item?.amount);
+        if (item?.mode === 'boolean' && item?.checked === true) deductionMap[deductionKey].checkedCount += 1;
       });
     });
     result.dailyRows.push(daily);
@@ -26852,9 +27251,11 @@ function castMonthlyTotals(rows) {
     (Array.isArray(row?.deductions) ? row.deductions : []).forEach(item => {
       const key = String(item?.key || '');
       if (!key) return;
-      if (!deductionMap[key]) deductionMap[key] = { key, label: '', amount: 0 };
+      if (!deductionMap[key]) deductionMap[key] = { key, label: '', mode:'', amount: 0, checkedCount:0 };
       deductionMap[key].label = String(item?.label || '');
+      deductionMap[key].mode = String(item?.mode || '');
       deductionMap[key].amount += _payslipNum(item?.amount);
+      if (item?.mode === 'boolean' && item?.checked === true) deductionMap[key].checkedCount += 1;
     });
   });
 
@@ -27043,7 +27444,14 @@ function _castDetailCountKeys(rows) {
 
 function _castDetailDeductionCell(row, key) {
   const item = (Array.isArray(row?.deductions) ? row.deductions : []).find(d => d && d.key === key);
-  return item ? (Number(item.amount) || 0) : 0;
+  return item || null;
+}
+
+function _castDetailDeductionText(row, item) {
+  const found = _castDetailDeductionCell(row, item.key);
+  return item.mode === 'boolean'
+    ? (found && found.checked === true ? '○' : '×')
+    : _payslipYen(found ? found.amount : 0);
 }
 
 /* 月次成績表の本体HTML（プロフィール以外の下段）を組み立てる。印刷にも同じデータを使う。 */
@@ -27077,7 +27485,7 @@ function _castDetailMonthlyTableHtml(data, printMode) {
     + '<td>' + yen(row.wage) + '</td><td>' + yen(row.hourlyPay) + '</td>'
     + countKeys.map(key => '<td>' + cnt(row, key) + '</td>').join('')
     + '<td>' + yen(row.backTotal) + '</td><td>' + yen(row.sp) + '</td><td>' + yen(row.dailyPay) + '</td><td>' + yen(row.nibarai) + '</td>'
-    + deductionItems.map(item => '<td>' + yen(_castDetailDeductionCell(row, item.key)) + '</td>').join('')
+    + deductionItems.map(item => '<td>' + _castDetailDeductionText(row, item) + '</td>').join('')
     + (deductionItems.length ? '<td>' + yen(row.deductionTotal) + '</td>' : '')
     + '<td>' + yen(row.lateFee) + '</td>'
     + '<td>' + (row.honshimeiSales == null ? '—' : yen(row.honshimeiSales)) + '</td>'
@@ -27095,7 +27503,9 @@ function _castDetailMonthlyTableHtml(data, printMode) {
     + '<td>' + yen(totals.backTotal) + '</td><td>' + yen(totals.sp) + '</td><td>' + yen(totals.dailyPay) + '</td><td>' + yen(totals.nibarai) + '</td>'
     + deductionItems.map(item => {
         const found = totals.deductions.find(d => d.key === item.key);
-        return '<td>' + yen(found ? found.amount : 0) + '</td>';
+        return '<td>' + (item.mode === 'boolean'
+          ? (found && found.checkedCount > 0 ? '○ ' + found.checkedCount + '日' : '×')
+          : yen(found ? found.amount : 0)) + '</td>';
       }).join('')
     + (deductionItems.length ? '<td>' + yen(totals.deductionTotal) + '</td>' : '')
     + '<td>' + yen(totals.lateFee) + '</td>'
