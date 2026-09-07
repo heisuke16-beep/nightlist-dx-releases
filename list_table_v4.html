@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.2">
+<meta name="app-version" content="1.1.3">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -6907,6 +6907,7 @@ function normalizeBusinessType(value) {
 }
 
 const CFG_DEFAULTS = {
+  payrollMergeDrinks: false, // 指名/フリーのバック本数と単価を共通化（店舗任意）
   shopName: '',              // 店舗の通称・表示名（ヘッダー/印刷見出し用）
   businessType: 'cabaret',   // 業態未登録の既存店舗もキャバクラで開始する
   showtimeScope: 'table',    // セクキャバのショータイム: table=個別卓 / all=在店中の全卓
@@ -9119,12 +9120,14 @@ function castPayFields() {
     ...shimeiExtGroup('enshi').map(item => [item.key, item.label, '円/本']),
     ['jonai',     '場内',   '円/本'],
     ['douhan',    '同伴',   '円/本'],
-    ...drinkItemList().flatMap(item => {
-      const keys = drinkBackKeys(item);
-      return [[keys.shimei, '指D(' + item.label + ')', '円/本'], [keys.free, 'D(' + item.label + ')', '円/本']];
-    }),
-    ['shimeiD',   '指D(' + shotLabel() + ')', '円/本'],
-    ['freeD',     'D(' + shotLabel() + ')',   '円/本'],
+    ...(payrollDrinksMerged() ? payrollDrinkPairs().map(pair => [pair.key, 'ドリンク(' + pair.label + ')', '円/本']) : [
+      ...drinkItemList().flatMap(item => {
+        const keys = drinkBackKeys(item);
+        return [[keys.shimei, '指D(' + item.label + ')', '円/本'], [keys.free, 'D(' + item.label + ')', '円/本']];
+      }),
+      ['shimeiD',   '指D(' + shotLabel() + ')', '円/本'],
+      ['freeD',     'D(' + shotLabel() + ')',   '円/本'],
+    ]),
   ];
 }
 function _cmq(s){ return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
@@ -9311,6 +9314,10 @@ function _payslipMd(key) {
   return s.length === 8 ? Number(s.slice(4, 6)) + '/' + Number(s.slice(6, 8)) : s;
 }
 function _payslipBackLabel(key) {
+  if (payrollMergedDrinkKey(key)) {
+    const label = key === 'drinkD' ? shotLabel() : drinkItemLabel(key.replace(/_drinkD$/, ''));
+    return 'ドリンク(' + label + ')';
+  }
   const drink = drinkItemList().find(item => {
     const keys = drinkBackKeys(item);
     return key === keys.shimei || key === keys.free;
@@ -16178,7 +16185,7 @@ function _aggMissingDrinkKeys(...sources) {
   const known = new Set(drinkItemList().map(item => item.key));
   const found = [];
   sources.forEach(source => Object.values(source || {}).forEach(row => Object.keys(row || {}).forEach(rawKey => {
-    const key = rawKey.replace(/_(shimeiD|freeD)$/, '');
+    const key = rawKey.replace(/_(shimeiD|freeD|drinkD)$/, '');
     if (isDrinkItemKey(key) && !known.has(key) && !found.includes(key) && Number(row[rawKey])) found.push(key);
   })));
   return found;
@@ -16192,7 +16199,7 @@ function aggProdCols(prodByCast, backByCast, stampedLabels) {
   };
   const currentDrinks = drinkItemList();
   const missingDrinks = _aggMissingDrinkKeys(prodByCast, backByCast).map(key => ({ key, label:stampedLabels?.[key] || key }));
-  return [
+  const cols = [
     ['本指','本指'],
     ...shimeiExtGroup('honen').map(item => [item.key, labelOf(item.key)]),
     ...shimeiExtGroup('enshi').map(item => [item.key, labelOf(item.key)]),
@@ -16203,11 +16210,19 @@ function aggProdCols(prodByCast, backByCast, stampedLabels) {
     ..._aggMissingShimeiKeys(prodByCast, backByCast).map(key => [key, labelOf(key)]),
     ...missingDrinks.flatMap(item => [[item.key, item.label], ...drinkBackCols(item)]),
   ];
+  const countRows = Object.values(backByCast || {}).map(backCounts => ({ backCounts }));
+  const mergedCols = _payrollCountCols(countRows, stampedLabels).filter(([key]) => payrollMergedDrinkKey(key));
+  const hasSplit = !mergedCols.length || countRows.some(row => Object.keys(row.backCounts).some(payrollSplitDrinkKey));
+  return cols.filter(([key]) => !payrollSplitDrinkKey(key) || hasSplit).concat(mergedCols);
 }
 function _payrollCountCols(rows, stampedLabels) {
-  const keys = payrollCountKeys(...(rows || []).map(row => row.backCounts || {}));
+  const keys = payrollDisplayCountKeys(rows);
   const labels = { 本指:'本指', 場内:'場内', 同伴:'同伴', 指D:'指D(' + shotLabel() + ')', D:'D(' + shotLabel() + ')' };
   return keys.map(key => {
+    if (payrollMergedDrinkKey(key)) {
+      const base = key.replace(/_drinkD$/, '');
+      return [key, 'ドリンク(' + (key === 'drinkD' ? shotLabel() : stampedLabels?.[base] || drinkItemLabel(base)) + ')'];
+    }
     const match = /^(.*)_(shimeiD|freeD)$/.exec(key);
     if (match && isDrinkItemKey(match[1])) {
       const label = stampedLabels?.[match[1]] || drinkItemLabel(match[1]);
@@ -16217,13 +16232,14 @@ function _payrollCountCols(rows, stampedLabels) {
   });
 }
 function _payrollCountGroup(key) {
+  if (payrollMergedDrinkKey(key)) return 'drink';
   const match = /^(.*)_(shimeiD|freeD)$/.exec(key);
   if (key === '指D' || (match && match[2] === 'shimeiD' && isDrinkItemKey(match[1]))) return 'drinkShimei';
   if (key === 'D' || (match && match[2] === 'freeD' && isDrinkItemKey(match[1]))) return 'drinkFree';
   return 'shimei';
 }
 function _payrollCountGroups(cols) {
-  const labels = { shimei:'指名内訳', drinkShimei:'指名ドリンク', drinkFree:'フリードリンク' };
+  const labels = { shimei:'指名内訳', drinkShimei:'指名ドリンク', drinkFree:'フリードリンク', drink:'ドリンク' };
   return (cols || []).reduce((groups, col) => {
     const key = _payrollCountGroup(col[0]);
     const last = groups[groups.length - 1];
@@ -16235,7 +16251,7 @@ function _payrollCountGroups(cols) {
 function _payrollCountGroupStart(cols, index) {
   return index === 0 || _payrollCountGroup(cols[index][0]) !== _payrollCountGroup(cols[index - 1][0]);
 }
-const _PAYROLL_GROUP_LABELS = { work:'勤務', shimei:'指名内訳', drinkShimei:'指名ドリンク', drinkFree:'フリードリンク', pay:'給与' };
+const _PAYROLL_GROUP_LABELS = { work:'勤務', shimei:'指名内訳', drinkShimei:'指名ドリンク', drinkFree:'フリードリンク', drink:'ドリンク', pay:'給与' };
 function _payrollTd(content, className, groupStart) {
   const classes = [className || '', groupStart ? 'pay-group-start' : ''].filter(Boolean).join(' ');
   return '<td' + (classes ? ' class="' + classes + '"' : '') + '>' + content + '</td>';
@@ -16310,8 +16326,8 @@ function _payrollTableHeaderFromColumns(columns) {
   const groups = _payrollColumnGroups(columns);
   const groupHeads = groups.map(group => '<th scope="colgroup" class="pay-group-head pay-group-start" colspan="' + group.span + '">' + group.label + '</th>').join('');
   const columnHeads = columns.map((col, index) => {
-    const shortened = (col.group === 'drinkShimei' || col.group === 'drinkFree')
-      ? col.label.replace(/^指D\(|^D\(/, '').replace(/\)$/, '') : col.label;
+    const shortened = (col.group === 'drinkShimei' || col.group === 'drinkFree' || col.group === 'drink')
+      ? col.label.replace(/^指D\(|^D\(|^ドリンク\(/, '').replace(/\)$/, '') : col.label;
     const label = shortened || col.label;
     return '<th scope="col"' + (index === 0 || col.group !== columns[index - 1].group ? ' class="pay-group-start"' : '') + '>' + escHtml(label) + '</th>';
   }).join('');
@@ -16342,7 +16358,12 @@ function _reportProdRow(cast, prodByCast, backByCast) {
   const honenFirst = shimeiExtGroup('honen')[0]?.key;
   const row = {};
   aggProdCols(prodByCast, backByCast).forEach(([key]) => {
-    if (isDrinkItemKey(key)) row[key] = Number(p[key]) || 0;
+    if ((payrollMergedDrinkKey(key) || payrollSplitDrinkKey(key)) && bc) row[key] = Number(bc[key]) || 0;
+    else if (payrollMergedDrinkKey(key)) {
+      const pair = payrollDrinkPairs(p).find(item => item.key === key);
+      row[key] = pair ? (Number(p[pair.shimei]) || 0) + (Number(p[pair.free]) || 0) : 0;
+    }
+    else if (isDrinkItemKey(key)) row[key] = Number(p[key]) || 0;
     else if (bc) row[key] = Number(bc[key]) || 0;
     else if (key === '本指') row[key] = (Number(p['指']) || 0) + douhan;
     else if (key === '場内') row[key] = Number(p['場']) || 0;
@@ -16861,7 +16882,7 @@ function printReport() {
   // 印刷幅対策: 指名内訳・指名ドリンク・フリードリンク（本数列）の見出しだけ縦書きにして列幅を詰める（A4横に縮小なしで収める・2026-08-23実測）。
   // pay-column-row には社交名のthが無い（group-rowでrowspan）ため、1列目=最初の勤務列。
   const _workN  = model.columns.filter(c => c.group === 'work').length;
-  const _countN = model.columns.filter(c => ['shimei','drinkShimei','drinkFree'].includes(c.group)).length;
+  const _countN = model.columns.filter(c => ['shimei','drinkShimei','drinkFree','drink'].includes(c.group)).length;
   const _vertFrom = _workN + 1, _vertTo = _workN + _countN;
   const tableHtml = model.rows.length
     ? _payrollTableInnerHtml(src, fullModel, { plain:true })
@@ -17290,7 +17311,7 @@ function _payrollColumnPickerHtml(columns) {
     seen.add(col.id);
     return true;
   });
-  const groups = ['work', 'shimei', 'drinkShimei', 'drinkFree', 'pay'].map(group => ({
+  const groups = ['work', 'shimei', 'drinkShimei', 'drinkFree', 'drink', 'pay'].map(group => ({
     key:group, label:_PAYROLL_GROUP_LABELS[group], options:options.filter(col => col.group === group),
   })).filter(group => group.options.length);
   return '<div id="payroll-column-picker" class="payroll-cols-picker" hidden onclick="event.stopPropagation()">'
@@ -22303,6 +22324,7 @@ function renderSettingsPanel() {
   _extTrialRenderEditor();
   _ryoshuUpdatePreview();
   settingsSelectCategory(_settingsActiveCat);
+  payrollRefreshDrinkMaster();
   if (typeof RemoteMonitor !== 'undefined') {
     RemoteMonitor.renderQr('monitor-settings-qr', 220);
     RemoteMonitor.renderQr('monitor-settings-ops-qr', 220, { opsToken:cfg.monitorOpsToken });
@@ -22556,6 +22578,7 @@ function shimeiExtAddRow(type) {
   let key = '';
   do { key = type + '_' + Math.random().toString(36).slice(2, 7); } while (used.has(key));
   tbody.insertAdjacentHTML('beforeend', _shimeiExtSettingsRowHTML(type, { key, label:'', amount:0, pt:0 }));
+  payrollRefreshDrinkMaster();
   tbody.querySelector('tr:last-child .shimei-ext-label')?.focus();
   _settingsMarkDirty();
 }
@@ -22580,6 +22603,7 @@ function drinkItemAddRow() {
   const shotRow = tbody.querySelector('tr[data-group="shotGroup"][data-key="shot"]');
   if (shotRow) shotRow.insertAdjacentHTML('beforebegin', _feeMasterDrinkRowHTML({ key, label:'', amount:0, pt:0 }));
   else tbody.insertAdjacentHTML('beforeend', _feeMasterDrinkRowHTML({ key, label:'', amount:0, pt:0 }));
+  payrollRefreshDrinkMaster();
   (shotRow ? shotRow.previousElementSibling : tbody.lastElementChild)?.querySelector('.shimei-ext-label')?.focus();
   _settingsMarkDirty();
 }
@@ -23052,7 +23076,7 @@ async function applySettings() {
     payrollLateFineUnitMin, payrollLateFineAmt, payrollBottleSpRate, defaultWage, payrollPeriod,
     payrollDouhanAddsHonshimei, payrollDouhanAddsHonenFirst, payrollSpInBackTotal,
     payrollSlideTable, payrollSlideSource, payrollPeriodDeductions, payrollRoundMode, payrollRoundUnit,
-    payrollDeductions,
+    payrollDeductions, payrollMergeDrinks,
   } = _payrollSettingsSnapshot();
   const pointsEnabled = !!get('cfg-pointsEnabled')?.checked;
   const pointRules = feeMasterValues.pointRules;
@@ -23104,7 +23128,7 @@ async function applySettings() {
     payrollLateFineUnitMin, payrollLateFineAmt, payrollBottleSpRate, defaultWage, payrollPeriod,
     payrollDouhanAddsHonshimei, payrollDouhanAddsHonenFirst, payrollSpInBackTotal,
     payrollSlideTable, payrollSlideSource, payrollPeriodDeductions, payrollRoundMode, payrollRoundUnit,
-    payrollDeductions,
+    payrollDeductions, payrollMergeDrinks,
     payrollHiddenCols: Array.isArray(cfg.payrollHiddenCols) ? cfg.payrollHiddenCols : [],
     pointsEnabled, pointRules, rankingShowAmountToCast,
     defaultTheme,
@@ -23434,6 +23458,7 @@ const PAYROLL_SETTINGS_KEYS = [
   'payrollDouhanAddsHonenFirst', 'payrollSpInBackTotal', 'payrollBottleSpRate',
   'payrollDeductions', 'payrollPeriodDeductions', 'payrollPeriod', 'payrollSlideSource',
   'payrollSlideTable', 'payrollRoundMode', 'payrollRoundUnit',
+  'payrollMergeDrinks',
 ];
 let _payrollSettingsReturnFocus = null;
 
@@ -23448,7 +23473,7 @@ function _payrollSettingsSummaryHtml() {
   if (cfg.payrollDouhanAddsHonenFirst !== false) extra.push('本指名延長');
   const summaries = {
     work: '標準時給 ' + yen(cfg.defaultWage) + ' / 出勤 ' + (cfg.payrollClockInRoundMin ?? 30) + '分・退勤 ' + (cfg.payrollClockOutRoundMin ?? 30) + '分単位',
-    back: '同伴時の追加：' + (extra.join('＋') || 'なし') + ' / SP：' + (cfg.payrollSpInBackTotal === false ? '参考のみ' : '日給に含む'),
+    back: 'ドリンク：' + (payrollDrinksMerged() ? '統合' : '指名・フリー別') + ' / 同伴：' + (extra.join('＋') || '追加なし') + ' / SP：' + (cfg.payrollSpInBackTotal === false ? '参考のみ' : '日給に含む'),
     deductions: '日ごと ' + (cfg.payrollDeductions || []).length + '項目 / 締めごと ' + (cfg.payrollPeriodDeductions || []).length + '項目',
     period: (cfg.payrollPeriod === 'half' ? '半月払い' : '月払い') + ' / スライド時給：' + ((cfg.payrollSlideTable || []).length ? (cfg.payrollSlideTable.length + '段階') : '未設定'),
   };
@@ -23496,6 +23521,7 @@ function _payrollSettingsModalHtml() {
           <details class="pay-settings-details"><summary>時間給の計算を確認</summary><p>時間給 ＝ 適用時給 × 計算後の勤務分 ÷ 60（1円未満は四捨五入）。個別時給が空欄なら店標準時給を使い、店標準も0円なら時間給は0円です。</p></details>
         </section>
         <section id="pay-settings-group-back" role="tabpanel" aria-labelledby="pay-settings-tab-back" data-pay-group="back" hidden>
+          ${_payrollDrinkSettingsHtml()}
           <h3>同伴1件につき追加する本数</h3>
           <p class="pay-settings-note">同伴バックに加えて支給する項目を選びます。</p>
           <label class="pay-settings-choice"><input type="checkbox" id="cfg-payrollDouhanAddsHonshimei"${checked('payrollDouhanAddsHonshimei')}><span>本指名 ＋1<small>本指名バックも加算</small></span></label>
@@ -23602,6 +23628,7 @@ function _collectPayrollSettings(overlay) {
   });
   result.payrollBottleSpRate /= 100;
   ['payrollDouhanAddsHonshimei','payrollDouhanAddsHonenFirst','payrollSpInBackTotal'].forEach(key => { result[key] = get(key).checked; });
+  result.payrollMergeDrinks = get('payrollMergeDrinks')?.checked === true;
   ['payrollPeriod','payrollSlideSource','payrollRoundMode'].forEach(key => { result[key] = get(key).value; });
   result.payrollRoundUnit = Number(get('payrollRoundUnit').value);
   result.payrollSlideTable = Array.from(overlay.querySelectorAll('#cfg-payroll-slide-table tbody > tr')).map(tr => ({
@@ -23633,11 +23660,17 @@ function payrollSettingsSave() {
   if (!overlay) return;
   const error = overlay.querySelector('#payroll-settings-error');
   const invalid = Array.from(overlay.querySelectorAll('input[type="number"]')).find(el =>
-    !el.disabled && !el.closest('.payroll-period-value-wrap[style*="display:none"],.payroll-period-value-wrap[style*="display: none"],.payroll-bracket-editor[style*="display:none"],.payroll-bracket-editor[style*="display: none"]')
+    !el.disabled && !el.closest('#payroll-drink-rates[hidden],.payroll-period-value-wrap[style*="display:none"],.payroll-period-value-wrap[style*="display: none"],.payroll-bracket-editor[style*="display:none"],.payroll-bracket-editor[style*="display: none"]')
     && (el.validity.badInput || el.validity.rangeUnderflow || el.validity.rangeOverflow));
   let invalidInput = invalid;
   let message = invalid ? '数値の範囲・入力単位を確認してください。' : '';
   const next = invalid ? null : _collectPayrollSettings(overlay);
+  const drinkRates = next?.payrollMergeDrinks ? _collectPayrollDrinkRates(overlay) : [];
+  const invalidRate = drinkRates.find(row => (row.conflict && row.value === '') || !Number.isFinite(Number(row.value)) || Number(row.value) < 0);
+  if (invalidRate) {
+    invalidInput = invalidRate.el;
+    message = '指名・フリーで単価が違う項目は共通額を入力してください（0円も指定できます）。';
+  }
   if (next && next.payrollClockOutRoundThreshold > next.payrollClockOutRoundMin) {
     invalidInput = overlay.querySelector('#cfg-payrollClockOutRoundThreshold');
     message = '退勤の境目は、退勤の分単位以下にしてください。';
@@ -23652,8 +23685,11 @@ function payrollSettingsSave() {
     return;
   }
   Object.assign(cfg, next);
+  if (next.payrollMergeDrinks) _savePayrollDrinkRates(drinkRates);
   saveCfg();
   _payrollSettingsRefreshSummary();
+  payrollRefreshDrinkMaster();
+  if (typeof renderCastMgmt === 'function') renderCastMgmt();
   if (document.getElementById('payroll-table-host') && typeof renderReportPanel === 'function') renderReportPanel();
   payrollRulesCloseModal();
   showToast('給与計算ルールを保存しました');
@@ -26489,6 +26525,9 @@ function payrollCountKeys(...sources) {
   keys.splice(keys.indexOf('同伴'), 0, ...shimeiAdded);
   keys.splice(keys.indexOf('指D') + 1, 0, ...shimeiDrinkAdded);
   keys.splice(keys.indexOf('D') + 1, 0, ...freeDrinkAdded);
+  sources.forEach(source => Object.keys(source || {}).forEach(key => {
+    if (payrollMergedDrinkKey(key) && !keys.includes(key)) keys.push(key);
+  }));
   return keys;
 }
 function _payrollManualCounts(raw, keys) {
@@ -26649,7 +26688,7 @@ function computePayrollForCast(castName, prodByCast, opts) {
   /* --- 手入力（SP / 日払い / 本数手修正）を先に取得 --- */
   const manualRec = (opts.manual && opts.manual[castName]) || getPayrollManual(dayKey, castName);
   const p = (prodByCast && prodByCast[castName]) || {};
-  const countKeys = payrollCountKeys(p, manualRec?.counts);
+  let countKeys = payrollCountKeys(p, manualRec?.counts).filter(key => !payrollMergedDrinkKey(key));
   const manualCounts = _payrollManualCounts(manualRec?.counts, countKeys);
 
   /* --- バック本数（同伴昇格はローカルで実施。元データ prodByCast は書き換えない） --- */
@@ -26669,13 +26708,25 @@ function computePayrollForCast(castName, prodByCast, opts) {
     backCounts[k] = (manualCounts[k] != null) ? (Number(manualCounts[k]) || 0) : autoCounts[k];
   }
 
+  const drinkPairs = payrollDrinksMerged() ? payrollDrinkPairs(p, manualRec?.counts, profile, castDefaults) : [];
+  drinkPairs.forEach(pair => {
+    // 分離モードの修正値も含める。統合値の消去で分離側の修正を消さない。
+    autoCounts[pair.key] = (Number(backCounts[pair.shimei]) || 0) + (Number(backCounts[pair.free]) || 0);
+    const override = manualRec?.counts?.[pair.key];
+    if (override != null) manualCounts[pair.key] = Number(override) || 0;
+    backCounts[pair.key] = override != null ? Number(override) || 0 : autoCounts[pair.key];
+    [pair.shimei, pair.free].forEach(key => { delete autoCounts[key]; delete manualCounts[key]; delete backCounts[key]; });
+  });
+  if (drinkPairs.length) countKeys = countKeys.filter(key => !payrollSplitDrinkKey(key)).concat(drinkPairs.map(pair => pair.key));
+
   /* --- バック金額（本数 × 単価）。手修正後の backCounts を使うので金額・合計・日給が追従 --- */
   const backField = { 本指:'honshimei', 場内:'jonai', 同伴:'douhan', 指D:'shimeiD', D:'freeD' };
   const backAmounts = {};
   const backUnits = {};
   countKeys.forEach(key => {
     const field = backField[key] || key;
-    backUnits[key] = _castBackUnit(profile, castDefaults, field);
+    const pair = drinkPairs.find(item => item.key === key);
+    backUnits[key] = pair ? _payrollDrinkUnit(profile, castDefaults, pair) : _castBackUnit(profile, castDefaults, field);
     backAmounts[key] = (Number(backCounts[key]) || 0) * backUnits[key];
   });
 
@@ -26816,6 +26867,133 @@ function computePayrollTable(settled, opts) {
     ...computePayrollForCast(name, prodByCast, baseOpts),
     firstRepeatCount: firstRepeatByCast[name] || 0,
   }));
+}
+/* 店舗任意のドリンク統合。元の区分/単価/手修正を残し、給与の出力だけ統合する。 */
+function payrollDrinksMerged() { return cfg.payrollMergeDrinks === true; }
+function payrollMergedDrinkKey(key) { return key === 'drinkD' || /_drinkD$/.test(key); }
+function payrollSplitDrinkKey(key) { return key === '指D' || key === 'D' || /_(shimeiD|freeD)$/.test(key); }
+function payrollDrinkPairs(...sources) {
+  const items = drinkItemList().map(item => ({ ...item }));
+  const seen = new Set(items.map(item => item.key));
+  sources.forEach(source => Object.keys(source || {}).forEach(raw => {
+    const key = raw.replace(/_(shimeiD|freeD|drinkD)$/, '');
+    if (isDrinkItemKey(key) && !seen.has(key)) { seen.add(key); items.push({ key, label:drinkItemLabel(key) }); }
+  }));
+  return items.map(item => ({
+    key:item.key + '_drinkD', label:item.label,
+    shimei:item.key + '_shimeiD', free:item.key + '_freeD',
+    shimeiField:item.key + '_shimeiD', freeField:item.key + '_freeD',
+  })).concat([{ key:'drinkD', label:shotLabel(), shimei:'指D', free:'D', shimeiField:'shimeiD', freeField:'freeD' }]);
+}
+function _payrollDrinkHasValue(value) { return value !== '' && value != null; }
+function _payrollDrinkUnit(profile, defaults, pair) {
+  if (_payrollDrinkHasValue(profile?.[pair.key])) return Number(profile[pair.key]) || 0;
+  // 個別の旧単価は切替時に共通額へ確定する。空欄キャストは店標準を継承。
+  if (_payrollDrinkHasValue(defaults?.[pair.key])) return Number(defaults[pair.key]) || 0;
+  const shimei = _castBackUnit(null, defaults, pair.shimeiField);
+  const free = _castBackUnit(null, defaults, pair.freeField);
+  return shimei === free ? shimei : 0;
+}
+function payrollDisplayCountKeys(rows) {
+  const list = rows || [];
+  const sources = list.map(row => row.backCounts || {});
+  const keys = payrollCountKeys(...sources);
+  const merged = list.length ? sources.some(source => Object.keys(source).some(payrollMergedDrinkKey)) : payrollDrinksMerged();
+  const split = list.length ? sources.some(source => Object.keys(source).some(payrollSplitDrinkKey)) : !merged;
+  return keys.filter(key => !payrollSplitDrinkKey(key) && !payrollMergedDrinkKey(key))
+    .concat(split ? keys.filter(payrollSplitDrinkKey) : [])
+    .concat(merged ? payrollDrinkPairs(...sources).map(pair => pair.key) : []);
+}
+
+/* 初回ONの下書き。差額は自動選択せず空欄にし、保存時に入力を必須にする。 */
+function payrollDrinkRateRows() {
+  const defaults = state.castDefaults || {};
+  const profiles = state.castProfiles || {};
+  const sources = [defaults, ...Object.values(profiles)];
+  Object.values(state.payrollManual || {}).forEach(day => Object.values(day || {}).forEach(rec => sources.push(rec?.counts)));
+  const pairs = payrollDrinkPairs(...sources);
+  const result = [];
+  const add = (cast, profile, pair) => {
+    const own = profile?.[pair.key];
+    // 空欄も「共通設定で店標準に戻した」という保存済みの選択。旧個別額を復活させない。
+    const configured = Object.prototype.hasOwnProperty.call(profile || {}, pair.key);
+    const shimei = _castBackUnit(profile, cast ? defaults : null, pair.shimeiField);
+    const free = _castBackUnit(profile, cast ? defaults : null, pair.freeField);
+    const explicit = !cast || _payrollDrinkHasValue(profile?.[pair.shimeiField]) || _payrollDrinkHasValue(profile?.[pair.freeField]);
+    const conflict = !configured && explicit && shimei !== free;
+    result.push({ cast, key:pair.key, label:pair.label, shimei, free, conflict,
+      value:configured ? (own ?? '') : (explicit && !conflict ? shimei : '') });
+  };
+  pairs.forEach(pair => add('', defaults, pair));
+  Object.entries(profiles).forEach(([cast, profile]) => pairs.forEach(pair => {
+    if ([pair.key,pair.shimeiField,pair.freeField].some(key => _payrollDrinkHasValue(profile?.[key]))) add(cast, profile, pair);
+  }));
+  return result;
+}
+function _payrollDrinkSettingsHtml() {
+  const attr = value => escAttr(escHtml(String(value ?? '')));
+  const rows = payrollDrinkRateRows();
+  const individual = rows.filter(row => row.cast);
+  const table = entries => '<div class="pay-settings-table-wrap"><table class="pos-me-table"><thead><tr><th>対象</th><th>種類</th><th>共通バック（円/本）</th></tr></thead><tbody>'
+    + entries.map(row => '<tr><td>' + escHtml(row.cast || '店標準') + '</td><td>' + escHtml(row.label) + '</td><td>'
+      + '<input type="number" class="settings-input payroll-drink-rate" data-cast="' + attr(row.cast) + '" data-key="' + attr(row.key) + '" data-conflict="' + row.conflict + '" value="' + attr(row.value) + '" min="0" step="1" placeholder="' + (row.conflict ? '共通額を入力' : row.cast ? '店標準' : '0') + '" aria-label="' + attr((row.cast || '店標準') + ' ' + row.label + ' 共通バック') + '">'
+      + (row.conflict ? '<small>指名 ' + row.shimei + '円 / フリー ' + row.free + '円</small>' : '') + '</td></tr>').join('')
+    + '</tbody></table></div>';
+  return '<h3>ドリンクのまとめ方</h3>'
+    + '<label class="pay-settings-choice"><input type="checkbox" id="cfg-payrollMergeDrinks"' + (payrollDrinksMerged() ? ' checked' : '') + ' onchange="payrollDrinkSettingsToggle()"><span>指名・フリードリンクをまとめる<small>本数を合算し、同じバック単価で計算</small></span></label>'
+    + '<div id="payroll-drink-rates"' + (payrollDrinksMerged() ? '' : ' hidden') + '>'
+    + '<p class="pay-settings-note">未確定の給与に反映します。商品別バックは別計算です。金額が違う項目は共通額を入力してください。</p>'
+    + table(rows.filter(row => !row.cast))
+    + (individual.length ? '<details class="pay-settings-details"' + (individual.some(row => row.conflict) ? ' open' : '') + '><summary>キャスト個別の共通額 <span>' + individual.length + '項目</span></summary>' + table(individual) + '</details>' : '')
+    + '<p class="pay-settings-note">個別バックの追加・変更はキャスト管理から。空欄は店標準です。</p>'
+    + '<details class="pay-settings-details"><summary>本数の修正・元に戻す</summary><p>日計表で合計本数を修正できます。空欄で元の指名・フリー本数（手修正を含む）の合計に戻ります。</p><p>OFFで元の区分・単価・手修正に戻ります。統合中の修正は残りますが、OFF中は使いません。締め済み給与・元注文は変更しません。</p></details></div>';
+}
+function payrollDrinkSettingsToggle() {
+  const enabled = document.getElementById('cfg-payrollMergeDrinks')?.checked === true;
+  const section = document.getElementById('payroll-drink-rates');
+  if (section) section.hidden = !enabled;
+}
+function _collectPayrollDrinkRates(overlay) {
+  return Array.from(overlay.querySelectorAll('.payroll-drink-rate')).map(el => ({
+    el, cast:el.dataset.cast, key:el.dataset.key, value:el.value.trim(), conflict:el.dataset.conflict === 'true',
+  }));
+}
+function _savePayrollDrinkRates(rows) {
+  ensureCastStores();
+  rows.forEach(row => {
+    const target = row.cast ? getCastProfile(row.cast) : state.castDefaults;
+    target[row.key] = row.value === '' && row.cast ? '' : Number(row.value) || 0;
+  });
+  saveState();
+}
+
+/* 設定本体の未保存入力を壊さず、バック欄の見え方だけ変更する。 */
+function payrollRefreshDrinkMaster() {
+  const table = document.getElementById('cfg-fee-master-table');
+  if (!table) return;
+  const merged = payrollDrinksMerged();
+  const heads = table.querySelectorAll('thead th');
+  if (heads.length >= 4) {
+    heads[2].textContent = merged ? 'バック（円）' : '指名バック（円）';
+    heads[2].colSpan = merged ? 2 : 1;
+    heads[3].hidden = merged;
+  }
+  table.querySelectorAll('tr.fee-master-row').forEach(row => {
+    const cells = row.querySelectorAll('td');
+    if (cells.length < 4) return;
+    cells[2].colSpan = merged ? 2 : 1;
+    cells[3].hidden = merged;
+    const input = cells[2].querySelector('.fee-master-back-shimei');
+    if (!input) return;
+    input.hidden = merged;
+    cells[2].querySelector('.payroll-common-link')?.remove();
+    if (!merged) return;
+    const key = row.dataset.group === 'shotGroup' ? 'drinkD' : row.dataset.key + '_drinkD';
+    const pair = payrollDrinkPairs().find(item => item.key === key);
+    cells[2].insertAdjacentHTML('beforeend', pair
+      ? '<button type="button" class="btn payroll-common-link" onclick="payrollRulesOpenModal(\'back\')">共通 ' + _payrollDrinkUnit(null, state.castDefaults, pair).toLocaleString() + '円 ›</button>'
+      : '<span class="payroll-common-link">項目を保存後、給与ルールで設定</span>');
+  });
 }
 /* ================================================================
    PAYSLIP AGGREGATION
@@ -27435,8 +27613,8 @@ function _castDetailProfileHtml(name) {
 /* 月次成績表の本数列キーを「ドリンク系」と「それ以外」に分ける。
    ドリンク系（指D/D・サイズ別）は横幅対策で日別列には出さず、表の下の合計行だけに出す。 */
 function _castDetailCountKeys(rows) {
-  const keys = payrollCountKeys(...rows.map(r => (r && r.backCounts) || {}));
-  const isDrinkKey = key => key === '指D' || key === 'D' || /_(shimeiD|freeD)$/.test(key);
+  const keys = payrollDisplayCountKeys(rows);
+  const isDrinkKey = key => payrollSplitDrinkKey(key) || payrollMergedDrinkKey(key);
   return {
     cols: keys.filter(key => !isDrinkKey(key)),
     drink: keys.filter(isDrinkKey),
