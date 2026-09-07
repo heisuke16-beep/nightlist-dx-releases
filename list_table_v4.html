@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.5">
+<meta name="app-version" content="1.1.6">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -10256,6 +10256,27 @@ function _printRemarkNoteHtml(row, displaySource) {
     : '';
 }
 
+function _printHHMM(m) {
+  if (!m && m !== 0) return '';
+  if (!Number.isFinite(Number(m))) return '';
+  const total = Math.floor(Number(m));
+  const hour = Math.floor(total / 60);
+  const min = Math.abs(total % 60);
+  return String(hour).padStart(2, '0') + ':' + String(min).padStart(2, '0');
+}
+function _isPrintCardMethod(row) {
+  return row.amountMethod === 'card' || row.amountMethod === 'both' || row.amountMethod === 'urikake';
+}
+function _countPrintCardSlips(row) {
+  if (!_isPrintCardMethod(row)) return 0;
+  const baseCard = parseInt(row.amountCard) || 0;
+  const extraCount = (row.cardEntries || []).reduce(
+    (s, e) => s + ((parseInt(e.amount) || 0) > 0 ? 1 : 0),
+    0
+  );
+  return (baseCard > 0 ? 1 : 0) + extraCount;
+}
+
 function doPrint() {
   const ROWS_PER_PAGE = 30;
   const container = document.getElementById('print-pages');
@@ -10285,7 +10306,9 @@ function doPrint() {
 
   const totalGuests = allRows.length;
   const totalGroups = allRows.filter(r => r.isFirst).length;
+  const settledFirstRows = allRows.filter(r => r.isFirst && r.settled);
   const { cash, card } = calcCashCardSales();
+  const cardCount = settledFirstRows.reduce((s, r) => s + _countPrintCardSlips(r), 0);
   const totalSales  = calcTotalSales();
   const settledGids2 = new Set(allRows.filter(r => r.isFirst && r.settled).map(r => r.gid));
   const settledPeople = allRows.filter(r => settledGids2.has(r.gid)).length;
@@ -10452,8 +10475,8 @@ function doPrint() {
       tr.innerHTML = `
         <td style="font-weight:bold"${hasExt?' class="ext-num"':''}>${rgnMap[row.id]}${linkMark}</td>
         ${groupCell}
-        <td>${row.isFirst ? minToHHMM(row.startMin) : '<span style="color:#999">│</span>'}</td>
-        <td style="${hasExt?'color:#c00;font-weight:bold':''}">${(row.isFirst||hasExt) ? minToHHMM(row.endMin) : '<span style="color:#999">│</span>'}</td>
+        <td>${row.isFirst ? _printHHMM(row.startMin) : '<span style="color:#999">│</span>'}</td>
+        <td style="${hasExt?'color:#c00;font-weight:bold':''}">${(row.isFirst||hasExt) ? _printHHMM(row.endMin) : '<span style="color:#999">│</span>'}</td>
         <td style="white-space:pre-line">${desigHtml}</td>
         <td>${row.tableNum||''}</td>
         <td>${[row.rotations[0], row.rotations2?.[0]].filter(Boolean).join('/')}</td>
@@ -10473,7 +10496,7 @@ function doPrint() {
     if (isLastPage) {
       const footer = document.createElement('div');
       footer.className = 'print-footer';
-      footer.textContent = `入客 ${totalGuests}人　${totalGroups}組　売上 ¥${totalSales.toLocaleString()}（現金 ¥${cash.toLocaleString()} / カード ¥${card.toLocaleString()}）　単価：¥${avg > 0 ? avg.toLocaleString() : '-'}`;
+      footer.textContent = `入客 ${totalGuests}人　${totalGroups}組　売上 ¥${totalSales.toLocaleString()}（現金 ¥${cash.toLocaleString()} / カード ¥${card.toLocaleString()}（${cardCount}枚））　単価：¥${avg > 0 ? avg.toLocaleString() : '-'}`;
       page.appendChild(footer);
     }
 
@@ -16020,7 +16043,10 @@ function _reportPeriodSwitchHtml() {
     + '.agg-card-head{display:flex;justify-content:space-between;padding:10px 12px;background:var(--goldglow);font-weight:700;color:var(--tx)}'
     + '.agg-card-total{color:var(--gold)}'
     + '.agg-card-line{display:flex;justify-content:space-between;gap:8px;padding:6px 12px;font-size:12px;border-top:1px solid var(--bdr)}'
-    + '.agg-card-nm{flex:1;color:var(--tx2)}.agg-card-q{color:var(--tx3);min-width:20px;text-align:right}.agg-card-amt{min-width:60px;text-align:right;color:var(--tx)}'
+    + '.agg-card-nm{flex:1;color:var(--tx2);min-width:0;overflow:hidden;text-overflow:ellipsis}'
+    + '.agg-card-q{color:var(--tx3);min-width:20px;text-align:right}'
+    + '.agg-card-amt{min-width:60px;text-align:right;color:var(--tx)}'
+    + '.agg-card-slip{min-width:78px;text-align:right;color:var(--tx3);white-space:nowrap}'
     + '.agg-share-btn{display:inline-flex;align-items:center;gap:2px;flex:0 0 auto;padding:1px 5px;border:1px solid var(--bdr2);border-radius:9px;background:var(--sur2);color:var(--gold);font-size:10px;line-height:1.4;cursor:pointer}'
     + '.nominate-share-total{padding:10px 12px;border:1px solid var(--bdr);border-radius:8px;background:var(--sur2);color:var(--tx2);font-size:13px;font-weight:700;text-align:right;font-variant-numeric:tabular-nums}.nominate-share-total.warn{border-color:#e67e22;color:#ffb36b}'
     + '.nominate-share-row{display:grid;grid-template-columns:minmax(80px,1fr) minmax(130px,180px);align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--bdr)}'
@@ -16455,7 +16481,7 @@ function computeReportAgg(settled) {
   // 指名売上：本指名/同伴で付いた卓の税込総計を、指名キャストのweightで按分して計上（R2・卓単位）。
   // lines は卓ごとの寄与（No.X 会計種別 → その卓の税込総計）。total はその合計。
   const nameGroups = {};   // cast -> { total, totalSub, lines:{label:{qty,amt}} }
-  const ensureN = c => (nameGroups[c] = nameGroups[c] || { total:0, totalSub:0, lines:{} });
+  const ensureN = c => (nameGroups[c] = nameGroups[c] || { total:0, totalSub:0, lines:{}, lastSlipNo:0, lastSlipLabel:'' });
   // 指名売上の対象タイプ。場内(jounai)・延長指名(enchoshimei)は除外。
   const SHIMEI_NOMINATE = ['honshimei', 'douban'];
   if (modoriAgg !== 'none') SHIMEI_NOMINATE.push('modori_honshimei');
@@ -16515,6 +16541,8 @@ function computeReportAgg(settled) {
     nomList.forEach((cast, idx) => {
       nominatedCasts[cast] = true;
       const g = ensureN(cast);
+      const rowSlipNo = Number(r.slipNo) || 0;
+      const rowSlipLabel = slipNoLabel(r);
       const label = 'No.' + slipNoLabel(r) + (r.source ? ' ' + r.source : '');
       const ln = g.lines[label] = g.lines[label] || {
         qty:0, amt:0, rowId:r.id, casts:nomList.slice(), nominateWeights:nominateWeights.slice(), nominateAdjusted:false
@@ -16524,6 +16552,10 @@ function computeReportAgg(settled) {
       const shareSub = nominateSubtotalShares[idx];
       ln.qty += 1; ln.amt += share; g.total += share;
       g.totalSub += shareSub;
+      if (rowSlipNo > (Number(g.lastSlipNo) || 0)) {
+        g.lastSlipNo = rowSlipNo;
+        g.lastSlipLabel = rowSlipLabel;
+      }
     });
 
     // --- 個人小計売上（2026-08-20新設）: 指名系すべて（本指名・同伴・場内・延長指名）を対象に
@@ -16676,7 +16708,7 @@ function _aggNameCardsHtml(nameGroups, nominatedCasts) {
   });
   const cards = casts.map(c => {
     const g = nameGroups[c];
-    const lines = Object.keys(g.lines).map(l => {
+      const lines = Object.keys(g.lines).map(l => {
       const ln = g.lines[l];
       const shareButton = Array.isArray(ln.casts) && ln.casts.length > 1 && ln.rowId != null
         ? '<button type="button" class="agg-share-btn" data-row-id="' + escAttr(String(ln.rowId)) + '" onclick="nominateSharesOpenModal(this.dataset.rowId)" aria-label="指名売上の配分を変更">⚖' + (ln.nominateAdjusted ? '<span>調整済</span>' : '') + '</button>'
@@ -16686,8 +16718,10 @@ function _aggNameCardsHtml(nameGroups, nominatedCasts) {
         + '<span class="agg-card-q">' + ln.qty + '</span>'
         + '<span class="agg-card-amt">¥' + ln.amt.toLocaleString() + '</span></div>';
     }).join('');
+    const castLast = g.lastSlipNo > 0 ? 'No.' + escHtml(String(g.lastSlipNo)) : (g.lastSlipLabel ? 'No.' + escHtml(g.lastSlipLabel) : '—');
     return '<div class="agg-card"><div class="agg-card-head"><span>' + escHtml(c) + '</span>'
-      + '<span class="agg-card-total">¥' + dispTotal(c).toLocaleString() + '</span></div>' + lines + '</div>';
+      + '<span class="agg-card-total">¥' + dispTotal(c).toLocaleString() + '</span>'
+      + '<span class="agg-card-slip">最終伝票 ' + castLast + '</span></div>' + lines + '</div>';
   }).join('');
   return '<div class="agg-card-grid">' + cards + '</div>';
 }
@@ -17253,7 +17287,7 @@ function _deductionSheetInnerHtml(src, opts = { plain:false }) {
       }
       const hasMan = Object.prototype.hasOwnProperty.call(manualDeductions, item.key);
       const value = hasMan ? manualDeductions[item.key] : (calculated.auto || 0);
-      if (opts.plain === true) return '<td>' + (hasOut && value ? _payYen(value) : '') + '</td>';
+      if (opts.plain === true) return '<td>' + (hasOut ? _payYen(value) : '') + '</td>';
       return '<td><input type="number" class="pay-in' + (hasMan ? ' pay-edited' : '') + '" value="' + (hasMan ? manualDeductions[item.key] : '') + '" placeholder="' + (calculated.auto || 0) + '" onchange="payrollSetDeduction(\'' + cj + '\', \'' + item.key + '\', this.value)"></td>';
     }).join('');
     const hasRecordedFlag = (r.deductions || []).some(item => item.mode === 'boolean' && item.checked === true);
@@ -17293,10 +17327,7 @@ function _deductionSheetPrintTableHtml(src) {
   let displayCount = 0;
   const totals = deductionItems.map(() => 0);
   const counts = deductionItems.map(() => 0);
-  const yen = value => {
-    const amount = Number(value) || 0;
-    return '¥' + (amount ? amount.toLocaleString() : '');
-  };
+  const yen = value => _payYen(value);
   const displayYen = value => '¥' + (Number(value) || 0).toLocaleString();
   const head = '<thead><tr><th>No.</th><th>名前</th><th>' + displayColumn.label + '</th>'
     + deductionItems.map(item => '<th>' + escHtml(item.label || '') + '</th>').join('')
