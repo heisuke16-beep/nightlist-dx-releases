@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.1">
+<meta name="app-version" content="1.1.2">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -16934,8 +16934,8 @@ function printDeductionSheet() {
   if (!w) { if (typeof showToast === 'function') showToast('ポップアップがブロックされました'); return; }
   w.document.write(
     '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>控除票</title><style>'
-    + '@page{size:A4 portrait;margin:12mm 14mm}'
-    + 'body{font-family:"Hiragino Kaku Gothic ProN","Meiryo",sans-serif;color:#000;margin:0}'
+    + '@page{size:A4 portrait;margin:0}'
+    + 'body{font-family:"Hiragino Kaku Gothic ProN","Meiryo",sans-serif;color:#000;margin:0;padding:12mm 14mm;box-sizing:border-box}'
     + '.top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px}'
     + '.top .shop{font-size:11pt;font-weight:700}'
     + '.top h1{font-size:16pt;margin:0;letter-spacing:.3em}'
@@ -16946,6 +16946,7 @@ function printDeductionSheet() {
     + 'table.ded td.cno{width:12mm;text-align:center}'
     + 'table.ded td.nm{width:30mm;text-align:left;font-weight:700}'
     + 'table.ded td.amt{text-align:left}'
+    + 'table.ded td.amt.flag{text-align:center;vertical-align:middle;font-size:12pt;font-weight:700}'
     + 'table.ded tbody tr:nth-child(even) td{background:#f1f1f1}'
     + 'table.ded tr.sum td{background:#e6e6e6;font-weight:700;border-top:2px solid #000}'
     + 'tr{break-inside:avoid}'
