@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.4">
+<meta name="app-version" content="1.1.5">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -7039,6 +7039,7 @@ const CFG_DEFAULTS = {
   // --- 控除項目（店舗定義。空=控除機能オフ＝日計表の表示は従来どおり） ---
   // key はラベル変更後も不変。mode: fixed=固定額 / rate=日給×率% / manual=都度手入力
   payrollDeductions:             [],  // fixed/rate/manual=店舗計算、boolean=本部計算用○×記録
+  payrollDeductionDisplayField:  'dailyPay', // 控除票の金額欄: dailyPay | nominatedSales
   payrollHiddenCols:             [],     // 日計表で非表示にする列ID（空=全列表示）
   // --- テーマ既定値（端末別。アプリ起動時に Persist.theme が無ければこれを使う） ---
   defaultTheme:                  'aurum', // 'night' | 'light' | 'summer' | 'aurum'
@@ -7051,6 +7052,10 @@ const CFG_DEFAULTS = {
 let cfg = { ...CFG_DEFAULTS };
 let _cfgNeedsShimeiExtMigration = false;
 let _cfgNeedsDrinkItemsMigration = false;
+
+function normalizePayrollDeductionDisplayField(value) {
+  return value === 'nominatedSales' ? 'nominatedSales' : 'dailyPay';
+}
 
 function mergeCfgDefaults(saved) {
   const merged = { ...CFG_DEFAULTS, ...(saved || {}) };
@@ -17213,6 +17218,7 @@ function _deductionSheetInnerHtml(src, opts = { plain:false }) {
   const model = _payrollTableModel(src);
   src = model.src;
   const rows = model.rows;
+  const displayColumn = _deductionSheetDisplayColumn();
   const deductionItems = (typeof cfg !== 'undefined' && Array.isArray(cfg.payrollDeductions)) ? cfg.payrollDeductions : [];
   if (!deductionItems.length) {
     return '<div class="agg-side-empty" style="padding:16px;text-align:center">控除項目が設定されていません（⚙️ 設定 → キャスト・給与 → 控除項目）</div>';
@@ -17221,8 +17227,8 @@ function _deductionSheetInnerHtml(src, opts = { plain:false }) {
     return '<div class="agg-side-empty" style="padding:24px;text-align:center">出勤キャストがいません</div>';
   }
   const checkouts = (src.tt && src.tt.checkouts) || {};
-  const tot = { deduction:0, net:0 };
-  const head = '<thead><tr><th class="pay-name">社交名</th><th>日給</th>'
+  const tot = { display:0, deduction:0, net:0 };
+  const head = '<thead><tr><th class="pay-name">社交名</th><th>' + displayColumn.label + '</th>'
     + deductionItems.map(item => '<th>' + escHtml(item.label || '') + '</th>').join('')
     + '<th>控除計</th><th>差引支給</th></tr></thead>';
   const body = rows.map(r => {
@@ -17231,6 +17237,9 @@ function _deductionSheetInnerHtml(src, opts = { plain:false }) {
     const hasOut = !!checkouts[c];
     const manualDeductions = (typeof getPayrollManual === 'function')
       ? getPayrollManual(src.dayKey, c).deductions : {};
+    const displayReady = !displayColumn.requiresCheckout || hasOut;
+    const displayValue = displayColumn.value(r);
+    if (displayReady) tot.display += displayValue;
     if (hasOut) {
       tot.deduction += r.deductionTotal || 0;
       tot.net += r.netPay || 0;
@@ -17250,13 +17259,13 @@ function _deductionSheetInnerHtml(src, opts = { plain:false }) {
     const hasRecordedFlag = (r.deductions || []).some(item => item.mode === 'boolean' && item.checked === true);
     return '<tr' + (!hasOut || ((Number(r.deductionTotal) || 0) === 0 && !hasRecordedFlag) ? ' class="ded-zero"' : '') + '>'
       + '<td class="pay-name">' + escHtml(c) + '</td>'
-      + '<td class="pay-daily' + (hasOut ? '' : ' pay-muted') + '">' + (hasOut ? _payYen(r.dailyPay) : '（時給未確定）') + '</td>'
+      + '<td class="pay-daily' + (displayReady ? '' : ' pay-muted') + '">' + (displayReady ? _payYen(displayValue) : '（時給未確定）') + '</td>'
       + cells
       + '<td class="pay-total' + (hasOut ? '' : ' pay-muted') + '">' + (hasOut ? _payYen(r.deductionTotal) : '—') + '</td>'
       + '<td class="pay-net' + (hasOut ? '' : ' pay-muted') + '">' + (hasOut ? _payYen(r.netPay) : '（時給未確定）') + '</td>'
       + '</tr>';
   }).join('');
-  const totalRow = '<tr class="pay-totalrow"><td class="pay-name">合計</td><td></td>'
+  const totalRow = '<tr class="pay-totalrow"><td class="pay-name">合計</td><td>' + _payYen(tot.display) + '</td>'
     + deductionItems.map(() => '<td></td>').join('')
     + '<td class="pay-total">' + _payYen(tot.deduction) + '</td>'
     + '<td class="pay-net">' + _payYen(tot.net) + '</td></tr>';
@@ -17264,22 +17273,40 @@ function _deductionSheetInnerHtml(src, opts = { plain:false }) {
   return opts.plain === true ? table : '<div class="payroll-scroll">' + table + '</div>';
 }
 
+function _deductionSheetDisplayColumn() {
+  const field = normalizePayrollDeductionDisplayField(
+    typeof cfg !== 'undefined' ? cfg.payrollDeductionDisplayField : 'dailyPay'
+  );
+  return field === 'nominatedSales'
+    ? { field, label:'本指名売上', requiresCheckout:false, value:row => Number(row?.sales) || 0 }
+    : { field, label:'日給', requiresCheckout:true, value:row => Number(row?.dailyPay) || 0 };
+}
+
 function _deductionSheetPrintTableHtml(src) {
   const model = _payrollTableModel(src);
   src = model.src;
   const rows = model.rows;
+  const displayColumn = _deductionSheetDisplayColumn();
   const deductionItems = (typeof cfg !== 'undefined' && Array.isArray(cfg.payrollDeductions)) ? cfg.payrollDeductions : [];
+  const checkouts = (src.tt && src.tt.checkouts) || {};
+  let displayTotal = 0;
+  let displayCount = 0;
   const totals = deductionItems.map(() => 0);
   const counts = deductionItems.map(() => 0);
   const yen = value => {
     const amount = Number(value) || 0;
     return '¥' + (amount ? amount.toLocaleString() : '');
   };
-  const head = '<thead><tr><th>No.</th><th>名前</th>'
+  const displayYen = value => '¥' + (Number(value) || 0).toLocaleString();
+  const head = '<thead><tr><th>No.</th><th>名前</th><th>' + displayColumn.label + '</th>'
     + deductionItems.map(item => '<th>' + escHtml(item.label || '') + '</th>').join('')
     + '</tr></thead>';
   const bodyRows = rows.map(r => {
     const c = r.castName;
+    const displayReady = !displayColumn.requiresCheckout || !!checkouts[c];
+    const displayValue = displayReady ? displayColumn.value(r) : 0;
+    if (displayReady) displayTotal += displayValue;
+    if (displayReady && displayValue > 0) displayCount += 1;
     const manualDeductions = (typeof getPayrollManual === 'function')
       ? getPayrollManual(src.dayKey, c).deductions : {};
     const cells = deductionItems.map((item, index) => {
@@ -17298,16 +17325,16 @@ function _deductionSheetPrintTableHtml(src) {
     const profile = state.castProfiles && state.castProfiles[c];
     const hasCastNo = profile && profile.no !== '' && profile.no != null && Number.isFinite(Number(profile.no));
     const castNo = hasCastNo ? String(profile.no) : '';
-    return '<tr><td class="cno">' + escHtml(castNo) + '</td><td class="nm">' + escHtml(c) + '</td>' + cells + '</tr>';
+    return '<tr><td class="cno">' + escHtml(castNo) + '</td><td class="nm">' + escHtml(c) + '</td><td class="amt">' + (displayReady ? displayYen(displayValue) : '¥') + '</td>' + cells + '</tr>';
   });
   const rowCount = Math.max(25, rows.length);
   for (let rowIndex = rows.length; rowIndex < rowCount; rowIndex += 1) {
-    bodyRows.push('<tr><td class="cno"></td><td class="nm"></td>'
+    bodyRows.push('<tr><td class="cno"></td><td class="nm"></td><td class="amt">¥</td>'
       + deductionItems.map(item => '<td class="amt">' + (item.mode === 'boolean' ? '' : '¥') + '</td>').join('') + '</tr>');
   }
-  const sumRow = '<tr class="sum"><td class="cno"></td><td class="nm">合計</td>'
+  const sumRow = '<tr class="sum"><td class="cno"></td><td class="nm">合計</td><td class="amt">' + displayYen(displayTotal) + '</td>'
     + totals.map((value, index) => '<td class="amt">' + (deductionItems[index]?.mode === 'boolean' ? '—' : yen(value)) + '</td>').join('') + '</tr>';
-  const countRow = '<tr class="sum"><td class="cno"></td><td class="nm">人数</td>'
+  const countRow = '<tr class="sum"><td class="cno"></td><td class="nm">人数</td><td class="amt">' + displayCount + ' 人</td>'
     + counts.map(value => '<td class="amt">' + value + ' 人</td>').join('') + '</tr>';
   return '<table class="ded">' + head + '<tbody>' + bodyRows.join('') + sumRow + countRow + '</tbody></table>';
 }
@@ -23092,7 +23119,7 @@ async function applySettings() {
     payrollLateFineUnitMin, payrollLateFineAmt, payrollBottleSpRate, defaultWage, payrollPeriod,
     payrollDouhanAddsHonshimei, payrollDouhanAddsHonenFirst, payrollSpInBackTotal,
     payrollSlideTable, payrollSlideSource, payrollPeriodDeductions, payrollRoundMode, payrollRoundUnit,
-    payrollDeductions, payrollMergeDrinks,
+    payrollDeductions, payrollDeductionDisplayField, payrollMergeDrinks,
   } = _payrollSettingsSnapshot();
   const pointsEnabled = !!get('cfg-pointsEnabled')?.checked;
   const pointRules = feeMasterValues.pointRules;
@@ -23145,7 +23172,7 @@ async function applySettings() {
     payrollLateFineUnitMin, payrollLateFineAmt, payrollBottleSpRate, defaultWage, payrollPeriod,
     payrollDouhanAddsHonshimei, payrollDouhanAddsHonenFirst, payrollSpInBackTotal,
     payrollSlideTable, payrollSlideSource, payrollPeriodDeductions, payrollRoundMode, payrollRoundUnit,
-    payrollDeductions, payrollMergeDrinks,
+    payrollDeductions, payrollDeductionDisplayField, payrollMergeDrinks,
     payrollHiddenCols: Array.isArray(cfg.payrollHiddenCols) ? cfg.payrollHiddenCols : [],
     pointsEnabled, pointRules, rankingShowAmountToCast,
     defaultTheme,
@@ -23352,10 +23379,12 @@ function _payrollDeductionEditorMarkDirty(node) {
 
 function _payrollDeductionSettingsModalHtml() {
   const items = Array.isArray(cfg.payrollDeductions) ? cfg.payrollDeductions : [];
+  const displayField = normalizePayrollDeductionDisplayField(cfg.payrollDeductionDisplayField);
   return '<div id="payroll-deduction-settings-overlay" class="pos-co-overlay" onclick="if(event.target===this)payrollDeductionSettingsCloseModal()">'
     + '<div class="pos-co-panel pay-bd-panel" style="width:min(760px,96vw);max-width:760px">'
     + '<div class="pay-bd-head"><div><div class="pay-bd-title">控除項目設定</div><div class="pay-bd-date">金額計算または本部へ渡す○×記録を設定</div></div><button type="button" class="pay-bd-close" onclick="payrollDeductionSettingsCloseModal()" aria-label="閉じる">×</button></div>'
     + '<div class="pay-bd-body" style="max-height:72vh;overflow-y:auto">'
+    + '<div class="pay-settings-row" style="margin-bottom:12px"><div><label for="payroll-deduction-display-field">控除票の金額欄</label><p>画面と印刷に同じ項目を表示します。</p></div><div class="pay-settings-inputs"><select id="payroll-deduction-display-field" class="settings-input"><option value="dailyPay"' + (displayField === 'dailyPay' ? ' selected' : '') + '>日給</option><option value="nominatedSales"' + (displayField === 'nominatedSales' ? ' selected' : '') + '>本指名売上</option></select></div></div>'
     + '<div style="overflow-x:auto"><table class="pos-me-table" id="payroll-deduction-settings-table" style="min-width:590px">'
     + '<thead><tr><th>名称</th><th style="width:170px">方式</th><th style="width:130px">値</th><th style="width:56px"></th></tr></thead><tbody>'
     + items.map(_payrollDeductionRowHTML).join('') + '</tbody></table></div>'
@@ -23380,11 +23409,14 @@ function payrollDeductionSettingsCloseModal() {
 
 function payrollDeductionSettingsSave() {
   cfg.payrollDeductions = _collectPayrollDeductionRows('payroll-deduction-settings-table');
+  cfg.payrollDeductionDisplayField = normalizePayrollDeductionDisplayField(
+    document.getElementById('payroll-deduction-display-field')?.value ?? cfg.payrollDeductionDisplayField
+  );
   saveCfg();
   _payrollSettingsRefreshSummary();
   payrollDeductionSettingsCloseModal();
   if (typeof renderReportPanel === 'function') renderReportPanel();
-  if (typeof showToast === 'function') showToast('控除項目を保存・反映しました');
+  if (typeof showToast === 'function') showToast('控除票設定を保存・反映しました');
 }
 
 function payrollDeductionModeChanged(select) {
@@ -23473,7 +23505,7 @@ const PAYROLL_SETTINGS_KEYS = [
   'defaultWage', 'payrollClockInRoundMin', 'payrollClockOutRoundMin', 'payrollClockOutRoundThreshold',
   'payrollLateFineUnitMin', 'payrollLateFineAmt', 'payrollDouhanAddsHonshimei',
   'payrollDouhanAddsHonenFirst', 'payrollSpInBackTotal', 'payrollBottleSpRate',
-  'payrollDeductions', 'payrollPeriodDeductions', 'payrollPeriod', 'payrollSlideSource',
+  'payrollDeductions', 'payrollDeductionDisplayField', 'payrollPeriodDeductions', 'payrollPeriod', 'payrollSlideSource',
   'payrollSlideTable', 'payrollRoundMode', 'payrollRoundUnit',
   'payrollMergeDrinks',
 ];
@@ -23491,7 +23523,7 @@ function _payrollSettingsSummaryHtml() {
   const summaries = {
     work: '標準時給 ' + yen(cfg.defaultWage) + ' / 出勤 ' + (cfg.payrollClockInRoundMin ?? 30) + '分・退勤 ' + (cfg.payrollClockOutRoundMin ?? 30) + '分単位',
     back: 'ドリンク：' + (payrollDrinksMerged() ? '統合' : '指名・フリー別') + ' / 同伴：' + (extra.join('＋') || '追加なし') + ' / SP：' + (cfg.payrollSpInBackTotal === false ? '参考のみ' : '日給に含む'),
-    deductions: '日ごと ' + (cfg.payrollDeductions || []).length + '項目 / 締めごと ' + (cfg.payrollPeriodDeductions || []).length + '項目',
+    deductions: '控除票：' + (normalizePayrollDeductionDisplayField(cfg.payrollDeductionDisplayField) === 'nominatedSales' ? '本指名売上' : '日給') + ' / 日ごと ' + (cfg.payrollDeductions || []).length + '項目 / 締めごと ' + (cfg.payrollPeriodDeductions || []).length + '項目',
     period: (cfg.payrollPeriod === 'half' ? '半月払い' : '月払い') + ' / スライド時給：' + ((cfg.payrollSlideTable || []).length ? (cfg.payrollSlideTable.length + '段階') : '未設定'),
   };
   return '<div class="pay-settings-summary">' + PAYROLL_SETTINGS_GROUPS.map(([key, label]) =>
@@ -23551,6 +23583,7 @@ function _payrollSettingsModalHtml() {
         <section id="pay-settings-group-deductions" role="tabpanel" aria-labelledby="pay-settings-tab-deductions" data-pay-group="deductions" hidden>
           <h3>日ごとの控除・○×記録</h3>
           <p class="pay-settings-note">日計表・控除票に表示。○×は本部への記録用で、金額計算には含めません。</p>
+          <div class="pay-settings-row"><div><label for="cfg-payrollDeductionDisplayField">控除票の金額欄</label><p>画面と印刷に同じ項目を表示します。</p></div><div class="pay-settings-inputs"><select id="cfg-payrollDeductionDisplayField" class="settings-input">${options([['dailyPay','日給'],['nominatedSales','本指名売上']],normalizePayrollDeductionDisplayField(cfg.payrollDeductionDisplayField))}</select></div></div>
           <div class="pay-settings-table-wrap"><table class="pos-me-table" id="cfg-payroll-deductions-table"><thead><tr><th>名称</th><th>方式</th><th>金額・率</th><th></th></tr></thead><tbody>${(cfg.payrollDeductions || []).map(_payrollDeductionRowHTML).join('')}</tbody></table></div>
           <div class="pay-settings-add"><button type="button" class="pos-me-add-btn" onclick="payrollDeductionAdd()">＋ 項目を追加</button>${PAYROLL_DEDUCTION_PRESETS.map(label => '<button type="button" class="btn" onclick="payrollDeductionAddPreset(\'' + escAttr(label) + '\')">＋ ' + label + '</button>').join('')}</div>
           <details class="pay-settings-details"><summary>日ごとの控除の計算</summary><p>固定額は1日ごと、率は日給に対して計算します。都度手入力は日計表・控除票で入力します。</p></details>
@@ -23646,6 +23679,7 @@ function _collectPayrollSettings(overlay) {
   result.payrollBottleSpRate /= 100;
   ['payrollDouhanAddsHonshimei','payrollDouhanAddsHonenFirst','payrollSpInBackTotal'].forEach(key => { result[key] = get(key).checked; });
   result.payrollMergeDrinks = get('payrollMergeDrinks')?.checked === true;
+  result.payrollDeductionDisplayField = normalizePayrollDeductionDisplayField(get('payrollDeductionDisplayField')?.value);
   ['payrollPeriod','payrollSlideSource','payrollRoundMode'].forEach(key => { result[key] = get(key).value; });
   result.payrollRoundUnit = Number(get('payrollRoundUnit').value);
   result.payrollSlideTable = Array.from(overlay.querySelectorAll('#cfg-payroll-slide-table tbody > tr')).map(tr => ({
