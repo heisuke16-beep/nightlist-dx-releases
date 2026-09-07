@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.0.88">
+<meta name="app-version" content="1.0.89">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -6861,7 +6861,7 @@ const CFG_DEFAULTS = {
   clockInTo:     1410,        // 出勤時刻の選択肢・終了（分）例:1410=23:30
   clockInStep:   30,          // 出勤時刻の刻み（分）
   clockOutFrom:  1320,        // 退勤時刻の選択肢・開始（分）例:1320=22:00
-  clockOutTo:    1680,        // 退勤時刻の選択肢・終了（分）例:1680=28:00=翌4:00
+  clockOutTo:    1800,        // 退勤時刻の選択肢・終了（分）例:1800=30:00=翌6:00
   clockOutStep:  30,          // 退勤時刻の刻み（分）
   extOptions:   [20, 40, 60],// 延長の選択肢（分）
   sources:      ['フロント','不明','新規','TikTok','紹介','案内所'],
@@ -6985,6 +6985,13 @@ let cfg = { ...CFG_DEFAULTS };
 let _cfgNeedsShimeiExtMigration = false;
 let _cfgNeedsDrinkItemsMigration = false;
 
+function mergeCfgDefaults(saved) {
+  const merged = { ...CFG_DEFAULTS, ...(saved || {}) };
+  // 旧既定値の28:00だけを30:00へ引き上げ、既存端末にも新しい選択肢を反映する。
+  if (Number(merged.clockOutTo) === 1680) merged.clockOutTo = CFG_DEFAULTS.clockOutTo;
+  return merged;
+}
+
 function loadCfg() {
   const s = Persist.read('settings', {
     onError: () => setTimeout(() => { try { showToast('⚠ 設定の読込に失敗。デフォルト設定で起動しています'); } catch(_){} }, 100)
@@ -6992,7 +6999,7 @@ function loadCfg() {
   if (s) {
     _cfgNeedsShimeiExtMigration = !Object.prototype.hasOwnProperty.call(s, 'shimeiExtItems');
     _cfgNeedsDrinkItemsMigration = !Object.prototype.hasOwnProperty.call(s, 'drinkItems');
-    cfg = { ...CFG_DEFAULTS, ...s };
+    cfg = mergeCfgDefaults(s);
   } else {
     _cfgNeedsShimeiExtMigration = false;
     _cfgNeedsDrinkItemsMigration = false;
@@ -7268,6 +7275,16 @@ function minToStr(m) {
 function minToHHMM(m) {
   if (!m && m !== 0) return '';
   return String(Math.floor(m / 60) % 24).padStart(2,'0') + ':' + String(m % 60).padStart(2,'0');
+}
+/* 退勤時刻の表示専用: 翌日午前を営業日の24時超表記へ揃える（01:00 → 25:00）。 */
+function formatCheckoutTime(hhmm) {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(String(hhmm || ''));
+  if (!match) return hhmm || '';
+  const minute = Number(match[2]);
+  if (minute > 59) return hhmm || '';
+  let hour = Number(match[1]);
+  if (hour < 12) hour += 24;
+  return String(hour).padStart(2, '0') + ':' + match[2];
 }
 /* "HH:MM" → 営業日内の通算分（深夜跨ぎ補正：6時より前なら翌日扱い）。空なら Infinity */
 function clockInToMin(t) {
@@ -10544,12 +10561,16 @@ function getClockOutOptions(selected) {
   const from = cfg.clockOutFrom ?? (cfg.timeStartH * 60 + 120);
   const to   = cfg.clockOutTo   ?? (cfg.timeEndH   * 60);
   const regular = [];
-  for (let m = from; m <= to; m += step) regular.push(minToHHMM(m));
-  const isCustom = selected && selected !== '__manual__' && !regular.includes(selected);
+  for (let m = from; m <= to; m += step) {
+    regular.push({ value:minToHHMM(m), label:minToStr(m) });
+  }
+  const selectedLabel = formatCheckoutTime(selected);
+  const selectedRegular = regular.find(option => option.label === selectedLabel);
+  const isCustom = selected && selected !== '__manual__' && !selectedRegular;
   let html = `<option value="">—</option>`;
-  if (isCustom) html += `<option value="${escAttr(selected)}" selected>${escHtml(selected)}</option>`;
-  regular.forEach(val => {
-    html += `<option value="${val}"${val === selected ? ' selected' : ''}>${val}</option>`;
+  if (isCustom) html += `<option value="${escAttr(selected)}" selected>${escHtml(selectedLabel)}</option>`;
+  regular.forEach(option => {
+    html += `<option value="${option.value}"${option === selectedRegular ? ' selected' : ''}>${option.label}</option>`;
   });
   html += `<option value="__manual__">✎ 手動入力...</option>`;
   return html;
@@ -11282,7 +11303,7 @@ function posBetaCategories(settings) {
     ...shimeiExtGroup('enshi', settings).map(item => [item.key, item.label]),
     ...shimeiExtGroup('honen', settings).map(item => [item.key, item.label]),
     ...drinkItemList(settings).map(item => [item.key, 'ドリンク' + item.label]),
-    ['shot',shotLabel(settings)], ['bottle','ボトル'], ['food','フード'], ['bring','持込'], ['discount','割引']
+    ['shot',shotLabel(settings)], ['bottle','ボトル'], ['food','フード'], ['bring','持込'], ['discount','割引'], ['special','特殊']
   ];
 }
 
@@ -11403,14 +11424,25 @@ function _posUnsettledTotal() { return posFirstRows().reduce((sum, row) => sum +
 /* 席料(課税)＋オーダー(課税/税込)を合算して総額を算出する単一窓口。
    taxIncluded フラグの付いたオーダーは税サを上乗せせず、そのまま総額に加える。
    extraTaxable は延長試算などで一時的に加える課税対象額。 */
-function _posComputeTotals(seatSubtotal, orders, extraTaxable) {
+function posSpecialMode(item) {
+  const mode = String(item?.specialMode || '');
+  return mode === 'subtotalRate' || mode === 'totalRate' ? mode : 'fixed';
+}
+function posSpecialValue(item) {
+  const raw = item && Object.prototype.hasOwnProperty.call(item, 'specialValue')
+    ? item.specialValue : item?.amount;
+  const value = Number(raw);
+  return Number.isFinite(value) ? Math.max(0, value) : 0;
+}
+/* 特殊項目を除いた既存会計。割合の基準を全特殊項目で共有し、順序依存・複利を防ぐ。 */
+function _posBaseTotals(seatSubtotal, orders, extraTaxable) {
   const taxRound     = cfg.taxRound     || 100;
-  const cardFeeRound = cfg.cardFeeRound || 100;
   let taxable = (seatSubtotal || 0) + (extraTaxable || 0);
   let incl = 0;
   let postTax = 0;   // 割引・割増（discountカテゴリ）は税サ計算後に適用＝税サは割引・割増前の課税額にかかる
   const _discAfterTax = cfg.discountAfterTax !== false;   // 既定: 割引・割増は税サ後（設定でOFFにすると課税対象に含める）
   (orders || []).forEach(o => {
+    if (o?.category === 'special') return;
     const amt = (Number(o.amount) || 0) * (Number(o.qty) || 1);
     if (o.taxIncluded) incl += amt;
     else if ((o.category === 'discount' || amt < 0) && _discAfterTax) postTax += amt;   // 割引は税サの対象に含めず、最後に差し引く
@@ -11418,8 +11450,31 @@ function _posComputeTotals(seatSubtotal, orders, extraTaxable) {
   });
   const subtotal = taxable + incl + postTax;
   const cash = ceilAddRate(taxable, cfg.taxRate || 0, taxRound) + incl + postTax;
+  return { subtotal, cash };
+}
+function posOrderUnitAmount(order, baseTotals) {
+  if (order?.category !== 'special') return Number(order?.amount) || 0;
+  const value = posSpecialValue(order);
+  const mode = posSpecialMode(order);
+  if (mode === 'subtotalRate') return Math.floor((Number(baseTotals?.subtotal) || 0) * value / 100);
+  if (mode === 'totalRate') return Math.floor((Number(baseTotals?.cash) || 0) * value / 100);
+  return value;
+}
+function posOrderLineAmount(order, baseTotals) {
+  return posOrderUnitAmount(order, baseTotals) * (Number(order?.qty) || 1);
+}
+function posOrderPricing(row, extraTaxable) {
+  return _posBaseTotals(calcBill(row).subtotal, posOrders(row), extraTaxable || 0);
+}
+function _posComputeTotals(seatSubtotal, orders, extraTaxable) {
+  const cardFeeRound = cfg.cardFeeRound || 100;
+  const baseTotals = _posBaseTotals(seatSubtotal, orders, extraTaxable);
+  const special = (orders || []).reduce((sum, order) => order?.category === 'special'
+    ? sum + posOrderLineAmount(order, baseTotals) : sum, 0);
+  const subtotal = baseTotals.subtotal + special;
+  const cash = baseTotals.cash + special;
   const card = ceilAddRate(cash, cfg.cardFeeRate || 0, cardFeeRound);
-  return { subtotal, cash, card };
+  return { subtotal, cash, card, special, baseSubtotal:baseTotals.subtotal, baseCash:baseTotals.cash };
 }
 /* 多人数卓：先頭行以外のグループ各行に入った延長の「基本料(extPrice)」を合算して返す。
    延長基本料は席数ぶん課金するため各人行に1個ずつ入る。延長指名料は延長ラウンド単位で
@@ -12191,6 +12246,7 @@ function _posSlipCard(r, isSelected, totalCount, mode, padRows) {
   // 延長基本料は calcBill(r).subtotal に全席ぶん込み（calcBill が _posExtBaseTotal を呼ぶ）ので extraTaxable は 0。
   const seatBill = calcBill(r);
   const b = _posComputeTotals(seatBill.subtotal, orders, 0);
+  const orderPricing = { subtotal:b.baseSubtotal, cash:b.baseCash };
   const people = r.gcount || 1;
   const table = r.tableNum ? posTableLabel(r.tableNum) : '-';
   const source = r.source || '';
@@ -12211,7 +12267,7 @@ function _posSlipCard(r, isSelected, totalCount, mode, padRows) {
     return '<div class="pos-slip-line">'
       + '<span>' + label + '</span>'
       + '<span style="text-align:center">' + q + '</span>'
-      + '<span>' + posMoney((Number(o.amount) || 0) * q) + '</span>'
+      + '<span>' + posMoney(posOrderLineAmount(o, orderPricing)) + '</span>'
       + deleteCell
       + '</div>';
   };
@@ -12326,6 +12382,7 @@ function _posOrderSlipPanel(r) {
   const orders = posOrders(r);
   const seatBill = calcBill(r);
   const totals = _posComputeTotals(seatBill.subtotal, orders, 0);
+  const orderPricing = { subtotal:totals.baseSubtotal, cash:totals.baseCash };
   const tax = totals.cash - totals.subtotal;
   const table = r.tableNum ? posTableLabel(r.tableNum) : '-';
   const tableDisplay = posTableDisplay(table);
@@ -12348,7 +12405,7 @@ function _posOrderSlipPanel(r) {
     return '<div class="pos-order-slip-line">'
       + '<span class="pos-order-slip-qty">' + q + '</span>'
       + '<span class="pos-order-slip-name">' + escHtml(o.name) + setTime + taxMark + '</span>'
-      + '<span class="pos-order-slip-amt">¥' + posMoney((Number(o.amount) || 0) * q) + '</span>'
+      + '<span class="pos-order-slip-amt">¥' + posMoney(posOrderLineAmount(o, orderPricing)) + '</span>'
       + '<button type="button" class="pos-slip-line-delete" title="この明細を削除" aria-label="この明細を削除"'
       + ' onclick="event.stopPropagation();posDeleteSlipOrder(&quot;' + escAttr(String(r.gid)) + '&quot;,&quot;' + escAttr(String(o.id)) + '&quot;)">×</button>'
       + '</div>';
@@ -13285,10 +13342,15 @@ function posProductHTML(item) {
   const designation = separator >= 0
     ? _posHighlightedDesignation(posSelectedRow(), productName.slice(separator + 1))
     : null;
+  const priceLabel = item.category === 'special'
+    ? (posSpecialMode(item) === 'subtotalRate' ? '小計の' + posSpecialValue(item) + '%'
+      : posSpecialMode(item) === 'totalRate' ? '総計の' + posSpecialValue(item) + '%'
+      : posMoney(posSpecialValue(item)))
+    : (Number(item.amount) ? posMoney(item.amount) : '0');
   return '<button class="pos-product' + (designation ? ' is-designated' : '') + '" onclick="' + onclick + '">'
     + '<span class="pos-product-name">' + escHtml(item.name) + '</span>'
     + (designation ? '<span class="pos-product-designation">' + escHtml(designation.role) + '</span>' : '')
-    + (Number(item.amount) ? '<span class="pos-product-price">' + posMoney(item.amount) + '</span>' : '<span class="pos-product-price">0</span>')
+    + '<span class="pos-product-price">' + priceLabel + '</span>'
     + '</button>';
 }
 
@@ -13337,11 +13399,12 @@ function posCategoryItems(category, row) {
     food: [{ name:'フード100', amount:100, category }, { name:'フード1000', amount:1000, category }],
     bring: [{ name:'持込100', amount:100, category }, { name:'持込500', amount:500, category }, { name:'持込1000', amount:1000, category }],
     discount: [{ name:'割引100', amount:-100, category }, { name:'割引1000', amount:-1000, category }, { name:'割増100', amount:100, category }, { name:'割増1000', amount:1000, category }, { name:'領収書', amount:0, category }],
+    special: [],
     cust_1: [{ name:'テーブルチャージ', amount:1000, category }, { name:'カラオケ1曲', amount:200, category }]
   };
   // カスタムメニューが設定されていればそちらを優先（静的5カテゴリ＋店舗独自カテゴリ）
   // 空配列も「現場が意図的に空にした」状態として尊重する（=フォールバックしない）。
-  const customizable = ['shot','bottle','food','bring','discount'].includes(category) || String(category).startsWith('cust_');
+  const customizable = ['shot','bottle','food','bring','discount','special'].includes(category) || String(category).startsWith('cust_');
   if (customizable && cfg.posMenu && Array.isArray(cfg.posMenu[category])) {
     return cfg.posMenu[category].map(item => ({ ...item, category }));
   }
@@ -13387,6 +13450,30 @@ let _posMenuStep = 100;
 function posMenuSetStep(step) {
   _posMenuStep = step;
   document.querySelectorAll('.pos-me-price-input').forEach(el => el.step = step);
+  document.querySelectorAll('.pos-me-special-mode').forEach(select => {
+    if (select.value !== 'fixed') return;
+    const input = select.closest('tr')?.querySelector('.pos-me-special-value-input');
+    if (input) input.step = step;
+  });
+}
+
+function _posSpecialModeOptions(mode) {
+  return [
+    ['fixed', '固定金額'], ['subtotalRate', '小計の%'], ['totalRate', '総計の%'],
+  ].map(([value, label]) => '<option value="' + value + '"' + (mode === value ? ' selected' : '') + '>' + label + '</option>').join('');
+}
+function posMenuSyncSpecialRow(select) {
+  const row = select?.closest('tr');
+  if (!row) return;
+  const fixed = select.value === 'fixed';
+  const input = row.querySelector('.pos-me-special-value-input');
+  const unit = row.querySelector('.pos-me-special-unit');
+  if (input) {
+    input.step = fixed ? _posMenuStep : '0.1';
+    input.placeholder = fixed ? '金額' : '割合';
+  }
+  if (unit) unit.textContent = fixed ? '円' : '%';
+  if (typeof _settingsMarkDirty === 'function') _settingsMarkDirty();
 }
 
 function syncExtFeeRows() {
@@ -13453,9 +13540,20 @@ function extOptDelRow(btn) {
 function posMenuAddItem(key) {
   const tbody = document.querySelector(`#cfg-posMenu-${key}-tbl tbody`);
   if (!tbody) return;
-  const splitBack = posMenuUsesSplitBack(key);
   const tr = document.createElement('tr');
   tr.draggable = true;
+  if (key === 'special') {
+    tr.innerHTML = `<td class="pos-me-drag" title="ドラッグして並び替え">⠿</td>
+      <td><input type="text" class="pos-me-name-input" value="" placeholder="メニュー名"></td>
+      <td><select class="settings-input pos-me-special-mode" onchange="posMenuSyncSpecialRow(this)">${_posSpecialModeOptions('fixed')}</select></td>
+      <td><div style="display:flex;align-items:center;gap:5px"><input type="number" class="pos-me-special-value-input" value="" min="0" step="${_posMenuStep}" placeholder="金額"><span class="pos-me-special-unit">円</span></div></td>
+      <td><button type="button" class="pos-me-del" onclick="posMenuDelItem(this)">削除</button></td>`;
+    tbody.appendChild(tr);
+    tr.querySelector('.pos-me-name-input').focus();
+    if (typeof _settingsMarkDirty === 'function') _settingsMarkDirty();
+    return;
+  }
+  const splitBack = posMenuUsesSplitBack(key);
   tr.innerHTML = `<td class="pos-me-drag" title="ドラッグして並び替え">⠿</td>
     <td><input type="text" class="pos-me-name-input" value="" placeholder="メニュー名"></td>
     <td><input type="number" class="pos-me-price-input" value="" step="${_posMenuStep}" placeholder="金額"></td>
@@ -13477,7 +13575,7 @@ function posMenuDelItem(btn) {
    保存（applySettings）した時点で cfg.posMenu に空配列として書かれ、
    デフォルト（澪/モエ等）にフォールバックしなくなる。 */
 async function posMenuClearAllDefaults() {
-  if (!(await appConfirm('ショット／ボトル／フード／持込／割引・割増／カスタムカテゴリ のメニューを全て削除します。\n\n（設定タブを離れるときに保存の確認が出ます）\n\n本当に削除しますか？', { danger: true }))) return;
+  if (!(await appConfirm('ショット／ボトル／フード／持込／割引・割増／特殊／カスタムカテゴリ のメニューを全て削除します。\n\n（設定タブを離れるときに保存の確認が出ます）\n\n本当に削除しますか？', { danger: true }))) return;
   document.querySelectorAll('table[id^="cfg-posMenu-"] tbody').forEach(tbody => { tbody.innerHTML = ''; });
   if (typeof _settingsMarkDirty === 'function') _settingsMarkDirty();
   if (typeof showToast === 'function') showToast('全カテゴリのメニューを削除しました。保存してください。');
@@ -13538,6 +13636,32 @@ function _posCatRowHTML(cat) {
 }
 
 function _posMenuEditorHTML(key, label, items, open = false) {
+  if (key === 'special') {
+    const rows = (items || []).map(item => {
+      const mode = posSpecialMode(item);
+      const value = posSpecialValue(item);
+      const fixed = mode === 'fixed';
+      return `<tr draggable="true">
+        <td class="pos-me-drag" title="ドラッグして並び替え">⠿</td>
+        <td><input type="text" class="pos-me-name-input" value="${escAttr(item.name)}" placeholder="メニュー名"></td>
+        <td><select class="settings-input pos-me-special-mode" onchange="posMenuSyncSpecialRow(this)">${_posSpecialModeOptions(mode)}</select></td>
+        <td><div style="display:flex;align-items:center;gap:5px"><input type="number" class="pos-me-special-value-input" value="${value}" min="0" step="${fixed ? _posMenuStep : 0.1}" placeholder="${fixed ? '金額' : '割合'}"><span class="pos-me-special-unit">${fixed ? '円' : '%'}</span></div></td>
+        <td><button type="button" class="pos-me-del" onclick="posMenuDelItem(this)">削除</button></td>
+      </tr>`;
+    }).join('');
+    const openAttr = open ? ' open' : '';
+    return `<div class="settings-row pos-menu-editor" data-key="${escAttr(key)}" style="align-items:flex-start;flex-direction:column;gap:6px;margin-bottom:8px">
+      <details class="pos-me-acc"${openAttr}>
+        <summary><span class="settings-label pos-menu-editor-label" style="font-weight:700">${escHtml(label)}</span></summary>
+        <table class="pos-me-table" id="cfg-posMenu-${escAttr(key)}-tbl">
+          <colgroup><col style="width:28px"><col><col style="width:132px"><col style="width:150px"><col style="width:44px"></colgroup>
+          <thead><tr><th></th><th>メニュー名</th><th>計算方法</th><th>値</th><th></th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+        <button type="button" class="pos-me-add-btn" onclick="posMenuAddItem('${key}')">＋ 追加</button>
+      </details>
+    </div>`;
+  }
   const splitBack = posMenuUsesSplitBack(key);
   const columns = splitBack
     ? '<colgroup><col style="width:28px"><col><col style="width:96px"><col style="width:88px"><col style="width:88px"><col style="width:64px"><col style="width:44px"></colgroup>'
@@ -14085,6 +14209,7 @@ function typeLabelFor(type) {
 /* 会計明細（伝票ビューと同一の行構成: _posSeatLineItems + posOrders。退席行は含めない） */
 function _monitorBillFor(row) {
   const lines = [];
+  const orderPricing = posOrderPricing(row, 0);
   _posSeatLineItems(row).forEach(item => {
     const qty = item.qty || 1;
     lines.push({ label: item.label, unit: Number(item.amount) || 0, qty,
@@ -14092,9 +14217,10 @@ function _monitorBillFor(row) {
   });
   posOrders(row).forEach(o => {
     const qty = o.qty || 1;
+    const unit = posOrderUnitAmount(o, orderPricing);
     // 税サ込み入力のオーダーは伝票ビューと同じく「(込)」を付ける（29-pos-panel.js:928と同一表記）
-    lines.push({ label: o.name + (o.taxIncluded ? '(込)' : ''), unit: Number(o.amount) || 0, qty,
-      sum: (Number(o.amount) || 0) * qty });
+    lines.push({ label: o.name + (o.taxIncluded ? '(込)' : ''), unit, qty,
+      sum: unit * qty });
   });
   return { lines, subtotal: lines.reduce((sum, line) => sum + line.sum, 0) };
 }
@@ -14479,9 +14605,10 @@ function buildOwnerDayDataset(inputRows, dayKey, ctx = {}) {
   const orderRows = [];
   rows.forEach(rowValue => {
     const row = rowValue || {};
+    const orderPricing = posOrderPricing(row, 0);
     (Array.isArray(row.posOrders) ? row.posOrders : []).forEach(orderValue => {
       const order = orderValue || {};
-      const unit = Number(order.amount) || 0;
+      const unit = posOrderUnitAmount(order, orderPricing);
       const qty = Number(order.qty) || 1;
       orderRows.push({
         day: dayLabel,
@@ -16069,7 +16196,7 @@ function _payrollTableColumns(countCols, deductionItems, showPoints) {
   const deductionOptionLabel = deductionItems.map(item => item.label || '').concat(['控除計', '差引支給']).join('・');
   const cols = [
     { id:'clockin', group:'work', label:'出勤', cell:(x, start) => _payrollTd(x.plain ? (x.r.inHHMM || '') : _payrollClockSelectHtml(x.r.inHHMM, roundClockIn, "payrollSetClockIn('" + x.cj + "', this.value)"), '', start), total:(x, start) => _payrollTd('', '', start) },
-    { id:'clockout', group:'work', label:'退勤', cell:(x, start) => _payrollTd(x.plain ? (x.r.outHHMM || '') : _payrollClockSelectHtml(x.r.outHHMM, roundClockOut, "payrollSetClockOut('" + x.cj + "', this.value)"), '', start), total:(x, start) => _payrollTd('', '', start) },
+    { id:'clockout', group:'work', label:'退勤', cell:(x, start) => _payrollTd(x.plain ? formatCheckoutTime(x.r.outHHMM) : _payrollClockSelectHtml(x.r.outHHMM, roundClockOut, "payrollSetClockOut('" + x.cj + "', this.value)", cfg.clockOutFrom, cfg.clockOutTo), '', start), total:(x, start) => _payrollTd('', '', start) },
     { id:'work', group:'work', label:'勤務', cell:(x, start) => _payrollTd(_payWorkLabel(x.r.workMinutes), '', start), total:(x, start) => _payrollTd('', '', start) },
     { id:'hourly', group:'work', label:'時間給', cell:(x, start) => _payrollTd(x.hasOut ? _payYen(x.r.hourlyPay) : '—', 'pay-amt' + (x.hasOut ? '' : ' pay-muted'), start), total:(x, start) => _payrollTd('', '', start) },
     ...countCols.map(([id, label]) => ({
@@ -16275,6 +16402,7 @@ function computeReportAgg(settled) {
     const tableSubtotal = (typeof _posCalcTotal === 'function')
       ? (Number(_posCalcTotal(r).subtotal) || 0)
       : (Number(calcBill(r).subtotal) || 0);
+    const orderPricing = posOrderPricing(r, 0);
     subtotalSum += tableSubtotal;
     const nominators = new Set();
     if (r.mainCast && SHIMEI_NOMINATE.indexOf(r.mainType) >= 0) nominators.add(r.mainCast);
@@ -16332,7 +16460,7 @@ function computeReportAgg(settled) {
 
     posOrders(r).forEach(o => {
       const qty = Number(o.qty)||1;
-      const lineAmt = (Number(o.amount)||0) * qty;
+      const lineAmt = posOrderLineAmount(o, orderPricing);
       byCategory[o.category] = (byCategory[o.category]||0) + lineAmt;
       if ((/^(enshi|honen)/.test(o.category || '') || isDrinkItemKey(o.category)) && !shimeiLabels[o.category]) {
         const stampedLabel = _aggLabelOf(o.name);
@@ -16844,10 +16972,10 @@ function _payrollSetClock(field, castName, value) {
 }
 /* 出退勤の30分刻みドロップダウン。営業時間帯(getTimeMin〜getTimeMax)を30分刻みで提示。
    現在値は丸め後(rounder)に正規化して選択＝表示と勤務計算を一致させる。値は連続表記HH:MM。 */
-function _payrollClockSelectHtml(curHHMM, rounder, onchangeCall) {
+function _payrollClockSelectHtml(curHHMM, rounder, onchangeCall, fromMin = getTimeMin(), toMin = getTimeMax()) {
   const cur = curHHMM ? rounder(curHHMM) : '';
   let opts = '<option value=""' + (cur ? '' : ' selected') + '>--:--</option>';
-  for (let t = getTimeMin(); t <= getTimeMax(); t += 30) {
+  for (let t = fromMin; t <= toMin; t += 30) {
     const s = minToStr(t);
     opts += '<option value="' + s + '"' + (s === cur ? ' selected' : '') + '>' + s + '</option>';
   }
@@ -16886,7 +17014,7 @@ function _payrollBreakdownHtml(r, src, countCols) {
   const spNote = (typeof cfg !== 'undefined' && cfg.payrollSpInBackTotal === false) ? '（参考・日給に含めず）' : '';
   const deductions = Array.isArray(r.deductions) ? r.deductions : [];
   const rows = [
-    `<tr><td class="k">勤務</td><td class="v">${escHtml(_payClock24(r.roundedIn) || '—')}→${escHtml(_payClock24(r.roundedOut) || '—')}（${workLabel}）　時間給 ${_payYen(r.hourlyPay)}${r.outHHMM ? '' : '<br>※退勤未入力のため時間給は未確定'}</td></tr>`,
+    `<tr><td class="k">勤務</td><td class="v">${escHtml(_payClock24(r.roundedIn) || '—')}→${escHtml(formatCheckoutTime(r.roundedOut) || '—')}（${workLabel}）　時間給 ${_payYen(r.hourlyPay)}${r.outHHMM ? '' : '<br>※退勤未入力のため時間給は未確定'}</td></tr>`,
     `<tr class="pay-bd-back"><td class="k">バック</td><td class="v">${backLines.length ? backLines.join('<br>') + '<br>' : ''}商品バック ${_payYen(r.prodBack)}　SP ${_payYen(r.sp)}${spNote}<br>バック合計 ${_payYen(r.backTotal)}</td></tr>`,
     Number(r.lateFee) ? `<tr><td class="k">遅刻罰金</td><td class="v">−${_payYen(r.lateFee)}（${Number(r.chikokuMin) || 0}分）</td></tr>` : '',
     `<tr class="pay-bd-daily"><td class="k">日給</td><td class="v"><span class="pay-bd-amount">${_payYen(r.dailyPay)}</span><div class="pay-bd-sub">＝ 時間給 ${_payYen(r.hourlyPay)} ＋ バック ${_payYen(r.backTotal)} − 遅刻 ${_payYen(r.lateFee)}</div></td></tr>`,
@@ -17190,7 +17318,7 @@ function exportPayrollCSV() {
   rows.forEach(r => {
     const hasOut = !!checkouts[r.castName];
     const baseRow = [
-      r.castName, r.roundedIn || '', r.roundedOut || '', r.workMinutes,
+      r.castName, r.roundedIn || '', formatCheckoutTime(r.roundedOut), r.workMinutes,
       hasOut ? r.hourlyPay : '',
       ...countCols.map(([key]) => r.backCounts[key] || 0),
       r.sp||0, r.backTotal||0, r.lateFee||0, r.nibarai||0,
@@ -18586,6 +18714,7 @@ function _posOeExtLines(row) {
 }
 function _posOeRowsHtml(orders, seatSet, row) {
   const extLines = row ? _posOeExtLines(row) : [];
+  const orderPricing = row ? posOrderPricing(row, 0) : { subtotal:0, cash:0 };
   let html = '';
   // 自動席料のSETを先頭に表示（編集ボタンのみ。数量±/削除は卓そのものなので付けない）
   if (seatSet) {
@@ -18631,7 +18760,7 @@ function _posOeRowsHtml(orders, seatSet, row) {
           title="ドラッグで並び替え" onpointerdown="_posOePointerDown(event,${i})">⠿</td>
       <td style="padding:10px 14px;font-weight:700;color:var(--tx)">${escHtml(o.name||'')}</td>
       <td style="padding:10px 14px;text-align:center;color:var(--tx2)">${o.qty||1}</td>
-      <td style="padding:10px 14px;text-align:right;font-family:var(--mono);color:var(--tx)">¥${((o.amount||0)*(o.qty||1)).toLocaleString()}</td>
+      <td style="padding:10px 14px;text-align:right;font-family:var(--mono);color:var(--tx)">¥${posOrderLineAmount(o, orderPricing).toLocaleString()}</td>
       <td style="padding:10px 14px;text-align:center;white-space:nowrap">
         ${o.category === 'set' ? `<button onclick="posOrderEditSet(${i})" style="margin-right:8px;height:28px;padding:0 10px;border:1px solid var(--bdr2);background:var(--sur3);color:var(--tx);border-radius:4px;cursor:pointer;font-weight:700">編集</button>` : ''}
         <button onclick="posOrderEditQty(${i},-1)" style="width:28px;height:28px;border:1px solid var(--bdr2);background:var(--sur3);color:var(--tx2);border-radius:4px;cursor:pointer;font-weight:700">−</button>
@@ -18952,7 +19081,7 @@ const _RECEIPT_BLOCK_DEFAULTS = {
   text: { text:'', size:10.5, align:'center', bold:false },
   image: { src:'', width:25, align:'center' },
   meta: { showNo:true, showDate:true },
-  items: { mode:'detail', minRows:14 },
+  items: { mode:'detail', minRows:14, showSetTime:true },
   totals: { showSubtotal:true, showTax:true, paymentRows:'both' },
   extTable: { showCard:true },
   divider: { style:'solid' },
@@ -18988,6 +19117,7 @@ function _receiptNormalizeBlock(block) {
     out.mode = ['detail', 'category', 'none'].includes(out.mode) ? out.mode : 'detail';
     const minRows = Number(out.minRows);
     out.minRows = Number.isFinite(minRows) ? Math.max(0, Math.trunc(minRows)) : 14;
+    out.showSetTime = out.showSetTime !== false;
   }
   if (type === 'totals') {
     out.showSubtotal = out.showSubtotal !== false;
@@ -19042,19 +19172,20 @@ function _receiptMetaHtml(row, block, inHead) {
   return '<div class="meta' + (inHead ? '' : ' r-blk-meta') + '">' + parts.join('<br>') + '</div>';
 }
 
-function _receiptDetailRows(row, minRows) {
+function _receiptDetailRows(row, minRows, showSetTime = true) {
   const orders = posOrders(row);
+  const orderPricing = posOrderPricing(row, 0);
   const itemRows = [];
   const setOrders   = orders.filter(o => o.category === 'set');
   // 客に渡る伝票なので、金額0円・繰延専用の空場内明細は出さない（延長行の合算後金額に含まれるため）
   const otherOrders = orders.filter(o => o.category !== 'set' && o.category !== 'jonai_empty');
   const orderTr = o => {
     let label = escHtml(o.name);
-    if (o.category === 'set' && typeof o.startMin === 'number' && typeof o.endMin === 'number')
+    if (showSetTime && o.category === 'set' && typeof o.startMin === 'number' && typeof o.endMin === 'number')
       label += ':' + minToHHMM(o.startMin) + '-' + minToHHMM(o.endMin);
     if (o.taxIncluded) label += '(込)';
     const q = Number(o.qty) || 1;
-    return '<tr><td>' + label + '</td><td class="q">' + q + '</td><td class="a">' + ((Number(o.amount) || 0) * q).toLocaleString() + '</td></tr>';
+    return '<tr><td>' + label + '</td><td class="q">' + q + '</td><td class="a">' + posOrderLineAmount(o, orderPricing).toLocaleString() + '</td></tr>';
   };
   // 表示順: ①SET（最上段）→ ②指名・延長など脳みそ側ライン → ③その他オーダー（ドリンク・延指）
   setOrders.forEach(o => itemRows.push(orderTr(o)));
@@ -19078,6 +19209,7 @@ function _receiptDetailRows(row, minRows) {
 }
 
 function _receiptCategoryRows(row) {
+  const orderPricing = posOrderPricing(row, 0);
   const groups = {
     set: { label:'セット', qty:0, amount:0 },
     designation: { label:'指名料', qty:0, amount:0 },
@@ -19094,10 +19226,11 @@ function _receiptCategoryRows(row) {
   posOrders(row).forEach(o => {
     const category = String(o.category || '');
     if (category === 'jonai_empty') return;
-    if (category === 'set') add('set', o.qty, o.amount);
-    else if (['nominate', 'dohan', 'jonai'].includes(category)) add('designation', o.qty, o.amount);
-    else if (/^(enshi|honen)/.test(category)) add('extDesignation', o.qty, o.amount);
-    else add('other', o.qty, o.amount);
+    const unitAmount = posOrderUnitAmount(o, orderPricing);
+    if (category === 'set') add('set', o.qty, unitAmount);
+    else if (['nominate', 'dohan', 'jonai'].includes(category)) add('designation', o.qty, unitAmount);
+    else if (/^(enshi|honen)/.test(category)) add('extDesignation', o.qty, unitAmount);
+    else add('other', o.qty, unitAmount);
   });
   _posSeatLineItems(row).forEach(item => {
     const label = String(item.label || '');
@@ -19118,7 +19251,7 @@ function _receiptCategoryRows(row) {
 function _receiptItemsHtml(row, block) {
   if (block.mode === 'none') return '';
   const lines = block.mode === 'category'
-    ? _receiptCategoryRows(row) : _receiptDetailRows(row, block.minRows);
+    ? _receiptCategoryRows(row) : _receiptDetailRows(row, block.minRows, block.showSetTime);
   return '<table class="items"><thead><tr><th style="text-align:left">品目</th><th class="q">数</th><th class="a">金額</th></tr></thead><tbody>' + lines + '</tbody></table>';
 }
 
@@ -19487,17 +19620,21 @@ async function posAddItem(name, amount, category, spShares) {
   let row = posSelectedRow();
   if (!row) { posCreateSlip(1); row = posSelectedRow(); }
   if (!row) return;
-  const amt = Number(amount) || 0;
+  const inputAmt = Number(amount) || 0;
   const orders = posOrders(row);
   const label = String(name).indexOf(':') >= 0 ? String(name).slice(0, String(name).indexOf(':')) : String(name);
   const item = ((cfg.posMenu && cfg.posMenu[category]) || []).find(v => v.name === label);
-  const backYen = (!spShares && item) ? posMenuBackYen(item.back, amt) : 0;
-  const backFreeYen = (!spShares && item && Object.prototype.hasOwnProperty.call(item, 'backFree'))
+  const isSpecial = category === 'special';
+  const specialMode = isSpecial ? posSpecialMode(item || { amount:inputAmt }) : undefined;
+  const specialValue = isSpecial ? posSpecialValue(item || { amount:inputAmt }) : undefined;
+  const amt = isSpecial && specialMode === 'fixed' ? specialValue : inputAmt;
+  const backYen = (!isSpecial && !spShares && item) ? posMenuBackYen(item.back, amt) : 0;
+  const backFreeYen = (!isSpecial && !spShares && item && Object.prototype.hasOwnProperty.call(item, 'backFree'))
     ? posMenuBackYen(item.backFree, amt)
     : undefined;
   const drinkItem = drinkItemByKey(category);
   const rawPoint = Number(drinkItem ? drinkItem.pt : item?.pt);
-  const pointValue = (cfg.pointsEnabled && !spShares && (drinkItem || item) && Number.isFinite(rawPoint)) ? ptHalfStep(rawPoint) : 0;
+  const pointValue = (!isSpecial && cfg.pointsEnabled && !spShares && (drinkItem || item) && Number.isFinite(rawPoint)) ? ptHalfStep(rawPoint) : 0;
   // 空場内（jonai_empty）：押下時点の cfg.jonaiFee をスナップショットして明細へ刻印する
   // （延長への繰延上乗せの源泉。既存流儀どおり、後で jonaiFee を変更しても過去分は不変）。
   const isEmptyJonai = category === 'jonai_empty';
@@ -19514,6 +19651,7 @@ async function posAddItem(name, amount, category, spShares) {
       Object.prototype.hasOwnProperty.call(o, 'backFree') === (backFreeYen !== undefined) &&
       (backFreeYen === undefined || (Number(o.backFree) || 0) === backFreeYen) &&
       (Number(o.pt) || 0) === pointValue && !o.taxIncluded &&
+      (!isSpecial || (posSpecialMode(o) === specialMode && posSpecialValue(o) === specialValue)) &&
       (Number(o.defer) || 0) === (Number(deferVal) || 0));
     if (existing) {
       existing.qty = (Number(existing.qty) || 1) + 1;
@@ -19529,6 +19667,7 @@ async function posAddItem(name, amount, category, spShares) {
       if (backYen > 0) order.back = backYen;
       if (backFreeYen !== undefined) order.backFree = backFreeYen;
       if (pointValue) order.pt = pointValue;
+      if (isSpecial) { order.specialMode = specialMode; order.specialValue = specialValue; }
       if (isEmptyJonai) order.defer = deferVal;
       orders.push(order);
     }
@@ -20855,7 +20994,7 @@ function _receiptBlockEditHTML(block, index, doc) {
   if (block.type === 'text') return `<label>文言<textarea rows="3" ${prop('text')}>${escHtml(block.text)}</textarea></label><div class="receipt-edit-grid"><label>文字サイズ <select ${prop('size','Number(this.value)')}>${_receiptSelectOptions([9,10.5,12,14,18], block.size)}</select></label><label>配置 <select ${prop('align')}>${_receiptSelectOptions(['left','center','right'], block.align, {left:'左',center:'中央',right:'右'})}</select></label><label><input type="checkbox" ${block.bold ? 'checked' : ''} ${prop('bold','this.checked')}> 太字</label></div>`;
   if (block.type === 'image') return `<label>画像 <input type="file" accept="image/png,image/jpeg" onchange="${imageFn}(${index},this)"></label>${block.src ? `<img class="receipt-edit-image" src="${escAttr(block.src)}" alt="登録画像">` : ''}<div class="receipt-edit-grid"><label>幅 <input type="number" min="1" max="68" step="1" value="${block.width}" ${prop('width','Number(this.value)')}> mm</label><label>配置 <select ${prop('align')}>${_receiptSelectOptions(['left','center','right'], block.align, {left:'左',center:'中央',right:'右'})}</select></label></div><div class="receipt-editor-note">PNG/JPEG、目安200KB以下。</div>`;
   if (block.type === 'meta') return `<label><input type="checkbox" ${block.showNo ? 'checked' : ''} ${prop('showNo','this.checked')}> 伝票番号</label><label><input type="checkbox" ${block.showDate ? 'checked' : ''} ${prop('showDate','this.checked')}> 営業日</label>`;
-  if (block.type === 'items') return `<div class="receipt-edit-grid"><label>表示 <select ${prop('mode')}>${_receiptSelectOptions(['detail','category','none'], block.mode, {detail:'明細',category:'分類集約',none:'非表示'})}</select></label><label>明細の最低行数 <input type="number" min="0" max="50" step="1" value="${block.minRows}" ${prop('minRows','Number(this.value)')}></label></div>`;
+  if (block.type === 'items') return `<div class="receipt-edit-grid"><label>表示 <select ${prop('mode')}>${_receiptSelectOptions(['detail','category','none'], block.mode, {detail:'明細',category:'分類集約',none:'非表示'})}</select></label><label>明細の最低行数 <input type="number" min="0" max="50" step="1" value="${block.minRows}" ${prop('minRows','Number(this.value)')}></label></div><label><input type="checkbox" ${block.showSetTime ? 'checked' : ''} ${prop('showSetTime','this.checked')}> セット時間帯を表示</label>`;
   if (block.type === 'totals') return `<label><input type="checkbox" ${block.showSubtotal ? 'checked' : ''} ${prop('showSubtotal','this.checked')}> 合計を表示</label><label><input type="checkbox" ${block.showTax ? 'checked' : ''} ${prop('showTax','this.checked')}> 税サを表示</label><label>支払欄 <select ${prop('paymentRows')}>${_receiptSelectOptions(['both','auto'], block.paymentRows, {both:'現金・カード',auto:'支払方法に連動'})}</select></label>`;
   if (block.type === 'extTable') return `<label><input type="checkbox" ${block.showCard ? 'checked' : ''} ${prop('showCard','this.checked')}> カード金額を表示</label>`;
   if (block.type === 'divider') {
@@ -21539,8 +21678,8 @@ function renderSettingsPanel() {
         </div>
         <div class="settings-row">
           <div class="settings-label">退勤時刻・受付終了<div class="settings-sub">セレクトの一番下の時刻</div></div>
-          <input type="number" class="settings-input" id="cfg-clockOutToH" value="${Math.floor((cfg.clockOutTo??1680)/60)}" min="16" max="29" style="width:52px"> 時
-          <input type="number" class="settings-input" id="cfg-clockOutToM" value="${(cfg.clockOutTo??1680)%60}" min="0" max="59" step="30" style="width:52px"> 分
+          <input type="number" class="settings-input" id="cfg-clockOutToH" value="${Math.floor((cfg.clockOutTo??1800)/60)}" min="16" max="30" style="width:52px"> 時
+          <input type="number" class="settings-input" id="cfg-clockOutToM" value="${(cfg.clockOutTo??1800)%60}" min="0" max="59" step="30" style="width:52px"> 分
         </div>
         <div class="settings-row">
           <div class="settings-label">退勤時刻の刻み<div class="settings-sub">セレクトボックスの間隔（分）</div></div>
@@ -21571,7 +21710,8 @@ function renderSettingsPanel() {
           <div class="settings-sub" style="margin-bottom:12px;line-height:1.7">
             各カテゴリのメニューを自由に編集できます。行を追加・削除して保存してください。<br>
             金額はすべて小計で入力してください。<br>
-            割引は金額をマイナスで入力してください（例：−1000）。
+            割引は金額をマイナスで入力してください（例：−1000）。<br>
+            特殊は固定金額、税サ前の小計率、税サ後・カード手数料前の総計率から選べます。
           </div>
           <div class="settings-row" style="padding-bottom:10px;margin-bottom:12px">
             <div class="settings-label">金額の入力単位</div>
@@ -21594,6 +21734,7 @@ function renderSettingsPanel() {
               ['food',    'フード'],
               ['bring',   '持込'],
               ['discount','割引・割増'],
+              ['special', '特殊'],
               ...resolvePosCatLayout(cfg).filter(cat => cat.key.startsWith('cust_')).map(cat => [cat.key, cat.label]),
             ].map(([key, label]) => _posMenuEditorHTML(key, label, posCategoryItems(key, null))
               + (key === 'shot' ? '<div class="settings-sub" style="margin:-8px 0 12px 8px">バック（円/%）を入れた銘柄は商品バックになり、指D/D（計数グループ）の対象外になります</div>' : '')).join('')}
@@ -22601,7 +22742,7 @@ async function applySettings() {
   const clockInStep   = parseInt(get('cfg-clockInStep')?.value)   || cfg.clockInStep  || 30;
   const clockOutFromH = _int('cfg-clockOutFromH', 22);
   const clockOutFromM = parseInt(get('cfg-clockOutFromM')?.value) || 0;
-  const clockOutToH   = _int('cfg-clockOutToH', 28);
+  const clockOutToH   = _int('cfg-clockOutToH', 30);
   const clockOutToM   = parseInt(get('cfg-clockOutToM')?.value)   || 0;
   const clockOutFrom  = clockOutFromH * 60 + clockOutFromM;
   const clockOutTo    = clockOutToH   * 60 + clockOutToM;
@@ -22728,11 +22869,19 @@ async function applySettings() {
   const posMenu = { ...(cfg.posMenu || {}) };
   const customKeys = new Set(posCustomCats.map(cat => cat.key));
   Object.keys(posMenu).forEach(key => { if (key.startsWith('cust_') && !customKeys.has(key)) delete posMenu[key]; });
-  for (const key of ['shot','bottle','food','bring','discount', ...customKeys]) {
+  for (const key of ['shot','bottle','food','bring','discount','special', ...customKeys]) {
     const tbody = document.querySelector(`#cfg-posMenu-${key}-tbl tbody`);
     if (!tbody) continue;
     const items = Array.from(tbody.querySelectorAll('tr')).map(tr => {
       const name   = tr.querySelector('.pos-me-name-input')?.value.trim();
+      if (key === 'special') {
+        const modeValue = tr.querySelector('.pos-me-special-mode')?.value;
+        const specialMode = ['subtotalRate','totalRate'].includes(modeValue) ? modeValue : 'fixed';
+        const rawValue = Number(tr.querySelector('.pos-me-special-value-input')?.value);
+        if (!name || !Number.isFinite(rawValue) || rawValue < 0) return null;
+        const specialValue = specialMode === 'fixed' ? Math.floor(rawValue) : rawValue;
+        return { name, amount:specialMode === 'fixed' ? specialValue : 0, specialMode, specialValue };
+      }
       const amount = parseInt(tr.querySelector('.pos-me-price-input')?.value);
       const backRaw = tr.querySelector('.pos-me-back-input')?.value.trim();
       const back = (backRaw && /^(\d+|\d+(\.\d+)?%)$/.test(backRaw)) ? backRaw : null;
@@ -24898,7 +25047,7 @@ function onImportFileSelected(input) {
         saveState();
         if (legacyBackups)  saveBackups(legacyBackups);
         if (legacyCust)     saveCustomers(legacyCust);
-        if (legacySettings) { cfg = { ...CFG_DEFAULTS, ...legacySettings }; saveCfg(); }
+        if (legacySettings) { cfg = mergeCfgDefaults(legacySettings); saveCfg(); }
       }
 
       undoStack = [];
@@ -25006,7 +25155,7 @@ function ttCheckout(castName) {
   renderCastPanel();   // 上の出勤キャストボタン列を更新
   renderTable();       // リスト表のドロップダウンを更新
   updateStoreStatusBadge();
-  showToast(`${castName} が退勤しました（${nowTime}）`);
+  showToast(`${castName} が退勤しました（${formatCheckoutTime(nowTime)}）`);
 }
 
 function ttUndoCheckout(castName) {
@@ -25028,7 +25177,7 @@ function ttUndoCheckout(castName) {
 function ttCheckoutSelChange(castName, sel) {
   if (sel.value === '__manual__') {
     const td = sel.closest('td') || sel.parentElement;
-    td.innerHTML = `<input type="text" class="tt-time-input" placeholder="例: 23:47"
+    td.innerHTML = `<input type="text" class="tt-time-input" placeholder="例: 25:00"
       style="width:70px;text-align:center;font-family:var(--mono)"
       onblur="if(this.value.trim()){ttEditCheckout('${escAttr(castName)}',this.value.trim());renderTimetable();}else{renderTimetable();}"
       onkeydown="if(event.key==='Enter'&&this.value.trim()){ttEditCheckout('${escAttr(castName)}',this.value.trim());renderTimetable();}">`;
@@ -25046,7 +25195,7 @@ function ttEditCheckout(castName, timeVal) {
   saveTimetableState(tt);
   renderTimetable();
   updateStoreStatusBadge();
-  showToast(`${castName} の退勤時刻を ${timeVal} に変更しました`);
+  showToast(`${castName} の退勤時刻を ${formatCheckoutTime(timeVal)} に変更しました`);
 }
 
 /* ================================================================
@@ -25114,7 +25263,7 @@ function printTimetable() {
     const clockIn  = clockIns[castName]
       ? clockIns[castName]
       : (plannedClockIns[castName] ? '予 ' + plannedClockIns[castName] : '');
-    const checkOut = checkouts[castName] || '';
+    const checkOut = formatCheckoutTime(checkouts[castName]);
     const isTouketsu = touketsuSet.has(castName);
     const status   = isCheckedOut ? '退勤済' : isTouketsu ? '当欠' : isDouban ? '同伴中' : isActive ? '出勤中' : '未出勤';
 
@@ -26924,7 +27073,7 @@ function _castDetailMonthlyTableHtml(data, printMode) {
 
   const rowHtml = row => '<tr>'
     + '<td class="cd-sticky">' + escHtml(_payslipMd(row.bizKey)) + '</td>'
-    + '<td>' + escHtml(row.roundedIn || '') + '</td><td>' + escHtml(row.roundedOut || '') + '</td><td>' + _payslipHm(row.workMinutes) + '</td>'
+    + '<td>' + escHtml(row.roundedIn || '') + '</td><td>' + escHtml(formatCheckoutTime(row.roundedOut)) + '</td><td>' + _payslipHm(row.workMinutes) + '</td>'
     + '<td>' + yen(row.wage) + '</td><td>' + yen(row.hourlyPay) + '</td>'
     + countKeys.map(key => '<td>' + cnt(row, key) + '</td>').join('')
     + '<td>' + yen(row.backTotal) + '</td><td>' + yen(row.sp) + '</td><td>' + yen(row.dailyPay) + '</td><td>' + yen(row.nibarai) + '</td>'
