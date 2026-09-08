@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.10">
+<meta name="app-version" content="1.1.11">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -16963,11 +16963,25 @@ function nominateSharesResetEven() {
   renderReportPanel();
 }
 
-function _reportLastSlipNo(rows) {
-  return liveMaxSlipNo((Array.isArray(rows) ? rows : []).filter(row => row && row.isFirst));
+function _reportSlipNoRange(rows) {
+  return (Array.isArray(rows) ? rows : []).reduce((range, row) => {
+    if (!row || row.isFirst !== true) return range;
+    const value = Number(row.slipNo);
+    if (!Number.isFinite(value) || value <= 0) return range;
+    if (!range.first || value < range.first) range.first = value;
+    if (value > range.last) range.last = value;
+    return range;
+  }, { first:0, last:0 });
 }
 
-function _aggKpiBarHtml(a, bizKey, lastSlipNo) {
+function _reportSlipNoRangeLabel(range) {
+  const first = Number(range && range.first) || 0;
+  const last = Number(range && range.last) || 0;
+  if (first <= 0) return '—';
+  return 'No.' + first + (last > 0 && last !== first ? '-' + last : '');
+}
+
+function _aggKpiBarHtml(a, bizKey, slipNoRange) {
   const catLabels = { vip: 'VIP席', ...Object.fromEntries(resolvePosCatLayout(cfg).map(cat => [cat.key, cat.label])) };
   const catLabel = key => catLabels[key] || (String(key).startsWith('cust_') ? 'その他(' + key + ')' : key);
   const catRows = Object.keys(a.byCategory).filter(k => a.byCategory[k]).sort((x,y) => a.byCategory[y] - a.byCategory[x])
@@ -16985,7 +16999,7 @@ function _aggKpiBarHtml(a, bizKey, lastSlipNo) {
       + '<div class="agg-side-card total"><div class="agg-side-label">総売上</div><div class="agg-side-big" style="color:var(--green)">¥' + a.total.toLocaleString() + '</div></div>'
       + '<div class="agg-side-card"><div class="agg-side-label">総客数</div><div class="agg-side-val">' + a.guests + '</div></div>'
       + '<div class="agg-side-card"><div class="agg-side-label">平均客単価</div><div class="agg-side-val">¥' + a.avg.toLocaleString() + '</div></div>'
-      + '<div class="agg-side-card"><div class="agg-side-label">最終伝票番号</div><div class="agg-side-val">' + (lastSlipNo > 0 ? 'No.' + lastSlipNo : '—') + '</div></div>'
+      + '<div class="agg-side-card"><div class="agg-side-label">伝票番号</div><div class="agg-side-val">' + _reportSlipNoRangeLabel(slipNoRange) + '</div></div>'
     + '</div>'
     + '<div class="agg-kpi-secs">'
     + '<div class="agg-side-sec"><h4>支払方法別</h4>'
@@ -17023,19 +17037,18 @@ function exportCastProdCSV() {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
   showToast('CSVを保存しました');
 }
-/* 画面の日計表と同じ全列をA4横で印刷（閲覧中の営業日#15対象）。 */
+/* 画面の日計表と同じ表示列をA4横で印刷（閲覧中の営業日#15対象）。 */
 function printReport() {
   const src = (typeof _reportDaySource === 'function') ? _reportDaySource() : { dayKey: getBizDayKey(), rows: state.rows, tt: {} };
   const settled = (src.rows || []).filter(r => r.isFirst && r.settled);
   const model = _payrollTableModel(src);
-  const fullModel = { ...model, visibleColumns:model.columns };
   // 印刷幅対策: 指名内訳・指名ドリンク・フリードリンク（本数列）の見出しだけ縦書きにして列幅を詰める（A4横に縮小なしで収める・2026-08-23実測）。
   // pay-column-row には社交名のthが無い（group-rowでrowspan）ため、1列目=最初の勤務列。
-  const _workN  = model.columns.filter(c => c.group === 'work').length;
-  const _countN = model.columns.filter(c => ['shimei','drinkShimei','drinkFree','drink'].includes(c.group)).length;
+  const _workN  = model.visibleColumns.filter(c => c.group === 'work').length;
+  const _countN = model.visibleColumns.filter(c => ['shimei','drinkShimei','drinkFree','drink'].includes(c.group)).length;
   const _vertFrom = _workN + 1, _vertTo = _workN + _countN;
   const tableHtml = model.rows.length
-    ? _payrollTableInnerHtml(src, fullModel, { plain:true })
+    ? _payrollTableInnerHtml(src, model, { plain:true })
     : '<div class="empty">出勤キャストがいません</div>';
   const agg  = (typeof computeReportAgg === 'function') ? computeReportAgg(settled) : { nameGroups: {} };
   const nameGroups = agg.nameGroups || {};
@@ -17518,7 +17531,7 @@ function _payrollColumnPickerHtml(columns) {
       + group.options.map(col => '<label class="payroll-cols-option"><input type="checkbox" data-col-id="' + encodeURIComponent(col.id) + '" onchange="setPayrollColumnVisible(decodeURIComponent(this.dataset.colId),this.checked)"' + (hidden.has(col.id) ? '' : ' checked') + '><span>' + escHtml(col.optionLabel || col.label) + '</span></label>').join('')
       + '</div>').join('')
     + '</div><div class="payroll-cols-foot"><button type="button" onclick="resetPayrollColumnVisibility()">すべて表示</button>'
-    + '<span class="payroll-cols-note">CSV・印刷にはすべての列が出ます</span></div></div>';
+    + '<span class="payroll-cols-note">CSVにはすべての列が出ます</span></div></div>';
 }
 function _setPayrollColumnPickerOpen(open) {
   const picker = document.getElementById('payroll-column-picker');
@@ -17649,7 +17662,7 @@ function _renderReportDay() {
   const closedToday = !!_reportClosedTodaySnap();
   const settled = (src.rows || []).filter(r => r.isFirst && r.settled);
   const agg = computeReportAgg(settled);
-  const lastSlipNo = _reportLastSlipNo(src.rows);
+  const slipNoRange = _reportSlipNoRange(src.rows);
   const isPast = src.dayKey !== getLoadedDayKey();
   const _payRows = (typeof computePayrollTable === 'function')
     ? computePayrollTable(settled, { dayKey: src.dayKey, tt: src.tt, activeCasts: src.activeCasts }) : [];
@@ -17679,7 +17692,7 @@ function _renderReportDay() {
   const cardSortOpts = [['salesDesc','売上が高い順'],['salesAsc','売上が低い順'],['nameAsc','名前順'],['no','番号順']]
     .map(([v,l]) => `<option value="${v}"${reportCardSort===v?' selected':''}>${l}</option>`).join('');
 
-  const dash = _aggKpiBarHtml(agg, src.dayKey, lastSlipNo)
+  const dash = _aggKpiBarHtml(agg, src.dayKey, slipNoRange)
     + `<div class="agg-box">
         <div class="agg-box-head">
           <h3>キャスト別指名売上 <span class="payroll-note">※本指名・同伴で付いた卓の税込総計（場内・延長指名は除外）。出戻り本指は設定「出戻り本指の集計扱い」に従う</span></h3>
@@ -18402,7 +18415,7 @@ function _dailyCloseSectionHtml(src, agg, payrollRows, isPast) {
       ${_dailyCloseListHtml('specialIn', '特別入金', record, month, readOnly, candidates.specialIn)}
     </div>
     <div class="dc-manual">
-      <label class="dc-field">実際現金（レジ内にある現金を入力してください）<input type="number" inputmode="numeric" min="0" step="100" value="${record.actualCash ?? ''}" placeholder="数えた現金" onchange="dailyCloseSetField('actualCash',this.value)"${disabled}></label>
+      <label class="dc-field">実際現金（営業終了後にレジ内の金額を入力してください）<input type="number" inputmode="numeric" min="0" step="100" value="${record.actualCash ?? ''}" placeholder="数えた現金" onchange="dailyCloseSetField('actualCash',this.value)"${disabled}></label>
       <label class="dc-field">領収書枚数<input type="number" inputmode="numeric" min="0" step="1" value="${record.receiptCount || ''}" placeholder="0" onchange="dailyCloseSetField('receiptCount',this.value)"${disabled}></label>
       <label class="dc-field">出金伝票枚数<input type="number" inputmode="numeric" min="0" step="1" value="${record.withdrawSlipCount || ''}" placeholder="0" onchange="dailyCloseSetField('withdrawSlipCount',this.value)"${disabled}></label>
     </div>
@@ -22091,11 +22104,7 @@ function renderSettingsPanel() {
           <div class="settings-label">カード手数料端数単位<div class="settings-sub">切り上げ単位</div></div>
           <input type="number" class="settings-input" id="cfg-cardFeeRound" value="${cfg.cardFeeRound ?? 100}" min="1" step="10"> 円
         </div>
-        <div class="settings-group-head">🏦 レジ・表示</div>
-        <div class="settings-row">
-          <div class="settings-label">レジ常備金<div class="settings-sub">日次締めで、レジに残しておく釣り銭・準備金の金額</div></div>
-          <input type="number" class="settings-input" id="cfg-tillFloat" value="${cfg.tillFloat ?? 60000}" min="0" step="1000"> 円
-        </div>
+        <div class="settings-group-head">🖥 表示</div>
         <div class="settings-row">
           <div class="settings-label">残り時間カウントダウン<div class="settings-sub">各グループの終了時刻まで表示。10分以下で赤点滅</div></div>
           <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
@@ -22342,6 +22351,10 @@ function renderSettingsPanel() {
     <div class="settings-section" data-setcat="slip">
       <div class="settings-section-header"><span class="settings-section-title">📒 日次締め項目</span></div>
       <div class="settings-section-body">
+        <div class="settings-row">
+          <div class="settings-label">レジ常備金<div class="settings-sub">日次締めで、レジに残しておく釣り銭・準備金の金額</div></div>
+          <input type="number" class="settings-input" id="cfg-tillFloat" value="${cfg.tillFloat ?? 60000}" min="0" step="1000"> 円
+        </div>
         <div class="settings-row">
           <div class="settings-label">特別出金の項目<div class="settings-sub">Enterで追加、✕で削除。日次締めの内容候補に出ます</div></div>
           ${tagEditor('hqOutLabels', cfg.hqOutLabels || [])}
