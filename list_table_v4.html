@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.11">
+<meta name="app-version" content="1.1.12">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -16202,8 +16202,16 @@ function _reportPeriodSwitchHtml() {
     + '.pay-bd-title{font-size:16px;font-weight:800;color:var(--tx)}.pay-bd-date{margin-top:2px;font-size:12px;color:var(--tx2)}'
     + '.pay-bd-close{display:flex;align-items:center;justify-content:center;flex:0 0 36px;width:36px;height:36px;padding:0;border:1px solid var(--bdr2);border-radius:8px;background:var(--sur);color:var(--tx);font-size:22px;cursor:pointer}'
     + '.pay-bd-body{padding:12px 16px;max-height:80vh;overflow-y:auto}'
-    + '.pay-bd-table{width:100%;border-collapse:collapse;font-size:14px}.pay-bd-table td{padding:9px 10px;border-bottom:1px solid var(--bdr)}.pay-bd-table tr:last-child td{border-bottom:none}.pay-bd-table td.k{color:var(--tx2);white-space:nowrap;width:6em}.pay-bd-table td.v{text-align:right;font-family:var(--mono)}'
-    + '.pay-bd-table tr.pay-bd-back td.v{line-height:1.7}.pay-bd-table .pay-bd-amount{font-weight:800}.pay-bd-table tr.pay-bd-daily .pay-bd-amount{font-size:17px;color:var(--gold)}.pay-bd-table tr.pay-bd-net .pay-bd-amount{font-size:18px;color:var(--green)}.pay-bd-sub{margin-top:4px;font-size:12px;line-height:1.5;color:var(--tx2);white-space:normal}'
+    + '.pay-bd-payroll{display:flex;flex-direction:column;width:min(760px,calc(100vw - 32px));max-height:calc(100vh - 32px);border-color:var(--bdr2);background:var(--sur)}'
+    + '.pay-bd-payroll .pay-bd-head{flex:0 0 auto;padding:15px 18px}.pay-bd-payroll .pay-bd-title{font-size:18px;letter-spacing:.02em}.pay-bd-payroll .pay-bd-date{font-size:13px}'
+    + '.pay-bd-head-actions{display:flex;align-items:center;gap:8px}.pay-bd-print{display:flex;align-items:center;justify-content:center;gap:7px;min-height:44px;padding:0 16px;border:1px solid #26977e;border-radius:8px;background:#167a65;color:#fff;font:inherit;font-size:14px;font-weight:800;cursor:pointer}.pay-bd-print:hover{filter:brightness(1.08)}.pay-bd-print:focus-visible,.pay-bd-payroll .pay-bd-close:focus-visible{outline:2px solid var(--gold);outline-offset:2px}.pay-bd-payroll .pay-bd-close{flex-basis:44px;width:44px;height:44px}'
+    + '.pay-bd-payroll .pay-bd-body{padding:16px 18px 18px;max-height:none;overflow-y:auto;overscroll-behavior:contain}'
+    + '.pay-bd-hero{display:grid;grid-template-columns:1fr auto;align-items:center;gap:4px 20px;padding:16px 18px;border:1px solid var(--bdr2);border-left:4px solid var(--green);border-radius:10px;background:var(--sur2)}.pay-bd-hero-label{font-size:13px;font-weight:800;color:var(--tx2);letter-spacing:.08em}.pay-bd-hero-amount{grid-row:1/3;grid-column:2;text-align:right;color:var(--green);font:900 30px var(--mono);font-variant-numeric:tabular-nums}.pay-bd-hero-sub{font-size:12px;color:var(--tx3);font-family:var(--mono);font-variant-numeric:tabular-nums}'
+    + '.pay-bd-grid{display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);gap:12px;margin-top:12px}.pay-bd-section{min-width:0;border:1px solid var(--bdr);border-radius:10px;background:var(--sur2);overflow:hidden}.pay-bd-summary,.pay-bd-deductions{grid-column:1/-1}.pay-bd-section-head{display:flex;align-items:center;gap:8px;padding:10px 13px;border-bottom:1px solid var(--bdr);font-size:13px;font-weight:800;color:var(--tx)}.pay-bd-section-no{display:flex;align-items:center;justify-content:center;width:23px;height:23px;border:1px solid var(--bdr2);border-radius:50%;color:var(--tx3);font:800 10px var(--mono)}.pay-bd-section-body{padding:11px 13px}'
+    + '.pay-bd-time-line{display:grid;grid-template-columns:1fr 22px 1fr;align-items:center;gap:6px;margin-bottom:10px}.pay-bd-time-box{padding:9px 10px;border:1px solid var(--bdr);border-radius:8px;background:var(--sur)}.pay-bd-time-box span{display:block;margin-bottom:3px;font-size:10px;color:var(--tx3)}.pay-bd-time-box b{font:800 17px var(--mono);color:var(--tx);font-variant-numeric:tabular-nums}.pay-bd-time-arrow{text-align:center;color:var(--tx3);font-weight:900}'
+    + '.pay-bd-row{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:6px 0;border-top:1px solid var(--bdr);font-size:13px}.pay-bd-row:first-child{border-top:0}.pay-bd-row-label{min-width:0;color:var(--tx2)}.pay-bd-row-value{flex:0 0 auto;text-align:right;color:var(--tx);font:700 13px var(--mono);font-variant-numeric:tabular-nums}.pay-bd-row-total{margin-top:4px;padding-top:9px;border-top:1px solid var(--bdr2);font-weight:800}.pay-bd-row-total .pay-bd-row-label{color:var(--tx)}.pay-bd-row-total .pay-bd-row-value{font-size:15px}.pay-bd-empty{padding:4px 0 8px;color:var(--tx3);font-size:12px}.pay-bd-note{margin-top:8px;padding:7px 9px;border-left:2px solid var(--gold);background:var(--sur);color:var(--tx2);font-size:11px;line-height:1.5}'
+    + '.pay-bd-equation{display:grid;grid-template-columns:repeat(7,auto);align-items:end;justify-content:end;gap:8px;padding-bottom:10px;border-bottom:1px solid var(--bdr2);font-family:var(--mono);font-variant-numeric:tabular-nums}.pay-bd-equation-part{display:grid;gap:3px;text-align:right}.pay-bd-equation-part span{font-size:10px;color:var(--tx3)}.pay-bd-equation-part b{font-size:14px;color:var(--tx)}.pay-bd-equation-part .pay-bd-daily-value{color:var(--gold)}.pay-bd-equation-op{padding-bottom:1px;color:var(--tx3);font-weight:900}.pay-bd-rate{display:flex;justify-content:space-between;gap:16px;margin-top:12px;padding:10px 13px;border:1px solid var(--bdr);border-radius:9px;background:var(--sur2);font-size:12px;color:var(--tx2)}.pay-bd-rate b{color:var(--tx);font:800 13px var(--mono);text-align:right}'
+    + '@media(max-width:680px){.pay-bd-payroll{width:min(96vw,760px);max-height:96vh}.pay-bd-payroll .pay-bd-head{align-items:flex-start;padding:12px}.pay-bd-head-actions{gap:6px}.pay-bd-print{padding:0 11px}.pay-bd-payroll .pay-bd-body{padding:12px}.pay-bd-hero{grid-template-columns:1fr;padding:13px}.pay-bd-hero-amount{grid-row:auto;grid-column:auto;text-align:left;font-size:27px}.pay-bd-grid{grid-template-columns:1fr}.pay-bd-summary,.pay-bd-deductions{grid-column:auto}.pay-bd-equation{grid-template-columns:1fr;justify-content:stretch}.pay-bd-equation-part{display:flex;justify-content:space-between;text-align:left}.pay-bd-equation-op{display:none}}'
     + '.payroll-table tr.pay-totalrow td{background:var(--sur2);font-weight:700;border-top:2px solid var(--bdr2);color:var(--tx)}'
     + '.payroll-table input.pay-in{box-sizing:border-box;width:42px;font-size:11px;padding:3px 2px;background:var(--sur2);color:var(--tx);border:1px solid var(--bdr2);border-radius:5px;text-align:right}'
     + '.payroll-table input.pay-in:focus{outline:none;border-color:var(--gold)}'
@@ -17261,40 +17269,111 @@ function _payrollTableModel(src) {
   return { src, rows, countCols, columns, visibleColumns:_payrollVisibleColumns(columns, hiddenCols) };
 }
 
-function _payrollBreakdownHtml(r, src, countCols) {
-  if (!r) return '';
+function _payrollBreakdownData(r, src, countCols) {
+  if (!r) return null;
   src = src || {};
   countCols = countCols || _payrollCountCols([r], {});
-  const dayLabel = (typeof bizKeyToLabel === 'function') ? bizKeyToLabel(src.dayKey || '') : String(src.dayKey || '');
   const workMinutes = Math.max(0, Number(r.workMinutes) || 0);
-  const workLabel = `${Math.floor(workMinutes / 60)}時間${workMinutes % 60}分`;
-  const backLines = countCols.filter(([key]) => Number(r.backCounts?.[key]) || 0).map(([key, label]) => {
-    const count = Number(r.backCounts?.[key]) || 0;
-    const unit = Number(r.backUnits?.[key]) || 0;
-    const amount = Number(r.backAmounts?.[key]) || 0;
-    return `${escHtml(label)} ${count}×${_payYen(unit)}＝${_payYen(amount)}`;
-  });
-  const spNote = (typeof cfg !== 'undefined' && cfg.payrollSpInBackTotal === false) ? '（参考・日給に含めず）' : '';
-  const deductions = Array.isArray(r.deductions) ? r.deductions : [];
-  const rows = [
-    `<tr><td class="k">勤務</td><td class="v">${escHtml(_payClock24(r.roundedIn) || '—')}→${escHtml(formatCheckoutTime(r.roundedOut) || '—')}（${workLabel}）　時間給 ${_payYen(r.hourlyPay)}${r.outHHMM ? '' : '<br>※退勤未入力のため時間給は未確定'}</td></tr>`,
-    `<tr class="pay-bd-back"><td class="k">バック</td><td class="v">${backLines.length ? backLines.join('<br>') + '<br>' : ''}商品バック ${_payYen(r.prodBack)}　SP ${_payYen(r.sp)}${spNote}<br>バック合計 ${_payYen(r.backTotal)}</td></tr>`,
-    Number(r.lateFee) ? `<tr><td class="k">遅刻罰金</td><td class="v">−${_payYen(r.lateFee)}（${Number(r.chikokuMin) || 0}分）</td></tr>` : '',
-    `<tr class="pay-bd-daily"><td class="k">日給</td><td class="v"><span class="pay-bd-amount">${_payYen(r.dailyPay)}</span><div class="pay-bd-sub">＝ 時間給 ${_payYen(r.hourlyPay)} ＋ バック ${_payYen(r.backTotal)} − 遅刻 ${_payYen(r.lateFee)}</div></td></tr>`,
-    deductions.length ? `<tr><td class="k">控除・記録</td><td class="v">${deductions.map(item => `${escHtml(item.label || '')} ${item.mode === 'boolean' ? _payrollDeductionMark(item) : _payYen(item.amount)}`).join(' ／ ')}<br>控除計 ${_payYen(r.deductionTotal)}</td></tr>` : '',
-    `<tr class="pay-bd-net"><td class="k">差引支給</td><td class="v"><span class="pay-bd-amount">${_payYen(r.netPay)}</span></td></tr>`,
-    `<tr><td class="k">給率</td><td class="v">${Number(r.sales) > 0 && r.kyuuritsu != null ? `${Number(r.kyuuritsu).toFixed(1)}%（売上 ${_payYen(r.sales)}）` : '—'}</td></tr>`,
-  ].filter(Boolean).join('');
+  return {
+    castName:String(r.castName || ''),
+    dayLabel:(typeof bizKeyToLabel === 'function') ? bizKeyToLabel(src.dayKey || '') : String(src.dayKey || ''),
+    clockIn:_payClock24(r.roundedIn) || '—',
+    clockOut:formatCheckoutTime(r.roundedOut) || '—',
+    workLabel:`${Math.floor(workMinutes / 60)}時間${workMinutes % 60}分`,
+    checkoutPending:!r.outHHMM,
+    hourlyPay:Number(r.hourlyPay) || 0,
+    backLines:countCols.filter(([key]) => Number(r.backCounts?.[key]) || 0).map(([key, label]) => ({
+      label:String(label || ''),
+      count:Number(r.backCounts?.[key]) || 0,
+      unit:Number(r.backUnits?.[key]) || 0,
+      amount:Number(r.backAmounts?.[key]) || 0,
+    })),
+    prodBack:Number(r.prodBack) || 0,
+    sp:Number(r.sp) || 0,
+    spExcluded:typeof cfg !== 'undefined' && cfg.payrollSpInBackTotal === false,
+    backTotal:Number(r.backTotal) || 0,
+    lateFee:Number(r.lateFee) || 0,
+    lateMinutes:Number(r.chikokuMin) || 0,
+    dailyPay:Number(r.dailyPay) || 0,
+    deductions:(Array.isArray(r.deductions) ? r.deductions : []).map(item => ({
+      label:String(item.label || ''),
+      value:item.mode === 'boolean' ? _payrollDeductionMark(item) : _payYen(item.amount),
+    })),
+    deductionTotal:Number(r.deductionTotal) || 0,
+    netPay:Number(r.netPay) || 0,
+    rateLabel:Number(r.sales) > 0 && r.kyuuritsu != null
+      ? `${Number(r.kyuuritsu).toFixed(1)}%（売上 ${_payYen(r.sales)}）` : '—',
+  };
+}
+
+function _payrollBreakdownHtml(r, src, countCols) {
+  const d = _payrollBreakdownData(r, src, countCols);
+  if (!d) return '';
+  const backRows = d.backLines.map(item => `<div class="pay-bd-row"><span class="pay-bd-row-label">${escHtml(item.label)} ${item.count}×${_payYen(item.unit)}</span><span class="pay-bd-row-value">${_payYen(item.amount)}</span></div>`).join('');
+  const deductionRows = d.deductions.length
+    ? d.deductions.map(item => `<div class="pay-bd-row"><span class="pay-bd-row-label">${escHtml(item.label)}</span><span class="pay-bd-row-value">${item.value}</span></div>`).join('')
+    : '<div class="pay-bd-empty">控除・記録はありません</div>';
   return `<div id="payroll-breakdown-overlay" class="pos-co-overlay" onclick="if(event.target===this)payrollCloseBreakdown()">
-    <div class="pos-co-panel pay-bd-panel">
-      <div class="pay-bd-head"><div><div class="pay-bd-title">${escHtml(r.castName)} の日給内訳</div><div class="pay-bd-date">${escHtml(dayLabel)}</div></div><button type="button" class="pay-bd-close" onclick="payrollCloseBreakdown()" aria-label="閉じる">×</button></div>
-      <div class="pay-bd-body"><table class="pay-bd-table"><tbody>${rows}</tbody></table></div>
+    <div class="pos-co-panel pay-bd-panel pay-bd-payroll" role="dialog" aria-modal="true" aria-labelledby="payroll-breakdown-title">
+      <div class="pay-bd-head">
+        <div><div id="payroll-breakdown-title" class="pay-bd-title">${escHtml(d.castName)} の日給内訳</div><div class="pay-bd-date">${escHtml(d.dayLabel)}</div></div>
+        <div class="pay-bd-head-actions"><button type="button" class="pay-bd-print" onclick="payrollPrintBreakdown()"><span aria-hidden="true">🖨</span><span>レシート印刷</span></button><button type="button" class="pay-bd-close" onclick="payrollCloseBreakdown()" aria-label="閉じる">×</button></div>
+      </div>
+      <div class="pay-bd-body">
+        <section class="pay-bd-hero" aria-label="差引支給"><div class="pay-bd-hero-label">差引支給</div><div class="pay-bd-hero-amount">${_payYen(d.netPay)}</div><div class="pay-bd-hero-sub">日給 ${_payYen(d.dailyPay)} − 控除 ${_payYen(d.deductionTotal)}</div></section>
+        <div class="pay-bd-grid">
+          <section class="pay-bd-section"><div class="pay-bd-section-head"><span class="pay-bd-section-no">01</span>勤務</div><div class="pay-bd-section-body">
+            <div class="pay-bd-time-line" data-time-range="${escHtml(d.clockIn)}→${escHtml(d.clockOut)}" aria-label="${escHtml(d.clockIn)}→${escHtml(d.clockOut)}"><div class="pay-bd-time-box"><span>出勤</span><b>${escHtml(d.clockIn)}</b></div><div class="pay-bd-time-arrow">→</div><div class="pay-bd-time-box"><span>退勤</span><b>${escHtml(d.clockOut)}</b></div></div>
+            <div class="pay-bd-row"><span class="pay-bd-row-label">勤務時間</span><span class="pay-bd-row-value">${d.workLabel}</span></div><div class="pay-bd-row"><span class="pay-bd-row-label">時間給</span><span class="pay-bd-row-value">${_payYen(d.hourlyPay)}</span></div>${d.checkoutPending ? '<div class="pay-bd-note">退勤未入力のため、時間給は未確定です</div>' : ''}
+          </div></section>
+          <section class="pay-bd-section"><div class="pay-bd-section-head"><span class="pay-bd-section-no">02</span>バック内訳</div><div class="pay-bd-section-body">${backRows || '<div class="pay-bd-empty">本数バックはありません</div>'}<div class="pay-bd-row"><span class="pay-bd-row-label">商品バック</span><span class="pay-bd-row-value">${_payYen(d.prodBack)}</span></div><div class="pay-bd-row"><span class="pay-bd-row-label">SP${d.spExcluded ? '（参考）' : ''}</span><span class="pay-bd-row-value">${_payYen(d.sp)}</span></div><div class="pay-bd-row pay-bd-row-total"><span class="pay-bd-row-label">バック合計</span><span class="pay-bd-row-value">${_payYen(d.backTotal)}</span></div>${d.spExcluded ? '<div class="pay-bd-note">SPは参考表示です。日給には含まれません</div>' : ''}</div></section>
+          <section class="pay-bd-section pay-bd-summary"><div class="pay-bd-section-head"><span class="pay-bd-section-no">03</span>支給計算</div><div class="pay-bd-section-body"><div class="pay-bd-equation"><div class="pay-bd-equation-part"><span>時間給</span><b>${_payYen(d.hourlyPay)}</b></div><span class="pay-bd-equation-op">＋</span><div class="pay-bd-equation-part"><span>バック</span><b>${_payYen(d.backTotal)}</b></div><span class="pay-bd-equation-op">−</span><div class="pay-bd-equation-part"><span>遅刻 ${d.lateMinutes ? `(${d.lateMinutes}分)` : ''}</span><b>${_payYen(d.lateFee)}</b></div><span class="pay-bd-equation-op">＝</span><div class="pay-bd-equation-part"><span>日給</span><b class="pay-bd-daily-value">${_payYen(d.dailyPay)}</b></div></div></div></section>
+          <section class="pay-bd-section pay-bd-deductions"><div class="pay-bd-section-head"><span class="pay-bd-section-no">04</span>控除・記録</div><div class="pay-bd-section-body">${deductionRows}<div class="pay-bd-row pay-bd-row-total"><span class="pay-bd-row-label">控除計</span><span class="pay-bd-row-value">${_payYen(d.deductionTotal)}</span></div></div></section>
+        </div>
+        <div class="pay-bd-rate"><span>給率</span><b>${escHtml(d.rateLabel)}</b></div>
+      </div>
     </div>
   </div>`;
 }
 
+function _payrollBreakdownPrintDocument(r, src, countCols) {
+  const d = _payrollBreakdownData(r, src, countCols);
+  if (!d) return '';
+  const shopName = (typeof cfg !== 'undefined' && cfg.shopName) ? String(cfg.shopName) : '';
+  const backRows = d.backLines.map(item => `<div class="row"><span>${escHtml(item.label)} ${item.count}×${_payYen(item.unit)}</span><b>${_payYen(item.amount)}</b></div>`).join('');
+  const deductionRows = d.deductions.length
+    ? d.deductions.map(item => `<div class="row"><span>${escHtml(item.label)}</span><b>${item.value}</b></div>`).join('')
+    : '<div class="empty">控除・記録なし</div>';
+  return '<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>日給内訳 - ' + escHtml(d.castName) + '</title><style>'
+    + '@page{size:80mm auto;margin:0}*{box-sizing:border-box;margin:0;padding:0}'
+    + 'body{width:72mm;margin:0 auto;padding:3mm;font-family:"Hiragino Kaku Gothic ProN","Meiryo",sans-serif;color:#000;background:#fff;font-size:10pt;line-height:1.35;font-variant-numeric:tabular-nums}'
+    + '.shop{text-align:center;font-size:10pt;font-weight:800;margin-bottom:1mm}.title{text-align:center;font-size:16pt;font-weight:900;letter-spacing:.18em}.meta{text-align:center;margin-top:1mm;font-size:9pt}.rule{border:0;border-top:2px solid #000;margin:2.5mm 0}.section{margin-top:2.5mm}.section-title{padding-bottom:1mm;border-bottom:1px solid #000;font-size:9pt;font-weight:900}.row{display:flex;justify-content:space-between;gap:3mm;padding:1mm 0;border-bottom:1px dotted #888}.row span{min-width:0}.row b{text-align:right;white-space:nowrap}.row.total{margin-top:.5mm;border-top:1px solid #000;border-bottom:0;font-size:11pt;font-weight:900}.note{margin-top:1mm;font-size:8pt}.empty{padding:1.5mm 0;color:#444}.calc{margin-top:1mm;text-align:right;font-size:8.5pt}.grand{margin-top:3mm;padding:2.5mm 2mm;border:2px solid #000;text-align:center}.grand span{display:block;font-size:10pt;font-weight:800}.grand b{display:block;margin-top:.5mm;font-size:20pt;font-weight:900}.rate{display:flex;justify-content:space-between;gap:3mm;margin-top:2mm;padding-top:1.5mm;border-top:1px solid #000;font-size:9pt}.rate b{text-align:right}'
+    + '@media print{body{padding:0 3mm}}</style></head><body>'
+    + (shopName ? '<div class="shop">' + escHtml(shopName) + '</div>' : '')
+    + '<div class="title">日給内訳</div><div class="meta">' + escHtml(d.castName) + '　' + escHtml(d.dayLabel) + '</div><hr class="rule">'
+    + '<section class="section"><div class="section-title">勤務</div><div class="row"><span>出勤 → 退勤</span><b>' + escHtml(d.clockIn) + ' → ' + escHtml(d.clockOut) + '</b></div><div class="row"><span>勤務時間</span><b>' + d.workLabel + '</b></div><div class="row total"><span>時間給</span><b>' + _payYen(d.hourlyPay) + '</b></div>' + (d.checkoutPending ? '<div class="note">※退勤未入力のため時間給は未確定</div>' : '') + '</section>'
+    + '<section class="section"><div class="section-title">バック内訳</div>' + (backRows || '<div class="empty">本数バックなし</div>') + '<div class="row"><span>商品バック</span><b>' + _payYen(d.prodBack) + '</b></div><div class="row"><span>SP' + (d.spExcluded ? '（参考）' : '') + '</span><b>' + _payYen(d.sp) + '</b></div><div class="row total"><span>バック合計</span><b>' + _payYen(d.backTotal) + '</b></div>' + (d.spExcluded ? '<div class="note">※SPは日給に含みません</div>' : '') + '</section>'
+    + '<section class="section"><div class="section-title">支給計算</div><div class="row"><span>遅刻' + (d.lateMinutes ? '（' + d.lateMinutes + '分）' : '') + '</span><b>−' + _payYen(d.lateFee) + '</b></div><div class="calc">時間給 ' + _payYen(d.hourlyPay) + ' ＋ バック ' + _payYen(d.backTotal) + ' − 遅刻 ' + _payYen(d.lateFee) + '</div><div class="row total"><span>日給</span><b>' + _payYen(d.dailyPay) + '</b></div></section>'
+    + '<section class="section"><div class="section-title">控除・記録</div>' + deductionRows + '<div class="row total"><span>控除計</span><b>' + _payYen(d.deductionTotal) + '</b></div></section>'
+    + '<div class="grand"><span>差引支給</span><b>' + _payYen(d.netPay) + '</b></div><div class="rate"><span>給率</span><b>' + escHtml(d.rateLabel) + '</b></div>'
+    + '<div style="margin:10mm auto 0;width:.5mm;height:0;border-top:1px solid #000;print-color-adjust:exact;-webkit-print-color-adjust:exact"></div>'
+    + '<script>window.onafterprint=()=>setTimeout(()=>window.close(),100);window.onload=()=>window.print()<\/script></body></html>';
+}
+
+let _payrollBreakdownActiveCast = '';
 function payrollCloseBreakdown() {
   document.getElementById('payroll-breakdown-overlay')?.remove();
+  _payrollBreakdownActiveCast = '';
+}
+
+function payrollPrintBreakdown() {
+  const model = _payrollTableModel(_reportDaySource());
+  const row = model.rows.find(r => r.castName === _payrollBreakdownActiveCast);
+  if (!row) { if (typeof showToast === 'function') showToast('印刷する日給内訳が見つかりません'); return; }
+  const w = window.open('', '_blank', 'width=320,height=820');
+  if (!w) { if (typeof showToast === 'function') showToast('ポップアップがブロックされました'); return; }
+  w.document.write(_payrollBreakdownPrintDocument(row, model.src, model.countCols));
+  w.document.close();
 }
 
 /* 内訳表示用: 深夜の内部表記（25:00 等）を 01:00 表記に戻す */
@@ -17308,6 +17387,7 @@ function payrollShowBreakdown(castName) {
   const row = model.rows.find(r => r.castName === castName);
   if (!row) return;
   payrollCloseBreakdown();
+  _payrollBreakdownActiveCast = castName;
   document.body.insertAdjacentHTML('beforeend', _payrollBreakdownHtml(row, model.src, model.countCols));
 }
 
