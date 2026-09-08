@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.9">
+<meta name="app-version" content="1.1.10">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -10509,7 +10509,7 @@ function doPrint() {
     if (isLastPage) {
       const footer = document.createElement('div');
       footer.className = 'print-footer';
-      footer.textContent = `入客 ${totalGuests}人　${totalGroups}組　売上 ¥${totalSales.toLocaleString()}（現金 ¥${cash.toLocaleString()} / カード ¥${card.toLocaleString()}（${cardCount}枚））　単価：¥${avg > 0 ? avg.toLocaleString() : '-'}`;
+      footer.textContent = `入客 ${totalGuests}人　${totalGroups}組　売上 ¥${totalSales.toLocaleString()}（現金 ¥${cash.toLocaleString()} / カード ¥${card.toLocaleString()} ${cardCount}枚）　単価：¥${avg > 0 ? avg.toLocaleString() : '-'}`;
       page.appendChild(footer);
     }
 
@@ -16184,9 +16184,10 @@ function _reportPeriodSwitchHtml() {
     + '.payroll-table tbody td:nth-child(2){border-left:2px solid var(--bdr2)}'
     + '.payroll-table td.pay-name,.payroll-table th.pay-name{text-align:center;vertical-align:middle;color:var(--tx);font-weight:600;position:sticky;left:0;background:var(--sur);z-index:1}'
     + '.payroll-table th.pay-name{background:var(--sur2);z-index:4}'
-    + '.payroll-table td.pay-name-action{cursor:pointer;padding-left:26px;padding-right:26px}'
-    + '.payroll-table td.pay-name-action .pay-name-label{display:flex;align-items:center;justify-content:center}'
-    + '.payroll-table td.pay-name-action .pay-bd-btn{position:absolute;right:6px;top:50%;transform:translateY(-50%);margin-left:0}'
+    + '.payroll-table td.pay-name-action{cursor:pointer;padding-left:8px;padding-right:8px}'
+    + '.payroll-table td.pay-name-action .pay-name-inner{display:inline-flex;align-items:center;justify-content:center;gap:6px}'
+    + '.payroll-table td.pay-name-action .pay-name-label{display:block}'
+    + '.payroll-table td.pay-name-action .pay-bd-btn{position:static;flex:0 0 auto;margin-left:0}'
     + '.payroll-table td.pay-name-action:focus-visible{outline:2px solid var(--gold);outline-offset:-2px}'
     + '.payroll-table tbody tr:nth-child(even):not(.pay-totalrow) td{background:var(--sur2)}'
     + '.payroll-table td.pay-amt{color:var(--tx2);text-align:right}'
@@ -17338,7 +17339,7 @@ function _payrollTableInnerHtml(src, model, opts = { plain:false }) {
     return '<tr>'
       + (opts.plain === true
         ? '<td class="pay-name">' + escHtml(c) + '</td>'
-        : '<td class="pay-name pay-name-action" role="button" tabindex="0" onclick="payrollShowBreakdown(\'' + cj + '\')" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();payrollShowBreakdown(\'' + cj + '\')}"><span class="pay-name-label">' + escHtml(c) + '</span><span class="pay-bd-btn" aria-hidden="true">ⓘ</span></td>')
+        : '<td class="pay-name pay-name-action" role="button" tabindex="0" onclick="payrollShowBreakdown(\'' + cj + '\')" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();payrollShowBreakdown(\'' + cj + '\')}"><span class="pay-name-inner"><span class="pay-name-label">' + escHtml(c) + '</span><span class="pay-bd-btn" aria-hidden="true">ⓘ</span></span></td>')
       + visibleColumns.map((col, index) => col.cell(ctx, index === 0 || col.group !== visibleColumns[index - 1].group)).join('')
       + '</tr>';
   }).join('');
