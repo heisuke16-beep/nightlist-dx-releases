@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.7">
+<meta name="app-version" content="1.1.8">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -16428,18 +16428,14 @@ function _payrollTableColumns(countCols, deductionItems, showPoints) {
     ...deductionItems.map((item, index) => ({
       id:'deductions', group:'pay', label:item.label || '', optionLabel:deductionOptionLabel,
       cell:(x, start) => {
-        const calculated = (x.r.deductions || [])[index] || {};
-        if (item.mode === 'boolean') {
+        const cell = _deductionCellValue(item, (x.r.deductions || [])[index], x.manualDeductions);
+        if (cell.flag) {
           return _payrollTd(x.plain
-            ? _payrollDeductionMark(calculated)
-            : _payrollDeductionFlagButton(x.cj, item.key, calculated.checked === true), 'pay-flag-cell', start);
+            ? _payrollDeductionMark(cell)
+            : _payrollDeductionFlagButton(x.cj, item.key, cell.checked), 'pay-flag-cell', start);
         }
-        const hasMan = Object.prototype.hasOwnProperty.call(x.manualDeductions, item.key);
-        if (x.plain) {
-          const value = hasMan ? x.manualDeductions[item.key] : (calculated.auto || 0);
-          return _payrollTd(x.hasOut && value ? _payYen(value) : '', '', start);
-        }
-        return _payrollTd('<input type="number" class="pay-in' + (hasMan ? ' pay-edited' : '') + '" value="' + (hasMan ? x.manualDeductions[item.key] : '') + '" placeholder="' + (calculated.auto || 0) + '" onchange="payrollSetDeduction(\'' + x.cj + '\', \'' + item.key + '\', this.value)">', '', start);
+        if (x.plain) return _payrollTd(x.hasOut && cell.value ? _payYen(cell.value) : '', '', start);
+        return _payrollTd(_deductionCellInputHtml(cell, x.cj, item.key), '', start);
       },
       total:(x, start) => _payrollTd('', '', start),
     })),
@@ -16614,10 +16610,11 @@ function computeReportAgg(settled) {
 
     // --- 指名売上：本指名/同伴で付いた卓の税込総計(現金+カード)を、指名キャストの頭数で等分して計上（R2） ---
     const tableTotal = rowSales(r);
-    const tableSubtotal = (typeof _posCalcTotal === 'function')
-      ? (Number(_posCalcTotal(r).subtotal) || 0)
-      : (Number(calcBill(r).subtotal) || 0);
-    const orderPricing = posOrderPricing(r, 0);
+    // 卓の総額と、特殊率の基準（特殊項目を除いた小計/現金）は同じ計算結果から取る
+    // （_posCalcTotal と posOrderPricing はどちらも calcBill+_posBaseTotals を実行するため二重計算を避ける）。
+    const tableTotals = _posCalcTotal(r);
+    const tableSubtotal = Number(tableTotals.subtotal) || 0;
+    const orderPricing = { subtotal:tableTotals.baseSubtotal, cash:tableTotals.baseCash };
     subtotalSum += tableSubtotal;
     const nominators = new Set();
     if (r.mainCast && SHIMEI_NOMINATE.indexOf(r.mainType) >= 0) nominators.add(r.mainCast);
@@ -17211,16 +17208,24 @@ function _payrollSetClock(field, castName, value) {
     _rerenderPayrollTable();
   }
 }
-/* 出退勤の30分刻みドロップダウン。営業時間帯(getTimeMin〜getTimeMax)を30分刻みで提示。
-   現在値は丸め後(rounder)に正規化して選択＝表示と勤務計算を一致させる。値は連続表記HH:MM。 */
+/* 出退勤の30分刻みドロップダウン。fromMin〜toMin（既定は営業時間帯 getTimeMin〜getTimeMax、退勤列は
+   退勤受付範囲 cfg.clockOutFrom〜clockOutTo）を30分刻みで提示。
+   現在値は丸め後(rounder)に正規化して選択＝表示と勤務計算を一致させる。値は連続表記HH:MM。
+   範囲外の現在値（受付開始前の早退など）は、出勤管理の退勤セレクト(getClockOutOptions)と同じく
+   現在値の行を先頭の空欄の直後に足して選択状態で表示する（選択肢に無いだけで「--:--」に見せない）。 */
 function _payrollClockSelectHtml(curHHMM, rounder, onchangeCall, fromMin = getTimeMin(), toMin = getTimeMax()) {
   const cur = curHHMM ? rounder(curHHMM) : '';
-  let opts = '<option value=""' + (cur ? '' : ' selected') + '>--:--</option>';
+  let regular = '';
+  let matched = false;
   for (let t = fromMin; t <= toMin; t += 30) {
     const s = minToStr(t);
-    opts += '<option value="' + s + '"' + (s === cur ? ' selected' : '') + '>' + s + '</option>';
+    const selected = s === cur;
+    matched = matched || selected;
+    regular += '<option value="' + s + '"' + (selected ? ' selected' : '') + '>' + s + '</option>';
   }
-  return '<select class="pay-in pay-time" onchange="' + onchangeCall + '">' + opts + '</select>';
+  const custom = (cur && !matched) ? '<option value="' + escAttr(cur) + '" selected>' + escHtml(cur) + '</option>' : '';
+  return '<select class="pay-in pay-time" onchange="' + onchangeCall + '">'
+    + '<option value=""' + (cur ? '' : ' selected') + '>--:--</option>' + custom + regular + '</select>';
 }
 function payrollSetClockIn(castName, value)  { _payrollSetClock('clockIns', castName, value); }
 function payrollSetClockOut(castName, value) { _payrollSetClock('checkouts', castName, value); }
@@ -17380,16 +17385,15 @@ function _deductionSheetInnerHtml(src, opts = { plain:false }) {
       tot.net += r.netPay || 0;
     }
     const cells = deductionItems.map((item, index) => {
-      const calculated = (r.deductions || [])[index] || {};
-      if (item.mode === 'boolean') {
+      const cell = _deductionCellValue(item, (r.deductions || [])[index], manualDeductions);
+      if (cell.flag) {
         return '<td class="pay-flag-cell">' + (opts.plain === true
-          ? _payrollDeductionMark(calculated)
-          : _payrollDeductionFlagButton(cj, item.key, calculated.checked === true)) + '</td>';
+          ? _payrollDeductionMark(cell)
+          : _payrollDeductionFlagButton(cj, item.key, cell.checked)) + '</td>';
       }
-      const hasMan = Object.prototype.hasOwnProperty.call(manualDeductions, item.key);
-      const value = hasMan ? manualDeductions[item.key] : (calculated.auto || 0);
-      if (opts.plain === true) return '<td>' + (hasOut ? _payYen(value) : '') + '</td>';
-      return '<td><input type="number" class="pay-in' + (hasMan ? ' pay-edited' : '') + '" value="' + (hasMan ? manualDeductions[item.key] : '') + '" placeholder="' + (calculated.auto || 0) + '" onchange="payrollSetDeduction(\'' + cj + '\', \'' + item.key + '\', this.value)"></td>';
+      // 控除票は退勤確定後なら0円も「¥0」で出す（日計表の控除列は0円を空欄にする。既存の差をそのまま保つ）
+      if (opts.plain === true) return '<td>' + (hasOut ? _payYen(cell.value) : '') + '</td>';
+      return '<td>' + _deductionCellInputHtml(cell, cj, item.key) + '</td>';
     }).join('');
     const hasRecordedFlag = (r.deductions || []).some(item => item.mode === 'boolean' && item.checked === true);
     return '<tr' + (!hasOut || ((Number(r.deductionTotal) || 0) === 0 && !hasRecordedFlag) ? ' class="ded-zero"' : '') + '>'
@@ -17408,6 +17412,26 @@ function _deductionSheetInnerHtml(src, opts = { plain:false }) {
   return opts.plain === true ? table : '<div class="payroll-scroll">' + table + '</div>';
 }
 
+/* 控除1セル分の値を決める純関数（日計表の控除列・控除票の画面・印刷で共通）。
+   ○×方式（boolean）は該当の有無だけを返し金額を持たない。金額方式は、手修正があればその値、
+   無ければ自動計算値（fixed=固定額 / rate=日給×率 / manual=0）。 */
+function _deductionCellValue(item, calculated, manualDeductions) {
+  const calc = calculated || {};
+  if (item.mode === 'boolean') return { flag:true, checked:calc.checked === true };
+  const manual = manualDeductions || {};
+  const hasManual = Object.prototype.hasOwnProperty.call(manual, item.key);
+  const auto = Number(calc.auto) || 0;
+  return { flag:false, hasManual, auto, value:hasManual ? (Number(manual[item.key]) || 0) : auto };
+}
+/* 控除の手修正入力欄（日計表・控除票の画面で共通）。手修正済みは pay-edited で強調し、未修正は自動値を placeholder に出す。 */
+function _deductionCellInputHtml(cell, castJs, key) {
+  return '<input type="number" class="pay-in' + (cell.hasManual ? ' pay-edited' : '') + '" value="' + (cell.hasManual ? cell.value : '')
+    + '" placeholder="' + cell.auto + '" onchange="payrollSetDeduction(\'' + castJs + '\', \'' + key + '\', this.value)">';
+}
+
+/* 控除票の金額欄。nominatedSales の row.sales は給与エンジンが nameGroups[cast].total から作る値で、
+   日報「キャスト別指名売上」（本指名・同伴卓の税込総計をキャストへ按分）と同じ定義。
+   指名料品目だけを集めた honshimeiSales とは別物。 */
 function _deductionSheetDisplayColumn() {
   const field = normalizePayrollDeductionDisplayField(
     typeof cfg !== 'undefined' ? cfg.payrollDeductionDisplayField : 'dailyPay'
@@ -17423,15 +17447,17 @@ function _deductionSheetPrintTableHtml(src) {
   const rows = model.rows;
   const displayColumn = _deductionSheetDisplayColumn();
   const deductionItems = (typeof cfg !== 'undefined' && Array.isArray(cfg.payrollDeductions)) ? cfg.payrollDeductions : [];
+  // 旧設定に print が無い項目は従来どおり印刷する。画面・給与・CSVは全項目のままにして、ここだけを絞る。
+  const printableItems = deductionItems.map((item, index) => ({ item, index })).filter(({ item }) => item.print !== false);
   const checkouts = (src.tt && src.tt.checkouts) || {};
   let displayTotal = 0;
   let displayCount = 0;
-  const totals = deductionItems.map(() => 0);
-  const counts = deductionItems.map(() => 0);
+  const totals = printableItems.map(() => 0);
+  const counts = printableItems.map(() => 0);
   const yen = value => _payYen(value);
   const displayYen = value => '¥' + (Number(value) || 0).toLocaleString();
   const head = '<thead><tr><th>No.</th><th>名前</th><th>' + displayColumn.label + '</th>'
-    + deductionItems.map(item => '<th>' + escHtml(item.label || '') + '</th>').join('')
+    + printableItems.map(({ item }) => '<th>' + escHtml(item.label || '') + '</th>').join('')
     + '</tr></thead>';
   const bodyRows = rows.map(r => {
     const c = r.castName;
@@ -17441,18 +17467,15 @@ function _deductionSheetPrintTableHtml(src) {
     if (displayReady && displayValue > 0) displayCount += 1;
     const manualDeductions = (typeof getPayrollManual === 'function')
       ? getPayrollManual(src.dayKey, c).deductions : {};
-    const cells = deductionItems.map((item, index) => {
-      const calculated = (r.deductions || [])[index] || {};
-      if (item.mode === 'boolean') {
-        const checked = calculated.checked === true;
-        if (checked) counts[index] += 1;
-        return '<td class="amt flag">' + (checked ? '○' : '×') + '</td>';
+    const cells = printableItems.map(({ item, index }, printableIndex) => {
+      const cell = _deductionCellValue(item, (r.deductions || [])[index], manualDeductions);
+      if (cell.flag) {
+        if (cell.checked) counts[printableIndex] += 1;
+        return '<td class="amt flag">' + _payrollDeductionMark(cell) + '</td>';
       }
-      const hasMan = Object.prototype.hasOwnProperty.call(manualDeductions, item.key);
-      const value = Number(hasMan ? manualDeductions[item.key] : (calculated.auto || 0)) || 0;
-      totals[index] += value;
-      if (value > 0) counts[index] += 1;
-      return '<td class="amt">' + yen(value) + '</td>';
+      totals[printableIndex] += cell.value;
+      if (cell.value > 0) counts[printableIndex] += 1;
+      return '<td class="amt">' + yen(cell.value) + '</td>';
     }).join('');
     const profile = state.castProfiles && state.castProfiles[c];
     const hasCastNo = profile && profile.no !== '' && profile.no != null && Number.isFinite(Number(profile.no));
@@ -17462,10 +17485,10 @@ function _deductionSheetPrintTableHtml(src) {
   const rowCount = Math.max(25, rows.length);
   for (let rowIndex = rows.length; rowIndex < rowCount; rowIndex += 1) {
     bodyRows.push('<tr><td class="cno"></td><td class="nm"></td><td class="amt">¥</td>'
-      + deductionItems.map(item => '<td class="amt">' + (item.mode === 'boolean' ? '' : '¥') + '</td>').join('') + '</tr>');
+      + printableItems.map(({ item }) => '<td class="amt">' + (item.mode === 'boolean' ? '' : '¥') + '</td>').join('') + '</tr>');
   }
   const sumRow = '<tr class="sum"><td class="cno"></td><td class="nm">合計</td><td class="amt">' + displayYen(displayTotal) + '</td>'
-    + totals.map((value, index) => '<td class="amt">' + (deductionItems[index]?.mode === 'boolean' ? '—' : yen(value)) + '</td>').join('') + '</tr>';
+    + totals.map((value, index) => '<td class="amt">' + (printableItems[index]?.item.mode === 'boolean' ? '—' : yen(value)) + '</td>').join('') + '</tr>';
   const countRow = '<tr class="sum"><td class="cno"></td><td class="nm">人数</td><td class="amt">' + displayCount + ' 人</td>'
     + counts.map(value => '<td class="amt">' + value + ' 人</td>').join('') + '</tr>';
   return '<table class="ded">' + head + '<tbody>' + bodyRows.join('') + sumRow + countRow + '</tbody></table>';
@@ -20227,7 +20250,8 @@ function _extComparisonTableHtml(row, block, comparison) {
   const amounts = _extComparisonAmounts(row, comparison.casts);
   const showCard = block.showCard !== false;
   const yen = value => '¥' + value.toLocaleString();
-  const hasDesignation = _posTableDesignations(_extComparisonRow(row)).some(d => !_posDepartedCasts(row).includes(d.cast))
+  const departed = new Set(_posDepartedCasts(row));
+  const hasDesignation = _posTableDesignations(_extComparisonRow(row)).some(d => !departed.has(d.cast))
     || (state.rows || []).some(r => String(r.gid) === String(row.gid) && r.mainType && r.mainType !== 'free' && !r.settled);
   const cell = amount => '<span class="extcmp-cash">' + (showCard ? '<small>現金</small>' : '') + yen(amount.cash) + '</span>'
     + (showCard ? '<span class="extcmp-card"><small>カード</small>' + yen(amount.card) + '</span>' : '');
@@ -23488,6 +23512,7 @@ function _payrollDeductionRowHTML(item) {
   const disabled = mode === 'manual' || mode === 'boolean' ? ' disabled' : '';
   const unit = mode === 'rate' ? '%' : (mode === 'fixed' ? '円' : (mode === 'boolean' ? '○／×' : '—'));
   const step = mode === 'rate' ? '0.01' : '1';
+  const printable = row.print !== false;
   return `<tr data-key="${escAttr(row.key || '')}">
     <td><input type="text" class="settings-input payroll-deduction-label" value="${escAttr(row.label || '')}" placeholder="名称" style="width:100%;box-sizing:border-box"></td>
     <td><select class="settings-input payroll-deduction-mode" onchange="payrollDeductionModeChanged(this)" style="width:160px">
@@ -23497,6 +23522,7 @@ function _payrollDeductionRowHTML(item) {
       <option value="boolean"${mode === 'boolean' ? ' selected' : ''}>○×記録（本部計算）</option>
     </select></td>
     <td><span style="display:inline-flex;align-items:center;gap:4px"><input type="number" class="settings-input payroll-deduction-value" value="${mode === 'manual' || mode === 'boolean' ? 0 : (Number(row.value) || 0)}" step="${step}" style="width:88px"${disabled}><span class="payroll-deduction-unit" style="font-size:11px;color:var(--tx3)">${unit}</span></span></td>
+    <td><label style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap"><input type="checkbox" class="payroll-deduction-print"${printable ? ' checked' : ''}>印刷</label></td>
     <td><button type="button" class="pos-me-del" onclick="payrollDeductionDel(this)">削除</button></td>
   </tr>`;
 }
@@ -23510,6 +23536,7 @@ function _collectPayrollDeductionRows(tableId) {
       label: tr.querySelector('.payroll-deduction-label')?.value.trim() || '',
       mode,
       value: mode === 'manual' || mode === 'boolean' ? 0 : (Number.isFinite(rawValue) ? rawValue : 0),
+      print: tr.querySelector('.payroll-deduction-print')?.checked !== false,
     };
   });
 }
@@ -23528,7 +23555,7 @@ function _payrollDeductionSettingsModalHtml() {
     + '<div class="pay-bd-body" style="max-height:72vh;overflow-y:auto">'
     + '<div class="pay-settings-row" style="margin-bottom:12px"><div><label for="payroll-deduction-display-field">控除票の金額欄</label><p>画面と印刷に同じ項目を表示します。</p></div><div class="pay-settings-inputs"><select id="payroll-deduction-display-field" class="settings-input"><option value="dailyPay"' + (displayField === 'dailyPay' ? ' selected' : '') + '>日給</option><option value="nominatedSales"' + (displayField === 'nominatedSales' ? ' selected' : '') + '>本指名売上</option></select></div></div>'
     + '<div style="overflow-x:auto"><table class="pos-me-table" id="payroll-deduction-settings-table" style="min-width:590px">'
-    + '<thead><tr><th>名称</th><th style="width:170px">方式</th><th style="width:130px">値</th><th style="width:56px"></th></tr></thead><tbody>'
+    + '<thead><tr><th>名称</th><th style="width:170px">方式</th><th style="width:130px">値</th><th style="width:70px">印刷</th><th style="width:56px"></th></tr></thead><tbody>'
     + items.map(_payrollDeductionRowHTML).join('') + '</tbody></table></div>'
     + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px">'
     + '<button type="button" class="pos-me-add-btn" onclick="payrollDeductionAdd(\'payroll-deduction-settings-table\')">＋ 控除項目を追加</button>'
@@ -23852,7 +23879,8 @@ function _payrollSettingsRefreshSummary() {
 }
 
 function _payrollSettingsNumber(key, label, fallback, min, max, step = 1, scale = 1) {
-  const value = Number(cfg[key] ?? fallback) * scale;
+  // 保存値0〜1を表示%へ掛けると 0.07×100=7.000000000000001 のような浮動小数の誤差が出るため、有効桁で切り揃える。
+  const value = Number((Number(cfg[key] ?? fallback) * scale).toPrecision(12));
   return '<input type="number" id="cfg-' + key + '" class="settings-input" aria-label="' + label
     + '" value="' + value + '" min="' + min + '"' + (max == null ? '' : ' max="' + max + '"')
     + ' step="' + step + '" data-fallback="' + (fallback * scale) + '">';
@@ -23891,7 +23919,7 @@ function _payrollSettingsModalHtml() {
           <h3>日ごとの控除・○×記録</h3>
           <p class="pay-settings-note">日計表・控除票に表示。○×は本部への記録用で、金額計算には含めません。</p>
           <div class="pay-settings-row"><div><label for="cfg-payrollDeductionDisplayField">控除票の金額欄</label><p>画面と印刷に同じ項目を表示します。</p></div><div class="pay-settings-inputs"><select id="cfg-payrollDeductionDisplayField" class="settings-input">${options([['dailyPay','日給'],['nominatedSales','本指名売上']],normalizePayrollDeductionDisplayField(cfg.payrollDeductionDisplayField))}</select></div></div>
-          <div class="pay-settings-table-wrap"><table class="pos-me-table" id="cfg-payroll-deductions-table"><thead><tr><th>名称</th><th>方式</th><th>金額・率</th><th></th></tr></thead><tbody>${(cfg.payrollDeductions || []).map(_payrollDeductionRowHTML).join('')}</tbody></table></div>
+          <div class="pay-settings-table-wrap"><table class="pos-me-table" id="cfg-payroll-deductions-table"><thead><tr><th>名称</th><th>方式</th><th>金額・率</th><th>印刷</th><th></th></tr></thead><tbody>${(cfg.payrollDeductions || []).map(_payrollDeductionRowHTML).join('')}</tbody></table></div>
           <div class="pay-settings-add"><button type="button" class="pos-me-add-btn" onclick="payrollDeductionAdd()">＋ 項目を追加</button>${PAYROLL_DEDUCTION_PRESETS.map(label => '<button type="button" class="btn" onclick="payrollDeductionAddPreset(\'' + escAttr(label) + '\')">＋ ' + label + '</button>').join('')}</div>
           <details class="pay-settings-details"><summary>日ごとの控除の計算</summary><p>固定額は1日ごと、率は日給に対して計算します。都度手入力は日計表・控除票で入力します。</p></details>
           <details class="pay-settings-details pay-settings-optional"${(cfg.payrollPeriodDeductions || []).length ? ' open' : ''}><summary>締めごとの控除 <span>${(cfg.payrollPeriodDeductions || []).length}項目</span></summary>
