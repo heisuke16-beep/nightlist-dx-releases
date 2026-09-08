@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.12">
+<meta name="app-version" content="1.1.13">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -17071,6 +17071,8 @@ function printReport() {
     .map(x => '<div class="nb-item"><span>' + escHtml(x.c) + '</span><span class="a">¥' + x.t.toLocaleString() + '</span></div>').join('')
     || '<div style="color:#888;padding:6px">指名売上なし</div>';
   const nominatedSalesTotal = Number(agg.nominatedSalesTotal) || 0;
+  const slipNoRange = _reportSlipNoRange(src.rows);
+  const finalSlipLabel = slipNoRange.last > 0 ? 'No.' + slipNoRange.last : '—';
 
   const w = window.open('', '_blank', 'width=920,height=1240');
   if (!w) { if (typeof showToast === 'function') showToast('ポップアップがブロックされました'); return; }
@@ -17093,7 +17095,9 @@ function printReport() {
     + 'table.payroll-table .pay-muted { color:#777; }'
     + 'thead { display: table-header-group; } tr { break-inside: avoid; }'
     + '.namebox { border:1.5px solid #000; padding:6px 10px; margin-top:10px; break-inside:avoid; }'
-    + '.namebox h3 { font-size:10pt; margin:0 0 6px; border-bottom:1px solid #000; padding-bottom:3px; }'
+    + '.namebox-head { display:flex; justify-content:space-between; align-items:baseline; gap:12px; margin:0 0 6px; border-bottom:1px solid #000; padding-bottom:3px; }'
+    + '.namebox-head h3 { font-size:10pt; margin:0; }'
+    + '.namebox-slip { font-size:9pt; font-weight:700; white-space:nowrap; }'
     + '.nb-list { column-count:4; column-gap:16px; }'
     + '.nb-item { display:flex; justify-content:space-between; gap:8px; padding:2px 4px; border-bottom:1px dotted #999; font-size:9.5pt; break-inside:avoid; }'
     + '.nb-item .a { text-align:right; white-space:nowrap; font-family:monospace; }'
@@ -17102,7 +17106,7 @@ function printReport() {
     + '<h1>日計表</h1>'
     + '<div class="hd">' + (y || '____') + ' 年 ' + (mo || '__') + ' 月 ' + (da || '__') + ' 日 ' + (wd ? '（' + wd + '）' : '') + '</div>'
     + tableHtml
-    + '<div class="namebox"><h3>キャスト別指名売上　合計 ¥' + nominatedSalesTotal.toLocaleString() + '</h3><div class="nb-list">' + nameItems + '</div></div>'
+    + '<div class="namebox"><div class="namebox-head"><h3>キャスト別指名売上　合計 ¥' + nominatedSalesTotal.toLocaleString() + '</h3><div class="namebox-slip">最終伝票 ' + finalSlipLabel + '</div></div><div class="nb-list">' + nameItems + '</div></div>'
     + '<script>window.onload=function(){window.print()}<\/script>'
     + '</body></html>'
   );
@@ -28304,6 +28308,7 @@ function castMonthlyPrint() {
 /* ================================================================
    領収書印刷（独立ウィンドウ・80mmレシート）
    領収書を 80mm 幅レシート紙向けにブラウザ印刷で出す。
+   発行時に従来の標準デザインと花柄デザインを選べる。
    - printReceipt(rowId, opts): 対象伝票から宛名・金額の初期値を取得 →
      宛名／金額／但し書きを確認・修正できる小モーダル → 「印刷」で
      別ウィンドウを開いて document.write → window.onload で印刷ダイアログ。
@@ -28459,6 +28464,13 @@ function printReceipt(rowId, opts) {
     + '<input type="text" id="receipt-edit-note" value="' + escAttr(note) + '"'
     + ' style="padding:9px 11px;font-size:14px;background:var(--sur3);border:1px solid var(--bdr2);color:var(--tx);border-radius:6px;outline:none"></label>'
     + '<label style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="receipt-edit-blankdate">日付を空欄にする（手書き用）</label>'
+    + '<fieldset style="margin:0;padding:0;border:0"><legend style="margin-bottom:6px;font-size:12px;color:var(--tx2)">デザイン</legend>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
+    + '<label style="min-height:48px;padding:8px 10px;display:flex;align-items:center;gap:8px;background:var(--sur3);border:1px solid var(--bdr2);border-radius:7px;cursor:pointer">'
+    + '<input type="radio" name="receipt-edit-template" value="standard" checked><span><strong style="display:block;color:var(--tx)">標準</strong><small>今までの領収書</small></span></label>'
+    + '<label style="min-height:48px;padding:8px 10px;display:flex;align-items:center;gap:8px;background:var(--sur3);border:1px solid var(--bdr2);border-radius:7px;cursor:pointer">'
+    + '<input type="radio" name="receipt-edit-template" value="botanical"><span><strong style="display:block;color:var(--tx)">花柄</strong><small>飾り付き領収書</small></span></label>'
+    + '</div></fieldset>'
     + '</div>'
     + '<div class="pos-co-actions" style="margin-top:18px">'
     + '<button class="pos-co-btn cash" onclick="_receiptDoPrint(\'' + escAttr(slipNo) + '\')">🖨️ 印刷する</button>'
@@ -28475,14 +28487,17 @@ function _receiptDoPrint(slipNo) {
   const amtEl  = document.getElementById('receipt-edit-amount');
   const noteEl = document.getElementById('receipt-edit-note');
   const blankDate = !!document.getElementById('receipt-edit-blankdate')?.checked;
+  const template = document.querySelector('input[name="receipt-edit-template"]:checked')?.value === 'botanical'
+    ? 'botanical'
+    : 'standard';
   const guestName = (nameEl?.value || '').trim();
   const amount = Math.max(0, parseInt(amtEl?.value) || 0);
   const note = (noteEl?.value || '').trim() || (cfg.receiptNote || 'ご飲食代として');
   document.getElementById('receipt-edit-overlay')?.remove();
-  _receiptOpenWindow({ guestName, amount, note, slipNo, blankDate });
+  _receiptOpenWindow({ guestName, amount, note, slipNo, blankDate }, template);
 }
 
-function _ryoshuSheetHtml(data, sourceOpts) {
+function _ryoshuPrintModel(data, sourceOpts) {
   const opts = _ryoshuOpts(sourceOpts);
   const d = getBizDate();
   const dateStr = data.blankDate ? '　　年　　月　　日' : d.getFullYear() + '年' + (d.getMonth() + 1) + '月' + d.getDate() + '日';
@@ -28493,6 +28508,11 @@ function _ryoshuSheetHtml(data, sourceOpts) {
   const amtStr = (Number(data.amount) || 0).toLocaleString('ja-JP');
   const addrName = data.guestName ? escHtml(data.guestName) + ' 様' : '　　　　　 様';
   const noteText = escHtml(opts.notePrefix) + (opts.notePrefix && data.note ? ' ' : '') + escHtml(data.note || '');
+  return { opts, dateStr, name1, addr, tel, inv, amtStr, addrName, noteText };
+}
+
+function _ryoshuSheetHtml(data, sourceOpts) {
+  const { opts, dateStr, name1, addr, tel, inv, amtStr, addrName, noteText } = _ryoshuPrintModel(data, sourceOpts);
   return '<div class="r-stage"><div class="r-sheet r-font-' + opts.font + '">'
     + '<div class="r-top">'
     +   '<div class="r-addr-line"' + (data.guestName ? '' : ' style="min-width:30mm"') + '>' + addrName + '</div>'
@@ -28516,8 +28536,86 @@ function _ryoshuSheetHtml(data, sourceOpts) {
     + '</div></div>';
 }
 
+function _ryoshuBotanicalSheetHtml(data, sourceOpts) {
+  const { opts, dateStr, name1, addr, tel, inv, amtStr, addrName, noteText } = _ryoshuPrintModel(data, sourceOpts);
+  const inshi = opts.showInshi && (Number(data.amount) || 0) >= opts.inshiThreshold;
+  return '<div class="rb-stage"><div class="rb-sheet r-font-' + opts.font + '">'
+    + '<svg class="rb-botanical" viewBox="0 0 140 720" preserveAspectRatio="none" aria-hidden="true">'
+    +   '<rect width="140" height="720" fill="#fffaf8"/>'
+    +   '<path d="M42 720C38 610 78 550 53 452S28 275 72 180 93 62 82 0" fill="none" stroke="#214a52" stroke-width="6"/>'
+    +   '<g fill="#214a52">'
+    +     '<path d="M48 610C15 604 6 570 8 543c30 5 48 25 40 67z"/><path d="M54 542c31-7 55-34 57-65-33 2-55 25-57 65z"/>'
+    +     '<path d="M45 394C12 385 1 353 5 324c31 7 48 31 40 70z"/><path d="M62 306c31-9 51-34 52-65-32 2-52 28-52 65z"/>'
+    +     '<path d="M71 169C41 155 34 124 42 96c28 12 41 38 29 73z"/><path d="M84 89c26-13 40-41 35-68-29 9-43 34-35 68z"/>'
+    +   '</g>'
+    +   '<g fill="#dc958c" stroke="#c97f77" stroke-width="2">'
+    +     '<circle cx="50" cy="485" r="18"/><circle cx="31" cy="462" r="15"/><circle cx="72" cy="456" r="16"/><circle cx="54" cy="438" r="15"/>'
+    +     '<circle cx="48" cy="263" r="17"/><circle cx="29" cy="242" r="14"/><circle cx="70" cy="236" r="15"/><circle cx="52" cy="216" r="14"/>'
+    +     '<circle cx="82" cy="64" r="16"/><circle cx="63" cy="44" r="13"/><circle cx="101" cy="39" r="14"/>'
+    +   '</g>'
+    +   '<g fill="#f2cec7"><circle cx="49" cy="460" r="8"/><circle cx="49" cy="239" r="7"/><circle cx="83" cy="44" r="7"/></g>'
+    + '</svg>'
+    + '<div class="rb-title">' + escHtml(opts.titleText) + '</div>'
+    + '<div class="rb-recipient">' + addrName + '</div>'
+    + '<div class="rb-meta">'
+    +   (opts.showNo ? '<div>No. ' + escHtml(data.slipNo || '') + '</div>' : '')
+    +   '<div>' + dateStr + '</div>'
+    + '</div>'
+    + '<div class="rb-amount"><span>¥</span><strong>' + amtStr + '</strong><span>（税込）</span></div>'
+    + '<div class="rb-note"><div>' + noteText + '</div><div>' + escHtml(opts.certifyText) + '</div></div>'
+    + (inshi ? '<div class="rb-inshi">収入<br>印紙</div>' : '')
+    + '<div class="rb-sign">'
+    +   '<div class="rb-store">' + escHtml(name1) + '</div>'
+    +   (opts.showAddr && addr ? '<div>' + escHtml(addr) + '</div>' : '')
+    +   (opts.showTel && tel ? '<div>TEL ' + escHtml(tel) + '</div>' : '')
+    +   (opts.showInvoice && inv ? '<div>登録番号 ' + escHtml(inv) + '</div>' : '')
+    + '</div>'
+    + '</div></div>';
+}
+
+function _ryoshuBotanicalDocumentHtml(data) {
+  const opts = _ryoshuOpts();
+  const scaleCss = _printScaleCss(cfg.ryoshuScale);
+  return '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>領収書</title>'
+    + '<style>'
+    + '@page{size:80mm auto;margin:0}'
+    + '*{box-sizing:border-box;margin:0;padding:0}'
+    + 'html,body{font-family:"Hiragino Mincho ProN","Yu Mincho","MS Mincho",serif;color:#15252b;background:#fff}'
+    + '.r-font-mincho{font-family:"Hiragino Mincho ProN","Yu Mincho","MS Mincho",serif}.r-font-gothic{font-family:"Hiragino Kaku Gothic ProN","Meiryo",sans-serif}'
+    + '.rb-stage{position:relative;width:72mm;height:134mm;overflow:hidden;margin:0 auto}'
+    + '.rb-sheet{position:absolute;top:0;left:0;width:134mm;height:72mm;overflow:hidden;background:#fff;'
+    +   'transform-origin:0 0;transform:rotate(90deg) translateY(-72mm)' + scaleCss + ';'
+    +   'print-color-adjust:exact;-webkit-print-color-adjust:exact}'
+    + '.rb-botanical{position:absolute;inset:0 auto 0 0;width:16mm;height:72mm;display:block}'
+    + '.rb-title{position:absolute;top:4mm;left:20mm;right:8mm;text-align:center;font-size:17pt;letter-spacing:5px;text-indent:5px;white-space:nowrap}'
+    + '.rb-recipient{position:absolute;top:14mm;left:22mm;width:58mm;min-height:7mm;border-bottom:0.35mm solid #26383d;'
+    +   'padding:0 2mm 1mm;text-align:right;font-size:11pt;white-space:nowrap}'
+    + '.rb-meta{position:absolute;top:5mm;right:8mm;text-align:right;font-size:8pt;line-height:1.5;white-space:nowrap}'
+    + '.rb-amount{position:absolute;top:27mm;left:22mm;width:78mm;height:14mm;display:grid;grid-template-columns:12mm 1fr 22mm;'
+    +   'align-items:center;padding:0 4mm;background:#fae9e6;border:0.25mm solid #efd8d3;font-size:11pt}'
+    + '.rb-amount strong{text-align:center;font-size:19pt;letter-spacing:1px;font-variant-numeric:tabular-nums}'
+    + '.rb-amount span:last-child{text-align:right;font-size:9pt;white-space:nowrap}'
+    + '.rb-note{position:absolute;top:47mm;left:22mm;width:58mm;font-size:9pt;line-height:1.75}'
+    + '.rb-inshi{position:absolute;top:28.5mm;left:105mm;width:11mm;height:11mm;border:0.3mm dashed #26383d;'
+    +   'display:flex;align-items:center;justify-content:center;text-align:center;font-size:6pt;line-height:1.4}'
+    + '.rb-sign{position:absolute;right:8mm;bottom:5mm;width:45mm;text-align:right;font-size:6.5pt;line-height:1.35}'
+    + '.rb-store{font-size:11pt;letter-spacing:1.5px;margin-bottom:0.6mm}'
+    + '</style></head><body>'
+    + _ryoshuBotanicalSheetHtml(data, opts)
+    + '<div style="margin:10mm auto 0;width:0.5mm;height:0;border-top:1px solid #000;print-color-adjust:exact;-webkit-print-color-adjust:exact"></div>'
+    + '<script>window.onafterprint=()=>setTimeout(()=>window.close(),100);window.onload=()=>window.print()<\/script>'
+    + '</body></html>';
+}
+
 /* 領収書HTMLを組み立てて別ウィンドウで印刷（80mmレシート向け） */
-function _receiptOpenWindow(data) {
+function _receiptOpenWindow(data, template) {
+  if (template === 'botanical') {
+    const botanicalWindow = window.open('', '_blank', 'width=720,height=420');
+    if (!botanicalWindow) { showToast('ポップアップがブロックされました'); return; }
+    botanicalWindow.document.write(_ryoshuBotanicalDocumentHtml(data));
+    botanicalWindow.document.close();
+    return;
+  }
   const opts = _ryoshuOpts();
   const scaleCss = _printScaleCss(cfg.ryoshuScale);
 
