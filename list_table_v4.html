@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.15">
+<meta name="app-version" content="1.1.16">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -3062,12 +3062,51 @@ table#customer-table { border-collapse: collapse; width: 100%; min-width: 800px;
 ================================================================ */
 #past-panel { display: flex; height: calc(100vh / var(--uiz-past, 1) - 106px); overflow: hidden; }
 
+/* 集計は設定画面と同じ「左で選ぶ・右で読む」構成。表だけが横スクロールする。 */
+#report-panel { max-width:1520px !important; min-width:0; }
+.report-layout { display:flex; align-items:flex-start; gap:20px; min-width:0; }
+.report-nav { position:sticky; top:12px; z-index:5; flex:0 0 190px; width:190px; }
+.report-content { flex:1 1 auto; min-width:0; }
+.report-nav-links { display:flex; flex-direction:column; gap:4px; max-height:calc(100vh - 180px); overflow-y:auto; padding:8px; border:1px solid var(--bdr); border-radius:10px; background:var(--sur); }
+.report-nav a { display:flex; align-items:center; min-height:44px; padding:8px 10px; border-radius:7px; color:var(--tx2); text-decoration:none; font-size:12px; font-weight:700; }
+.report-nav a:hover,.report-nav a:focus-visible,.report-nav a[aria-current="true"] { color:var(--gold2); background:var(--sur2); outline:2px solid var(--gold); outline-offset:1px; }
+.report-data-tools { margin-top:10px; padding:8px; border:1px solid var(--bdr); border-radius:10px; background:var(--sur); }
+.report-data-tools summary { cursor:pointer; min-height:44px; display:flex; align-items:center; color:var(--tx2); font-size:11px; font-weight:700; }
+.report-data-actions { display:flex; flex-direction:column; gap:5px; margin-top:7px; }
+.report-data-actions button { min-height:44px; border:1px solid var(--bdr2); border-radius:7px; background:var(--sur2); color:var(--tx2); cursor:pointer; }
+.report-anchor-section,.report-day-list,#report-payroll,#report-deduction,#daily-close-host,#report-slips,#report-range-overview,#report-range-days { scroll-margin-top:18px; }
+.report-day-link { padding:6px 8px; border:0; border-radius:6px; background:transparent; color:var(--gold2); cursor:pointer; text-decoration:underline; font:inherit; }
+.report-day-link:focus-visible { outline:2px solid var(--gold); outline-offset:2px; }
+.report-list-scroll { overflow-x:auto; }
+.report-list-table { width:max-content; min-width:100%; border-collapse:collapse; font-size:11px; }
+.report-list-table th,.report-list-table td { border-bottom:1px solid var(--bdr); padding:5px; white-space:nowrap; vertical-align:middle; }
+.report-list-table th { color:var(--tx2); background:var(--sur2); font-size:11px; font-weight:700; text-align:center; }
+.report-list-table td { text-align:center; }
+.report-list-table td.remarks-cell { text-align:left; }
+.report-list-table td.amount-cell { text-align:right; min-width:92px; }
+.report-list-table td.sales-cell { text-align:right; color:var(--gold2); font-family:var(--mono); }
+.report-list-table tbody tr.grp-alt td { background:rgba(255,255,255,0.02); }
+.report-list-table tbody tr:hover td { background:rgba(255,255,255,0.05); }
+.report-list-table .group-num { color:var(--gold2); font-size:13px; }
+.report-list-table .remarks-row { display:block; min-width:148px; white-space:normal; line-height:1.4; }
+.report-list-table .amount-layout { display:block; min-width:92px; line-height:1.45; }
+.report-list-table .desig-row { display:flex; align-items:center; gap:3px; padding:1px 0; }
+.report-list-table .desig-cast { min-width:72px; }
+.report-list-table .desig-type { min-width:64px; }
+.report-list-table .column-group-row th { height:20px; padding:4px 5px 2px; border-bottom:0; color:var(--tx3); font-size:10px; letter-spacing:.12em; line-height:12px; }
+.report-list-table #report-list-thead-row th { top:20px; }
+.report-list-table td small { color:var(--tx3); }
+.report-list-mode { color:var(--tx3); font-size:11px; }
+.report-list-empty { padding:28px; color:var(--tx3); text-align:center; }
+@media(max-width:900px) { .report-layout { display:block; } .report-nav { width:auto; margin:0 0 14px; position:static; } .report-nav-links { flex-direction:row; flex-wrap:wrap; } .report-nav a { flex:1 1 120px; justify-content:center; } #report-panel { overflow-x:hidden; } }
+
 /* 左サイドバー：営業日一覧 */
 #past-sidebar {
   width: 220px; flex-shrink: 0;
   background: var(--sur); border-right: 1px solid var(--bdr);
   display: flex; flex-direction: column; overflow: hidden;
 }
+#past-sidebar[hidden] { display: none; }
 .past-sidebar-header {
   padding: 10px 12px; border-bottom: 1px solid var(--bdr);
   display: flex; align-items: center; justify-content: space-between;
@@ -3635,7 +3674,9 @@ select:focus, input:focus { border-color: var(--gold); box-shadow: 0 0 0 3px var
 #list-table .ext-cell select,
 #past-table .ext-cell select,
 #list-table .source-sel,
-#list-table .cond-sel {
+#list-table .cond-sel,
+#past-table .source-sel,
+#past-table .cond-sel {
   -webkit-appearance: none;
   appearance: none;
   background: var(--sur2);
@@ -3662,7 +3703,9 @@ select:focus, input:focus { border-color: var(--gold); box-shadow: 0 0 0 3px var
 #list-table .ext-cell select:hover,
 #past-table .ext-cell select:hover,
 #list-table .source-sel:hover,
-#list-table .cond-sel:hover {
+#list-table .cond-sel:hover,
+#past-table .source-sel:hover,
+#past-table .cond-sel:hover {
   background: var(--sur3);
   border-color: var(--bdr2) !important;
 }
@@ -3679,7 +3722,9 @@ select:focus, input:focus { border-color: var(--gold); box-shadow: 0 0 0 3px var
 #list-table .ext-cell select:focus,
 #past-table .ext-cell select:focus,
 #list-table .source-sel:focus,
-#list-table .cond-sel:focus {
+#list-table .cond-sel:focus,
+#past-table .source-sel:focus,
+#past-table .cond-sel:focus {
   background: var(--sur3);
   border-color: var(--gold) !important;
   box-shadow: 0 0 0 3px var(--goldglow);
@@ -3688,13 +3733,17 @@ select:focus, input:focus { border-color: var(--gold); box-shadow: 0 0 0 3px var
 /* 指名種別は文字色で見分ける（2026-07-20 オーナー指示。枠色は主張が強すぎたため文字のみに変更）。
    場内=黄 / 本指名=赤 / 同伴=緑。延長指名は既存の水色を踏襲 */
 #list-table .desig-row.type-jounai      .type-sel,
-#past-table .desig-row.type-jounai      .type-sel { color: #f0c65a; }
+#past-table .desig-row.type-jounai      .type-sel,
+.report-list-table .desig-row.type-jounai .type-sel { color: #f0c65a; }
 #list-table .desig-row.type-honshimei   .type-sel,
-#past-table .desig-row.type-honshimei   .type-sel { color: #f07a92; }
+#past-table .desig-row.type-honshimei   .type-sel,
+.report-list-table .desig-row.type-honshimei .type-sel { color: #f07a92; }
 #list-table .desig-row.type-douban      .type-sel,
-#past-table .desig-row.type-douban      .type-sel { color: #5fd79a; }
+#past-table .desig-row.type-douban      .type-sel,
+.report-list-table .desig-row.type-douban .type-sel { color: #5fd79a; }
 #list-table .desig-row.type-enchoshimei .type-sel,
-#past-table .desig-row.type-enchoshimei .type-sel { color: #6cc9e8; }
+#past-table .desig-row.type-enchoshimei .type-sel,
+.report-list-table .desig-row.type-enchoshimei .type-sel { color: #6cc9e8; }
 
 /* --- リスト表：補助操作を常時見えるゴースト表示にする --- */
 #list-table .sub-add-btn,
@@ -3739,7 +3788,8 @@ select:focus, input:focus { border-color: var(--gold); box-shadow: 0 0 0 3px var
 #list-table .group-rem-btn:hover,
 #list-table .group-rem-btn:focus { color: var(--red); opacity: 1; }
 
-#list-table .customer-picker-trigger {
+#list-table .customer-picker-trigger,
+#past-table .customer-picker-trigger {
   width: 100%;
   padding: 4px 6px;
   border: 1px solid transparent;
@@ -3750,33 +3800,40 @@ select:focus, input:focus { border-color: var(--gold); box-shadow: 0 0 0 3px var
   text-align: left;
   cursor: pointer;
 }
-#list-table .customer-picker-trigger.is-empty {
+#list-table .customer-picker-trigger.is-empty,
+#past-table .customer-picker-trigger.is-empty {
   color: var(--tx3);
   opacity: 0.5;
 }
 #list-table .customer-picker-trigger:hover,
-#list-table .customer-picker-trigger:focus {
+#list-table .customer-picker-trigger:focus,
+#past-table .customer-picker-trigger:hover,
+#past-table .customer-picker-trigger:focus {
   background: var(--sur2);
   border-color: var(--bdr2);
   color: var(--tx);
   opacity: 1;
   outline: none;
 }
-#list-table .customer-picker-trigger:focus {
+#list-table .customer-picker-trigger:focus,
+#past-table .customer-picker-trigger:focus {
   border-color: var(--gold);
   box-shadow: 0 0 0 3px var(--goldglow);
 }
 
 /* --- リスト表：料金入力を小さなチップと文字入力に圧縮 --- */
-#list-table .amount-cell { min-width: 92px; }
-#list-table .amount-layout {
+#list-table .amount-cell,
+#past-table .amount-cell { min-width: 92px; }
+#list-table .amount-layout,
+#past-table .amount-layout {
   display: grid;
   grid-template-columns: auto auto;
   align-items: center;
   justify-content: end;
   gap: 2px 3px;
 }
-#list-table .amount-method {
+#list-table .amount-method,
+#past-table .amount-method {
   grid-column: 1;
   grid-row: 1;
   align-self: center;
@@ -3784,11 +3841,14 @@ select:focus, input:focus { border-color: var(--gold); box-shadow: 0 0 0 3px var
   margin-bottom: 0;
 }
 #list-table .amount-layout > .cash-row,
-#list-table .amount-layout > .card-row {
+#list-table .amount-layout > .card-row,
+#past-table .amount-layout > .cash-row,
+#past-table .amount-layout > .card-row {
   grid-column: 2;
   margin-bottom: 0;
 }
-#list-table .method-btn {
+#list-table .method-btn,
+#past-table .method-btn {
   padding: 2px 4px;
   border: 1px solid transparent;
   border-radius: 5px;
@@ -3798,23 +3858,28 @@ select:focus, input:focus { border-color: var(--gold); box-shadow: 0 0 0 3px var
   font-size: 9px;
   opacity: 0.5;
 }
-#list-table .method-btn.active-cash {
+#list-table .method-btn.active-cash,
+#past-table .method-btn.active-cash {
   background: rgba(255,255,255,0.06);
   color: var(--tx);
   opacity: 1;
 }
-#list-table .method-btn.active-card {
+#list-table .method-btn.active-card,
+#past-table .method-btn.active-card {
   background: rgba(232,64,96,0.1);
   color: var(--red);
   opacity: 1;
 }
-#list-table .method-btn.active-both {
+#list-table .method-btn.active-both,
+#past-table .method-btn.active-both {
   background: rgba(201,168,76,0.1);
   color: var(--gold2);
   opacity: 1;
 }
 #list-table .amount-cell .cash-row input:not(.entry-label-input),
-#list-table .amount-cell .card-row input:not(.entry-label-input) {
+#list-table .amount-cell .card-row input:not(.entry-label-input),
+#past-table .amount-cell .cash-row input:not(.entry-label-input),
+#past-table .amount-cell .card-row input:not(.entry-label-input) {
   width: 72px;
   padding: 3px 4px;
   background: transparent;
@@ -3823,12 +3888,16 @@ select:focus, input:focus { border-color: var(--gold); box-shadow: 0 0 0 3px var
   text-align: right;
 }
 #list-table .amount-cell .cash-row input:not(.entry-label-input):focus,
-#list-table .amount-cell .card-row input:not(.entry-label-input):focus {
+#list-table .amount-cell .card-row input:not(.entry-label-input):focus,
+#past-table .amount-cell .cash-row input:not(.entry-label-input):focus,
+#past-table .amount-cell .card-row input:not(.entry-label-input):focus {
   background: var(--sur2);
   border-color: var(--gold) !important;
   box-shadow: 0 0 0 3px var(--goldglow);
 }
-#list-table .column-group-row th {
+#list-table .column-group-row th,
+#past-table .column-group-row th,
+.report-list-table .column-group-row th {
   height: 20px;
   padding: 4px 5px 2px;
   border-bottom: 0;
@@ -3838,9 +3907,14 @@ select:focus, input:focus { border-color: var(--gold); box-shadow: 0 0 0 3px var
   line-height: 12px;
   top: 0;
 }
-#list-table .column-group-row th.column-group-label { color: var(--gold); }
-#list-table #thead-row th { top: 20px; }
-#list-table .col-ctrl-btn {
+#list-table .column-group-row th.column-group-label,
+#past-table .column-group-row th.column-group-label,
+.report-list-table .column-group-row th.column-group-label { color: var(--gold); }
+#list-table #thead-row th,
+#past-table #past-thead-row th,
+.report-list-table #report-list-thead-row th { top: 20px; }
+#list-table .col-ctrl-btn,
+#past-table .col-ctrl-btn {
   min-width: 22px;
   min-height: 22px;
   padding: 0;
@@ -3850,10 +3924,14 @@ select:focus, input:focus { border-color: var(--gold); box-shadow: 0 0 0 3px var
   opacity: 0.5;
 }
 #list-table .col-ctrl-btn:hover,
-#list-table .col-ctrl-btn:focus { border: 0; color: var(--gold); opacity: 1; }
+#list-table .col-ctrl-btn:focus,
+#past-table .col-ctrl-btn:hover,
+#past-table .col-ctrl-btn:focus { border: 0; color: var(--gold); opacity: 1; }
 html[data-display="tablet"] #list-table .col-ctrl-btn { min-width: 32px; min-height: 32px; }
 /* 縦区切り線はオーナー判断で廃止（2026-07-20）。.gline クラス自体は残してあるので、復活させる場合はここに border-left を戻す */
-#list-table .gline { border-left: none; }
+#list-table .gline,
+#past-table .gline,
+.report-list-table .gline { border-left: none; }
 
 /* --- POS：商品/ボタン/カテゴリのモダン化 --- */
 .pos-product { border-radius: 12px; }
@@ -4486,26 +4564,33 @@ html[data-display="tablet"] #list-table .col-ctrl-btn { min-width: 32px; min-hei
 }
 
 /* --- リスト表：備考1行化・組セル圧縮 --- */
-#list-table td.group-num {
+#list-table td.group-num,
+#past-table td.group-num {
   min-width: 66px;
   padding: 1px 2px !important;
 }
-#list-table .group-num-layout {
+#list-table .group-num-layout,
+#past-table .group-num-layout {
   display: grid;
   grid-template-rows: 22px 22px;
   justify-content: center;
   align-items: center;
 }
 #list-table .group-num-main,
-#list-table .group-num-actions {
+#list-table .group-num-actions,
+#past-table .group-num-main,
+#past-table .group-num-actions {
   display: flex;
   justify-content: center;
   align-items: center;
 }
-#list-table .group-num-main { position: relative; gap: 2px; }
+#list-table .group-num-main,
+#past-table .group-num-main { position: relative; gap: 2px; }
 #list-table .grp-drag-grip,
 #list-table .group-num-circle,
-#list-table .group-num-actions button {
+#list-table .group-num-actions button,
+#past-table .group-num-circle,
+#past-table .group-num-actions button {
   box-sizing: border-box;
   display: inline-flex;
   align-items: center;
@@ -4519,26 +4604,34 @@ html[data-display="tablet"] #list-table .col-ctrl-btn { min-width: 32px; min-hei
   line-height: 1;
 }
 #list-table .grp-drag-grip { opacity: 0.65; }
-#list-table .group-num-circle { font-size: 13px; }
-#list-table .group-num-actions {
+#list-table .group-num-circle,
+#past-table .group-num-circle { font-size: 13px; }
+#list-table .group-num-actions,
+#past-table .group-num-actions {
   position: static;
   gap: 0;
   transform: none;
 }
-#list-table .group-num-actions .group-del-btn { position: static; transform: none; }
-#list-table .remarks-row {
+#list-table .group-num-actions .group-del-btn,
+#past-table .group-num-actions .group-del-btn { position: static; transform: none; }
+#list-table .remarks-row,
+#past-table .remarks-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 3px;
 }
 #list-table .remarks-row > .remarks-top,
-#list-table .remarks-row > .remarks-bottom { display: contents; }
-#list-table .remarks-row .name-suggest-wrap {
+#list-table .remarks-row > .remarks-bottom,
+#past-table .remarks-row > .remarks-top,
+#past-table .remarks-row > .remarks-bottom { display: contents; }
+#list-table .remarks-row .name-suggest-wrap,
+#past-table .remarks-row .name-suggest-wrap {
   flex: 0 1 auto;
   min-width: 0;
 }
-#list-table .remarks-row .name-input {
+#list-table .remarks-row .name-input,
+#past-table .remarks-row .name-input {
   flex: 0 1 auto;
   width: auto;
   min-width: 72px;
@@ -4546,7 +4639,8 @@ html[data-display="tablet"] #list-table .col-ctrl-btn { min-width: 32px; min-hei
 }
 /* 顧客名の長さで経路(フロント等)・条件(NF等)の位置がズレていたので、
    顧客ボタンだけを伸縮させ、経路以降は右端に固定して行間で揃える（2026-07-20 オーナー指摘） */
-#list-table .remarks-row .customer-picker-trigger {
+#list-table .remarks-row .customer-picker-trigger,
+#past-table .remarks-row .customer-picker-trigger {
   width: auto;
   flex: 0 1 auto;
   min-width: 0;
@@ -4554,18 +4648,22 @@ html[data-display="tablet"] #list-table .col-ctrl-btn { min-width: 32px; min-hei
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-#list-table .remarks-row .source-sel { margin-left: auto; }
-#list-table .remarks-row .cond-sel {
+#list-table .remarks-row .source-sel,
+#past-table .remarks-row .source-sel { margin-left: auto; }
+#list-table .remarks-row .cond-sel,
+#past-table .remarks-row .cond-sel {
   flex: 0 1 auto;
   width: auto;
   min-width: 58px;
 }
-#list-table .remarks-row .cond-custom-input {
+#list-table .remarks-row .cond-custom-input,
+#past-table .remarks-row .cond-custom-input {
   flex: 1 0 100%;
   width: 100%;
   margin-top: 0 !important;
 }
-#list-table .remarks-row .linked-note {
+#list-table .remarks-row .linked-note,
+#past-table .remarks-row .linked-note {
   flex: 0 1 auto;
   padding: 0 2px;
   white-space: nowrap;
@@ -4898,6 +4996,7 @@ html[data-display="tablet"] #list-table .col-ctrl-btn { min-width: 32px; min-hei
 
   html[data-theme="champagne"] #list-table,
   html[data-theme="champagne"] #past-table,
+  html[data-theme="champagne"] .report-list-table,
   html[data-theme="champagne"] #customer-table,
   html[data-theme="champagne"] #bottle-table,
   html[data-theme="champagne"] #tt-simple-table,
@@ -4909,6 +5008,7 @@ html[data-display="tablet"] #list-table .col-ctrl-btn { min-width: 32px; min-hei
 
   html[data-theme="champagne"] #list-table th,
   html[data-theme="champagne"] #past-table th,
+  html[data-theme="champagne"] .report-list-table th,
   html[data-theme="champagne"] #customer-table th,
   html[data-theme="champagne"] #bottle-table th,
   html[data-theme="champagne"] #tt-simple-table th,
@@ -4921,6 +5021,7 @@ html[data-display="tablet"] #list-table .col-ctrl-btn { min-width: 32px; min-hei
 
   html[data-theme="champagne"] #list-table td,
   html[data-theme="champagne"] #past-table td,
+  html[data-theme="champagne"] .report-list-table td,
   html[data-theme="champagne"] #customer-table td,
   html[data-theme="champagne"] #bottle-table td,
   html[data-theme="champagne"] #tt-simple-table td,
@@ -5009,13 +5110,17 @@ html[data-display="tablet"] #list-table .col-ctrl-btn { min-width: 32px; min-hei
   /* Legacy semantic hues were tuned for charcoal. Darker equivalents keep
      the same meanings readable on the champagne table surface. */
   html[data-theme="champagne"] #list-table .desig-row.type-jounai .type-sel,
-  html[data-theme="champagne"] #past-table .desig-row.type-jounai .type-sel { color: #765600; }
+  html[data-theme="champagne"] #past-table .desig-row.type-jounai .type-sel,
+  html[data-theme="champagne"] .report-list-table .desig-row.type-jounai .type-sel { color: #765600; }
   html[data-theme="champagne"] #list-table .desig-row.type-honshimei .type-sel,
-  html[data-theme="champagne"] #past-table .desig-row.type-honshimei .type-sel { color: #a42a43; }
+  html[data-theme="champagne"] #past-table .desig-row.type-honshimei .type-sel,
+  html[data-theme="champagne"] .report-list-table .desig-row.type-honshimei .type-sel { color: #a42a43; }
   html[data-theme="champagne"] #list-table .desig-row.type-douban .type-sel,
-  html[data-theme="champagne"] #past-table .desig-row.type-douban .type-sel { color: #1f7146; }
+  html[data-theme="champagne"] #past-table .desig-row.type-douban .type-sel,
+  html[data-theme="champagne"] .report-list-table .desig-row.type-douban .type-sel { color: #1f7146; }
   html[data-theme="champagne"] #list-table .desig-row.type-enchoshimei .type-sel,
-  html[data-theme="champagne"] #past-table .desig-row.type-enchoshimei .type-sel { color: #24678c; }
+  html[data-theme="champagne"] #past-table .desig-row.type-enchoshimei .type-sel,
+  html[data-theme="champagne"] .report-list-table .desig-row.type-enchoshimei .type-sel { color: #24678c; }
 
   html[data-theme="champagne"] #tt-simple-table tr.tt-row-inactive td {
     background: #f4ead7;
@@ -5757,6 +5862,17 @@ html[data-display="tablet"] #list-table .col-ctrl-btn { min-width: 32px; min-hei
     }
     html[data-theme="champagne"] #summary-bar .sum-brand { margin-right: 4px; }
   }
+
+  /* Hide only the champagne root scrollbar; table, modal and POS scrollers keep theirs. */
+  html[data-theme="champagne"] {
+    scrollbar-gutter: auto;
+    scrollbar-width: none;
+  }
+  html[data-theme="champagne"]::-webkit-scrollbar { width: 0; }
+  html[data-theme="champagne"] .report-nav a[aria-current="true"] {
+    color: #62400f;
+    background: #eee1ca;
+  }
 }
 
 </style>
@@ -5859,7 +5975,6 @@ html[data-display="tablet"] #list-table .col-ctrl-btn { min-width: 32px; min-hei
   <button class="tab-btn"        data-tab="analytics" onclick="showTab('analytics')"><span class="theme-icon-legacy" aria-hidden="true">📈</span><svg class="champagne-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m3 17 6-6 4 4 8-9M17 6h4v4"/></svg><span class="theme-label">経営分析</span></button>
   <button class="tab-btn"        data-tab="customer" onclick="showTab('customer')"><span class="theme-icon-legacy" aria-hidden="true">👤</span><svg class="champagne-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 21a8 8 0 0 0-16 0M12 13a5 5 0 1 0 0-10 5 5 0 0 0 0 10"/></svg><span class="theme-label">顧客管理</span></button>
   <button class="tab-btn"        data-tab="bottle"   onclick="showTab('bottle')"><span class="theme-icon-legacy" aria-hidden="true">🍾</span><svg class="champagne-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 2h6M10 2v5l-3 4v9a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2v-9l-3-4V2M8 13h8"/></svg><span class="theme-label">ボトル</span></button>
-  <button class="tab-btn"        data-tab="past"     onclick="showTab('past')"><span class="theme-icon-legacy" aria-hidden="true">📅</span><svg class="champagne-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 5h18v16H3zM7 2v6M17 2v6M3 10h18M8 14h3M13 14h3M8 18h3"/></svg><span class="theme-label">過去のリスト</span></button>
   <button class="tab-btn"        data-tab="settings" onclick="showTab('settings')"><span class="theme-icon-legacy" aria-hidden="true">⚙️</span><svg class="champagne-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7ZM19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56V21h-4v-.08A1.7 1.7 0 0 0 8.97 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.03H3v-4h.08A1.7 1.7 0 0 0 4.6 8.94a1.7 1.7 0 0 0-.34-1.88L4.2 7l2.83-2.83.06.06a1.7 1.7 0 0 0 1.88.34A1.7 1.7 0 0 0 10 3.01V3h4v.08a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.88-.34l.06-.06L19.8 7l-.06.06a1.7 1.7 0 0 0-.34 1.88A1.7 1.7 0 0 0 20.96 10H21v4h-.08A1.7 1.7 0 0 0 19.4 15Z"/></svg><span class="theme-label">設定</span></button>
   <button class="tab-btn" id="tab-demo-btn" style="margin-left:auto" onclick="demoModeToggle()">🎬 デモ</button>
 </div>
@@ -9458,7 +9573,8 @@ async function restoreFromRecovery(idx) {
   if (typeof renderPastSidebar === 'function') renderPastSidebar();
   const m = document.getElementById('recovery-modal');
   if (m) m.remove();
-  await appAlert(`${bizKeyToLabel(clean.dayKey)} のデータを復元しました。\n過去リスト一覧を確認してください。`);
+  if (typeof renderReportPanel === 'function') renderReportPanel();
+  await appAlert(`${bizKeyToLabel(clean.dayKey)} のデータを復元しました。\n集計の営業日一覧を確認してください。`);
 }
 
 /* ================================================================
@@ -11022,9 +11138,9 @@ function openRowCustomerPicker(rowId) {
   });
 }
 
-function visibleTableColumnCount(key, total, secondaryKey) {
+function visibleTableColumnCount(key, total, secondaryKey, rows = state.rows) {
   let usedMax = -1;
-  state.rows.forEach(row => {
+  (Array.isArray(rows) ? rows : []).forEach(row => {
     const values = row[key] || [];
     const secondaryValues = secondaryKey ? (row[secondaryKey] || []) : [];
     const length = Math.max(values.length, secondaryValues.length);
@@ -12474,6 +12590,22 @@ function _ssDismiss(e) {
    TAB SWITCH
 ================================================================ */
 let _settingsLeavePendingTab = null;
+let _pastLeavePending = false;
+function _pastEditorIsDirty() {
+  return typeof isPastEditorDirty === 'function' && isPastEditorDirty();
+}
+async function _confirmPastEditorLeave(action) {
+  if (_pastLeavePending) return false;
+  _pastLeavePending = true;
+  const ok = await appConfirm('この日のリストに未保存の変更があります。変更を破棄して移動しますか？\n\n保存済みデータは変更されません。', {
+    okLabel: '破棄して移動', cancelLabel: '編集に戻る', danger: true,
+  });
+  _pastLeavePending = false;
+  if (!ok) return false;
+  if (typeof discardPastEditor === 'function') discardPastEditor();
+  if (typeof action === 'function') action();
+  return true;
+}
 async function _confirmSettingsLeave(targetTab) {
   if (_settingsLeavePendingTab !== null) return;
   _settingsLeavePendingTab = targetTab;
@@ -12488,6 +12620,19 @@ async function _confirmSettingsLeave(targetTab) {
 }
 
 function showTab(tab) {
+  // 過去リストは集計から開く編集サブ画面。旧保存値は起動時に集計へ戻す。
+  if (tab === 'past' && typeof isPastEditorOpen === 'function' && !isPastEditorOpen()) {
+    tab = 'report';
+  }
+  // 過去リスト編集は集計のサブ画面でもあるため、表示タブにかかわらず
+  // 別タブへ移る前に未保存確認を行い、cleanでもdraftを閉じる。
+  if (typeof isPastEditorOpen === 'function' && isPastEditorOpen() && tab !== 'past') {
+    if (_pastEditorIsDirty()) {
+      _confirmPastEditorLeave(() => showTab(tab));
+      return;
+    }
+    if (typeof discardPastEditor === 'function') discardPastEditor();
+  }
   if (document.body.dataset.activeTab === 'settings' && tab !== 'settings' && _settingsDirty) {
     _confirmSettingsLeave(tab);
     return;
@@ -12517,7 +12662,7 @@ function showTab(tab) {
   if (tab === 'analytics') renderBusinessAnalyticsPanel();
   if (tab === 'customer') { syncCustomers(); renderCustomerTable(); }
   if (tab === 'bottle') renderBottlePanel();
-  if (tab === 'past') renderPastSidebar();
+  if (tab === 'past') { renderPastSidebar(); renderPastMain(); }
   if (tab === 'settings') renderSettingsPanel();
   // F5リロード後に同じタブへ戻れるよう記憶（sessionStorage＝同一タブ内のみ有効。
   // 新規起動はこれまでどおりリスト表から。2026-07-14 オーナー要望）
@@ -12530,7 +12675,9 @@ function showTab(tab) {
 function restoreActiveTab() {
   let saved = null;
   try { saved = sessionStorage.getItem('nightlist_active_tab'); } catch (_) {}
-  const valid = ['pos', 'list', 'cast', 'customer', 'bottle', 'report', 'analytics', 'past', 'settings'];
+  // 旧版の独立pastタブを復元して編集状態に入れない。
+  if (saved === 'past') saved = 'report';
+  const valid = ['pos', 'list', 'cast', 'customer', 'bottle', 'report', 'analytics', 'settings'];
   showTab(saved && valid.indexOf(saved) >= 0 ? saved : 'pos');
 }
 
@@ -17048,6 +17195,7 @@ function _posReportSorted(rows) {
 
 let reportPeriod = 'day';   // 'day' | 'week' | 'month'
 function setReportPeriod(p) { reportPeriod = p; renderReportPanel(); }
+function setReportDayAndOpen(dayKey) { reportPeriod = 'day'; reportSelectedDay = dayKey || null; renderReportPanel(); }
 
 let castRankingMonth = null;       // YYYYMM。nullは当月
 let castRankingSalesBase = 'total'; // subtotal | total（既存の帰属売上定義を初期値にする）
@@ -17287,14 +17435,14 @@ function _reportDaySource() {
     const tt = (typeof loadTimetableState === 'function') ? loadTimetableState() : {};
     const snap = _reportClosedTodaySnap();
     if (snap) {
-      return { dayKey: todayKey, rows: Array.isArray(snap.rows) ? snap.rows : [], tt: snap.timetableSnap || tt, activeCasts: Array.isArray(snap.activeCasts) ? snap.activeCasts : (state.activeCasts || []) };
+      return { dayKey: todayKey, rows: Array.isArray(snap.rows) ? snap.rows : [], tt: snap.timetableSnap || tt, activeCasts: Array.isArray(snap.activeCasts) ? snap.activeCasts : (state.activeCasts || []), rotCols: snap.rotCols, extCols: snap.extCols };
     }
-    return { dayKey: todayKey, rows: state.rows || [], tt, activeCasts: state.activeCasts || [] };
+    return { dayKey: todayKey, rows: state.rows || [], tt, activeCasts: state.activeCasts || [], rotCols: state.rotCols, extCols: state.extCols };
   }
   // 過去営業日：バックアップから rows + timetableSnap を取得（閲覧専用）
   const snap = (typeof loadBackups === 'function' ? loadBackups() : []).find(s => s.dayKey === key);
   if (snap) {
-    return { dayKey: key, rows: Array.isArray(snap.rows) ? snap.rows : [], tt: snap.timetableSnap || {}, activeCasts: Array.isArray(snap.activeCasts) ? snap.activeCasts : [] };
+    return { dayKey: key, rows: Array.isArray(snap.rows) ? snap.rows : [], tt: snap.timetableSnap || {}, activeCasts: Array.isArray(snap.activeCasts) ? snap.activeCasts : [], rotCols: snap.rotCols, extCols: snap.extCols };
   }
   // フォールバック：_collectDayRows に存在すれば rows のみ（ttは空）
   const map = _collectDayRows();
@@ -17465,8 +17613,9 @@ function renderReportPanel() {
       ? '<div class="report-end-business-day"><button type="button" class="btn" onclick="reportReopenBusinessDay()">↩ 営業終了を取り消す</button></div>'
       : '<div class="report-end-business-day"><button type="button" class="btn danger" onclick="reportEndBusinessDay()">🔚 営業終了（日締め）</button></div>';
   }
+  const body = reportPeriod === 'day' ? _renderReportDay() : _renderReportRange(reportPeriod);
   panel.innerHTML = endBusinessDayHtml + _reportPeriodSwitchHtml()
-    + (reportPeriod === 'day' ? _renderReportDay() : _renderReportRange(reportPeriod));
+    + `<div class="report-layout">${_reportNavHtml(reportPeriod, body.includes('id="daily-close-host"'))}<div class="report-content">${body}</div></div>`;
 }
 
 /* 週報・月報：営業日ごとの集計テーブル */
@@ -17484,17 +17633,17 @@ function _renderReportRange(period) {
     ? `週報 — ${wMon.toLocaleDateString('ja-JP',{month:'numeric',day:'numeric'})}〜${wSun.toLocaleDateString('ja-JP',{month:'numeric',day:'numeric'})}`
     : `月報 — ${todayKey.slice(0,4)}年${+todayKey.slice(4,6)}月`;
   if (!keys.length) {
-    return titleH(periodLabel) + '<div style="text-align:center;color:var(--tx3);padding:40px">この期間の精算データはありません</div>';
+    return '<div id="report-range-overview">' + titleH(periodLabel) + '<div id="report-range-days" aria-hidden="true"></div><div style="text-align:center;color:var(--tx3);padding:40px">この期間の精算データはありません</div></div>';
   }
   let tCount=0, tGuests=0, tCash=0, tCard=0, tUrikake=0;
   const rowsHtml = keys.map(k => {
     const s = _reportDayStats(map[k]);
     tCount+=s.count; tGuests+=s.guests; tCash+=s.cashSum; tCard+=s.cardSum; tUrikake+=s.urikakeSum;
-    return `<tr><td class="day">${bizKeyToLabel(k)}</td><td>${s.count}</td><td>${s.guests}</td><td>¥${s.cashSum.toLocaleString()}</td><td>¥${s.cardSum.toLocaleString()}</td><td>¥${s.urikakeSum.toLocaleString()}</td><td>¥${s.total.toLocaleString()}</td></tr>`;
+    return `<tr><td class="day"><button type="button" class="report-day-link" onclick="setReportDayAndOpen('${k}')">${bizKeyToLabel(k)}</button></td><td>${s.count}</td><td>${s.guests}</td><td>¥${s.cashSum.toLocaleString()}</td><td>¥${s.cardSum.toLocaleString()}</td><td>¥${s.urikakeSum.toLocaleString()}</td><td>¥${s.total.toLocaleString()}</td></tr>`;
   }).join('');
   const tTotal = tCash + tCard + tUrikake;
   const avg = tGuests ? Math.round(tTotal/tGuests) : 0;
-  return titleH(periodLabel)
+  return '<div id="report-range-overview">' + titleH(periodLabel)
     + `<div class="pos-hist-stats" style="margin-bottom:16px">
         <div class="pos-hist-stat"><div class="pos-hist-stat-label">営業日数</div><div class="pos-hist-stat-val">${keys.length}</div></div>
         <div class="pos-hist-stat"><div class="pos-hist-stat-label">精算組数</div><div class="pos-hist-stat-val">${tCount}</div></div>
@@ -17505,10 +17654,10 @@ function _renderReportRange(period) {
         <div class="pos-hist-stat-label">期間売上合計</div>
         <div class="pos-hist-stat-val" style="color:var(--green);font-size:28px">¥${tTotal.toLocaleString()}</div>
       </div>
-      <div style="overflow-x:auto"><table class="report-range-table">
+      <div id="report-range-days" style="overflow-x:auto"><table class="report-range-table">
         <thead><tr><th style="text-align:left">営業日</th><th>組数</th><th>人数</th><th>現金</th><th>カード</th><th>売掛</th><th>合計</th></tr></thead>
         <tbody>${rowsHtml}<tr class="total"><td class="day">合計</td><td>${tCount}</td><td>${tGuests}</td><td>¥${tCash.toLocaleString()}</td><td>¥${tCard.toLocaleString()}</td><td>¥${tUrikake.toLocaleString()}</td><td>¥${tTotal.toLocaleString()}</td></tr></tbody>
-      </table></div>`;
+      </table></div></div>`;
 }
 
 /* ================================================================
@@ -18892,7 +19041,7 @@ function _payrollSectionHtml(src) {
   const hasDeductions = typeof cfg !== 'undefined' && Array.isArray(cfg.payrollDeductions) && cfg.payrollDeductions.length > 0;
   const deductionNote = hasDeductions
     ? '<span class="payroll-note">金額方式は店舗計算、○×方式は本部計算用の発生記録です</span>' : '';
-  return '<div class="agg-box" style="margin-top:18px">'
+  return '<div id="report-payroll" class="agg-box" style="margin-top:18px">'
     + '<div class="agg-box-head">'
     + '<h3>日計表 <span class="payroll-note">※時給は表示されません（キャスト管理で管理）／社交名を固定して横にスクロールできます</span>' + deductionNote + '</h3>'
     + '<div class="agg-box-actions">'
@@ -18908,7 +19057,7 @@ function _payrollSectionHtml(src) {
 
 function _deductionSheetSectionHtml(src) {
   const hasDeductions = typeof cfg !== 'undefined' && Array.isArray(cfg.payrollDeductions) && cfg.payrollDeductions.length > 0;
-  return '<div class="agg-box" style="margin-top:18px">'
+  return '<div id="report-deduction" class="agg-box" style="margin-top:18px">'
     + '<div class="agg-box-head">'
     + '<h3>控除票 <span class="payroll-note">※出勤キャスト全員。金額と○×は日計表に連動し、○×は控除計・差引支給に加算されません</span></h3>'
     + '<div class="agg-box-actions">'
@@ -18936,6 +19085,87 @@ function _reportDaySelectHtml() {
   return '<label class="pos-report-sort" style="margin-left:auto">営業日 '
     + '<select onchange="setReportDay(this.value)">' + keys.map(fmt).join('') + '</select>'
     + '</label>';
+}
+
+function _reportNavHtml(period, hasDailyClose = true) {
+  const labels = period === 'day'
+    ? [['report-overview','売上概要'],['report-nomination','指名売上'],['report-payroll','日計表'],['report-deduction','控除票'],['daily-close-host','日次締め'],['report-slips','会計伝票'],['report-day-list','その日のリスト']]
+    : [['report-range-overview','期間概要'],['report-range-days','日別一覧']];
+  const items = labels.filter(([id]) => id !== 'daily-close-host' || hasDailyClose).map(([id,label]) => `<a href="#${id}" aria-label="${label}へ移動" onclick="_reportNavActivate(this,event)">${label}</a>`).join('');
+  return `<nav class="report-nav" aria-label="集計内メニュー"><div class="report-nav-links">${items}</div><details class="report-data-tools"><summary>保存データ管理</summary><div class="report-data-actions"><button type="button" onclick="restoreBackup()">♻️ 復元</button><button type="button" onclick="showRecoveryModal()">🛟 データ復旧</button><button type="button" onclick="showNewDayModal()">＋ 新しい営業日</button></div></details></nav>`;
+}
+function _reportNavActivate(link, event) {
+  event?.preventDefault();
+  const target = document.getElementById(link?.getAttribute('href')?.slice(1) || '');
+  document.querySelectorAll('.report-nav a').forEach(a => a.removeAttribute('aria-current'));
+  link?.setAttribute('aria-current', 'true');
+  if (target) {
+    if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1');
+    target.scrollIntoView({ behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+    target.focus?.({ preventScroll: true });
+  }
+}
+function _reportReadonlyText(value) { return escHtml(value == null ? '' : String(value)); }
+function _reportReadonlyMoney(value) { return Number(value) ? '¥' + Number(value).toLocaleString('ja-JP') : ''; }
+function _reportReadonlyDesignation(cast, type) {
+  const meta = MAIN_TYPES?.[type] || MAIN_TYPES.free;
+  const label = meta.label || type || '';
+  if (!cast && !label) return '';
+  return `<div class="desig-row ${meta.cls || 'type-free'}"><span class="cast-sel desig-cast">${_reportReadonlyText(cast || '—')}</span><span class="type-sel desig-type">${_reportReadonlyText(label)}</span></div>`;
+}
+function _reportReadonlyListHtml(src) {
+  const rows = Array.isArray(src?.rows) ? src.rows : [];
+  const liveKey = getLoadedDayKey();
+  const closedToday = !!_reportClosedTodaySnap() && src?.dayKey === liveKey;
+  const live = src?.dayKey === liveKey && !closedToday;
+  const snap = !live && (typeof loadBackups === 'function') ? loadBackups().find(s => s.dayKey === src?.dayKey) : null;
+  if (!rows.length) {
+    const action = live ? '<button type="button" class="btn" onclick="showTab(\'list\')">営業中のリストを開く</button>' : (snap ? `<button type="button" class="btn" onclick="openReportListEditor('${_reportReadonlyText(src.dayKey)}')">この日のリストを編集</button>` : '<span class="report-list-mode">保存データ管理から新しい営業日を作成してください</span>');
+    return `<section id="report-day-list" class="agg-box report-day-list"><div class="agg-box-head"><h3>その日のリスト</h3>${action}</div><p class="report-list-empty">この営業日のリストはありません</p></section>`;
+  }
+  const rotTotal = Math.max(Number(src.rotCols)||0, ...rows.map(r => Array.isArray(r.rotations) ? r.rotations.length : 0), ...rows.map(r => Array.isArray(r.rotations2) ? r.rotations2.length : 0), 0);
+  const extTotal = Math.max(Number(src.extCols)||0, ...rows.map(r => Array.isArray(r.extensions) ? r.extensions.length : 0), 0);
+  const rotCols = visibleTableColumnCount('rotations', rotTotal, 'rotations2', rows);
+  const extCols = visibleTableColumnCount('extensions', extTotal, undefined, rows);
+  const ordinals = ['1st','2nd','3rd','4th','5th','6th','7th','8th','9th','10th'];
+  const head = ['入客','組','開始','終了','指名','卓',...Array.from({length:rotCols},(_,i)=>ordinals[i] || `${i+1}th`),'',...Array.from({length:extCols},(_,i)=>`延${i+1}`),'','料金','備考','総売上','精算'];
+  const groupHead = `<tr id="report-list-thead-group-row" class="column-group-row"><th colspan="6"></th><th class="column-group-label gline" colspan="${rotCols + 1}">席次</th><th class="column-group-label gline" colspan="${extCols + 1}">延長</th><th class="gline" colspan="4"></th></tr>`;
+  const headRow = `<tr id="report-list-thead-row">${head.map(v=>`<th>${v}</th>`).join('')}</tr>`;
+  const groupSize = new Map(); rows.forEach(r => groupSize.set(r.gid, (groupSize.get(r.gid)||0)+1));
+  const groupOrd = new Map(); rows.forEach(r => { if (!groupOrd.has(r.gid)) groupOrd.set(r.gid, groupOrd.size + 1); });
+  const guestNoMap = new Map(); rows.forEach((r, index) => guestNoMap.set(r.id, index + 1));
+  const cumulMap = new Map();
+  let cumulative = 0;
+  rows.filter(r => r.isFirst).forEach(r => {
+    if (r.settled) { cumulative += rowSales(r); cumulMap.set(r.id, cumulative); }
+  });
+  const groupSeen = new Set();
+  const body = rows.map((r, index) => {
+    const first = !groupSeen.has(r.gid); if (first) groupSeen.add(r.gid);
+    const parent = r.linkedParentId ? rows.find(p => p.id === r.linkedParentId) : null;
+    const designations = [_reportReadonlyDesignation(r.mainCast, r.mainType), ...(Array.isArray(r.subCasts) ? r.subCasts.map(s => _reportReadonlyDesignation(s.cast, s.type)) : [])].filter(Boolean).join('');
+    const rot = Array.from({length:rotCols},(_,i)=>[r.rotations?.[i],r.rotations2?.[i]].filter(Boolean).map(_reportReadonlyText).join('・'));
+    const ext = Array.from({length:extCols},(_,i)=>_reportReadonlyText(r.extensions?.[i]));
+    const noteSource = parent || r;
+    const notes = [noteSource.guestName, noteSource.source, r.condition].filter(v => v != null && v !== '').map(_reportReadonlyText).join(' / ');
+    const method = r.amountMethod || 'cash';
+    const moneyParts = [];
+    const cash = rowCash(r), card = rowCard(r), urikake = Number(r.amountUrikake) || 0;
+    if (method === 'cash' || method === 'both' || method === 'urikake') { if (cash) moneyParts.push(['現金',cash]); }
+    if (method === 'card' || method === 'both' || method === 'urikake') { if (card) moneyParts.push(['カード',card]); }
+    if (method === 'urikake' && urikake) moneyParts.push(['売掛',urikake]);
+    const money = first ? [...moneyParts, ['合計', rowSales(r)]].filter(([,v]) => Number(v)).map(([label,v]) => `${label} ${_reportReadonlyMoney(v)}`).join(' / ') : '';
+    const totalSales = first && r.settled ? _reportReadonlyMoney(cumulMap.get(r.id) || 0) : '';
+    const gIndex = (groupOrd.get(r.gid) || 1) - 1;
+    const guestNo = guestNoMap.get(r.id) || index + 1;
+    const parentLink = parent ? ` <small class="readonly-link">↩${guestNoMap.get(parent.id) || ''}</small>` : '';
+    return `<tr class="gc-${gIndex % 6}${gIndex % 2 ? ' grp-alt' : ''}"><td>${guestNo}${parentLink}</td>${first ? `<td class="group-num" rowspan="${groupSize.get(r.gid)}">${groupOrd.get(r.gid)}</td>` : ''}<td class="time-col">${_reportReadonlyText(minToHHMM(r.startMin))}</td><td class="time-col">${_reportReadonlyText(minToHHMM(r.endMin))}</td><td class="desig-cell">${designations}</td><td>${_reportReadonlyText(r.tableNum)}</td>${rot.map(v=>`<td>${v}</td>`).join('')}${first ? '<td rowspan="'+groupSize.get(r.gid)+'"></td>' : ''}${ext.map(v=>`<td>${v}</td>`).join('')}${first ? '<td rowspan="'+groupSize.get(r.gid)+'"></td>' : ''}${first ? `<td class="amount-cell gline" rowspan="${groupSize.get(r.gid)}"><div class="amount-layout readonly-amount">${money}</div></td>` : ''}<td class="remarks-cell"><div class="remarks-row">${notes}</div></td>${first ? `<td class="sales-cell" rowspan="${groupSize.get(r.gid)}">${totalSales}</td><td rowspan="${groupSize.get(r.gid)}">${r.settled ? '精算済み' : '未精算'}</td>` : ''}</tr>`;
+  }).join('');
+  const action = live
+    ? '<button type="button" class="btn" onclick="showTab(\'list\')">営業中のリストを開く</button>'
+    : (snap ? `<button type="button" class="btn" onclick="openReportListEditor('${_reportReadonlyText(src.dayKey)}')">この日のリストを編集</button>` : '<span class="report-list-mode">保存データ管理から新しい営業日を作成してください</span>');
+  const closedNote = !live && snap && _reportClosedTodaySnap()?.dayKey === src.dayKey ? '<p class="report-list-mode">リストを変更しても日次締めの確定値は自動更新されません</p>' : '';
+  return `<section id="report-day-list" class="agg-box report-day-list"><div class="agg-box-head"><h3>その日のリスト</h3><span class="report-list-mode">読み取り専用</span>${action}</div>${closedNote}<div class="report-list-scroll"><table class="report-list-table"><thead>${groupHead}${headRow}</thead><tbody>${body}</tbody></table></div></section>`;
 }
 
 /* 日報：本日（または選択した過去営業日）の精算済み伝票の詳細 + 集計ダッシュボード */
@@ -18974,8 +19204,8 @@ function _renderReportDay() {
   const cardSortOpts = [['salesDesc','売上が高い順'],['salesAsc','売上が低い順'],['nameAsc','名前順'],['no','番号順']]
     .map(([v,l]) => `<option value="${v}"${reportCardSort===v?' selected':''}>${l}</option>`).join('');
 
-  const dash = _aggKpiBarHtml(agg, src.dayKey, slipNoRange)
-    + `<div class="agg-box">
+  const dash = `<section id="report-overview" class="report-anchor-section">${_aggKpiBarHtml(agg, src.dayKey, slipNoRange)}</section>`
+    + `<div id="report-nomination" class="agg-box">
         <div class="agg-box-head">
           <h3>キャスト別指名売上 <span class="payroll-note">※本指名・同伴で付いた卓の税込総計（場内・延長指名は除外）。出戻り本指は設定「出戻り本指の集計扱い」に従う</span></h3>
           <div class="agg-box-actions">
@@ -18999,7 +19229,7 @@ function _renderReportDay() {
     ${_payrollSectionHtml(src)}
     ${_deductionSheetSectionHtml(src)}
     ${_dailyCloseSectionHtml(src, agg, _payRows, isPast)}
-    <div class="pos-report-bar" style="margin-top:24px">
+    <div id="report-slips" class="pos-report-bar" style="margin-top:24px">
       <h3 class="pos-report-subtitle">
         <span style="display:block;width:3px;height:14px;background:linear-gradient(180deg,var(--gold),var(--gold2));border-radius:2px"></span>
         会計伝票一覧${count ? `<span class="pos-report-count">${count}件</span>` : ''}
@@ -19008,7 +19238,8 @@ function _renderReportDay() {
         <select onchange="posSetReportSort(this.value)">${sortOptions}</select>
       </label>` : ''}
     </div>
-    <div class="pos-report-slips">${slips}</div>`;
+    <div class="pos-report-slips">${slips}</div>
+    ${_reportReadonlyListHtml(src)}`;
 }
 
 function posReportPrint(gid) {
@@ -21669,6 +21900,24 @@ function _posOpenExtComparison(row) {
 ================================================================ */
 let pastState = null;
 let pastDayKey = null;
+let _pastBaselineJson = null;
+let _pastEditorOpen = false;
+function isPastEditorOpen() { return _pastEditorOpen && !!pastState && !!pastDayKey; }
+function isPastEditorDirty() {
+  if (!isPastEditorOpen() || _pastBaselineJson == null) return false;
+  return JSON.stringify(pastState) !== _pastBaselineJson;
+}
+function _pastEditorSetBaseline() { _pastBaselineJson = pastState ? JSON.stringify(pastState) : null; }
+function discardPastEditor() {
+  pastState = null; pastDayKey = null; _pastBaselineJson = null; _pastEditorOpen = false;
+  if (typeof document !== 'undefined') {
+    document.getElementById('past-sidebar')?.removeAttribute('hidden');
+    document.getElementById('past-panel')?.classList.remove('past-editor-sub');
+  }
+}
+function _pastEditorEmptyHtml() {
+  return '<div id="past-empty" style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--tx3);font-size:13px">← 集計から編集する営業日を選択してください</div>';
+}
 
 /* "YYYYMMDD" → "YYYY年MM月" */
 function bizKeyToMonthLabel(key) {
@@ -21768,10 +22017,15 @@ function selectPastDay(dayKey) {
     rotCols: snap.rotCols||3, extCols: snap.extCols||5,
     allCasts: snap.allCasts||state.allCasts, activeCasts: snap.activeCasts||state.activeCasts,
   }));
+  pastState.rotCols = Math.max(Number(pastState.rotCols) || 0, ...pastState.rows.map(r => Array.isArray(r.rotations) ? r.rotations.length : 0), ...pastState.rows.map(r => Array.isArray(r.rotations2) ? r.rotations2.length : 0), 1);
+  pastState.extCols = Math.max(Number(pastState.extCols) || 0, ...pastState.rows.map(r => Array.isArray(r.extensions) ? r.extensions.length : 0), 1);
   // 旧スキーマの行を全フィールド補填（cashEntries/cardEntries/linkedParentId/storeIn/storeOut/subCasts 等）
   pastState.rows.forEach(r => normalizeRow(r, { rotCols: pastState.rotCols, extCols: pastState.extCols }));
+  _pastEditorOpen = true;
   renderPastSidebar();
   renderPastMain();
+  // renderPastTable の orphan link 補正など、無操作の表示正規化まで済ませてからbaselineを取る。
+  _pastEditorSetBaseline();
 }
 
 function renderPastMain() {
@@ -21795,17 +22049,20 @@ function renderPastMain() {
 
   main.innerHTML = `
     <div id="past-main-header">
+      <button type="button" class="btn" onclick="closePastEditor()" style="font-size:11px">← ${bizKeyToLabel(pastDayKey)}の集計へ戻る</button>
       <span class="past-day-title">${label}</span>
       <span class="past-day-status">編集中 — 保存するまで反映されません</span>
       <div style="flex:1"></div>
       <button class="btn primary" onclick="savePastDay()" style="font-size:11px">💾 この日を保存</button>
-      <button class="btn" onclick="doPastPrint()" style="font-size:11px">🖨 印刷</button>
       <button class="btn danger" onclick="deletePastDay('${pastDayKey}')" style="font-size:11px">🗑 削除</button>
     </div>
     ${castRow}
     <div id="past-toolbar">
       <span class="toolbar-label">追加</span>
-      ${[1,2,3,4,5,6,7,8].map(n=>`<button class="btn primary" onclick="pastAddGroup(${n})">＋ ${n}人</button>`).join('')}
+      <div class="count-seg" role="group" aria-label="人数を選んで組を追加">
+        ${[1,2,3,4,5,6,7,8].map(n=>`<button type="button" onclick="pastAddGroup(${n})">${n}</button>`).join('')}
+      </div>
+      <span class="toolbar-unit">人</span>
       <div class="toolbar-sep"></div>
       <span style="display:flex;align-items:center;gap:6px">
         <input type="text" inputmode="numeric" id="past-custom-count" placeholder="人数"
@@ -21813,6 +22070,7 @@ function renderPastMain() {
           onkeydown="if(event.key==='Enter')pastAddCustomGroup()">
         <button class="btn" onclick="pastAddCustomGroup()">＋ カスタム</button>
       </span>
+      <button class="btn" onclick="doPastPrint()" style="font-size:11px;margin-left:auto">🖨 印刷</button>
     </div>
     <div id="past-table-wrapper" style="overflow-x:auto;padding:8px 4px;flex:1">
       <table id="past-table" style="border-collapse:collapse;width:max-content;min-width:100%">
@@ -21827,17 +22085,27 @@ function renderPastTable() {
   if (!pastState) return;
   const ps = pastState;
   const rLabels = ['1st','2nd','3rd','4th','5th','6th','7th','8th','9th','10th'];
-  const rotThs = Array.from({length:ps.rotCols},(_,i)=>`<th style="min-width:64px">${rLabels[i]}</th>`).join('');
-  const extThs = Array.from({length:ps.extCols},(_,i)=>`<th style="min-width:44px">延${i+1}</th>`).join('');
-  document.getElementById('past-thead-row').innerHTML = `
+  const rotTotal = Math.max(Number(ps.rotCols) || 0, ...ps.rows.map(r => Array.isArray(r.rotations) ? r.rotations.length : 0), ...ps.rows.map(r => Array.isArray(r.rotations2) ? r.rotations2.length : 0), 0);
+  const extTotal = Math.max(Number(ps.extCols) || 0, ...ps.rows.map(r => Array.isArray(r.extensions) ? r.extensions.length : 0), 0);
+  const visRot = visibleTableColumnCount('rotations', rotTotal, 'rotations2', ps.rows);
+  const visExt = visibleTableColumnCount('extensions', extTotal, undefined, ps.rows);
+  const rotThs = Array.from({length:visRot},(_,i)=>`<th style="min-width:64px">${rLabels[i]||rLabels[rLabels.length-1]}</th>`).join('');
+  const extThs = Array.from({length:visExt},(_,i)=>`<th style="min-width:44px">延${i+1}</th>`).join('');
+  const head = document.getElementById('past-thead-row');
+  const groupHead = document.getElementById('past-thead-group-row') || (() => {
+    const tr = document.createElement('tr'); tr.id = 'past-thead-group-row'; tr.className = 'column-group-row';
+    head.parentNode.insertBefore(tr, head); return tr;
+  })();
+  groupHead.innerHTML = `<th colspan="6"></th><th class="column-group-label gline" colspan="${visRot + 1}">席次</th><th class="column-group-label gline" colspan="${visExt + 1}">延長</th><th class="gline" colspan="4"></th>`;
+  head.innerHTML = `
     <th style="min-width:30px">入客</th><th style="min-width:34px">組</th>
-    <th>開始</th><th>終了</th>
+    <th class="time-col">開始</th><th class="time-col">終了</th>
     <th style="min-width:158px">指名</th><th style="min-width:44px">卓</th>
     ${rotThs}
-    <th style="min-width:46px"><div style="display:flex;flex-direction:column;gap:2px;align-items:center"><button class="col-ctrl-btn" onclick="pastAddRotCol()">＋</button><button class="col-ctrl-btn" onclick="pastRemRotCol()">－</button></div></th>
+    <th style="min-width:46px;vertical-align:middle"><div class="col-ctrl-stack"><button type="button" class="col-ctrl-btn" onclick="pastAddRotCol()">＋</button><button type="button" class="col-ctrl-btn" onclick="pastRemRotCol()" ${ps.rows.some(r => (r.rotations?.[visRot-1]||'') || (r.rotations2?.[visRot-1]||'')) ? 'disabled title="この列にデータが入っています"' : ''}>－</button></div></th>
     ${extThs}
-    <th style="min-width:46px"><div style="display:flex;flex-direction:column;gap:2px;align-items:center"><button class="col-ctrl-btn" onclick="pastAddExtCol()">＋</button><button class="col-ctrl-btn" onclick="pastRemExtCol()">－</button></div></th>
-    <th style="min-width:98px">料金</th><th style="min-width:148px">備考</th>
+    <th style="min-width:46px;vertical-align:middle"><div class="col-ctrl-stack"><button type="button" class="col-ctrl-btn" onclick="pastAddExtCol()">＋</button><button type="button" class="col-ctrl-btn" onclick="pastRemExtCol()" ${ps.rows.some(r => (r.extensions?.[visExt-1]||'')) ? 'disabled title="この列にデータが入っています"' : ''}>－</button></div></th>
+    <th class="gline" style="min-width:98px">料金</th><th style="min-width:148px">備考</th>
     <th style="min-width:76px">総売上</th><th style="min-width:58px">精算</th>`;
 
   const tbody = document.getElementById('past-tbody');
@@ -21862,10 +22130,10 @@ function renderPastTable() {
     // （現在のactiveCastsではなく、当時のキャストが正しく表示されるように）
     const castList = pastState?.allCasts || state.allCasts;
     let h = '<option value="">-</option>';
-    castList.forEach(c => h += `<option value="${c}"${c===sel?' selected':''}>${c}</option>`);
+    castList.forEach(c => h += `<option value="${escAttr(c)}"${c===sel?' selected':''}>${escHtml(c)}</option>`);
     // スナップショットにもいない名前が残っている場合も保持
     if (sel && !castList.includes(sel)) {
-      h += `<option value="${sel}" selected>${sel}</option>`;
+      h += `<option value="${escAttr(sel)}" selected>${escHtml(sel)}</option>`;
     }
     return h;
   }
@@ -21891,17 +22159,17 @@ function renderPastTable() {
     // MAIN_TYPES（01-constants.js）から選択肢を生成。出戻り3種も含む。
     const TYPE_OPTS = Object.entries(MAIN_TYPES).map(([k, v]) => [k, v.label]);
     const typeOpts  = TYPE_OPTS.map(([v,l]) => `<option value="${v}"${row.mainType===v?' selected':''}>${l}</option>`).join('');
-    const typeClass = (MAIN_TYPES[row.mainType]?.cls) || '';
+    const typeClass = (MAIN_TYPES[row.mainType]?.cls) || 'type-free';
 
     let desig = `
-      <div class="desig-row ${typeClass}">
+       <div class="desig-row ${typeClass}">
         <select class="cast-sel" onchange="pastUpdateRow('${row.id}','mainCast',this.value)">${pCastOpts(row.mainCast)}</select>
         <select class="type-sel" onchange="pastUpdateRow('${row.id}','mainType',this.value)">${typeOpts}</select>
         <button type="button" class="sub-add-btn" onclick="pastAddSub('${row.id}')" title="キャスト追加">＋</button>
       </div>`;
     row.subCasts.forEach((sub, si) => {
       const stO = TYPE_OPTS.map(([v,l]) => `<option value="${v}"${sub.type===v?' selected':''}>${l}</option>`).join('');
-      const stypeClass = (MAIN_TYPES[sub.type]?.cls) || '';
+       const stypeClass = (MAIN_TYPES[sub.type]?.cls) || 'type-free';
       desig += `
         <div class="desig-row ${stypeClass}" style="border-top:1px dashed var(--bdr);margin-top:2px;padding-top:2px">
           <select class="cast-sel" onchange="pastUpdateSub('${row.id}',${si},'cast',this.value)">${pCastOpts(sub.cast)}</select>
@@ -21913,20 +22181,20 @@ function renderPastTable() {
     const tableCell = `<td class="table-cell"><select class="${row.tableNum ? '' : 'is-empty'}" onchange="pastUpdateRowTable('${row.id}',this.value)">${pTableOpts(row.tableNum)}</select></td>`;
 
     let rotCells = '';
-    for (let ci = 0; ci < ps.rotCols; ci++) {
+    for (let ci = 0; ci < visRot; ci++) {
       const v = row.rotations[ci] || '';
       const v2 = row.rotations2[ci] || '';
       const second = v2
         ? `<select class="rot-secondary" aria-label="${ci+1}番目の席次の2人目" onchange="pastUpdateRot2('${row.id}',${ci},this.value)">${pCastOpts(v2)}</select>`
         : '';
-      rotCells += `<td class="rot-cell"><div class="rot-slot-stack"><select class="${v ? '' : 'is-empty'}" onchange="pastUpdateRot('${row.id}',${ci},this.value)">${pCastOpts(v)}</select>${second}</div></td>`;
+      rotCells += `<td class="rot-cell${ci===0?' gline':''}"><div class="rot-slot-stack"><select class="${v ? '' : 'is-empty'}" onchange="pastUpdateRot('${row.id}',${ci},this.value)">${pCastOpts(v)}</select>${second}</div></td>`;
     }
     rotCells += row.isFirst ? `<td rowspan="${span}" style="min-width:46px"></td>` : '';
 
     let extCells = '';
-    for (let ci = 0; ci < ps.extCols; ci++) {
+    for (let ci = 0; ci < visExt; ci++) {
       const v = row.extensions[ci] || '';
-      extCells += `<td class="ext-cell">${
+      extCells += `<td class="ext-cell${ci===0?' gline':''}">${
         v ? `<span class="ext-badge" onclick="pastClearExt('${row.id}',${ci})" title="解除">${v}</span>`
           : pExtSel(row.id, ci, v)
       }</td>`;
@@ -21948,7 +22216,7 @@ function renderPastTable() {
         </div>`;
         (row.cashEntries||[]).forEach((entry,ei) => {
           inputs += `<div class="cash-row entry-row">
-            <input type="text" class="entry-label-input" placeholder="前金等" value="${entry.label||''}"
+            <input type="text" class="entry-label-input" placeholder="前金等" value="${escAttr(entry.label||'')}"
               onblur="pastUpdateAmountEntry('${row.id}','cash',${ei},'label',this.value)">
             <input type="text" inputmode="numeric" placeholder="0" value="${entry.amount||''}"
               oninput="pastUpdateAmountEntryAmount('${row.id}','cash',${ei},this.value)"
@@ -21967,7 +22235,7 @@ function renderPastTable() {
         </div>`;
         (row.cardEntries||[]).forEach((entry,ei) => {
           inputs += `<div class="card-row entry-row">
-            <input type="text" class="entry-label-input" placeholder="2枚目等" value="${entry.label||''}"
+            <input type="text" class="entry-label-input" placeholder="2枚目等" value="${escAttr(entry.label||'')}"
               onblur="pastUpdateAmountEntry('${row.id}','card',${ei},'label',this.value)">
             <input type="text" inputmode="numeric" placeholder="0" value="${entry.amount||''}"
               oninput="pastUpdateAmountEntryAmount('${row.id}','card',${ei},this.value)"
@@ -21976,16 +22244,24 @@ function renderPastTable() {
           </div>`;
         });
       }
-      amountCell = `<td class="amount-cell" rowspan="${span}"><div class="amount-method">${mBtns}</div>${inputs}</td>`;
+      amountCell = `<td class="amount-cell gline" rowspan="${span}"><div class="amount-layout"><div class="amount-method">${mBtns}</div>${inputs}</div></td>`;
     }
 
     const srcOpts = cfg.sources.map(s =>
-      `<option value="${s}"${row.source===s?' selected':''}>${s}</option>`).join('');
-    const condHtml = (row.mainType==='honshimei' || row.mainType==='douban')
-      ? `<span style="color:var(--pink);font-size:10px;font-weight:600">● ${escHtml(row.mainCast||'?')}${row.mainType==='douban'?'同伴':'本指'}</span>`
-      : `<select onchange="pastUpdateRow('${row.id}','condition',this.value)">${
-          cfg.conditions.map(c => `<option value="${c}"${row.condition===c?' selected':''}>${c}</option>`).join('')
-        }</select>`;
+      `<option value="${escAttr(s)}"${row.source===s?' selected':''}>${escHtml(s)}</option>`).join('');
+    let condHtml;
+    if (row.mainType === 'honshimei' || row.mainType === 'douban' || row.mainType === 'modori_honshimei') {
+      const lbl = row.mainType === 'douban' ? '同伴' : (row.mainType === 'modori_honshimei' ? '↺ 出戻り本指' : '本指');
+      condHtml = `<span style="color:var(--pink);font-size:10px;font-weight:600">● ${escHtml(row.mainCast||'?')}${lbl}</span>`;
+    } else {
+      const inList = cfg.conditions.includes(row.condition);
+      const selValue = inList ? row.condition : '__custom__';
+      const opts = cfg.conditions.map(c => `<option value="${escAttr(c)}"${selValue===c?' selected':''}>${escHtml(c)}</option>`).join('');
+      const custom = selValue === '__custom__'
+        ? `<input type="text" class="cond-custom-input" placeholder="例 55込" value="${escAttr(row.condition||'')}" oninput="onPastConditionCustomInput('${row.id}',this.value)" onblur="pastUpdateRow('${row.id}','condition',this.value)">`
+        : '';
+      condHtml = `<select class="cond-sel" onchange="onPastConditionSelect('${row.id}',this.value)">${opts}<option value="__custom__"${selValue==='__custom__'?' selected':''}>✎ 手入力</option></select>${custom}`;
+    }
 
     // 同一人物リンクのUI（過去リスト用）
     let pLinkUi = '';
@@ -22007,34 +22283,30 @@ function renderPastTable() {
       const parentGn = gnMap[pLinkedParent.id];
       remarksCell = `
         <td class="remarks-cell linked-child">
-          <div class="remarks-top">
-            <div class="name-suggest-wrap">
+          <div class="remarks-row">
+            <div class="remarks-top">
+              <div class="name-suggest-wrap">
               <input type="text" class="name-input linked-readonly" placeholder="客名"
-                value="${(pLinkedParent.guestName||'').replace(/"/g,'&quot;')}" readonly disabled>
+                value="${escAttr(pLinkedParent.guestName||'')}" readonly disabled>
+              </div>
+              <select class="source-sel linked-readonly" disabled><option>${escHtml(pLinkedParent.source||'')}</option></select>
             </div>
-            <select class="source-sel linked-readonly" disabled>
-              <option>${escHtml(pLinkedParent.source||'')}</option>
-            </select>
+            <div class="linked-note">↩ 入客${parentGn}と同一人物</div>
+            <div class="remarks-bottom">${condHtml}</div>
           </div>
-          <div class="linked-note">↩ 入客${parentGn}と同一人物</div>
-          <div class="remarks-bottom">${condHtml}</div>
         </td>`;
     } else {
       remarksCell = `
         <td class="remarks-cell">
-          <div class="remarks-top">
-            <div class="name-suggest-wrap">
-              <input type="text" class="name-input" placeholder="客名"
-                value="${(row.guestName||'').replace(/"/g,'&quot;')}"
-                autocomplete="off" data-row-id="${row.id}"
-                onchange="pastUpdateRow('${row.id}','guestName',this.value)"
-                onblur="delayHideSuggest(this)"
-                oninput="onNameInputSuggestOnly(this,'${row.id}')"
-                onkeydown="onNameKeydown(event,this,'${row.id}')">
+          <div class="remarks-row">
+            <div class="remarks-top">
+              <div class="name-suggest-wrap">
+                <button type="button" class="name-input customer-picker-trigger${row.guestName ? '' : ' is-empty'}" onclick="openPastRowCustomerPicker('${row.id}')" title="顧客を選択">${escHtml(row.guestName || '＋ 顧客を追加')}</button>
+              </div>
+              <select class="source-sel" onchange="pastUpdateRow('${row.id}','source',this.value)">${srcOpts}</select>
             </div>
-            <select onchange="pastUpdateRow('${row.id}','source',this.value)">${srcOpts}</select>
+            <div class="remarks-bottom">${condHtml}</div>
           </div>
-          <div class="remarks-bottom">${condHtml}</div>
         </td>`;
     }
 
@@ -22052,17 +22324,17 @@ function renderPastTable() {
              </td>`)
       : '';
     const groupCell = row.isFirst
-      ? `<td class="group-num" rowspan="${span}">${CIRCLE[gOrd]||(gOrd+1)}
-           <button type="button" class="group-del-btn" onclick="pastDeleteGroup('${row.id}')">✕</button>
-         </td>`
+      ? `<td class="group-num" rowspan="${span}"><div class="group-num-layout"><div class="group-num-main"><span class="group-num-circle">${CIRCLE[gOrd]||(gOrd+1)}</span></div><div class="group-num-actions"><button type="button" class="group-del-btn" onclick="pastDeleteGroup('${row.id}')" title="この組を削除">✕</button></div></div></td>`
       : '';
+    const firstRow = ps.rows.find(r => r.gid === row.gid && r.isFirst);
+    const hasDiffTime = !row.isFirst && firstRow && (row.startMin !== firstRow.startMin || row.endMin !== firstRow.endMin);
     const startCellH = row.isFirst
-      ? `<td><select class="time-sel" onchange="pastUpdateRow('${row.id}','startMin',parseInt(this.value))">${buildTimeOptions(row.startMin)}</select></td>`
-      : `<td><span class="vline">│</span></td>`;
-    const showEndSel = row.isFirst || hasExt || (!row.isFirst && grpHasDouban);
+      ? `<td class="time-col"><select class="time-sel" onchange="pastUpdateRow('${row.id}','startMin',parseInt(this.value))">${buildTimeOptions(row.startMin)}</select></td>`
+      : `<td class="time-col">${row.startMin !== firstRow?.startMin ? `<span class="saved-time">${escHtml(minToHHMM(row.startMin))}</span>` : '<span class="vline">│</span>'}</td>`;
+    const showEndSel = row.isFirst || hasExt || (!row.isFirst && grpHasDouban) || hasDiffTime;
     const endCellH   = showEndSel
-      ? `<td><select class="time-sel" style="${endStyle}" onchange="pastUpdateRow('${row.id}','endMin',parseInt(this.value))">${buildTimeOptions(row.endMin)}</select></td>`
-      : `<td><span class="vline">│</span></td>`;
+      ? `<td class="time-col"><select class="time-sel" style="${endStyle}" onchange="pastUpdateRow('${row.id}','endMin',parseInt(this.value))">${buildTimeOptions(row.endMin)}</select></td>`
+      : `<td class="time-col"><span class="vline">│</span></td>`;
 
     tr.innerHTML =
       `<td class="row-num${grpHasExt?' has-ext':''}">${gnMap[row.id]}${pLinkUi}</td>` +
@@ -22073,6 +22345,41 @@ function renderPastTable() {
       amountCell + remarksCell + salesCell + settleCell;
     tbody.appendChild(tr);
   });
+}
+
+function openPastRowCustomerPicker(rowId) {
+  if (!isPastEditorOpen()) return;
+  const draft = pastState;
+  const dayKey = pastDayKey;
+  const row = draft.rows.find(r => r.id === rowId);
+  if (!row || row.linkedParentId) return;
+  openCustomerPicker({
+    current: row.guestName,
+    onSelect: name => {
+      if (!_pastEditorOpen || pastState !== draft || pastDayKey !== dayKey) return;
+      const target = draft.rows.find(r => r.id === rowId);
+      if (!target || target.linkedParentId) return;
+      target.guestName = String(name || '');
+      renderPastTable();
+    },
+  });
+}
+
+function onPastConditionSelect(id, value) {
+  if (!pastState) return;
+  if (value === '__custom__') {
+    const row = pastState.rows.find(r => r.id === id);
+    if (row && cfg.conditions.includes(row.condition)) pastUpdateRow(id, 'condition', '');
+    else renderPastTable();
+    return;
+  }
+  pastUpdateRow(id, 'condition', value);
+}
+
+function onPastConditionCustomInput(id, value) {
+  if (!pastState) return;
+  const row = pastState.rows.find(r => r.id === id);
+  if (row) row.condition = String(value || '');
 }
 
 /* 過去リスト側は現リストと同じ計算式を使用（calcEndMinを流用） */
@@ -22113,6 +22420,31 @@ function pastUpdateRowTable(id, value) {
     row._indivTable = String(value ?? '') !== String(first.tableNum ?? '');
   }
   renderPastTable();
+}
+
+function openReportListEditor(dayKey) {
+  if (isPastEditorDirty()) {
+    _confirmPastEditorLeave(() => openReportListEditor(dayKey));
+    return false;
+  }
+  const liveKey = getLoadedDayKey();
+  if (!dayKey || (dayKey === liveKey && !(typeof _reportClosedTodaySnap === 'function' && _reportClosedTodaySnap()))) return false;
+  const snap = loadBackups().find(b => b.dayKey === dayKey);
+  if (!snap) return false;
+  // showTab('report') は旧editorのcleanupを行うため、新しいdraftを作る前に呼ぶ。
+  // report表示のまま開き直すケースでも旧clean draftを残さない。
+  if (isPastEditorOpen()) discardPastEditor();
+  reportSelectedDay = dayKey;
+  // ヘッダーは「集計」を選択状態に保ち、pastは集計から開くサブ画面として表示する。
+  showTab('report');
+  selectPastDay(dayKey);
+  document.getElementById('report-panel')?.classList.add('hidden');
+  document.getElementById('past-panel')?.classList.remove('hidden');
+  document.getElementById('past-sidebar')?.setAttribute('hidden', '');
+  document.getElementById('past-panel')?.classList.add('past-editor-sub');
+  document.body.dataset.activeTab = 'past';
+  try { sessionStorage.setItem('nightlist_active_tab', 'report'); } catch (_) {}
+  return true;
 }
 /* 過去リストの行データ更新（同組への波及含む） */
 function pastUpdateRow(id, field, value) {
@@ -22313,7 +22645,7 @@ function pastUpdateAmountEntryAmount(id, type, idx, value) {
 }
 /* 編集中の過去リストを保存（同日キーは上書き） */
 async function savePastDay() {
-  if (!pastState || !pastDayKey) return;
+  if (!pastState || !pastDayKey) return false;
   const backups = loadBackups();
   const idx     = backups.findIndex(b => b.dayKey === pastDayKey);
   const oldSnap = idx >= 0 ? backups[idx] : null;
@@ -22336,7 +22668,7 @@ async function savePastDay() {
     backups.sort((a,b) => (b.dayKey||'').localeCompare(a.dayKey||''));
   }
   while (backups.length > BACKUP_MAX) backups.pop();
-  if (!saveBackups(backups)) return;
+  if (!saveBackups(backups)) return false;
   if (oldSnap) {
     const currentGids = new Set(pastState.rows.filter(r => r.isFirst).map(r => r.gid));
     oldSnap.rows.filter(r => r.isFirst && !currentGids.has(r.gid)).forEach(first => {
@@ -22348,7 +22680,33 @@ async function savePastDay() {
   // 顧客タブの表示も即更新（データは syncCustomers で直るが、表示が古いまま残るのを防ぐ）
   if (typeof renderCustomerTable === 'function') renderCustomerTable();
   renderPastSidebar();
+  _pastEditorSetBaseline();
   await appAlert(`${bizKeyToLabel(pastDayKey)} のデータを保存しました`);
+  closePastEditor(true);
+  return true;
+}
+
+function closePastEditor(afterSave) {
+  const key = pastDayKey || reportSelectedDay;
+  const leave = () => {
+    discardPastEditor();
+    document.getElementById('past-sidebar')?.removeAttribute('hidden');
+    document.getElementById('past-panel')?.classList.remove('past-editor-sub');
+    reportSelectedDay = key || null;
+    reportPeriod = 'day';
+    if (!document.getElementById('past-panel')?.classList.contains('hidden')) {
+      showTab('report');
+      const target = document.getElementById('report-day-list');
+      if (target) {
+        target.setAttribute('tabindex', '-1');
+        target.focus({ preventScroll: true });
+        target.scrollIntoView({ behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+      }
+    }
+  };
+  if (afterSave || !isPastEditorDirty()) { leave(); return true; }
+  _confirmPastEditorLeave(leave);
+  return false;
 }
 
 function doPastPrint() {
@@ -22377,12 +22735,14 @@ function doPastPrint() {
 async function deletePastDay(dayKey) {
   if (!(await appConfirm(`${bizKeyToLabel(dayKey)} のデータを削除しますか？`, { danger: true }))) return;
   const backups = loadBackups().filter(b => b.dayKey !== dayKey);
-  saveBackups(backups);
-  pastState  = null;
-  pastDayKey = null;
+  if (!saveBackups(backups)) return false;
+  discardPastEditor();
   renderPastSidebar();
-  document.getElementById('past-main').innerHTML =
-    `<div id="past-empty" style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--tx3);font-size:13px">← 左の営業日を選択してください</div>`;
+  document.getElementById('past-main').innerHTML = _pastEditorEmptyHtml();
+  reportSelectedDay = null;
+  reportPeriod = 'day';
+  showTab('report');
+  return true;
 }
 /* 新規営業日を追加するモーダルを表示 */
 function showNewDayModal() {
@@ -22414,7 +22774,9 @@ function createNewPastDay() {
   const backups = loadBackups();
   if (backups.find(b => b.dayKey === dayKey)) {
     document.getElementById('new-day-modal').remove();
-    selectPastDay(dayKey);
+    reportSelectedDay = dayKey;
+    reportPeriod = 'day';
+    showTab('report');
     return;
   }
   const snap = {
@@ -22429,10 +22791,13 @@ function createNewPastDay() {
   backups.unshift(snap);
   backups.sort((a,b) => (b.dayKey||'').localeCompare(a.dayKey||''));
   while (backups.length > BACKUP_MAX) backups.pop();
-  saveBackups(backups);
+  if (!saveBackups(backups)) return false;
   document.getElementById('new-day-modal').remove();
   renderPastSidebar();
-  selectPastDay(dayKey);
+  reportSelectedDay = dayKey;
+  reportPeriod = 'day';
+  showTab('report');
+  return true;
 }
 
 /* ================================================================
@@ -27995,7 +28360,7 @@ const UI_ZOOM_SCREEN_LIST = [
   ['analytics', '経営分析'],
   ['customer', '顧客管理'],
   ['bottle', 'ボトル'],
-  ['past', '過去のリスト'],
+  ['past', '集計：リスト編集'],
 ];
 
 /* 直近に適用した倍率（%）のメモリキャッシュ。設定UIの選択状態表示に使う。 */
