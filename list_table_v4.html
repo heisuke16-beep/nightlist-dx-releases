@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.14">
+<meta name="app-version" content="1.1.15">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -5836,7 +5836,7 @@ html[data-display="tablet"] #list-table .col-ctrl-btn { min-width: 32px; min-hei
 
   <div class="spacer"></div>
 
-  <button id="theme-toggle-btn" class="theme-toggle-btn" onclick="toggleTheme()" title="ナイト／ライト切り替え">🌙</button>
+  <button id="theme-toggle-btn" class="theme-toggle-btn" onclick="toggleTheme()" title="ナイト／シャンパン切り替え">🌙</button>
 
   <!-- ヘッダーは営業中に使うものだけ残す（2026-07-20 オーナー判断）。
        印刷・営業終了→リスト表ツールバー / 復元→過去のリスト / 書き出し・読み込み→設定 へ移動 -->
@@ -6155,7 +6155,10 @@ const Persist = {
     try {
       // 本番の永続化処理はUSBゲート解決後に走り、先行するdevTime読取もゲート後に再同期される。
       raw = UsbStore.readSync(name);
-      const parsed = JSON.parse(raw || 'null');
+      // 旧版がthemeだけをJSON化せず保存していたため、既知の旧4値に限って読み取り互換を保つ。
+      const parsed = name === 'theme' && ['night', 'light', 'summer', 'aurum'].includes(raw)
+        ? raw
+        : JSON.parse(raw || 'null');
       this.failedReads.delete(name);
       return parsed;
     }
@@ -8235,8 +8238,8 @@ const CFG_DEFAULTS = {
   payrollDeductionDisplayField:  'dailyPay', // 控除票の金額欄: dailyPay | nominatedSales
   payrollDeductionDisplayPrint:  true, // 控除票の先頭金額欄をA4印刷する（画面・計算には影響しない）
   payrollHiddenCols:             [],     // 日計表で非表示にする列ID（空=全列表示）
-  // --- テーマ既定値（端末別。アプリ起動時に Persist.theme が無ければこれを使う） ---
-  defaultTheme:                  'aurum', // 'night' | 'light' | 'summer' | 'aurum' | 'champagne'
+  // --- テーマ既定値（端末別。選択可能なのは従来nightとchampagneのみ） ---
+  defaultTheme:                  'night', // 'night' | 'champagne'
   // --- POS指名系・ドリンクのボタン単価（店ごとに可変） ---
   posPrices: {
     freeS:   1500, freeM:   2500, freeL:   3500,  // [互換用・廃止] 旧フリードリンク。UI・カテゴリからは削除済み
@@ -8255,6 +8258,7 @@ function mergeCfgDefaults(saved) {
   const merged = { ...CFG_DEFAULTS, ...(saved || {}) };
   merged.businessType = normalizeBusinessType(merged.businessType);
   merged.showtimeScope = merged.showtimeScope === 'all' ? 'all' : 'table';
+  merged.defaultTheme = merged.defaultTheme === 'champagne' ? 'champagne' : 'night';
   // 旧設定に印刷フラグが無い場合は、従来どおり先頭金額欄を印刷する。
   merged.payrollDeductionDisplayPrint = merged.payrollDeductionDisplayPrint !== false;
   // 旧既定値の28:00だけを30:00へ引き上げ、既存端末にも新しい選択肢を反映する。
@@ -23811,9 +23815,6 @@ function renderSettingsPanel() {
           <div class="settings-label"><label for="settings-current-theme">現在のテーマ</label><div class="settings-sub">この端末の表示をすぐに切り替えます。いつでも元に戻せます。${_demoMode ? '<br>デモ中はこの起動中だけ適用します。' : ''}</div></div>
           <select class="settings-input" id="settings-current-theme" oninput="event.stopPropagation()" onchange="event.stopPropagation();onCurrentThemeChange(this)" style="width:160px">
             <option value="night">ナイト 🌙</option>
-            <option value="light">ライト ☀️</option>
-            <option value="summer">サマー 🌻</option>
-            <option value="aurum">AURUM ✦</option>
             <option value="champagne">シャンパン ◇</option>
           </select>
         </div>
@@ -23821,9 +23822,6 @@ function renderSettingsPanel() {
           <div class="settings-label">既定テーマ<div class="settings-sub">テーマ未設定の端末で起動した時の初期値（JSONインポート時にも適用）</div></div>
           <select class="settings-input" id="cfg-defaultTheme" style="width:140px">
             <option value="night"  ${cfg.defaultTheme==='night'  ? 'selected' : ''}>ナイト 🌙</option>
-            <option value="light"  ${cfg.defaultTheme==='light'  ? 'selected' : ''}>ライト ☀️</option>
-            <option value="summer" ${cfg.defaultTheme==='summer' ? 'selected' : ''}>サマー 🌻</option>
-            <option value="aurum"  ${(cfg.defaultTheme==='aurum' || !cfg.defaultTheme) ? 'selected' : ''}>AURUM ✦</option>
             <option value="champagne" ${cfg.defaultTheme==='champagne' ? 'selected' : ''}>シャンパン ◇</option>
           </select>
         </div>
@@ -24598,7 +24596,8 @@ async function applySettings() {
   const pointsEnabled = !!get('cfg-pointsEnabled')?.checked;
   const pointRules = feeMasterValues.pointRules;
   const rankingShowAmountToCast = get('cfg-rankingShowAmountToCast')?.checked !== false;
-  const defaultTheme                  = (get('cfg-defaultTheme')?.value || cfg.defaultTheme || 'aurum');
+  const defaultThemeValue             = get('cfg-defaultTheme')?.value ?? cfg.defaultTheme;
+  const defaultTheme                  = defaultThemeValue === 'champagne' ? 'champagne' : 'night';
 
   // 領収書設定（文字列。空欄ならデフォルト保持）
   const _rcpt = (id, def) => { const el = get(id); const v = el ? el.value.trim() : ''; return v || (cfg[def] ?? ''); };
@@ -27095,11 +27094,9 @@ function onImportFileSelected(input) {
       const settingsStr  = isNewFormat ? payload.data?.settings   : null;
       const timetableStr = isNewFormat ? payload.data?.timetable  : null;
       const themeStr     = isNewFormat ? payload.data?.theme      : null;
-      let importedTheme = null;
-      if (typeof themeStr === 'string') {
-        try { importedTheme = typeof normalizeTheme === 'function' ? normalizeTheme(JSON.parse(themeStr)) : null; }
-        catch (_) { importedTheme = null; }
-      }
+      const importedTheme = typeof resolveImportedTheme === 'function'
+        ? resolveImportedTheme(themeStr)
+        : null;
 
       // 旧形式の場合はオブジェクト直参照
       const legacyState    = !isNewFormat ? payload.currentState  : null;
@@ -27176,7 +27173,8 @@ function onImportFileSelected(input) {
       renderTimetable();
       updateStoreStatusBadge();
       refreshHistoryBtns();
-      if (typeof initThemeFromPersist === 'function') initThemeFromPersist();
+      if (importedTheme && typeof restoreThemeVisualFromPersist === 'function') restoreThemeVisualFromPersist();
+      if (typeof initListWhiteFromPersist === 'function') initListWhiteFromPersist();
       if (typeof syncCurrentThemeSelect === 'function') syncCurrentThemeSelect();
       await appAlert('インポートが完了しました。');
     } catch(err) {
@@ -27477,10 +27475,20 @@ __boot();
    ※ 永続化は Persist.write/read('theme') 経由（export/importに含めるため）。
      既存店の実効テーマを変えないため、明示選択マーカーがある保存値だけを復元する。
 ================================================================ */
-const THEMES = Object.freeze(['night', 'light', 'summer', 'aurum', 'champagne']);
+const THEMES = Object.freeze(['night', 'champagne']);
+const LEGACY_THEMES = Object.freeze(['light', 'summer', 'aurum']);
 
 function normalizeTheme(theme) {
   return typeof theme === 'string' && THEMES.includes(theme) ? theme : null;
+}
+
+function resolveImportedTheme(raw) {
+  if (typeof raw !== 'string') return null;
+  if (raw === 'night' || LEGACY_THEMES.includes(raw)) return 'night';
+  let parsed = null;
+  try { parsed = JSON.parse(raw); } catch (_) { return null; }
+  if (parsed === 'night' || parsed === 'champagne') return parsed;
+  return LEGACY_THEMES.includes(parsed) ? 'night' : null;
 }
 
 function resolvePersistedTheme() {
@@ -27518,19 +27526,14 @@ function applyTheme(theme, persist = true) {
   const btn = document.getElementById('theme-toggle-btn');
   const sf  = document.getElementById('sunflower-watermark');
   if (btn) {
-    const icons = { night: '🌙', light: '☀️', summer: '🌻', aurum: '✦', champagne: '♢' };
-    const tips  = { night: 'ライトモードへ', light: 'サマーモードへ', summer: 'AURUM（高級）モードへ', aurum: 'シャンパンモードへ', champagne: 'ナイトモードへ' };
+    const icons = { night: '🌙', champagne: '♢' };
+    const tips  = { night: 'シャンパンモードへ', champagne: 'ナイトモードへ' };
     btn.textContent = icons[normalized];
     btn.title = tips[normalized];
   }
   if (sf) {
-    if (normalized === 'summer') {
-      sf.style.display = 'block';
-      setTimeout(() => { sf.style.opacity = '0.11'; }, 20);
-    } else {
-      sf.style.opacity = '0';
-      setTimeout(() => { sf.style.display = 'none'; }, 620);
-    }
+    sf.style.opacity = '0';
+    setTimeout(() => { sf.style.display = 'none'; }, 620);
   }
   syncCurrentThemeSelect(normalized);
   if (typeof _updateListWhiteBtn === 'function') {
@@ -27555,7 +27558,7 @@ function onCurrentThemeChange(select) {
 
 function toggleTheme() {
   const current = document.documentElement.getAttribute('data-theme') || 'night';
-  const cycle = { night: 'light', light: 'summer', summer: 'aurum', aurum: 'champagne', champagne: 'night' };
+  const cycle = { night: 'champagne', champagne: 'night' };
   applyTheme(cycle[current] || 'night');
 }
 
