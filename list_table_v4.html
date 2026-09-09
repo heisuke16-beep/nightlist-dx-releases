@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.13">
+<meta name="app-version" content="1.1.14">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -4578,6 +4578,1187 @@ html[data-display="tablet"] #list-table .col-ctrl-btn { min-width: 32px; min-hei
 @media (max-width: 760px) {
   #pos-panel .pos-order-workspace { grid-template-columns: minmax(260px, 42%) 86px minmax(320px, 1fr); overflow-x: auto; }
 }
+.champagne-icon,
+.pos-floor-legend-champagne { display: none; }
+@media screen {
+  /* Champagne is a screen-only skin. The warm wall is atmospheric; every
+     reading and input surface stays opaque enough for hurried night work. */
+  html[data-theme="champagne"] {
+    --bg: #dcc79f;
+    --bg2: #f7efdf;
+    --sur: #fff8e9;
+    --sur2: #f7efdf;
+    --sur3: #eee1ca;
+    --sur4: #e3d2b3;
+    --bdr: #cbb995;
+    --bdr2: #bba784;
+    --bdr3: #8d7857;
+    --line: #bba784;
+    --tx: #2e211b;
+    --tx2: #66533e;
+    --tx3: #74624d;
+    --gold: #9b7229;
+    --gold2: #765118;
+    --gold3: #62400f;
+    --goldglow: rgba(155, 114, 41, .18);
+    --red: #a42a35;
+    --pink: #a63365;
+    --green: #226b47;
+    --cyan: #315f82;
+    --font: "BIZ UDPGothic", "Yu Gothic UI", Meiryo, sans-serif;
+    --mono: "BIZ UDPGothic", "Yu Gothic UI", Meiryo, sans-serif;
+    --radius: 8px;
+    --shadow: 0 10px 28px rgba(70, 45, 12, .18);
+    --header-bg: radial-gradient(ellipse at 35% -80%, #3c3932 0%, transparent 73%), linear-gradient(110deg, #292722, #211f1c 65%, #282621);
+    --header-border: #605747;
+    --body-bgimg:
+      linear-gradient(45deg, transparent 0 47.8%, rgba(100, 72, 31, .07) 48% 48.7%, transparent 48.9% 100%),
+      linear-gradient(-45deg, transparent 0 47.8%, rgba(255, 255, 255, .18) 48% 48.7%, transparent 48.9% 100%),
+      radial-gradient(circle at 18% 18%, rgba(255, 255, 255, .48), transparent 35%),
+      linear-gradient(118deg, #cfb787 0%, #f4ead7 34%, #dcc79f 69%, #bfa16d 100%);
+    --sum-bar-bg: #292722;
+    --sum-bar-shadow: 0 -5px 18px rgba(52, 37, 16, .28);
+    --gc0-bg: #fffaf0; --gc0-hbg: #f4ead8;
+    --gc1-bg: #f8f1e2; --gc1-hbg: #ede0c6;
+    --gc2-bg: #f2f5e8; --gc2-hbg: #e1ead2;
+    --gc3-bg: #fff0f1; --gc3-hbg: #f5d9dc;
+    --gc4-bg: #f1eff8; --gc4-hbg: #e1ddec;
+    --gc5-bg: #fff4df; --gc5-hbg: #f1dfbc;
+    color-scheme: light;
+  }
+
+  html[data-theme="champagne"] body {
+    background-color: #dcc79f;
+    background-image: var(--body-bgimg);
+    background-size: 170px 170px, 170px 170px, auto, auto;
+    color: var(--tx);
+    font-family: var(--font);
+    font-variant-numeric: tabular-nums;
+  }
+
+  html[data-theme="champagne"] button,
+  html[data-theme="champagne"] input,
+  html[data-theme="champagne"] select,
+  html[data-theme="champagne"] textarea {
+    font-family: var(--font);
+    font-variant-numeric: tabular-nums;
+  }
+
+  html[data-theme="champagne"] :focus-visible {
+    outline: 3px solid #8a631f;
+    outline-offset: 2px;
+  }
+
+  html[data-theme="champagne"] ::-webkit-scrollbar-track { background: rgba(255, 248, 233, .5); }
+  html[data-theme="champagne"] ::-webkit-scrollbar-thumb { background: #8d7857; }
+  html[data-theme="champagne"] ::-webkit-scrollbar-thumb:hover { background: #765118; }
+
+  /* Real header and the existing nine-tab navigation. */
+  html[data-theme="champagne"] #header {
+    min-height: 62px;
+    height: 62px;
+    padding: 0 16px;
+    gap: 12px;
+    background: var(--header-bg);
+    border-color: var(--header-border);
+    color: #f4efe5;
+    box-shadow: 0 1px 0 #171613, 0 8px 22px rgba(44, 31, 13, .24);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  html[data-theme="champagne"] #header .header-logo {
+    align-self: stretch;
+    align-items: center;
+    border-right-color: #605747;
+    padding-right: 16px;
+  }
+
+  html[data-theme="champagne"] #header .header-logo-img { height: 44px; }
+  html[data-theme="champagne"] #header .header-logo-ver { color: #cfc7b9; }
+  html[data-theme="champagne"] #header #header-shopname {
+    background: #332f28 !important;
+    border-color: #605747 !important;
+    color: #f4efe5 !important;
+  }
+
+  html[data-theme="champagne"] #header .header-date-block {
+    align-items: flex-start;
+    min-width: 142px;
+  }
+
+  html[data-theme="champagne"] #header #biz-date { color: #cfc7b9; font-size: 13px; }
+  html[data-theme="champagne"] #header .header-clock { color: #f4efe5; }
+  html[data-theme="champagne"] #header #clock.header-clock .pos-clock-time,
+  html[data-theme="champagne"] #header #clock.header-clock.dev .pos-clock-time {
+    color: #f4efe5 !important;
+    font-family: var(--font);
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: .08em;
+  }
+  html[data-theme="champagne"] #header #clock .header-clock-dev { color: #e6c46d; }
+
+  html[data-theme="champagne"] #header #store-status-badge {
+    min-height: 44px;
+    padding: 0 14px;
+    border: 1px solid #605747;
+    border-radius: 9px;
+    background: #332f28;
+    color: #cfc7b9;
+    box-shadow: inset 0 1px rgba(255, 255, 255, .04);
+  }
+
+  html[data-theme="champagne"] #header #store-status-badge .ss-in { color: #72c392; }
+  html[data-theme="champagne"] #header #store-status-badge .ss-out { color: #e3bd5c; }
+  html[data-theme="champagne"] #header #store-status-badge .ss-badge-label { color: #cfc7b9; }
+  html[data-theme="champagne"] #header #store-status-badge .ss-sep { color: #bbb2a2; opacity: 1; }
+  html[data-theme="champagne"] #header #store-status-badge .ss-item-out.is-zero { opacity: 1; }
+  html[data-theme="champagne"] #header #store-status-badge .ss-icon,
+  html[data-theme="champagne"] #header #store-status-badge > .champagne-icon { display: none; }
+  html[data-theme="champagne"] #header #store-status-badge::before {
+    content: "";
+    width: 18px;
+    height: 18px;
+    flex: 0 0 18px;
+    background: #cfc7b9;
+    -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='none' stroke='%23000' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' d='M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75'/%3E%3C/svg%3E") center / contain no-repeat;
+    mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='none' stroke='%23000' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' d='M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75'/%3E%3C/svg%3E") center / contain no-repeat;
+  }
+  html[data-theme="champagne"] #header .theme-toggle-btn { display: none; }
+  html[data-theme="champagne"] #header .header-btn-group { gap: 0; }
+  html[data-theme="champagne"] #header .header-btn-group .sep { background: #605747; margin-inline: 8px; }
+
+  html[data-theme="champagne"] #header .header-btn-group .btn {
+    min-height: 44px;
+    padding: 0 14px;
+    border-radius: 0;
+    border-color: #605747;
+    background: #35312b;
+    color: #f4efe5;
+    box-shadow: none;
+    transform: none;
+  }
+
+  html[data-theme="champagne"] #header .header-btn-group .btn:first-child { border-radius: 8px 0 0 8px; }
+  html[data-theme="champagne"] #header .header-btn-group .btn:nth-child(2) { border-radius: 0 8px 8px 0; border-left: 0; }
+  html[data-theme="champagne"] #header .header-btn-group .btn[disabled] { color: #898174; opacity: 1; }
+  html[data-theme="champagne"] #header .header-btn-group .btn.primary {
+    min-width: 84px;
+    border: 1px solid #eed399;
+    border-radius: 8px;
+    background: #dfb965;
+    color: #2c220e;
+  }
+
+  html[data-theme="champagne"] #header #header-exit-btn {
+    margin-left: 8px;
+    border: 1px solid #8e5e57;
+    border-radius: 8px;
+    background: transparent;
+    color: #e8aaa0;
+  }
+
+  html[data-theme="champagne"] .theme-icon-legacy { display: none; }
+  html[data-theme="champagne"] .champagne-icon {
+    display: inline-block;
+    width: 18px;
+    height: 18px;
+    flex: 0 0 18px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  html[data-theme="champagne"] #tabs {
+    min-height: 48px;
+    padding: 0 12px;
+    gap: 2px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    background: #211f1c;
+    border-color: #605747;
+    scrollbar-width: thin;
+  }
+
+  html[data-theme="champagne"] #tabs .tab-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    flex: 0 0 auto;
+    min-height: 44px;
+    margin: 2px 0;
+    padding: 0 13px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    color: #ded6c8;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0;
+    text-shadow: none;
+  }
+
+  html[data-theme="champagne"] #tabs .tab-btn:hover { background: #332f28; color: #f4efe5; }
+  html[data-theme="champagne"] #tabs .tab-btn.active {
+    border-color: #8c7547;
+    background: #453a26;
+    color: #f6d991;
+    box-shadow: inset 0 -2px 0 #d8b76b;
+  }
+
+  html[data-theme="champagne"] #tabs .tab-btn[data-tab="report"],
+  html[data-theme="champagne"] #tabs .tab-btn[data-tab="past"] {
+    margin-left: 10px;
+    border-left-color: #605747;
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+  }
+
+  @media (min-width: 1121px) {
+    html[data-theme="champagne"] #tabs .tab-btn[data-tab="past"] { margin-left: auto; }
+    html[data-theme="champagne"] #tabs #tab-demo-btn { margin-left: 0 !important; }
+  }
+
+  html[data-theme="champagne"] #tabs #tab-demo-btn.demo-active {
+    border-color: #8e5e57;
+    background: #412a29;
+    color: #f2b7ad;
+  }
+
+  /* Shared controls and reading surfaces. */
+  html[data-theme="champagne"] .btn {
+    min-height: 36px;
+    border-color: var(--bdr2);
+    border-radius: 8px;
+    background: var(--sur2);
+    color: var(--tx);
+    box-shadow: none;
+  }
+
+  html[data-theme="champagne"] .btn:hover { border-color: var(--bdr3); background: var(--sur3); box-shadow: none; }
+  html[data-theme="champagne"] .btn.primary {
+    border-color: #b78d3a;
+    background: #dfb965;
+    color: #2c220e;
+  }
+
+  html[data-theme="champagne"] .btn.danger {
+    border-color: #bb646a;
+    background: #fff0ef;
+    color: #96252f;
+  }
+
+  html[data-theme="champagne"] select,
+  html[data-theme="champagne"] input[type="text"],
+  html[data-theme="champagne"] input[type="number"],
+  html[data-theme="champagne"] input[type="time"],
+  html[data-theme="champagne"] input[type="date"],
+  html[data-theme="champagne"] input[type="password"],
+  html[data-theme="champagne"] textarea {
+    border-color: var(--bdr2);
+    border-radius: 8px;
+    background: #fffaf0;
+    color: var(--tx);
+  }
+
+  html[data-theme="champagne"] select:focus,
+  html[data-theme="champagne"] input:focus,
+  html[data-theme="champagne"] textarea:focus {
+    border-color: #8a631f;
+    box-shadow: 0 0 0 3px rgba(138, 99, 31, .18);
+  }
+
+  html[data-theme="champagne"] #toolbar {
+    min-height: 54px;
+    background: linear-gradient(180deg, rgba(255, 250, 239, .94), rgba(235, 219, 188, .9));
+    border-color: rgba(101, 71, 29, .34);
+    color: var(--tx);
+    box-shadow: 0 4px 14px rgba(70, 48, 14, .13);
+  }
+
+  html[data-theme="champagne"] #list-panel,
+  html[data-theme="champagne"] #cast-panel,
+  html[data-theme="champagne"] #report-panel,
+  html[data-theme="champagne"] #analytics-panel,
+  html[data-theme="champagne"] #customer-panel,
+  html[data-theme="champagne"] #bottle-panel,
+  html[data-theme="champagne"] #past-panel,
+  html[data-theme="champagne"] #settings-panel {
+    color: var(--tx);
+  }
+
+  html[data-theme="champagne"] #table-wrapper,
+  html[data-theme="champagne"] #customer-table-wrapper,
+  html[data-theme="champagne"] #bottle-table-wrapper {
+    background: rgba(255, 248, 233, .7);
+  }
+
+  html[data-theme="champagne"] #list-table,
+  html[data-theme="champagne"] #past-table,
+  html[data-theme="champagne"] #customer-table,
+  html[data-theme="champagne"] #bottle-table,
+  html[data-theme="champagne"] #tt-simple-table,
+  html[data-theme="champagne"] .settings-table,
+  html[data-theme="champagne"] .agg-prod-table {
+    color: var(--tx);
+    box-shadow: 0 6px 18px rgba(70, 45, 12, .12);
+  }
+
+  html[data-theme="champagne"] #list-table th,
+  html[data-theme="champagne"] #past-table th,
+  html[data-theme="champagne"] #customer-table th,
+  html[data-theme="champagne"] #bottle-table th,
+  html[data-theme="champagne"] #tt-simple-table th,
+  html[data-theme="champagne"] .settings-table th,
+  html[data-theme="champagne"] .agg-prod-table th {
+    border-color: #605747;
+    background: #332f28;
+    color: #f4efe5;
+  }
+
+  html[data-theme="champagne"] #list-table td,
+  html[data-theme="champagne"] #past-table td,
+  html[data-theme="champagne"] #customer-table td,
+  html[data-theme="champagne"] #bottle-table td,
+  html[data-theme="champagne"] #tt-simple-table td,
+  html[data-theme="champagne"] .settings-table td,
+  html[data-theme="champagne"] .agg-prod-table td {
+    border-color: var(--bdr);
+    color: var(--tx);
+  }
+
+  html[data-theme="champagne"] #list-table .time-sel,
+  html[data-theme="champagne"] #past-table .time-sel,
+  html[data-theme="champagne"] #list-table .amount-cell input,
+  html[data-theme="champagne"] #past-table .amount-cell input {
+    font-family: var(--font);
+    font-variant-numeric: tabular-nums;
+  }
+
+  html[data-theme="champagne"][data-list-white="1"] #toolbar,
+  html[data-theme="champagne"][data-list-white="1"] #list-panel {
+    --sur: #ffffff;
+    --sur2: #f7f2e8;
+    --sur3: #eee6d6;
+    --tx: #241b17;
+    --tx2: #584632;
+    --tx3: #6c5a46;
+    background-color: #fff;
+  }
+
+  /* Cast, report, analytics, customers, bottles and settings share one
+     ivory/card grammar while retaining their semantic state colors. */
+  html[data-theme="champagne"] .cast-card,
+  html[data-theme="champagne"] .agg-box,
+  html[data-theme="champagne"] .agg-side-card,
+  html[data-theme="champagne"] .agg-side-sec,
+  html[data-theme="champagne"] .agg-card,
+  html[data-theme="champagne"] .analytics-controls,
+  html[data-theme="champagne"] .analytics-kpi-card,
+  html[data-theme="champagne"] .analytics-chart-card,
+  html[data-theme="champagne"] .cust-card,
+  html[data-theme="champagne"] .customer-cast-section,
+  html[data-theme="champagne"] .customer-analytics-card,
+  html[data-theme="champagne"] .customer-analytics-block,
+  html[data-theme="champagne"] .settings-section,
+  html[data-theme="champagne"] .settings-ext-rule {
+    border-color: var(--bdr2);
+    border-radius: 10px;
+    background: linear-gradient(180deg, #fffaf0, #f7efdf);
+    color: var(--tx);
+    box-shadow: 0 6px 20px rgba(70, 45, 12, .12);
+  }
+
+  html[data-theme="champagne"] .settings-section-header,
+  html[data-theme="champagne"] .agg-box-head,
+  html[data-theme="champagne"] .past-sidebar-header,
+  html[data-theme="champagne"] .past-main-header {
+    border-color: var(--bdr);
+    background: #eee1ca;
+    color: var(--tx);
+  }
+
+  html[data-theme="champagne"] .settings-section-title,
+  html[data-theme="champagne"] .agg-box-head h3,
+  html[data-theme="champagne"] .agg-side-sec h4,
+  html[data-theme="champagne"] .pos-section-title,
+  html[data-theme="champagne"] .past-sidebar-title,
+  html[data-theme="champagne"] .analytics-title h2,
+  html[data-theme="champagne"] #cast-panel h2,
+  html[data-theme="champagne"] .customer-toolbar h2,
+  html[data-theme="champagne"] .bottle-toolbar h2 {
+    color: #62400f;
+    font-family: var(--font) !important;
+    font-weight: 800;
+  }
+
+  html[data-theme="champagne"] .settings-nav-btn { min-height: 44px; color: var(--tx2); }
+  html[data-theme="champagne"] .settings-nav-btn:hover { background: #eee1ca; color: var(--tx); }
+  html[data-theme="champagne"] .settings-nav-btn.active {
+    border-color: #9b7229;
+    background: #e6d1a9;
+    color: #3f2c15;
+    box-shadow: inset 3px 0 #9b7229;
+  }
+
+  html[data-theme="champagne"] #settings-current-theme { min-height: 44px; }
+
+  /* Legacy semantic hues were tuned for charcoal. Darker equivalents keep
+     the same meanings readable on the champagne table surface. */
+  html[data-theme="champagne"] #list-table .desig-row.type-jounai .type-sel,
+  html[data-theme="champagne"] #past-table .desig-row.type-jounai .type-sel { color: #765600; }
+  html[data-theme="champagne"] #list-table .desig-row.type-honshimei .type-sel,
+  html[data-theme="champagne"] #past-table .desig-row.type-honshimei .type-sel { color: #a42a43; }
+  html[data-theme="champagne"] #list-table .desig-row.type-douban .type-sel,
+  html[data-theme="champagne"] #past-table .desig-row.type-douban .type-sel { color: #1f7146; }
+  html[data-theme="champagne"] #list-table .desig-row.type-enchoshimei .type-sel,
+  html[data-theme="champagne"] #past-table .desig-row.type-enchoshimei .type-sel { color: #24678c; }
+
+  html[data-theme="champagne"] #tt-simple-table tr.tt-row-inactive td {
+    background: #f4ead7;
+    color: #70604c;
+    opacity: 1;
+  }
+
+  html[data-theme="champagne"] #customer-table th > span {
+    color: #ded6c8 !important;
+  }
+
+  html[data-theme="champagne"] .analytics-preset,
+  html[data-theme="champagne"] .analytics-compare-btn {
+    min-height: 38px;
+    border-color: var(--bdr2);
+    background: #fffaf0;
+    color: var(--tx2);
+  }
+
+  html[data-theme="champagne"] .analytics-preset.active,
+  html[data-theme="champagne"] .analytics-compare-btn.active {
+    border-color: #9b7229;
+    background: #dfb965;
+    color: #2c220e;
+  }
+
+  html[data-theme="champagne"] .analytics-trend-fill { background: #416f95; }
+  html[data-theme="champagne"] .analytics-trend-fill.best { background: #a97824; }
+  html[data-theme="champagne"] .analytics-payment-segment.cash,
+  html[data-theme="champagne"] .analytics-payment-legend i.cash { background: #2e7d50; }
+  html[data-theme="champagne"] .analytics-payment-segment.card,
+  html[data-theme="champagne"] .analytics-payment-legend i.card { background: #3c6f9d; }
+  html[data-theme="champagne"] .analytics-payment-segment.urikake,
+  html[data-theme="champagne"] .analytics-payment-legend i.urikake { background: #a46a20; }
+
+  html[data-theme="champagne"] #past-sidebar,
+  html[data-theme="champagne"] #past-main {
+    border-color: var(--bdr2);
+    background: rgba(255, 248, 233, .92);
+  }
+
+  html[data-theme="champagne"] .past-day-item.active {
+    border-color: #9b7229;
+    background: #ead8b8;
+  }
+
+  html[data-theme="champagne"] .past-day-item.active .day-label { color: #62400f; }
+  html[data-theme="champagne"] .bottle-warn { color: #7b4c00; }
+  html[data-theme="champagne"] .bottle-expired { color: #a42a35; }
+
+  /* Common suggestions, popovers, dialogs and customer picker. */
+  html[data-theme="champagne"] .name-suggest-list,
+  html[data-theme="champagne"] .ss-popover,
+  html[data-theme="champagne"] .customer-picker-modal,
+  html[data-theme="champagne"] .app-dialog-panel {
+    border-color: var(--bdr2);
+    background: #fff8e9;
+    color: var(--tx);
+    box-shadow: 0 20px 58px rgba(44, 31, 13, .32);
+  }
+
+  html[data-theme="champagne"] .name-suggest-item:hover,
+  html[data-theme="champagne"] .name-suggest-item.selected,
+  html[data-theme="champagne"] .customer-picker-row:hover {
+    background: #eee1ca;
+    color: var(--tx);
+  }
+
+  html[data-theme="champagne"] .customer-picker-row.current {
+    border-color: #9b7229;
+    background: #ead8b8;
+  }
+
+  html[data-theme="champagne"] .customer-picker-register,
+  html[data-theme="champagne"] .app-dialog-ok {
+    background: #dfb965;
+    color: #2c220e;
+  }
+
+  html[data-theme="champagne"] .app-dialog-cancel { border-color: var(--bdr2); background: #eee1ca; color: var(--tx); }
+  html[data-theme="champagne"] .app-dialog-danger { background: #a42a35; color: #fff8e9; }
+
+  /* These two gates are built with inline styles, so overrides are deliberately
+     narrow and theme-scoped rather than a blanket inline-style recolor. */
+  html[data-theme="champagne"] #auth-gate-overlay,
+  html[data-theme="champagne"] #auth-recovery-code-modal,
+  html[data-theme="champagne"] #usb-boot-gate,
+  html[data-theme="champagne"] #usb-owner-fenced {
+    background: var(--header-bg) !important;
+    color: #f4efe5 !important;
+    font-family: var(--font) !important;
+  }
+
+  html[data-theme="champagne"] #auth-gate-overlay > div,
+  html[data-theme="champagne"] #auth-recovery-code-modal > div,
+  html[data-theme="champagne"] #usb-boot-gate > div,
+  html[data-theme="champagne"] #usb-owner-fenced > div {
+    border-color: #8c7547 !important;
+    background: #292722 !important;
+    color: #f4efe5 !important;
+  }
+
+  html[data-theme="champagne"] #auth-gate-overlay input,
+  html[data-theme="champagne"] #auth-recovery-code-modal input {
+    border-color: #8c7547 !important;
+    background: #fff8e9 !important;
+    color: #2e211b !important;
+    font-family: var(--font) !important;
+  }
+
+  html[data-theme="champagne"] #auth-gate-submit,
+  html[data-theme="champagne"] #auth-setup-submit,
+  html[data-theme="champagne"] #auth-recovery-submit,
+  html[data-theme="champagne"] #auth-recovery-code-ok,
+  html[data-theme="champagne"] #usb-boot-start,
+  html[data-theme="champagne"] #usb-boot-select,
+  html[data-theme="champagne"] #usb-owner-reload {
+    min-height: 48px;
+    border-color: #eed399 !important;
+    background: #dfb965 !important;
+    color: #2c220e !important;
+  }
+
+  /* POS has a local token island; root tokens alone cannot theme it. */
+  html[data-theme="champagne"] #pos-panel {
+    --mono: "BIZ UDPGothic", "Yu Gothic UI", Meiryo, sans-serif;
+    --pos-bg: transparent;
+    --pos-panel: #fff8e9;
+    --pos-panel2: #f0e3cc;
+    --pos-line: #bba784;
+    --pos-tx: #2e211b;
+    --pos-tx2: #66533e;
+    --pos-amber: #765118;
+    --pos-amber-deep: #a97824;
+    --pos-ok: #276846;
+    --pos-warn: #725900;
+    --pos-over: #a42a35;
+    --pos-wait: #765118;
+    --tx: var(--pos-tx);
+    --tx2: var(--pos-tx2);
+    --tx3: #74624d;
+    --gold: #9b7229;
+    --gold2: #765118;
+    --gold3: #62400f;
+    --goldglow: rgba(155, 114, 41, .18);
+    --green: var(--pos-ok);
+    --red: var(--pos-over);
+    --cyan: #315f82;
+    --bdr: var(--pos-line);
+    --bdr2: var(--pos-line);
+    --bdr3: #8d7857;
+    --sur: var(--pos-panel);
+    --sur2: #f7efdf;
+    --sur3: #eee1ca;
+    --sur4: #e3d2b3;
+    --pos-shell-bg: transparent;
+    --pos-empty-bg: transparent;
+    --pos-slip-wrap-bg: transparent;
+    --pos-order-shell-bg: transparent;
+    --pos-order-slip-bg: var(--pos-panel);
+    --pos-order-main-bg: transparent;
+    --pos-order-main-color: var(--pos-tx);
+    --pos-order-cat-bg: rgba(255, 248, 233, .72);
+    background-color: transparent;
+    background-image: none;
+    color: var(--pos-tx);
+    font-family: var(--font);
+    font-variant-numeric: tabular-nums;
+  }
+
+  html[data-theme="champagne"] #pos-panel .pos-shell,
+  html[data-theme="champagne"] #pos-panel .pos-empty-shell,
+  html[data-theme="champagne"] #pos-panel .pos-empty-stage,
+  html[data-theme="champagne"] #pos-panel .pos-order-shell,
+  html[data-theme="champagne"] #pos-panel .pos-slip-view-shell {
+    background: transparent;
+  }
+
+  html[data-theme="champagne"] #pos-panel .pos-slip-sheet-wrap {
+    --mono: "BIZ UDPGothic", "Yu Gothic UI", Meiryo, sans-serif;
+    background: rgba(255, 248, 233, .82);
+  }
+
+  html[data-theme="champagne"] #pos-panel .pos-slip-sheet {
+    font-family: var(--font);
+    font-variant-numeric: tabular-nums;
+  }
+
+  html[data-theme="champagne"] #pos-panel .pos-slip-view-head {
+    min-height: 66px;
+    padding: 10px 16px;
+    border-bottom: 1px solid rgba(101, 71, 29, .3);
+    background: linear-gradient(180deg, rgba(255, 250, 239, .86), rgba(235, 219, 188, .74));
+    color: #46321f;
+    box-shadow: 0 4px 14px rgba(70, 48, 14, .12);
+  }
+
+  html[data-theme="champagne"] #pos-panel .pos-active-cast-chip,
+  html[data-theme="champagne"] #pos-panel .pos-slip-view-toggle button {
+    min-height: 44px;
+    border-color: rgba(102, 76, 40, .38);
+    background: rgba(255, 252, 244, .78);
+    color: #604a34;
+    box-shadow: inset 0 1px #fff;
+  }
+
+  html[data-theme="champagne"] #pos-panel .pos-active-cast-chip.selected,
+  html[data-theme="champagne"] #pos-panel .pos-slip-view-toggle button.active {
+    border-color: #8b6a35;
+    background: linear-gradient(180deg, #785b37, #493522);
+    color: #fff8e8;
+    box-shadow: inset 0 1px rgba(255, 255, 255, .2), 0 4px 9px rgba(60, 39, 15, .18);
+  }
+
+  html[data-theme="champagne"] #pos-panel .pos-active-cast-chip.in-table { opacity: .68; }
+  html[data-theme="champagne"] #pos-panel .pos-floor-legend-default { display: none; }
+  html[data-theme="champagne"] #pos-panel .pos-floor-legend-champagne {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    color: #4f3d2a;
+    font-size: 11px;
+    font-weight: 800;
+  }
+
+  html[data-theme="champagne"] #pos-panel .pos-floor-legend-champagne span {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    color: #4f3d2a;
+    text-shadow: none;
+  }
+  html[data-theme="champagne"] #pos-panel .pos-floor-legend-champagne i {
+    width: 10px;
+    height: 10px;
+    border: 1px solid rgba(77, 58, 31, .45);
+    border-radius: 50%;
+    background: #fffaf0;
+  }
+
+  html[data-theme="champagne"] #pos-panel .pos-floor-legend-champagne .status-empty i { background: #fffaf0; }
+  html[data-theme="champagne"] #pos-panel .pos-floor-legend-champagne .status-ok i { background: #be8f2c; }
+  html[data-theme="champagne"] #pos-panel .pos-floor-legend-champagne .status-warn i { background: #e3cd16; }
+  html[data-theme="champagne"] #pos-panel .pos-floor-legend-champagne .status-over i { background: #b92f38; }
+  html[data-theme="champagne"] #pos-panel .pos-floor-legend-champagne .status-wait i { background: #765118; }
+  html[data-theme="champagne"] #pos-panel .pos-floor-grid { gap: 12px; padding: 12px 16px 18px; }
+
+  html[data-theme="champagne"] #pos-panel .pos-floor-card {
+    min-height: 132px;
+    padding: 12px 14px;
+    border: 1px solid rgba(246, 220, 158, .72);
+    border-radius: 13px;
+    color: #211708;
+    text-shadow: none;
+    box-shadow: 0 8px 18px rgba(63, 42, 14, .2), inset 0 1px rgba(255, 255, 255, .25);
+    opacity: 1;
+  }
+
+  html[data-theme="champagne"] #pos-panel .pos-floor-card.status-ok[data-gid],
+  html[data-theme="champagne"] #pos-panel .pos-floor-card.status-none[data-gid],
+  html[data-theme="champagne"] #pos-panel .pos-floor-card.status-wait[data-gid] {
+    border-color: #e9c975;
+    background: linear-gradient(155deg, #d2a340, #be8f2c 58%, #b58327);
+    color: #211708;
+  }
+
+  html[data-theme="champagne"] #pos-panel .pos-floor-card.status-warn[data-gid] {
+    border-color: #f4df6a;
+    background: linear-gradient(155deg, #fff176, #f7df42 58%, #ebcf30);
+    color: #312807;
+    box-shadow: 0 8px 18px rgba(83, 63, 6, .18), inset 0 5px #e1bd27;
+  }
+
+  html[data-theme="champagne"] #pos-panel .pos-floor-card.status-over[data-gid] {
+    border-color: #d86b72;
+    background: linear-gradient(155deg, #b92f38, #a92430 58%, #891b28);
+    color: #fff8e9;
+    box-shadow: 0 8px 18px rgba(75, 15, 21, .26), inset 0 5px #df7478;
+  }
+
+  html[data-theme="champagne"] #pos-panel .pos-floor-card.empty {
+    border-color: rgba(255, 255, 255, .82);
+    border-style: solid;
+    background: rgba(255, 255, 255, .5);
+    color: #3c3429;
+    box-shadow: 0 4px 12px rgba(63, 42, 14, .12), inset 0 1px rgba(255, 255, 255, .65);
+  }
+
+  html[data-theme="champagne"] #pos-panel .pos-floor-card.empty .pos-floor-table,
+  html[data-theme="champagne"] #pos-panel .pos-floor-card.empty .pos-floor-empty-label { color: #3c3429; }
+
+  html[data-theme="champagne"] #pos-panel .pos-floor-new {
+    border-color: #846b46;
+    border-style: dashed;
+    background: rgba(63, 47, 28, .68);
+    color: #ffe29b;
+  }
+
+  html[data-theme="champagne"] #pos-panel .pos-floor-table,
+  html[data-theme="champagne"] #pos-panel .pos-floor-source,
+  html[data-theme="champagne"] #pos-panel .pos-floor-elapsed,
+  html[data-theme="champagne"] #pos-panel .pos-floor-timer b,
+  html[data-theme="champagne"] #pos-panel .pos-floor-timerange,
+  html[data-theme="champagne"] #pos-panel .pos-floor-total b {
+    color: inherit;
+    font-family: var(--font);
+    font-variant-numeric: tabular-nums;
+  }
+
+  html[data-theme="champagne"] #pos-panel .pos-floor-table { font-weight: 900; }
+  html[data-theme="champagne"] #pos-panel .pos-floor-people { color: inherit; font-weight: 800; }
+  html[data-theme="champagne"] #pos-panel .pos-floor-timer,
+  html[data-theme="champagne"] #pos-panel .pos-floor-source {
+    color: inherit;
+  }
+
+  html[data-theme="champagne"] #pos-panel .pos-floor-timer {
+    border: 1px solid rgba(66, 45, 17, .42);
+    background: rgba(255, 249, 225, .38);
+  }
+
+  html[data-theme="champagne"] #pos-panel .pos-floor-card.status-over .pos-floor-timer {
+    border-color: rgba(255, 237, 195, .58);
+    background: rgba(31, 21, 10, .28);
+  }
+
+  html[data-theme="champagne"] #pos-panel .pos-floor-card .pos-floor-timer b { color: inherit; }
+  html[data-theme="champagne"] #pos-panel .pos-floor-card.status-over .pos-floor-timer b { color: #fff8e9; }
+  html[data-theme="champagne"] #pos-panel .pos-floor-cast {
+    border-color: #5e4d34;
+    background: #382c1e;
+    color: #fff8e9;
+  }
+
+  html[data-theme="champagne"] #pos-panel .pos-floor-cast.nominated {
+    border-color: #f3d17d;
+    background: #382c1e;
+    color: #f3d17d;
+  }
+
+  html[data-theme="champagne"] #pos-panel .pos-floor-cast.silver-nominated {
+    border-color: #d7dde5;
+    background: #382c1e;
+    color: #d7dde5;
+  }
+
+  html[data-theme="champagne"] #pos-panel .pos-floor-cast.away { opacity: .72; }
+  html[data-theme="champagne"] #pos-panel .pos-floor-cast-help {
+    border: 1px solid currentColor;
+    border-radius: 4px;
+    padding: 0 3px;
+    color: #fff8e9;
+  }
+
+  html[data-theme="champagne"] #pos-panel .pos-floor-total { margin-top: auto; }
+  html[data-theme="champagne"] #pos-panel .pos-floor-total small,
+  html[data-theme="champagne"] #pos-panel .pos-floor-total b { color: inherit; }
+
+  /* Orders, set entry and paper slip keep their structures and semantic ink. */
+  html[data-theme="champagne"] #pos-panel .pos-order-slip-area,
+  html[data-theme="champagne"] #pos-panel .pos-order-slip-panel,
+  html[data-theme="champagne"] #pos-panel .pos-order-main,
+  html[data-theme="champagne"] #pos-panel .pos-order-main-body {
+    border-color: var(--pos-line);
+    background: rgba(255, 248, 233, .92);
+    color: var(--pos-tx);
+  }
+
+  html[data-theme="champagne"] #pos-panel .pos-order-cat-rail {
+    border-color: var(--pos-line);
+    background: rgba(70, 52, 30, .12);
+  }
+
+  html[data-theme="champagne"] #pos-panel .pos-order-cat-btn {
+    min-height: 48px;
+    color: var(--pos-tx2);
+  }
+
+  html[data-theme="champagne"] #pos-panel .pos-order-cat-btn:hover { background: #eee1ca; color: var(--pos-tx); }
+  html[data-theme="champagne"] #pos-panel .pos-order-cat-btn.active {
+    border-color: #9b7229;
+    background: #dfb965;
+    color: #2c220e;
+  }
+
+  html[data-theme="champagne"] #pos-panel .pos-product,
+  html[data-theme="champagne"] #pos-panel .pos-setentry-row,
+  html[data-theme="champagne"] #pos-panel .pos-setentry-subtotal,
+  html[data-theme="champagne"] #pos-panel .pos-nsm-row,
+  html[data-theme="champagne"] #pos-panel .pos-drink-cast-btn {
+    border-color: var(--pos-line);
+    background: #fffaf0;
+    color: var(--pos-tx);
+  }
+
+  html[data-theme="champagne"] #pos-panel .pos-product:hover { border-color: #9b7229; background: #f0e3cc; }
+  html[data-theme="champagne"] #pos-panel .pos-product.is-designated,
+  html[data-theme="champagne"] #pos-panel .pos-product.is-designated:hover {
+    border-color: #9b7229;
+    box-shadow: inset 0 0 0 1px #9b7229;
+  }
+
+  html[data-theme="champagne"] #pos-panel .pos-product.is-designated-gold,
+  html[data-theme="champagne"] #pos-panel .pos-product.is-designated-gold:hover {
+    border-color: #9b7229;
+    box-shadow: inset 0 0 0 1px #9b7229;
+  }
+
+  html[data-theme="champagne"] #pos-panel .pos-product.is-designated-silver,
+  html[data-theme="champagne"] #pos-panel .pos-product.is-designated-silver:hover {
+    border-color: #737985;
+    box-shadow: inset 0 0 0 1px #737985;
+  }
+
+  html[data-theme="champagne"] #pos-panel .pos-product-designation.is-designated-gold {
+    border-color: #9b7229;
+    color: #765118;
+  }
+
+  html[data-theme="champagne"] #pos-panel .pos-product-designation.is-designated-silver {
+    border-color: #737985;
+    color: #545b67;
+  }
+
+  html[data-theme="champagne"] #pos-panel .pos-product-price,
+  html[data-theme="champagne"] #pos-panel .pos-setentry-subtotal-val,
+  html[data-theme="champagne"] #pos-panel .pos-order-slip-table,
+  html[data-theme="champagne"] #pos-panel .pos-order-slip-totalrow.grand span:last-child,
+  html[data-theme="champagne"] #pos-panel .pos-order-slip-cardtotal span:last-child {
+    color: #765118;
+    font-family: var(--font);
+    font-variant-numeric: tabular-nums;
+  }
+
+  html[data-theme="champagne"] #pos-panel .pos-order-slip-line { border-color: #cbb995; }
+  html[data-theme="champagne"] #pos-panel .pos-order-slip-total { border-color: var(--pos-line); background: #eee1ca; }
+  html[data-theme="champagne"] #pos-panel .pos-order-cast-history-chip,
+  html[data-theme="champagne"] #pos-panel .pos-floor-cast {
+    font-family: var(--font);
+  }
+
+  html[data-theme="champagne"] #pos-panel .pos-order-cast-history-chip {
+    border-color: #5e4d34;
+    background: #382c1e;
+    color: #fff8e9;
+  }
+
+  html[data-theme="champagne"] #pos-panel .pos-order-cast-history-chip.past { border-color: #746859; background: #4b4135; color: #ddd5c8; }
+  html[data-theme="champagne"] #pos-panel .pos-order-cast-history-mark.gold { color: #f3d17d; }
+  html[data-theme="champagne"] #pos-panel .pos-order-cast-history-mark.silver { color: #d7dde5; }
+  html[data-theme="champagne"] #pos-panel .pos-drink-cast-btn.is-designated {
+    border-color: #9b7229;
+    background: #382c1e;
+    color: #fff8e9;
+  }
+
+  html[data-theme="champagne"] #pos-panel .pos-drink-cast-btn.is-designated-gold { border-color: #f3d17d; }
+  html[data-theme="champagne"] #pos-panel .pos-drink-cast-btn.is-designated-silver { border-color: #d7dde5; }
+  html[data-theme="champagne"] #pos-panel .pos-designation-role.gold { color: #f3d17d; }
+  html[data-theme="champagne"] #pos-panel .pos-designation-role.silver { color: #d7dde5; }
+  html[data-theme="champagne"] #pos-panel .pos-setentry-arrow,
+  html[data-theme="champagne"] #pos-panel .pos-nsm-arrow {
+    min-width: 48px;
+    border-color: var(--pos-line);
+    background: #eee1ca;
+    color: #62400f;
+  }
+
+  /* New-slip overlays are appended to body, outside #pos-panel. */
+  html[data-theme="champagne"] .pos-nsm-arrow {
+    border-color: var(--bdr2);
+    background: #eee1ca;
+    color: #62400f;
+  }
+  html[data-theme="champagne"] .pos-nsm-arrow:hover { background: #e2cfac; }
+
+  html[data-theme="champagne"] #pos-panel .pos-setentry-add.taxadd,
+  html[data-theme="champagne"] #pos-panel .pos-nsm-ok,
+  html[data-theme="champagne"] .pos-nsm-ok {
+    background: #dfb965;
+    color: #2c220e;
+  }
+  html[data-theme="champagne"] .pos-nsm-ok:hover { background: #d4aa50; }
+
+  html[data-theme="champagne"] #pos-panel .pos-setentry-add.incl { border-color: #9b7229; background: #fffaf0; color: #62400f; }
+
+  /* POS dialogs: fixed legacy blues are replaced narrowly, while cash/card/
+     both/urikake and danger buttons retain their semantic distinctions. */
+  html[data-theme="champagne"] .pos-nsm,
+  html[data-theme="champagne"] .pos-co-panel,
+  html[data-theme="champagne"] .pos-ext-panel,
+  html[data-theme="champagne"] .pos-hist-panel,
+  html[data-theme="champagne"] .pos-drink-pick {
+    border-color: #8d7857;
+    border-radius: 12px !important;
+    background: #fff8e9;
+    color: #2e211b;
+    box-shadow: 0 24px 64px rgba(44, 31, 13, .38) !important;
+  }
+
+  html[data-theme="champagne"] .pos-nsm-header,
+  html[data-theme="champagne"] .pos-co-header,
+  html[data-theme="champagne"] .pos-ext-header,
+  html[data-theme="champagne"] .pos-hist-header,
+  html[data-theme="champagne"] .pos-drink-pick-head {
+    border-color: #605747;
+    background: #332f28;
+    color: #f4efe5;
+  }
+
+  html[data-theme="champagne"] .pos-nsm-header > span,
+  html[data-theme="champagne"] .pos-co-title,
+  html[data-theme="champagne"] .pos-ext-title,
+  html[data-theme="champagne"] .pos-hist-title,
+  html[data-theme="champagne"] .pos-drink-pick-head > span { color: #f4efe5; }
+
+  html[data-theme="champagne"] .pos-nsm-rowlabel,
+  html[data-theme="champagne"] .pos-nsm-val,
+  html[data-theme="champagne"] .pos-co-amount-label,
+  html[data-theme="champagne"] .pos-ext-name,
+  html[data-theme="champagne"] .pos-hist-table td { color: #2e211b; }
+
+  html[data-theme="champagne"] .pos-nsm-val,
+  html[data-theme="champagne"] .pos-co-amount-val,
+  html[data-theme="champagne"] .pos-ext-amount,
+  html[data-theme="champagne"] .pos-hist-stat-val {
+    color: #62400f;
+    font-family: var(--font);
+    font-variant-numeric: tabular-nums;
+  }
+
+  html[data-theme="champagne"] .pos-hist-stat,
+  html[data-theme="champagne"] .pos-ext-cur td,
+  html[data-theme="champagne"] .pos-ext-opt td,
+  html[data-theme="champagne"] .pos-ext-diff td,
+  html[data-theme="champagne"] .pos-ext-current,
+  html[data-theme="champagne"] .pos-ext-row {
+    border-color: #cbb995;
+    background: #f7efdf;
+    color: #2e211b;
+  }
+
+  html[data-theme="champagne"] .pos-hist-table th,
+  html[data-theme="champagne"] .pos-ext-table thead th {
+    border-color: #605747;
+    background: #332f28;
+    color: #f4efe5;
+  }
+
+  html[data-theme="champagne"] .pos-hist-table td { border-color: #cbb995; }
+  html[data-theme="champagne"] .pos-co-amount-row { border-color: #cbb995; }
+  html[data-theme="champagne"] .pos-co-amount-row:nth-child(3) .pos-co-amount-label,
+  html[data-theme="champagne"] .pos-co-amount-row:nth-child(3) .pos-co-amount-val {
+    color: #176b4c !important;
+  }
+  html[data-theme="champagne"] .pos-co-amount-row:nth-child(4) .pos-co-amount-label,
+  html[data-theme="champagne"] .pos-co-amount-row:nth-child(4) .pos-co-amount-val {
+    color: #23658e !important;
+  }
+  html[data-theme="champagne"] .pos-co-amount-row:nth-last-child(3) .pos-co-amount-label,
+  html[data-theme="champagne"] .pos-co-amount-row:nth-last-child(3) .pos-co-amount-val {
+    color: #9b3041 !important;
+  }
+  html[data-theme="champagne"] #pos-urikake-overlay .pos-co-amount-val {
+    color: #9b3041 !important;
+  }
+
+  html[data-theme="champagne"] .pos-split-field {
+    border-color: #cbb995;
+    background: #f7efdf;
+    color: #2e211b;
+  }
+  html[data-theme="champagne"] .pos-split-field.active {
+    border-color: #9b7229;
+    background: #eee1ca;
+  }
+  html[data-theme="champagne"] .pos-split-field-label,
+  html[data-theme="champagne"] .pos-split-remain-label { color: #66533e; }
+  html[data-theme="champagne"] .pos-split-field.cash .pos-split-field-label { color: #176b4c; }
+  html[data-theme="champagne"] .pos-split-field.card .pos-split-field-label { color: #23658e; }
+  html[data-theme="champagne"] .pos-split-field-val { color: #2e211b; font-family: var(--font); }
+  html[data-theme="champagne"] .pos-split-remain {
+    border: 1px solid #cbb995;
+    background: #eee1ca;
+  }
+  html[data-theme="champagne"] .pos-split-remain-val {
+    color: #765118 !important;
+    font-family: var(--font);
+  }
+  html[data-theme="champagne"] .pos-split-key {
+    background: #493522;
+    color: #fff8e9;
+  }
+  html[data-theme="champagne"] .pos-split-key:active { background: #6a4d2e; }
+  html[data-theme="champagne"] .pos-split-key.fn { background: #66533e; }
+  html[data-theme="champagne"] .pos-split-key.fill { background: #176b4c; }
+  html[data-theme="champagne"] .pos-co-btn.cancel { border: 1px solid #8d7857; background: #eee1ca; color: #2e211b; }
+
+  /* Fixed business summary remains readable over every tab. */
+  html[data-theme="champagne"] #summary-bar {
+    border-color: #605747;
+    background: #292722;
+    color: #f4efe5;
+    box-shadow: var(--sum-bar-shadow);
+  }
+
+  html[data-theme="champagne"] #summary-bar .sum-brand,
+  html[data-theme="champagne"] #summary-bar .sum-label { color: #cfc7b9; }
+  html[data-theme="champagne"] #summary-bar .sum-val { color: #f4efe5; font-family: var(--font); }
+  html[data-theme="champagne"] #summary-bar .sum-val.green { color: #69c58d; }
+  html[data-theme="champagne"] #summary-bar .sum-val.gold { color: #f0bd4e; }
+  html[data-theme="champagne"] #summary-bar .sum-divider { background: #4c463c; }
+
+  html[data-theme="champagne"] #summary-bar.has-pos-actions {
+    height: 56px;
+    min-height: 56px;
+    padding: 0 10px;
+    justify-content: flex-start;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  html[data-theme="champagne"] #summary-bar.has-pos-actions #summary-pos-actions {
+    flex: 0 0 auto;
+    width: max-content;
+    min-width: max-content;
+  }
+
+  html[data-theme="champagne"] #summary-bar.has-pos-actions #summary-pos-actions .pos-bottom-btn {
+    flex: 0 0 auto;
+    min-width: 76px;
+    max-width: none;
+    height: 44px;
+    min-height: 44px;
+    max-height: none;
+  }
+
+  html[data-theme="champagne"] #summary-bar.has-pos-actions .sum-item,
+  html[data-theme="champagne"] #summary-bar.has-pos-actions .sum-divider {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  html[data-theme="champagne"] #pos-panel,
+  html[data-theme="champagne"] #pos-panel .pos-order-shell {
+    padding-bottom: 56px;
+  }
+
+  /* Tablet-mode CSS is injected after theme styles and retains the legacy
+     43px footer measurements. These higher-specificity theme rules keep the
+     final POS row above the accessible 56px action footer. */
+  html[data-theme="champagne"][data-display="tablet"] #pos-panel,
+  html[data-theme="champagne"][data-display="tablet"] #pos-panel .pos-order-shell {
+    padding-bottom: 56px;
+  }
+
+  html[data-theme="champagne"][data-display="tablet"] #pos-panel .pos-slip-view-shell {
+    height: calc(100% - 56px);
+  }
+
+  @media (max-width: 1120px) {
+    html[data-theme="champagne"] #header {
+      position: relative;
+      height: auto;
+      min-height: 62px;
+      flex-wrap: wrap;
+      padding-block: 8px;
+    }
+
+    html[data-theme="champagne"] #header .spacer-badge-left { display: none; }
+    html[data-theme="champagne"] #header .header-btn-group { margin-left: auto; }
+    html[data-theme="champagne"] #tabs { position: relative; }
+  }
+
+  @media (max-width: 760px) {
+    html[data-theme="champagne"] #header { align-items: center; gap: 8px; }
+    html[data-theme="champagne"] #header .header-logo { flex: 1 1 170px; }
+    html[data-theme="champagne"] #header .header-date-block { min-width: 118px; }
+    html[data-theme="champagne"] #header #store-status-badge { order: 4; }
+    html[data-theme="champagne"] #header .spacer { display: none; }
+    html[data-theme="champagne"] #header .header-btn-group { order: 5; width: 100%; overflow-x: auto; }
+    html[data-theme="champagne"] #header .header-btn-group .btn { flex: 1 0 auto; }
+    html[data-theme="champagne"] #tabs .tab-btn { padding-inline: 12px; }
+    html[data-theme="champagne"] #pos-panel .pos-slip-view-head { align-items: flex-start; }
+    html[data-theme="champagne"] #pos-panel .pos-floor-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    html[data-theme="champagne"] .settings-layout { flex-direction: column; }
+    html[data-theme="champagne"] .settings-nav {
+      position: static;
+      flex: none;
+      width: 100%;
+      flex-direction: row;
+      overflow-x: auto;
+    }
+
+    html[data-theme="champagne"] .settings-nav-btn { flex: 0 0 auto; }
+  }
+
+  @media (max-width: 470px) {
+    html[data-theme="champagne"] #header .header-logo-img { height: 38px; max-width: 145px; object-fit: contain; }
+    html[data-theme="champagne"] #header #store-status-badge { flex: 1 1 auto; }
+    html[data-theme="champagne"] #pos-panel .pos-floor-grid { grid-template-columns: minmax(0, 1fr); }
+    html[data-theme="champagne"] #pos-panel .pos-floor-card { min-height: 124px; }
+    html[data-theme="champagne"] .settings-section-body,
+    html[data-theme="champagne"] .settings-row,
+    html[data-theme="champagne"] .settings-label { min-width: 0; }
+    html[data-theme="champagne"] .settings-row {
+      align-items: stretch;
+      flex-direction: column;
+    }
+    html[data-theme="champagne"] .settings-label { width: 100%; }
+    html[data-theme="champagne"] .settings-row > .settings-input {
+      width: 100% !important;
+      max-width: 100%;
+      box-sizing: border-box;
+    }
+    html[data-theme="champagne"] #pos-panel .pos-order-shell {
+      overflow-x: auto;
+      overflow-y: hidden;
+      overscroll-behavior-x: contain;
+    }
+    html[data-theme="champagne"] #pos-panel .pos-order-workspace {
+      width: max-content;
+      min-width: 100%;
+      grid-template-columns: minmax(260px, 84vw) 82px minmax(300px, 84vw);
+      overflow: visible;
+    }
+    html[data-theme="champagne"] #summary-bar:not(.has-pos-actions) {
+      justify-content: flex-start;
+      overflow-x: auto;
+      overflow-y: hidden;
+    }
+    html[data-theme="champagne"] #summary-bar .sum-brand,
+    html[data-theme="champagne"] #summary-bar .sum-item,
+    html[data-theme="champagne"] #summary-bar .sum-label,
+    html[data-theme="champagne"] #summary-bar .sum-val {
+      flex: 0 0 auto;
+      white-space: nowrap;
+    }
+    html[data-theme="champagne"] #summary-bar .sum-brand { margin-right: 4px; }
+  }
+}
+
 </style>
 </head>
 <body>
@@ -4650,7 +5831,7 @@ html[data-display="tablet"] #list-table .col-ctrl-btn { min-width: 32px; min-hei
   <div class="spacer spacer-badge-left"></div>
 
   <span id="store-status-badge" class="store-status-badge" onclick="openStoreStatusDetail(event)" title="在卓キャスト+待機中キャスト（クリックで詳細）">
-    <span class="ss-icon" aria-hidden="true">👥</span><span class="ss-item ss-item-in"><span class="ss-badge-label">在卓</span><span class="ss-in ss-badge-value">0</span></span><span class="ss-sep">・</span><span class="ss-item ss-item-out is-zero"><span class="ss-badge-label">待機</span><span class="ss-out ss-badge-value">0</span></span>
+    <span class="ss-icon theme-icon-legacy" aria-hidden="true">👥</span><svg class="champagne-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg><span class="ss-item ss-item-in"><span class="ss-badge-label">在卓</span><span class="ss-in ss-badge-value">0</span></span><span class="ss-sep">・</span><span class="ss-item ss-item-out is-zero"><span class="ss-badge-label">待機</span><span class="ss-out ss-badge-value">0</span></span>
   </span>
 
   <div class="spacer"></div>
@@ -4660,26 +5841,26 @@ html[data-display="tablet"] #list-table .col-ctrl-btn { min-width: 32px; min-hei
   <!-- ヘッダーは営業中に使うものだけ残す（2026-07-20 オーナー判断）。
        印刷・営業終了→リスト表ツールバー / 復元→過去のリスト / 書き出し・読み込み→設定 へ移動 -->
   <div class="header-btn-group">
-    <button id="undo-btn" class="btn" onclick="undo()" disabled title="元に戻す">↩ 元に戻す</button>
-    <button id="redo-btn" class="btn" onclick="redo()" disabled title="やり直す">↪ やり直す</button>
+    <button id="undo-btn" class="btn" onclick="undo()" disabled title="元に戻す"><span class="theme-icon-legacy" aria-hidden="true">↩</span><svg class="champagne-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m9 14-4-4 4-4M5 10h8a6 6 0 0 1 6 6v2"/></svg><span class="theme-label">元に戻す</span></button>
+    <button id="redo-btn" class="btn" onclick="redo()" disabled title="やり直す"><span class="theme-icon-legacy" aria-hidden="true">↪</span><svg class="champagne-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m15 14 4-4-4-4M19 10h-8a6 6 0 0 0-6 6v2"/></svg><span class="theme-label">やり直す</span></button>
     <div class="sep"></div>
-    <button class="btn primary" onclick="manualSave()" id="save-btn" title="この端末（ブラウザ）に保存">💾 保存</button>
-    <button class="btn danger" onclick="_confirmAppExit()" id="header-exit-btn" title="アプリを終了する">⏻ 終了</button>
+    <button class="btn primary" onclick="manualSave()" id="save-btn" title="この端末（ブラウザ）に保存"><span class="theme-icon-legacy" aria-hidden="true">💾</span><svg class="champagne-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2ZM17 21v-8H7v8M7 3v5h8"/></svg><span class="theme-label">保存</span></button>
+    <button class="btn danger" onclick="_confirmAppExit()" id="header-exit-btn" title="アプリを終了する"><span class="theme-icon-legacy" aria-hidden="true">⏻</span><svg class="champagne-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M18.36 6.64a9 9 0 1 1-12.73 0M12 2v10"/></svg><span class="theme-label">終了</span></button>
     <input type="file" id="import-file-input" accept=".json" style="display:none" onchange="onImportFileSelected(this)">
   </div>
 </div>
 
 <!-- TABS -->
 <div id="tabs">
-  <button class="tab-btn" id="tab-pos" data-tab="pos" onclick="showTab('pos')">🧾 POSレジ</button>
-  <button class="tab-btn active" data-tab="list"     onclick="showTab(&quot;list&quot;)">📋 リスト表</button>
-  <button class="tab-btn"        data-tab="cast"     onclick="showTab('cast')">👥 出勤キャスト</button>
-  <button class="tab-btn"        data-tab="report"   onclick="showTab('report')">📊 集計</button>
-  <button class="tab-btn"        data-tab="analytics" onclick="showTab('analytics')">📈 経営分析</button>
-  <button class="tab-btn"        data-tab="customer" onclick="showTab('customer')">👤 顧客管理</button>
-  <button class="tab-btn"        data-tab="bottle"   onclick="showTab('bottle')">🍾 ボトル</button>
-  <button class="tab-btn"        data-tab="past"     onclick="showTab('past')">📅 過去のリスト</button>
-  <button class="tab-btn"        data-tab="settings" onclick="showTab('settings')">⚙️ 設定</button>
+  <button class="tab-btn" id="tab-pos" data-tab="pos" onclick="showTab('pos')"><span class="theme-icon-legacy" aria-hidden="true">🧾</span><svg class="champagne-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 2h12v20l-3-2-3 2-3-2-3 2V2Zm3 5h6M9 11h6M9 15h4"/></svg><span class="theme-label">POSレジ</span></button>
+  <button class="tab-btn active" data-tab="list"     onclick="showTab(&quot;list&quot;)"><span class="theme-icon-legacy" aria-hidden="true">📋</span><svg class="champagne-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 5h6M9 3h6v4H9zM7 5H5v17h14V5h-2M8 12h8M8 16h8"/></svg><span class="theme-label">リスト表</span></button>
+  <button class="tab-btn"        data-tab="cast"     onclick="showTab('cast')"><span class="theme-icon-legacy" aria-hidden="true">👥</span><svg class="champagne-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M22 21v-2a4 4 0 0 0-3-3.87"/></svg><span class="theme-label">出勤キャスト</span></button>
+  <button class="tab-btn"        data-tab="report"   onclick="showTab('report')"><span class="theme-icon-legacy" aria-hidden="true">📊</span><svg class="champagne-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 20V10h4v10M10 20V4h4v16M16 20v-7h4v7M2 20h20"/></svg><span class="theme-label">集計</span></button>
+  <button class="tab-btn"        data-tab="analytics" onclick="showTab('analytics')"><span class="theme-icon-legacy" aria-hidden="true">📈</span><svg class="champagne-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m3 17 6-6 4 4 8-9M17 6h4v4"/></svg><span class="theme-label">経営分析</span></button>
+  <button class="tab-btn"        data-tab="customer" onclick="showTab('customer')"><span class="theme-icon-legacy" aria-hidden="true">👤</span><svg class="champagne-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M20 21a8 8 0 0 0-16 0M12 13a5 5 0 1 0 0-10 5 5 0 0 0 0 10"/></svg><span class="theme-label">顧客管理</span></button>
+  <button class="tab-btn"        data-tab="bottle"   onclick="showTab('bottle')"><span class="theme-icon-legacy" aria-hidden="true">🍾</span><svg class="champagne-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 2h6M10 2v5l-3 4v9a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2v-9l-3-4V2M8 13h8"/></svg><span class="theme-label">ボトル</span></button>
+  <button class="tab-btn"        data-tab="past"     onclick="showTab('past')"><span class="theme-icon-legacy" aria-hidden="true">📅</span><svg class="champagne-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 5h18v16H3zM7 2v6M17 2v6M3 10h18M8 14h3M13 14h3M8 18h3"/></svg><span class="theme-label">過去のリスト</span></button>
+  <button class="tab-btn"        data-tab="settings" onclick="showTab('settings')"><span class="theme-icon-legacy" aria-hidden="true">⚙️</span><svg class="champagne-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7ZM19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06a1.7 1.7 0 0 0-1.88-.34 1.7 1.7 0 0 0-1.03 1.56V21h-4v-.08A1.7 1.7 0 0 0 8.97 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.03H3v-4h.08A1.7 1.7 0 0 0 4.6 8.94a1.7 1.7 0 0 0-.34-1.88L4.2 7l2.83-2.83.06.06a1.7 1.7 0 0 0 1.88.34A1.7 1.7 0 0 0 10 3.01V3h4v.08a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.88-.34l.06-.06L19.8 7l-.06.06a1.7 1.7 0 0 0-.34 1.88A1.7 1.7 0 0 0 20.96 10H21v4h-.08A1.7 1.7 0 0 0 19.4 15Z"/></svg><span class="theme-label">設定</span></button>
   <button class="tab-btn" id="tab-demo-btn" style="margin-left:auto" onclick="demoModeToggle()">🎬 デモ</button>
 </div>
 
@@ -4960,6 +6141,7 @@ const Persist = {
     slipCounter: 'nightlist__slip_counter_v1',
     deletedSlips: 'nightlist__deleted_slips_v1',
     theme:     'nightlist_theme',          // テーマ選択（端末別。export/importに含めて店舗設定として持ち運べる）
+    themeSelection: 'nightlist__theme_selection_v1', // 利用者がテーマを明示選択したことを示す互換マーカー
     listWhite: 'nightlist__list_white_v1', // リスト表の白背景トグル（現場要望 2026-08-29。扱いはthemeと同じ＝export/importに同梱）
     displayMode: 'nightlist_display_mode', // 表示モード（desktop/tablet。扱いはthemeと同じ）
     auth:      'nightlist__auth_v1',
@@ -5161,6 +6343,7 @@ const UsbStore = {
     slipCounter: 'slipCounter.json',
     deletedSlips: 'deletedSlips.json',
     theme:     'theme.json',
+    themeSelection: 'themeSelection.json',
     displayMode: 'displayMode.json',  // 表示モード（desktop/tablet）。扱いはthemeと同じ
     auth:      'auth.json',
     authRecovery: 'authRecovery.json',
@@ -7053,7 +8236,7 @@ const CFG_DEFAULTS = {
   payrollDeductionDisplayPrint:  true, // 控除票の先頭金額欄をA4印刷する（画面・計算には影響しない）
   payrollHiddenCols:             [],     // 日計表で非表示にする列ID（空=全列表示）
   // --- テーマ既定値（端末別。アプリ起動時に Persist.theme が無ければこれを使う） ---
-  defaultTheme:                  'aurum', // 'night' | 'light' | 'summer' | 'aurum'
+  defaultTheme:                  'aurum', // 'night' | 'light' | 'summer' | 'aurum' | 'champagne'
   // --- POS指名系・ドリンクのボタン単価（店ごとに可変） ---
   posPrices: {
     freeS:   1500, freeM:   2500, freeL:   3500,  // [互換用・廃止] 旧フリードリンク。UI・カテゴリからは削除済み
@@ -13251,11 +14434,18 @@ function renderPOSSlipView(firsts, selected) {
     return '<div class="pos-slip-view-shell"><div class="pos-slip-view-head">' + toggle + '</div>'
       + renderPOSSlipSheetView(firsts, selected) + '</div>';
   }
-  const legend = '<div class="pos-floor-legend">'
+  const legend = '<div class="pos-floor-legend pos-floor-legend-default">'
     + '<span class="status-ok"><i></i>余裕</span>'
     + '<span class="status-warn"><i></i>10分前</span>'
     + '<span class="status-over"><i></i>超過</span>'
     + '<span class="status-wait"><i></i>待機中</span>'
+    + '</div>'
+    + '<div class="pos-floor-legend pos-floor-legend-champagne">'
+    + '<span class="status-empty"><i></i>空席</span>'
+    + '<span class="status-ok"><i></i>在卓</span>'
+    + '<span class="status-warn"><i></i>10分前</span>'
+    + '<span class="status-over"><i></i>超過</span>'
+    + '<span class="status-wait"><i></i>計時停止</span>'
     + '</div>';
   const matchedRows = new Set();
   const tableCards = _posNsmLists().table.map((table, tableIndex) => {
@@ -13450,9 +14640,10 @@ function posOpenDesignatedDrinkCastPick(name, amount, category) {
   overlay.querySelectorAll('.pos-drink-cast-btn').forEach(button => {
     const designation = _posHighlightedDesignation(row, button.textContent);
     if (!designation) return;
-    button.classList.add('is-designated');
+    const tone = ['本指名', '同伴'].includes(designation.role) ? 'gold' : 'silver';
+    button.classList.add('is-designated', 'is-designated-' + tone);
     const role = document.createElement('span');
-    role.className = 'pos-designation-role';
+    role.className = 'pos-designation-role ' + tone;
     role.textContent = designation.role;
     button.appendChild(role);
   });
@@ -13467,14 +14658,17 @@ function posProductHTML(item) {
   const designation = separator >= 0
     ? _posHighlightedDesignation(posSelectedRow(), productName.slice(separator + 1))
     : null;
+  const designationTone = designation
+    ? (['本指名', '同伴'].includes(designation.role) ? ' is-designated-gold' : ' is-designated-silver')
+    : '';
   const priceLabel = item.category === 'special'
     ? (posSpecialMode(item) === 'subtotalRate' ? '小計の' + posSpecialValue(item) + '%'
       : posSpecialMode(item) === 'totalRate' ? '総計の' + posSpecialValue(item) + '%'
       : posMoney(posSpecialValue(item)))
     : (Number(item.amount) ? posMoney(item.amount) : '0');
-  return '<button class="pos-product' + (designation ? ' is-designated' : '') + '" onclick="' + onclick + '">'
+  return '<button class="pos-product' + (designation ? ' is-designated' : '') + designationTone + '" onclick="' + onclick + '">'
     + '<span class="pos-product-name">' + escHtml(item.name) + '</span>'
-    + (designation ? '<span class="pos-product-designation">' + escHtml(designation.role) + '</span>' : '')
+    + (designation ? '<span class="pos-product-designation' + designationTone + '">' + escHtml(designation.role) + '</span>' : '')
     + '<span class="pos-product-price">' + priceLabel + '</span>'
     + '</button>';
 }
@@ -22609,11 +23803,20 @@ function renderSettingsPanel() {
         </div>
       </div>
     </div>
-    <!-- 🎨 表示テーマ（テーマ単一化中につきセクションごと非表示。中身は温存） -->
-    <div class="settings-section" data-setcat="system" style="display:none">
+    <!-- 🎨 表示テーマ -->
+    <div class="settings-section" data-setcat="system">
       <div class="settings-section-header"><span class="settings-section-title">🎨 表示テーマ</span></div>
       <div class="settings-section-body">
-        <div class="settings-sub" style="display:none;margin-bottom:10px">右上の🌙ボタンで切替え／ここでは新店初期化時の既定テーマを指定します。</div>
+        <div class="settings-row">
+          <div class="settings-label"><label for="settings-current-theme">現在のテーマ</label><div class="settings-sub">この端末の表示をすぐに切り替えます。いつでも元に戻せます。${_demoMode ? '<br>デモ中はこの起動中だけ適用します。' : ''}</div></div>
+          <select class="settings-input" id="settings-current-theme" oninput="event.stopPropagation()" onchange="event.stopPropagation();onCurrentThemeChange(this)" style="width:160px">
+            <option value="night">ナイト 🌙</option>
+            <option value="light">ライト ☀️</option>
+            <option value="summer">サマー 🌻</option>
+            <option value="aurum">AURUM ✦</option>
+            <option value="champagne">シャンパン ◇</option>
+          </select>
+        </div>
         <div class="settings-row" style="display:none">
           <div class="settings-label">既定テーマ<div class="settings-sub">テーマ未設定の端末で起動した時の初期値（JSONインポート時にも適用）</div></div>
           <select class="settings-input" id="cfg-defaultTheme" style="width:140px">
@@ -22621,6 +23824,7 @@ function renderSettingsPanel() {
             <option value="light"  ${cfg.defaultTheme==='light'  ? 'selected' : ''}>ライト ☀️</option>
             <option value="summer" ${cfg.defaultTheme==='summer' ? 'selected' : ''}>サマー 🌻</option>
             <option value="aurum"  ${(cfg.defaultTheme==='aurum' || !cfg.defaultTheme) ? 'selected' : ''}>AURUM ✦</option>
+            <option value="champagne" ${cfg.defaultTheme==='champagne' ? 'selected' : ''}>シャンパン ◇</option>
           </select>
         </div>
       </div>
@@ -22636,6 +23840,7 @@ function renderSettingsPanel() {
   _extTrialRenderEditor();
   _ryoshuUpdatePreview();
   settingsSelectCategory(_settingsActiveCat);
+  if (typeof syncCurrentThemeSelect === 'function') syncCurrentThemeSelect();
   payrollRefreshDrinkMaster();
   if (typeof RemoteMonitor !== 'undefined') {
     RemoteMonitor.renderQr('monitor-settings-qr', 220);
@@ -25889,6 +27094,12 @@ function onImportFileSelected(input) {
       const payslipsStr  = isNewFormat ? payload.data?.payslips   : null;
       const settingsStr  = isNewFormat ? payload.data?.settings   : null;
       const timetableStr = isNewFormat ? payload.data?.timetable  : null;
+      const themeStr     = isNewFormat ? payload.data?.theme      : null;
+      let importedTheme = null;
+      if (typeof themeStr === 'string') {
+        try { importedTheme = typeof normalizeTheme === 'function' ? normalizeTheme(JSON.parse(themeStr)) : null; }
+        catch (_) { importedTheme = null; }
+      }
 
       // 旧形式の場合はオブジェクト直参照
       const legacyState    = !isNewFormat ? payload.currentState  : null;
@@ -25936,6 +27147,7 @@ function onImportFileSelected(input) {
           payslips:  payslipsStr,
           settings:  settingsStr,
           timetable: timetableStr,
+          ...(importedTheme ? { theme: JSON.stringify(importedTheme), themeSelection: JSON.stringify(1) } : {}),
         });
         loadCfg();
         loadState();
@@ -25964,6 +27176,8 @@ function onImportFileSelected(input) {
       renderTimetable();
       updateStoreStatusBadge();
       refreshHistoryBtns();
+      if (typeof initThemeFromPersist === 'function') initThemeFromPersist();
+      if (typeof syncCurrentThemeSelect === 'function') syncCurrentThemeSelect();
       await appAlert('インポートが完了しました。');
     } catch(err) {
       await appAlert('ファイルの読み込みに失敗しました。\n' + err.message);
@@ -26222,6 +27436,7 @@ function _purgeStaleDevTime() {
 async function __boot() {
   await UsbStore.init();
   await UsbBootGate.show();
+  if (typeof restoreThemeVisualFromPersist === 'function') restoreThemeVisualFromPersist();
   await AuthGate.check();
 
   // 04-time-utilities.js は定義時にlocalStorageを一度読むため、USBゲート後に再同期する。
@@ -26260,21 +27475,56 @@ __boot();
 /* ================================================================
    THEME MANAGEMENT
    ※ 永続化は Persist.write/read('theme') 経由（export/importに含めるため）。
-     旧バージョンは localStorage に生文字列で書いていたので、起動時に1度だけ
-     旧値を読んでマイグレートする。
+     既存店の実効テーマを変えないため、明示選択マーカーがある保存値だけを復元する。
 ================================================================ */
+const THEMES = Object.freeze(['night', 'light', 'summer', 'aurum', 'champagne']);
+
+function normalizeTheme(theme) {
+  return typeof theme === 'string' && THEMES.includes(theme) ? theme : null;
+}
+
+function resolvePersistedTheme() {
+  if (typeof Persist === 'undefined') return 'night';
+  let saved = null;
+  let selected = null;
+  try { saved = Persist.read('theme'); } catch (_) {}
+  try { selected = Persist.read('themeSelection'); } catch (_) {}
+  const normalized = normalizeTheme(saved);
+  return normalized && (selected === 1 || normalized === 'champagne') ? normalized : 'night';
+}
+
+function syncCurrentThemeSelect(theme) {
+  const select = document.getElementById('settings-current-theme');
+  if (!select) return;
+  select.value = normalizeTheme(theme)
+    || normalizeTheme(document.documentElement.getAttribute('data-theme'))
+    || 'night';
+}
+
+function _notifyThemePersistFailure() {
+  const message = '表示は変更しましたが保存できませんでした。保存先を確認してください。';
+  if (typeof showToast === 'function') showToast(message);
+  else if (typeof appAlert === 'function') {
+    try {
+      const pending = appAlert(message);
+      if (pending && typeof pending.catch === 'function') pending.catch(() => {});
+    } catch (_) {}
+  }
+}
+
 function applyTheme(theme, persist = true) {
-  document.documentElement.setAttribute('data-theme', theme);
+  const normalized = normalizeTheme(theme) || 'night';
+  document.documentElement.setAttribute('data-theme', normalized);
   const btn = document.getElementById('theme-toggle-btn');
   const sf  = document.getElementById('sunflower-watermark');
   if (btn) {
-    const icons = { night: '🌙', light: '☀️', summer: '🌻', aurum: '✦' };
-    const tips  = { night: 'ライトモードへ', light: 'サマーモードへ', summer: 'AURUM（高級）モードへ', aurum: 'ナイトモードへ' };
-    btn.textContent = icons[theme] || '🌙';
-    btn.title = tips[theme] || '';
+    const icons = { night: '🌙', light: '☀️', summer: '🌻', aurum: '✦', champagne: '♢' };
+    const tips  = { night: 'ライトモードへ', light: 'サマーモードへ', summer: 'AURUM（高級）モードへ', aurum: 'シャンパンモードへ', champagne: 'ナイトモードへ' };
+    btn.textContent = icons[normalized];
+    btn.title = tips[normalized];
   }
   if (sf) {
-    if (theme === 'summer') {
+    if (normalized === 'summer') {
       sf.style.display = 'block';
       setTimeout(() => { sf.style.opacity = '0.11'; }, 20);
     } else {
@@ -26282,30 +27532,39 @@ function applyTheme(theme, persist = true) {
       setTimeout(() => { sf.style.display = 'none'; }, 620);
     }
   }
-  if (persist && typeof Persist !== 'undefined') Persist.write('theme', theme);
+  syncCurrentThemeSelect(normalized);
+  if (typeof _updateListWhiteBtn === 'function') {
+    _updateListWhiteBtn(document.documentElement.hasAttribute('data-list-white'));
+  }
+  if (persist && typeof Persist !== 'undefined' && !(typeof _demoMode !== 'undefined' && _demoMode)) {
+    const themeSaved = Persist.write('theme', normalized);
+    const markerSaved = themeSaved && Persist.write('themeSelection', 1);
+    if (!themeSaved || !markerSaved) _notifyThemePersistFailure();
+  }
+  return normalized;
+}
+
+function onCurrentThemeChange(select) {
+  const selected = normalizeTheme(select && select.value);
+  if (!selected) {
+    syncCurrentThemeSelect();
+    return;
+  }
+  applyTheme(selected);
 }
 
 function toggleTheme() {
   const current = document.documentElement.getAttribute('data-theme') || 'night';
-  const cycle = { night: 'light', light: 'summer', summer: 'aurum', aurum: 'night' };
+  const cycle = { night: 'light', light: 'summer', summer: 'aurum', aurum: 'champagne', champagne: 'night' };
   applyTheme(cycle[current] || 'night');
 }
 
-// 起動時は単一テーマに固定。保存値は将来のテーマ切替復活用に保持する。
+function restoreThemeVisualFromPersist() {
+  return applyTheme(resolvePersistedTheme(), false);
+}
+
 function initThemeFromPersist() {
-  let saved = null;
-  if (typeof Persist !== 'undefined') {
-    try { saved = Persist.read('theme'); } catch (_) { saved = null; }
-  }
-  if (typeof saved !== 'string') {
-    // 旧形式：JSON でなく生文字列で localStorage に書かれていたケース
-    const legacy = localStorage.getItem('nightlist_theme');
-    if (legacy && legacy[0] !== '"') saved = legacy;
-  }
-  if (typeof saved !== 'string' || !saved) {
-    saved = (typeof cfg !== 'undefined' && cfg && cfg.defaultTheme) || 'aurum';
-  }
-  applyTheme('night', false);
+  restoreThemeVisualFromPersist();
   initListWhiteFromPersist();
 }
 
@@ -26336,8 +27595,9 @@ function toggleListWhite() {
 function _updateListWhiteBtn(on) {
   const btn = document.getElementById('list-white-btn');
   if (!btn) return;
-  btn.textContent = on ? '🌙 黒表示' : '☀ 白表示';
-  btn.title = on ? 'リスト表を黒背景に戻す' : 'リスト表を白背景にする';
+  const champagne = document.documentElement.getAttribute('data-theme') === 'champagne';
+  btn.textContent = on ? (champagne ? '↩ テーマ色に戻す' : '🌙 黒表示') : '☀ 白表示';
+  btn.title = on ? (champagne ? 'リスト表をシャンパンテーマの背景に戻す' : 'リスト表を黒背景に戻す') : 'リスト表を白背景にする';
 }
 
 function initListWhiteFromPersist() {
