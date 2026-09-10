@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.19">
+<meta name="app-version" content="1.1.20">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -14682,7 +14682,7 @@ async function posDeleteSlip() {
 
 const POS_DRINK_CATS = ['shot', 'bottle'];
 /* 固定カテゴリ(shot/bottle)は常時、店舗独自カテゴリはcfg.posCustomCatsのdrinkPickフラグで
-   「誰が飲んだ？」モーダル(posOpenDrinkCastPick)の要否を切り替える。 */
+   「キャストバック」モーダル(posOpenDrinkCastPick)の要否を切り替える。 */
 function _posCategoryDrinkPick(category) {
   if (POS_DRINK_CATS.includes(category)) return true;
   const custom = (cfg.posCustomCats || []).find(c => c && c.key === category);
@@ -15062,7 +15062,7 @@ function posMenuAddItem(key) {
   tr.innerHTML = `<td class="pos-me-drag" title="ドラッグして並び替え">⠿</td>
     <td><input type="text" class="pos-me-name-input" value="" placeholder="メニュー名"></td>
     <td><input type="number" class="pos-me-price-input" value="" step="${_posMenuStep}" placeholder="金額"></td>
-    <td><input type="text" class="pos-me-back-input" value="" placeholder="額 or %"></td>
+    <td><input type="text" class="pos-me-back-input" value="" placeholder="${splitBack ? '空欄=通常' : '額 or %'}"></td>
     ${splitBack ? '<td><input type="text" class="pos-me-back-free-input" value="" placeholder="空欄=同額"></td>' : ''}
     <td><input type="number" class="pos-me-pt-input" value="" step="0.5" placeholder="0"></td>
     <td><button type="button" class="pos-me-del" onclick="posMenuDelItem(this)">削除</button></td>`;
@@ -15129,7 +15129,7 @@ function _posCatRowHTML(cat) {
     ? `<input type="text" class="settings-input pos-cat-label-input" value="${escAttr(cat.label)}" placeholder="カテゴリ名" oninput="posCatSyncLabel('${cat.key}',this.value)">`
     : `<span class="pos-cat-fixed-label">${escHtml(cat.label)}</span>`;
   const drinkPick = custom
-    ? `<input type="checkbox" class="pos-cat-drinkpick" ${cat.drinkPick ? 'checked' : ''} aria-label="${escAttr(cat.label)}で誰が飲んだかモーダルを使う">`
+    ? `<input type="checkbox" class="pos-cat-drinkpick" ${cat.drinkPick ? 'checked' : ''} aria-label="${escAttr(cat.label)}のキャストバック対象を選択する">`
     : '';
   return `<tr draggable="true" class="pos-cat-manage-row" data-key="${escAttr(cat.key)}" data-custom="${custom ? '1' : '0'}">
     <td class="pos-me-drag" title="ドラッグして並び替え">⠿</td>
@@ -15175,7 +15175,7 @@ function _posMenuEditorHTML(key, label, items, open = false) {
     <td class="pos-me-drag" title="ドラッグして並び替え">⠿</td>
     <td><input type="text" class="pos-me-name-input" value="${escAttr(item.name)}" placeholder="メニュー名"></td>
     <td><input type="number" class="pos-me-price-input" value="${Number(item.amount) || 0}" step="${_posMenuStep}" placeholder="金額"></td>
-    <td><input type="text" class="pos-me-back-input" value="${escAttr(item.back || '')}" placeholder="額 or %"></td>
+    <td><input type="text" class="pos-me-back-input" value="${escAttr(item.back == null ? '' : String(item.back))}" placeholder="${splitBack ? '空欄=通常' : '額 or %'}"></td>
     ${splitBack ? `<td><input type="text" class="pos-me-back-free-input" value="${escAttr(item.backFree == null ? '' : String(item.backFree))}" placeholder="空欄=同額"></td>` : ''}
     <td><input type="number" class="pos-me-pt-input" value="${Number.isFinite(Number(item.pt)) && Number(item.pt) !== 0 ? Number(item.pt) : ''}" step="0.5" placeholder="0"></td>
     <td><button type="button" class="pos-me-del" onclick="posMenuDelItem(this)">削除</button></td>
@@ -15186,7 +15186,7 @@ function _posMenuEditorHTML(key, label, items, open = false) {
       <summary><span class="settings-label pos-menu-editor-label" style="font-weight:700">${escHtml(label)}</span></summary>
       <table class="pos-me-table" id="cfg-posMenu-${escAttr(key)}-tbl">
         ${columns}
-        <thead><tr><th></th><th>メニュー名</th><th>金額（円）</th>${splitBack ? '<th>指名バック</th><th title="空欄なら指名バックと同額が適用されます">通常バック</th>' : '<th>バック</th>'}<th>pt</th><th></th></tr></thead>
+        <thead><tr><th></th><th>メニュー名</th><th>金額（円）</th>${splitBack ? '<th title="空欄なら通常バックと同額が適用されます。0は0円です">指名バック</th><th title="空欄なら指名バックと同額が適用されます">通常バック</th>' : '<th>バック</th>'}<th>pt</th><th></th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
       <button type="button" class="pos-me-add-btn" onclick="posMenuAddItem('${key}')">＋ 追加</button>
@@ -21464,7 +21464,9 @@ async function posAddItem(name, amount, category, spShares) {
   const specialMode = isSpecial ? posSpecialMode(item || { amount:inputAmt }) : undefined;
   const specialValue = isSpecial ? posSpecialValue(item || { amount:inputAmt }) : undefined;
   const amt = isSpecial && specialMode === 'fixed' ? specialValue : inputAmt;
-  const backYen = (!isSpecial && !spShares && item) ? posMenuBackYen(item.back, amt) : 0;
+  // 空欄だけ通常バックを使う。明示0は維持し、適用額は注文へ刻印して過去分を変えない。
+  const backValue = String(item?.back ?? '').trim() === '' ? item?.backFree : item.back;
+  const backYen = (!isSpecial && !spShares && item) ? posMenuBackYen(backValue, amt) : 0;
   const backFreeYen = (!isSpecial && !spShares && item && Object.prototype.hasOwnProperty.call(item, 'backFree'))
     ? posMenuBackYen(item.backFree, amt)
     : undefined;
@@ -21591,7 +21593,7 @@ function posOpenDrinkCastPick(name, amount, category) {
     + escHtml(label != null ? label : c) + '</button>';
   const html = '<div class="pos-co-overlay" id="pos-drink-overlay" onclick="if(event.target===this)posDrinkPickClose()">'
     + '<div class="pos-drink-pick">'
-    + '<div class="pos-drink-pick-head"><span>' + escHtml(name) + ' — 誰が飲んだ？</span>'
+    + '<div class="pos-drink-pick-head"><span>' + escHtml(name) + ' — キャストバック</span>'
     + '<button class="pos-drink-pick-close" onclick="posDrinkPickClose()">×</button></div>'
     + '<div class="pos-drink-cast-grid">'
     + ordered.map(c => castBtn(c, slipCasts.includes(c) ? 'onslip' : '')).join('')
@@ -23872,7 +23874,7 @@ function renderSettingsPanel() {
             const cats = resolvePosCatLayout(cfg);
             return `<div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:8px">
               <table class="pos-me-table pos-cat-manage-table">
-                <thead><tr><th style="width:28px"></th><th>カテゴリ名</th><th style="width:60px">表示</th><th style="width:90px">誰が飲んだか</th><th style="width:56px"></th></tr></thead>
+                <thead><tr><th style="width:28px"></th><th>カテゴリ名</th><th style="width:60px">表示</th><th style="width:90px">キャストバック</th><th style="width:56px"></th></tr></thead>
                 <tbody id="cfg-pos-cat-layout">${cats.map(_posCatRowHTML).join('')}</tbody>
               </table>
             </div>`;
