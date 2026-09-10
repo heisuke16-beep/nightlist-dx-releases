@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.18">
+<meta name="app-version" content="1.1.19">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -998,6 +998,18 @@ select option { background: var(--sur2); }
   cursor: pointer;
 }
 .pos-cast-picker-option:hover { border-color: #2680e8; background: #eef6ff; }
+.pos-cast-picker-option.is-current:disabled {
+  border-color: var(--bdr2, #d6d6d6);
+  border-style: dashed;
+  background: var(--sur2, #f5f5f5);
+  color: var(--tx, #222);
+  opacity: .65;
+  cursor: default;
+}
+.pos-cast-picker-option.is-current:disabled:hover {
+  border-color: var(--bdr2, #d6d6d6);
+  background: var(--sur2, #f5f5f5);
+}
 
 /* ================================================================
    POS ORDER VIEW (オーダー画面 — 3ペインレイアウト)
@@ -14359,20 +14371,50 @@ function _posApplyInTableRotation(groupRows, sourceRow, castName, partner) {
   return true;
 }
 
-function _posOpenInTableRotationPicker(groupRows, sourceRow, castName, partners) {
+function _posInTableRotationOptions(groupRows, sourceRow, castName) {
+  const orderedRows = groupRows.slice().sort((a, b) => (Number(a.gidx) || 0) - (Number(b.gidx) || 0));
+  const sourceIndex = orderedRows.indexOf(sourceRow);
+  const current = {
+    row: sourceRow,
+    castName,
+    guestNumber: sourceIndex >= 0 ? sourceIndex + 1 : 1,
+    isCurrent: true,
+  };
+  const partners = orderedRows.flatMap((row, index) => row === sourceRow
+    ? []
+    : _posCurrentFloorCasts(row).filter(name => name !== castName).map(name => ({
+      row,
+      castName: name,
+      guestNumber: index + 1,
+      isCurrent: false,
+    })));
+  return [current, ...partners];
+}
+
+function _posInTableRotationOptionsHtml(options) {
+  return options.map((option, index) => {
+    const table = option.row.tableNum == null || String(option.row.tableNum).trim() === ''
+      ? '-'
+      : String(option.row.tableNum).replace(/^T-/, '');
+    const label = option.castName + '（客' + option.guestNumber + '／卓' + table
+      + (option.isCurrent ? '／選択中' : '') + '）';
+    if (option.isCurrent) {
+      return '<button type="button" class="pos-cast-picker-option is-current" disabled aria-disabled="true">'
+        + escHtml(label) + '</button>';
+    }
+    return '<button type="button" class="pos-cast-picker-option" data-option-index="' + index + '">'
+      + escHtml(label) + '</button>';
+  }).join('');
+}
+
+function _posOpenInTableRotationPicker(groupRows, sourceRow, castName, options) {
   document.getElementById('pos-in-table-rotation-picker')?.remove();
   const overlay = document.createElement('div');
   overlay.id = 'pos-in-table-rotation-picker';
   overlay.className = 'pos-nsm-overlay';
-  const buttons = partners.map((partner, index) => {
-    const table = partner.row.tableNum == null || String(partner.row.tableNum).trim() === ''
-      ? '-'
-      : String(partner.row.tableNum).replace(/^T-/, '');
-    return '<button type="button" class="pos-cast-picker-option" data-partner-index="' + index + '">'
-      + escHtml(partner.castName + '（客' + partner.guestNumber + '／卓' + table + '）') + '</button>';
-  }).join('');
+  const buttons = _posInTableRotationOptionsHtml(options);
   overlay.innerHTML = '<div class="pos-nsm pos-cast-picker" role="dialog" aria-modal="true" aria-labelledby="pos-in-table-rotation-title">'
-    + '<div class="pos-nsm-header"><span id="pos-in-table-rotation-title">卓内回転になりますが大丈夫ですか?</span>'
+    + '<div class="pos-nsm-header"><span id="pos-in-table-rotation-title">卓内回転：' + escHtml(castName) + 'の交代相手を選択</span>'
     + '<button type="button" class="pos-nsm-close" aria-label="キャンセル">×</button></div>'
     + '<div class="pos-cast-picker-body">' + buttons + '</div></div>';
 
@@ -14382,9 +14424,9 @@ function _posOpenInTableRotationPicker(groupRows, sourceRow, castName, partners)
     renderPOSPanel();
   };
   overlay.querySelector('.pos-nsm-close').addEventListener('click', cancel);
-  overlay.querySelectorAll('.pos-cast-picker-option').forEach(button => {
+  overlay.querySelectorAll('.pos-cast-picker-option[data-option-index]').forEach(button => {
     button.addEventListener('click', () => {
-      const partner = partners[Number(button.dataset.partnerIndex)];
+      const partner = options[Number(button.dataset.optionIndex)];
       overlay.remove();
       if (partner) _posApplyInTableRotation(groupRows, sourceRow, castName, partner);
     });
@@ -14442,16 +14484,9 @@ function _posAssignCastToFloor(gid, castName) {
   // 各行の最後の非空スロット（未使用なら指名キャスト）だけを「現在」とし、過去の重複は許容する。
   const sourceRow = groupRows.find(row => _posCurrentFloorCasts(row).includes(castName));
   if (sourceRow) {
-    const orderedRows = groupRows.slice().sort((a, b) => (Number(a.gidx) || 0) - (Number(b.gidx) || 0));
-    const partners = orderedRows.flatMap((row, index) => row === sourceRow
-      ? []
-      : _posCurrentFloorCasts(row).filter(name => name !== castName).map(name => ({
-        row,
-        castName: name,
-        guestNumber: index + 1,
-      })));
-    if (partners.length) {
-      _posOpenInTableRotationPicker(groupRows, sourceRow, castName, partners);
+    const options = _posInTableRotationOptions(groupRows, sourceRow, castName);
+    if (options.length > 1) {
+      _posOpenInTableRotationPicker(groupRows, sourceRow, castName, options);
       return true;
     }
     showToast(castName + 'は今この卓に付いています');
