@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.25">
+<meta name="app-version" content="1.1.26">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -10075,6 +10075,7 @@ function ROW_DEFAULTS() {
     startMin: 0, endMin: 0,
     mainCast: '', mainType: 'free',
     subCasts: [],
+    departedGuestRows: [], // 先頭行: [{cast,rowId}]。退席の表示先を行IDで保持（料金はdepartedCastsを使用）
     designationStops: [], // 先頭行: [{cast, stoppedAt, resumedAt}]。料金/席次を消さず現在の指名だけ解除
     tableNum: '',
     rotations: [],
@@ -11820,13 +11821,15 @@ function renderTable() {
     }
     rotCells += row.isFirst ? `<td rowspan="${span}" style="min-width:46px"></td>` : '';
 
+    const departedExt = _posGuestIsDeparted(row, state.rows)
+      ? Math.min(_posGuestDepartureColumn(row), visExt - 1) : -1;
     let extCells = '';
     for (let ci=0; ci<visExt; ci++) {
       const v = row.extensions[ci]||'';
       extCells += `<td class="ext-cell${ci===0?' gline':''}" id="ext_${row.id}_${ci}">${
         v ? `<span class="ext-badge" onclick="clearExt('${row.id}',${ci})" title="解除">${v}</span>`
-          : extSelectHtml(row.id, ci, v)
-      }</td>`;
+          : ci === departedExt ? '' : extSelectHtml(row.id, ci, v)
+      }${ci === departedExt ? _posGuestDepartureMark() : ''}</td>`;
     }
     extCells += row.isFirst ? `<td rowspan="${span}" style="min-width:46px"></td>` : '';
 
@@ -13371,6 +13374,30 @@ function _posDepartedCasts(row) {
   return Array.isArray(first.departedCasts) ? first.departedCasts : [];
 }
 function _posDepartedCount(row) { return _posDepartedCasts(row).length; }
+/* キャスト名だけの旧退席記録は、指名欄から一意に特定できる場合だけ行へ対応させる。 */
+function _posGuestDepartureCandidates(first, cast, rows = state.rows) {
+  const types = ['honshimei','douban','jounai','enchoshimei','modori_honshimei','modori_enchoshimei'];
+  return rows.filter(r => r.gid === first.gid && (
+    (r.mainCast === cast && types.includes(r.mainType))
+    || (r.subCasts || []).some(s => s.cast === cast && types.includes(s.type))));
+}
+function _posGuestIsDeparted(row, rows = state.rows) {
+  const first = rows.find(r => r.gid === row.gid && r.isFirst) || row;
+  return (first.departedCasts || []).filter(Boolean).some(cast => {
+    const saved = (first.departedGuestRows || []).find(d => d.cast === cast);
+    if (saved) return saved.rowId === row.id;
+    const candidates = _posGuestDepartureCandidates(first, cast, rows);
+    return candidates.length === 1 && candidates[0].id === row.id;
+  });
+}
+function _posGuestDepartureColumn(row) {
+  let next = 0;
+  (row.extensions || []).forEach((value, i) => { if (value !== '' && value != null) next = i + 1; });
+  return next;
+}
+function _posGuestDepartureMark() {
+  return '<span class="ext-departed" role="img" aria-label="退席済み" title="退席済み。取消は人数の調整から" style="display:block;font-size:18px;line-height:1.4">❌</span>';
+}
 /* 卓に付いている指名キャスト一覧 [{cast, role, label}]（mainType/subCasts/指名系オーダーから収集・重複排除）。 */
 // 料金源泉（mainType/注文）は残したまま、現在の指名状態だけを上書きする。
 function _posDesignationStop(row, cast) {
@@ -15209,7 +15236,30 @@ function posMenuUsesSplitBack(category, settings) {
   const custom = (src.posCustomCats || []).find(c => c && c.key === category);
   return !!(custom && custom.drinkPick);
 }
-function posDepartedClose() { document.getElementById('pos-departed-overlay')?.remove(); }
+function posDepartedClose() {
+  document.getElementById('pos-departed-overlay')?.remove();
+  document.getElementById('pos-departed-guest-overlay')?.remove();
+}
+function _posPickDepartedGuest(first, cast, candidates) {
+  const rows = candidates.length ? candidates : state.rows.filter(r => r.gid === first.gid);
+  const buttons = rows.map(r => {
+    const number = state.rows.filter(x => x.gid === first.gid).findIndex(x => x.id === r.id) + 1;
+    const label = '客' + number + (r.guestName ? ' ' + r.guestName : '') + (r.mainCast ? '／' + r.mainCast : '');
+    const call = '_posConfirmDepartedGuest(' + [first.gid, cast, r.id].map(v => JSON.stringify(v)).join(',') + ')';
+    return '<button type="button" class="pos-drink-cast-btn" style="width:100%;min-height:48px;margin-top:8px" onclick="' + escAttr(call) + '">' + escHtml(label) + '</button>';
+  }).join('');
+  document.getElementById('pos-departed-guest-overlay')?.remove();
+  document.body.insertAdjacentHTML('beforeend', '<div class="pos-co-overlay" id="pos-departed-guest-overlay"><div class="pos-drink-pick" style="max-width:500px;width:94%"><div class="pos-drink-pick-head"><span>退席するお客様の行を選択</span><button type="button" class="pos-drink-pick-close" onclick="document.getElementById(\'pos-departed-guest-overlay\').remove()">×</button></div><div style="padding:18px">' + escHtml(cast) + 'の指名のお客様。選択した行の延長欄に❌を表示します。' + buttons + '</div></div></div>');
+}
+function _posConfirmDepartedGuest(gid, cast, rowId) {
+  const first = state.rows.find(r => r.gid === gid && r.isFirst);
+  if (!first || first.settled || String(posBetaState.selectedGid) !== String(gid) || (first.departedCasts || []).includes(cast)) {
+    document.getElementById('pos-departed-guest-overlay')?.remove();
+    showToast('伝票の状態が変わりました。人数の調整を開き直してください');
+    return;
+  }
+  posToggleDeparted(cast, rowId);
+}
 function _departedAdjustFree(departedCasts, delta, gcount) {
   const next = Array.isArray(departedCasts) ? departedCasts.slice() : [];
   if (delta > 0) {
@@ -15288,16 +15338,30 @@ function posAddGuest() {
   syncVipFeeOrder(first);
   saveState(); renderTable(); renderPOSPanel(); posOpenDepartedModal();
 }
-function posToggleDeparted(cast) {
+function posToggleDeparted(cast, rowId) {
   const row = posSelectedRow(); if (!row) return;
   const first = state.rows.find(r => r.gid === row.gid && r.isFirst) || row;
-  if (!Array.isArray(first.departedCasts)) first.departedCasts = [];
-  pushUndo();
-  const arr = first.departedCasts;
+  if (first.settled || !cast) return;
+  const arr = Array.isArray(first.departedCasts) ? first.departedCasts : [];
   const i = arr.indexOf(cast);
-  if (i >= 0) arr.splice(i, 1);                                   // 再クリックで戻す
-  else if (arr.length < (row.gcount || 1) - 1) arr.push(cast);    // 最低1席は残す
-  else showToast('これ以上は退席にできません（最低1席）');
+  let target;
+  if (i < 0) {
+    if (arr.length >= (row.gcount || 1) - 1) { showToast('これ以上は退席にできません（最低1席）'); return; }
+    const candidates = _posGuestDepartureCandidates(first, cast);
+    target = rowId == null ? (candidates.length === 1 ? candidates[0] : null)
+      : state.rows.find(r => r.gid === first.gid && r.id === rowId);
+    if (rowId != null && (!target || (candidates.length && !candidates.includes(target)))) return;
+    if (!target) { _posPickDepartedGuest(first, cast, candidates); return; }
+  }
+  pushUndo();
+  first.departedCasts = arr;
+  first.departedGuestRows = (first.departedGuestRows || []).filter(d => d.cast !== cast);
+  if (i >= 0) arr.splice(i, 1); // 再クリックで取消。表示先も消す
+  else {
+    arr.push(cast);
+    first.departedGuestRows.push({ cast, rowId:target.id });
+  }
+  document.getElementById('pos-departed-guest-overlay')?.remove();
   saveState(); renderTable(); renderPOSPanel(); posOpenDepartedModal();
 }
 /* 延長の集計行（例「延長40分 x2」）の×から呼ぶ。その分数の最後のラウンドを1つ消す。
@@ -22821,13 +22885,15 @@ function renderPastTable() {
     }
     rotCells += row.isFirst ? `<td rowspan="${span}" style="min-width:46px"></td>` : '';
 
+    const departedExt = _posGuestIsDeparted(row, ps.rows)
+      ? Math.min(_posGuestDepartureColumn(row), visExt - 1) : -1;
     let extCells = '';
     for (let ci = 0; ci < visExt; ci++) {
       const v = row.extensions[ci] || '';
       extCells += `<td class="ext-cell${ci===0?' gline':''}">${
         v ? `<span class="ext-badge" onclick="pastClearExt('${row.id}',${ci})" title="解除">${v}</span>`
-          : pExtSel(row.id, ci, v)
-      }</td>`;
+          : ci === departedExt ? '' : pExtSel(row.id, ci, v)
+      }${ci === departedExt ? _posGuestDepartureMark() : ''}</td>`;
     }
     extCells += row.isFirst ? `<td rowspan="${span}" style="min-width:46px"></td>` : '';
 
