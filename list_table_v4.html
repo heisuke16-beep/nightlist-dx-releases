@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.24">
+<meta name="app-version" content="1.1.25">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -13666,7 +13666,7 @@ function posOpenSlipSettings() {
     showToast('選択していた伝票は精算済みか削除されています。No.' + slipNoLabel(row) + ' の設定を開きます');
   }
   const L      = _posNsmLists();
-  const counts = [1,2,3,4,5,6,7,8];
+  const counts = Array.from({ length:Math.max(8, Number(row.gcount) || 1) }, (_, i) => i + 1);
   const tblStr = row.tableNum ? posTableLabel(row.tableNum) : L.table[0];
   // 卓番号上限を下げた・VIP席名を変えた後の既存伝票は一覧に無い。
   // そのまま indexOf すると -1→0（T-1）に潰れ、卓を触らず保存しただけでT-1へ移動してしまう。
@@ -13676,7 +13676,9 @@ function posOpenSlipSettings() {
     gid:      row.gid,
     srcIdx:   Math.max(0, L.source.indexOf(row.source)),
     startMin: row.startMin || getNowMin(),
-    cntIdx:   Math.max(0, counts.indexOf(row.gcount || 1)),
+    counts,
+    originalCurrentCount: _posExtSeats(row),
+    cntIdx:   Math.max(0, counts.indexOf(_posExtSeats(row))),
     tblList,
     tblIdx:   Math.max(0, tblList.indexOf(tblStr)),
     colorIdx: Math.max(0, POS_CARD_COLORS.findIndex(c => c.hex === row.posColor)),
@@ -13690,12 +13692,26 @@ function _posSeTableList() {
   return (_posSeIdx && Array.isArray(_posSeIdx.tblList) && _posSeIdx.tblList.length)
     ? _posSeIdx.tblList : _posNsmLists().table;
 }
+function _posSeCountList() { return _posSeIdx?.counts || [1,2,3,4,5,6,7,8]; }
+
+/* 現在人数だけを調整。gcount/既存行は入店履歴なので減らさない。復帰は人数調整の退席取消で行う。 */
+function _posSetCurrentGuestCount(row, count) {
+  const current = _posExtSeats(row);
+  const next = Math.max(1, Math.floor(Number(count) || 1));
+  if (next < current) {
+    if (!Array.isArray(row.departedCasts)) row.departedCasts = [];
+    for (let i = next; i < current; i++) row.departedCasts.push('');
+  } else if (next > current) {
+    const recorded = Math.max(Number(row.gcount) || 1, state.rows.filter(r => r.gid === row.gid).length);
+    _setGroupRowCount(row, recorded + next - current);
+  }
+}
 
 function _renderPosSlipEdit() {
   document.getElementById('pos-se-overlay')?.remove();
   if (!_posSeIdx) return;
   const L      = _posNsmLists();
-  const counts = [1,2,3,4,5,6,7,8];
+  const counts = _posSeCountList();
   const tblList = _posSeTableList();
   const srcVal  = L.source[_posSeIdx.srcIdx]            || L.source[0];
   const cntVal  = counts[_posSeIdx.cntIdx]              || 1;
@@ -13738,7 +13754,8 @@ function _renderPosSlipEdit() {
     `<button class="pos-nsm-close" onclick="document.getElementById('pos-se-overlay').remove()">×</button></div>` +
     `<div class="pos-nsm-body">` +
       sp('src',  '会計種別',   srcVal) +
-      sp('cnt',  '人数',       cntVal + '名') +
+      sp('cnt',  '現在の人数', cntVal + '名') +
+      `<div style="padding:0 20px 12px;color:var(--tx3);font-size:12px;line-height:1.6">入店記録 ${editRow?.gcount || 1}名／退席 ${editRow ? _posDepartedCount(editRow) : 0}名。人数を減らしても記入済みのリスト・料金は残ります。増員は来客追加、退席の取消は「人数の調整」から行えます。</div>` +
       sp('tbl',  'テーブル',   posTableDisplay(tblVal)) +
       spColor(colVal) +
       `<div class="pos-nsm-row"><div class="pos-nsm-rowlabel">顧客名</div><div style="padding-right:24px;width:100%"><button type="button" class="customer-picker-trigger customer-picker-trigger-pos" onclick="openCustomerPicker({current:_posSeIdx.guestName,onSelect:name=>{_posSeIdx.guestName=name;_renderPosSlipEdit();}})" title="顧客を選択">${escHtml(_posSeIdx.guestName || '＋ 顧客を追加')}</button></div></div>` +
@@ -13753,7 +13770,7 @@ function _renderPosSlipEdit() {
 function posSeStep(key, delta) {
   if (!_posSeIdx) return;
   const L = _posNsmLists();
-  const counts = [1,2,3,4,5,6,7,8];
+  const counts = _posSeCountList();
   const maps = {
     src:   [L.source,          'srcIdx'],
     cnt:   [counts,            'cntIdx'],
@@ -13775,9 +13792,13 @@ function posSeTimeStep(delta) {
 function posApplySlipEdit() {
   if (!_posSeIdx) return;
   const row = state.rows.find(r => r.gid === _posSeIdx.gid && r.isFirst);
-  if (!row) return;
+  if (!row || row.settled) return;
+  if (_posSeIdx.originalCurrentCount != null && _posExtSeats(row) !== _posSeIdx.originalCurrentCount) {
+    showToast('人数が変更されています。伝票設定を開き直してください');
+    return;
+  }
   const L      = _posNsmLists();
-  const counts = [1,2,3,4,5,6,7,8];
+  const counts = _posSeCountList();
   const tblList  = _posSeTableList();
   const source   = L.source[_posSeIdx.srcIdx]           || '';
   const cnt      = counts[_posSeIdx.cntIdx]             || 1;
@@ -13794,7 +13815,7 @@ function posApplySlipEdit() {
   state.rows.filter(r => r.gid === _posSeIdx.gid).forEach(r => {
     if (!r._indivTable) r.tableNum = newTableNum;
   });
-  _setGroupRowCount(row, cnt);
+  _posSetCurrentGuestCount(row, cnt);
   row.source   = source;
   row.posColor = colorObj.hex;
   row.guestName = String(_posSeIdx.guestName || '').trim();
