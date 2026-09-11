@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.23">
+<meta name="app-version" content="1.1.24">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -10075,6 +10075,7 @@ function ROW_DEFAULTS() {
     startMin: 0, endMin: 0,
     mainCast: '', mainType: 'free',
     subCasts: [],
+    designationStops: [], // 先頭行: [{cast, stoppedAt, resumedAt}]。料金/席次を消さず現在の指名だけ解除
     tableNum: '',
     rotations: [],
     rotations2: [],
@@ -11788,7 +11789,7 @@ function renderTable() {
         <select class="cast-sel${row.mainCast ? '' : ' is-empty'}" onchange="updateRow('${row.id}','mainCast',this.value)">${castOptions(row.mainCast)}</select>
         <select class="type-sel" onchange="onMainTypeChange('${row.id}',this.value)">${typeOpts}</select>
         <button type="button" class="sub-add-btn" onclick="addSubCast('${row.id}')" title="キャスト追加">＋</button>
-      </div>`;
+      </div>${_posDesignationStop(row, row.mainCast) ? '<small style="display:block;color:var(--tx3)">指名解除済</small>' : ''}`;
     row.subCasts.forEach((sub,si) => {
       const stypeOpts = TYPE_OPTS.map(([v,l])=>`<option value="${v}"${sub.type===v?' selected':''}>${l}</option>`).join('');
       // サブも種別クラスを付ける（枠色を本指名行と揃えるため・2026-07-20）
@@ -11798,7 +11799,7 @@ function renderTable() {
           <select class="cast-sel" onchange="updateSubCast('${row.id}',${si},'cast',this.value)">${castOptions(sub.cast)}</select>
           <select class="type-sel" onchange="updateSubCast('${row.id}',${si},'type',this.value)">${stypeOpts}</select>
           <button type="button" class="sub-del" onclick="removeSubCast('${row.id}',${si})">✕</button>
-        </div>`;
+        </div>${_posDesignationStop(row, sub.cast) ? '<small style="display:block;color:var(--tx3)">指名解除済</small>' : ''}`;
     });
     const hasDiffTable = !row.isFirst && grpFirstRow
       && String(row.tableNum ?? '') !== String(grpFirstRow.tableNum ?? '');
@@ -13371,7 +13372,17 @@ function _posDepartedCasts(row) {
 }
 function _posDepartedCount(row) { return _posDepartedCasts(row).length; }
 /* 卓に付いている指名キャスト一覧 [{cast, role, label}]（mainType/subCasts/指名系オーダーから収集・重複排除）。 */
-function _posTableDesignations(row) {
+// 料金源泉（mainType/注文）は残したまま、現在の指名状態だけを上書きする。
+function _posDesignationStop(row, cast) {
+  const first = row?.isFirst ? row : state.rows.find(r => String(r.gid) === String(row?.gid) && r.isFirst) || row;
+  const history = Array.isArray(first?.designationStops) ? first.designationStops : [];
+  return [...history].reverse().find(entry => entry && entry.cast === cast && entry.resumedAt == null) || null;
+}
+function _posResumeDesignation(row, cast) {
+  const stopped = _posDesignationStop(row, cast);
+  if (stopped) stopped.resumedAt = Date.now();
+}
+function _posTableDesignations(row, includeStopped = false) {
   const ROLE = {
     honshimei:'本指名', douban:'同伴', jounai:'場内', enchoshimei:'延長指名',
     modori_honshimei:'本指名', modori_enchoshimei:'延長指名'
@@ -13388,7 +13399,8 @@ function _posTableDesignations(row) {
     else if (/^enshi/.test(c)) add(cast, '延長指名');
     else if (/^honen/.test(c)) add(cast, '本指名');
   });
-  return Object.values(map).map(d => ({ cast: d.cast, role: d.role, label: d.cast + '（' + d.role + '）' }));
+  return Object.values(map).filter(d => includeStopped || !_posDesignationStop(row, d.cast))
+    .map(d => ({ cast: d.cast, role: d.role, label: d.cast + '（' + d.role + '）' }));
 }
 /* 同伴は当初対象外だったが、オーナー指示で追加（2026-07-20） */
 const _POS_HIGHLIGHT_DESIGNATION_ROLES = ['本指名', '同伴', '場内', '延長指名'];
@@ -14383,14 +14395,16 @@ function _posFloorCastChipData(row) {
   state.rows.filter(r => String(r.gid) === String(row.gid)).forEach(groupRow => {
     const floorCasts = _posCurrentFloorCasts(groupRow);
     const currentCasts = floorCasts.length ? floorCasts : [groupRow.mainCast].filter(Boolean);
-    if (groupRow.mainCast) {
+    if (groupRow.mainCast && !_posDesignationStop(groupRow, groupRow.mainCast)) {
       push(groupRow.mainCast, groupRow.mainType, { away: !currentCasts.includes(groupRow.mainCast) });
+    } else if (groupRow.mainCast && currentCasts.includes(groupRow.mainCast)) {
+      push(groupRow.mainCast, 'free');
     }
     (Array.isArray(groupRow.subCasts) ? groupRow.subCasts : []).forEach(sub => {
-      if (sub && sub.cast) push(sub.cast, sub.type, { away: !currentCasts.includes(sub.cast) });
+      if (sub && sub.cast && !_posDesignationStop(groupRow, sub.cast)) push(sub.cast, sub.type, { away: !currentCasts.includes(sub.cast) });
     });
     // 付け回し席次（1st/2nd/…）で今ついているキャスト＝最後の非空スロットの最大2人
-    const mainIsNominated = nominationRank(groupRow.mainType) > 0;
+    const mainIsNominated = nominationRank(groupRow.mainType) > 0 && !_posDesignationStop(groupRow, groupRow.mainCast);
     // 例外: 本指名の子が今この卓にいるなら、同じスロットに並ぶもう1人は代役ではないのでヘルプ扱いしない（2026-07-20）
     const mainOnFloor = !!groupRow.mainCast && floorCasts.includes(groupRow.mainCast);
     floorCasts.forEach(currentCast => {
@@ -14443,6 +14457,7 @@ function _posCastDesignationTables(castName) {
   posFirstRows().forEach(first => {
     const isNominated = state.rows.some(groupRow => {
       if (String(groupRow.gid) !== String(first.gid)) return false;
+      if (_posDesignationStop(groupRow, castName)) return false;
       if (groupRow.mainCast === castName && nominationTypes.includes(groupRow.mainType)) return true;
       return Array.isArray(groupRow.subCasts)
         && groupRow.subCasts.some(sub => sub && sub.cast === castName && nominationTypes.includes(sub.type));
@@ -14623,7 +14638,7 @@ function _posCurrentFloorCast(row) {
 
 function _posOverlapHelpRelease(row) {
   const nominationTypes = ['honshimei', 'douban', 'modori_honshimei', 'jounai', 'enchoshimei', 'modori_enchoshimei'];
-  if (!row.mainCast || !nominationTypes.includes(row.mainType)) return null;
+  if (!row.mainCast || !nominationTypes.includes(row.mainType) || _posDesignationStop(row, row.mainCast)) return null;
 
   const currentCasts = _posCurrentFloorCasts(row);
   if (currentCasts.length && !currentCasts.includes(row.mainCast)) return null;
@@ -14634,6 +14649,7 @@ function _posOverlapHelpRelease(row) {
   const candidates = state.rows.filter(otherRow => String(otherRow.gid) !== String(row.gid)
     && unsettledGroupIds.has(String(otherRow.gid))
     && otherRow.mainCast === row.mainCast
+    && !_posDesignationStop(otherRow, otherRow.mainCast)
     && nominationTypes.includes(otherRow.mainType))
     .map(otherRow => {
       const first = state.rows.find(groupRow => String(groupRow.gid) === String(otherRow.gid) && groupRow.isFirst) || otherRow;
@@ -14922,6 +14938,7 @@ function _posOpenCastGuestPicker(groupRows, castName, showAmbiguousLabels = fals
     const currentCast = currentCasts.join('＋');
     const guest = row.guestName ? '／' + row.guestName : '';
     const isCurrentNomination = row.mainCast
+      && !_posDesignationStop(row, row.mainCast)
       && nominationTypes.includes(row.mainType)
       && currentCasts.includes(row.mainCast);
     const currentLabel = showAmbiguousLabels
@@ -14975,6 +14992,7 @@ function _posAssignCastToFloor(gid, castName) {
   const emptyRow = groupRows.find(row => !_posCurrentFloorCast(row));
   const nominationTypes = ['honshimei', 'douban', 'modori_honshimei', 'jounai', 'enchoshimei', 'modori_enchoshimei'];
   const hasCurrentNomination = groupRows.some(row => row.mainCast
+    && !_posDesignationStop(row, row.mainCast)
     && nominationTypes.includes(row.mainType)
     && _posCurrentFloorCast(row) === row.mainCast);
   if (emptyRow && hasCurrentNomination) {
@@ -15948,16 +15966,28 @@ function _extMappingRequired(row, entry, exceptSlot) {
     return sum + (record.entries || []).reduce((n, e) => n + (e.key === entry.key && e.cast === entry.cast ? e.qty : 0), 0);
   }, 0);
 }
-async function posExtMappingAdd(row, min, slot) {
+function _posFreezeExtFeeRounds(row, exceptSlot = -1, chargedOnly = false) {
   if (!row.extAutoFeeRounds) {
     row.extAutoFeeRounds = {};
+    const assigned = new Map();
     // 導入前のラウンドは旧対応で記録するだけ。既存注文を作り直さない。
     (row.extensions || []).forEach((value, i) => {
-      if (i !== slot && parseInt(value)) row.extAutoFeeRounds[i] = {
-        legacy:true, entries:_extMappingEntries(row, parseInt(value), null).entries,
-      };
+      if (i === exceptSlot || !parseInt(value)) return;
+      let entries = _extMappingEntries(row, parseInt(value), null).entries;
+      if (chargedOnly) entries = entries.map(entry => {
+        const key = JSON.stringify([entry.key, entry.cast]);
+        const current = posOrders(row).filter(o => _extMappingMatches(o, entry)).reduce((n, o) => n + (Number(o.qty) || 1), 0);
+        const used = assigned.get(key) || 0;
+        const qty = Math.min(entry.qty, Math.max(0, current - used));
+        assigned.set(key, used + qty);
+        return { ...entry, qty };
+      }).filter(entry => entry.qty > 0);
+      row.extAutoFeeRounds[i] = { legacy:true, entries };
     });
   }
+}
+async function posExtMappingAdd(row, min, slot) {
+  _posFreezeExtFeeRounds(row, slot);
   const result = cfg.extAutoShimeiFee ? _extMappingEntries(row, min, cfg.extAutoShimeiMapping) : { entries:[], missing:[] };
   const token = 'ext_' + Date.now() + '_' + Math.random().toString(36).slice(2);
   row.extAutoFeeRounds[slot] = { token, entries:result.entries };
@@ -20970,6 +21000,7 @@ function posOpenOrderEdit() {
         <button class="pos-hist-close" onclick="document.getElementById('pos-oe-overlay').remove()">×</button>
       </div>
       <div class="pos-hist-body">
+        <div id="pos-designation-controls">${_posDesignationControlsHtml(row)}</div>
         <table style="width:100%;border-collapse:collapse">
           <thead><tr style="background:var(--sur2)">
             <th style="padding:8px 6px;border-bottom:1px solid var(--bdr)"></th>
@@ -20985,6 +21016,67 @@ function posOpenOrderEdit() {
   </div>`;
   document.getElementById('pos-oe-overlay')?.remove();
   document.body.insertAdjacentHTML('beforeend', html);
+  document.getElementById('pos-designation-controls').addEventListener('click', event => {
+    const button = event.target.closest('[data-designation-stop]');
+    if (!button || button.disabled) return;
+    button.disabled = true;
+    posSetDesignationStopped(row.id, button.dataset.cast, button.dataset.designationStop === 'true')
+      .finally(() => { button.disabled = false; });
+  });
+}
+
+function _posDesignationCandidates(row) {
+  const group = state.rows.filter(r => String(r.gid) === String(row.gid));
+  const candidates = new Map();
+  (group.length ? group : [row]).forEach(member => {
+    _posTableDesignations(member, true).forEach(d => { if (!candidates.has(d.cast)) candidates.set(d.cast, d); });
+  });
+  return [...candidates.values()];
+}
+function _posDesignationControlsHtml(row) {
+  if (!row || row.settled) return '';
+  const candidates = _posDesignationCandidates(row);
+  if (!candidates.length) return '';
+  return '<section style="margin-bottom:18px;padding:12px;border:1px solid var(--bdr);border-radius:10px">'
+    + '<h3 style="margin:0 0 6px;font-size:14px">指名の途中解除</h3>'
+    + '<p style="margin:0 0 10px;color:var(--tx3);font-size:12px;line-height:1.7">この伝票の対象キャストの指名を解除します。計上済み料金・人数・つけ回しはそのままです。解除中は延長指名料の自動加算と試算から除外します（手入力した料金は残ります）。</p>'
+    + candidates.map(d => {
+      const stopped = _posDesignationStop(row, d.cast);
+      const time = stopped ? new Date(stopped.stoppedAt).toLocaleTimeString('ja-JP', { hour:'2-digit', minute:'2-digit' }) : '';
+      return '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 0;border-top:1px solid var(--bdr)">'
+        + '<div style="min-width:0;overflow-wrap:anywhere"><b>' + escHtml(d.cast) + '</b><small style="display:block;color:var(--tx3)">'
+        + escHtml(stopped ? time + ' 解除済み' : d.role) + '</small></div>'
+        + '<button type="button" class="btn" style="min-height:44px;flex-shrink:0" data-designation-stop="' + !stopped + '" data-cast="' + escAttr(escHtml(d.cast)) + '">'
+        + (stopped ? '指名を再開' : '指名を解除') + '</button></div>';
+    }).join('')
+    + '<p style="margin:8px 0 0;color:var(--tx3);font-size:11px;line-height:1.6">誤操作はこの画面を閉じ、上部の ↩「元に戻す」で取り消せます。「指名を再開」は今後分だけが対象で、解除中の分は追加しません。</p></section>';
+}
+async function posSetDesignationStopped(rowId, cast, stop) {
+  const row = state.rows.find(r => String(r.id) === String(rowId) && r.isFirst && !r.settled);
+  if (!row || !cast || !_posDesignationCandidates(row).some(d => d.cast === cast)) return false;
+  if (!!_posDesignationStop(row, cast) === stop) return false;
+  // 確認中の別操作・精算・削除・undoで対象が変わったら、古い確認を適用しない。
+  const before = JSON.stringify(state.rows.filter(r => String(r.gid) === String(row.gid)));
+  const message = stop
+    ? cast + 'の指名をここで解除しますか？\n計上済みの料金は残し、以後の延長指名料の自動加算・試算を止めます。人数とつけ回しは変わりません。'
+    : cast + 'の指名を再開しますか？\n次の延長から対象に戻します。解除中の延長分を後から加算することはありません。';
+  if (!(await appConfirm(message))) return false;
+  if (!state.rows.includes(row) || row.settled || posSelectedRow() !== row
+      || JSON.stringify(state.rows.filter(r => String(r.gid) === String(row.gid))) !== before) {
+    showToast('伝票が変更されました。内容を確認してやり直してください');
+    return false;
+  }
+  pushUndo();
+  // 旧自動加算は全ラウンド数へ数量を揃えるため、解除時点で既存帰属を固定してラウンド方式へ移す。
+  // この変換は注文を追加・削除せず、undoで解除状態と一緒に完全に戻る。
+  _posFreezeExtFeeRounds(row, -1, true);
+  if (stop) {
+    if (!Array.isArray(row.designationStops)) row.designationStops = [];
+    row.designationStops.push({ cast, stoppedAt:Date.now(), resumedAt:null });
+  } else _posResumeDesignation(row, cast);
+  saveState(); renderTable(); renderPOSPanel(); _posOeRerender();
+  showToast(cast + (stop ? 'の指名を解除しました' : 'の指名を再開しました') + '（誤操作は上部の元に戻す）');
+  return true;
 }
 
 /* 自動席料のSET（posOrdersに無いSET）を1件返す。無ければnull。 */
@@ -21128,6 +21220,8 @@ function posOrderEditMove(from, to) {
 
 function _posOeRerender() {
   const row = posSelectedRow(); if (!row) return;
+  const controls = document.getElementById('pos-designation-controls');
+  if (controls) controls.innerHTML = _posDesignationControlsHtml(row);
   const tbody = document.getElementById('pos-oe-tbody'); if (!tbody) return;
   tbody.innerHTML = _posOeRowsHtml(posOrders(row), _posOeSeatSet(row), row);
 }
@@ -21266,7 +21360,7 @@ function _posExtTrial(row, extMin, trialCasts = []) {
   const _depSet = new Set((typeof _posDepartedCasts === 'function' ? _posDepartedCasts(row) : []).filter(Boolean));
   const _bump = (cast, type) => {
     if (!type) return;
-    if (cast && _depSet.has(cast)) return;        // 退席キャストは延長指名料を載せない
+    if (cast && (_depSet.has(cast) || _posDesignationStop(row, cast))) return; // 退席・指名解除は今後分のみ対象外
     const key = cast || ('__' + type);            // 名前不明は種別ごとに1つ課金（mainType由来など）
     if (!(key in _castType) || _ef2(_castType[key]) === 0) _castType[key] = type;  // 料金が立つ型を優先
   };
