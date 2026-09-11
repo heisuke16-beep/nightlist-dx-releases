@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.21">
+<meta name="app-version" content="1.1.22">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -3357,7 +3357,7 @@ table#customer-table { border-collapse: collapse; width: 100%; min-width: 800px;
   border-radius: 4px;
   font-size: 12px;
   font-family: var(--mono);
-  width: 70px;
+  width: 88px;
   outline: none;
   text-align: center;
   transition: border-color 0.15s;
@@ -5469,6 +5469,20 @@ html[data-theme="night"] #summary-bar.has-pos-actions #summary-pos-actions .pos-
     background: linear-gradient(180deg, #fffaf0, #f7efdf);
     color: var(--tx);
     box-shadow: 0 6px 20px rgba(70, 45, 12, .12);
+  }
+
+  /* Keep Night's active-cast signal unmistakable on the light Champagne skin. */
+  html[data-theme="champagne"] .cast-card.active {
+    border-color: #1f603f;
+    background: linear-gradient(180deg, #287e53, #1f603f);
+    color: #fff;
+    box-shadow: 0 0 0 2px rgba(34, 107, 71, .18), 0 0 14px rgba(34, 107, 71, .42);
+  }
+
+  html[data-theme="champagne"] .cast-card.active .cast-name { font-weight: 800; }
+  html[data-theme="champagne"] .cast-card.active .status-dot {
+    background: #c8ffdc;
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, .28), 0 0 8px rgba(200, 255, 220, .8);
   }
 
   html[data-theme="champagne"] .settings-section-header,
@@ -18060,7 +18074,7 @@ function _reportPeriodSwitchHtml() {
     + '.payroll-table input.pay-in.pay-edited{border-color:var(--gold);color:var(--gold);font-weight:700}'   /* #12 手修正セルを強調 */
     + '.payroll-table input.pay-in.pay-time{width:44px;text-align:center;font-family:var(--mono)}'   /* 出退勤HH:MM編集 */
     + '.payroll-table td.pay-flag-cell{text-align:center}.pay-deduction-flag{min-width:32px;height:28px;padding:0 7px;border:1px solid var(--bdr2);border-radius:7px;background:var(--sur2);color:var(--tx3);font-size:16px;font-weight:800;cursor:pointer}.pay-deduction-flag.is-on{border-color:var(--gold);background:var(--goldglow);color:var(--gold)}.pay-deduction-flag:focus-visible{outline:2px solid var(--gold);outline-offset:2px}'
-    + '.payroll-table select.pay-time{box-sizing:border-box;width:58px;font-size:11px;padding:3px 1px;background:var(--sur2);color:var(--tx);border:1px solid var(--bdr2);border-radius:5px;text-align:center;font-family:var(--mono);cursor:pointer}'   /* 出退勤30分刻みドロップダウン */
+    + '.payroll-table select.pay-time{box-sizing:border-box;width:76px;font-size:11px;padding:3px 1px;background:var(--sur2);color:var(--tx);border:1px solid var(--bdr2);border-radius:5px;text-align:center;font-family:var(--mono);cursor:pointer}'   /* BIZ UDPゴシック5桁＋native矢印を欠けずに表示 */
     + '.payroll-table select.pay-time:focus{outline:none;border-color:var(--gold)}'
     + '.deduction-sheet tr.ded-zero td{color:var(--tx3)}'
     + '@media print{.report-end-business-day,.report-period-switch,.agg-box-actions,.pos-report-slip-actions,.pos-report-bar,.payroll-rules-gear{display:none}}'
