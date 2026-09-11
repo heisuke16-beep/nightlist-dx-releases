@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.22">
+<meta name="app-version" content="1.1.23">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -16288,6 +16288,17 @@ function _monitorBillFor(row) {
   return { lines, subtotal: lines.reduce((sum, line) => sum + line.sum, 0) };
 }
 
+function _monitorRotationsFor(row) {
+  const r1 = Array.isArray(row.rotations) ? row.rotations : [];
+  const r2 = Array.isArray(row.rotations2) ? row.rotations2 : [];
+  const slots = [];
+  for (let i = 0; i < Math.max(r1.length, r2.length); i++) {
+    const names = [r1[i], r2[i]].map(v => String(v || '').trim()).filter(Boolean);
+    if (names.length) slots.push(names);
+  }
+  return slots;
+}
+
 function buildMonitorSnapshot() {
   const activeRows = posFirstRows();
   const activeGids = new Set(activeRows.map(row => row.gid));
@@ -16325,16 +16336,11 @@ function buildMonitorSnapshot() {
         type: typeLabelFor(cast.type),
         away: !!cast.away,
       })),
-      rot: (() => {
-        const r1 = Array.isArray(row.rotations) ? row.rotations : [];
-        const r2 = Array.isArray(row.rotations2) ? row.rotations2 : [];
-        const slots = [];
-        for (let i = 0; i < Math.max(r1.length, r2.length); i++) {
-          const names = [r1[i], r2[i]].map(v => String(v || '').trim()).filter(Boolean);
-          if (names.length) slots.push(names);
-        }
-        return slots;
-      })(),
+      // 旧閲覧ページ用の先頭客履歴を残し、全員分は客順で追加する。客名は送らない。
+      rot: _monitorRotationsFor(row),
+      rotGuests: state.rows.filter(member => String(member.gid) === String(row.gid))
+        .sort((a, b) => (Number(a.gidx) || 0) - (Number(b.gidx) || 0))
+        .map((member, index) => ({ guest: index + 1, rot: _monitorRotationsFor(member) })),
     };
   });
   const status = calcStoreStatus();
