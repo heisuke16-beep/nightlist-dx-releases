@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.28">
+<meta name="app-version" content="1.1.29">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -10155,8 +10155,17 @@ function normalizeRow(row, ctx) {
 /* ================================================================
    CALC END TIME
 ================================================================ */
-function calcEndMin(row) {
-  const base = row.mainType === 'douban' ? (cfg.dohanStay || 60) : getDefStay();
+function calcEndMin(row, rows = []) {
+  // SETは追加順の先頭が最新。人数・単価ではなく、明細の開始〜終了を基本時間に使う。
+  // 子行のSET明細は先頭行に集約されているため、呼出元の同じ営業日から参照する。
+  const owner = !row.isFirst && !row._indivTime
+    ? (rows.find(r => r.gid === row.gid && r.isFirst) || row) : row;
+  const orders = Array.isArray(row.posOrders) && row.posOrders.some(o => o.category === 'set')
+    ? row.posOrders : owner.posOrders;
+  const set = (Array.isArray(orders) ? orders : []).find(o => o.category === 'set'
+    && Number.isFinite(o.startMin) && Number.isFinite(o.endMin) && o.endMin > o.startMin);
+  // 時刻のない旧データやSET未入力の伝票だけ、従来の店設定に従う。
+  const base = set ? set.endMin - set.startMin : (row.mainType === 'douban' ? (cfg.dohanStay || 60) : getDefStay());
   const ext = row.extensions.reduce((s, v) => s + (parseInt(v) || 0), 0);
   return Math.min(getTimeMax(), row.startMin + base + ext);
 }
@@ -10560,7 +10569,7 @@ function onMainTypeChange(id, value) {
   if (!row) return;
   pushUndo();
   row.mainType = value;
-  row.endMin   = calcEndMin(row);
+  row.endMin   = calcEndMin(row, state.rows);
   if (['jounai','enchoshimei','honshimei','douban'].includes(value)) {
     const lastRot = [...(row.rotations || [])].reverse().find(c => c && c.trim());
     if (lastRot) row.mainCast = lastRot;
@@ -10591,13 +10600,13 @@ function updateRow(id, field, value) {
   // 同伴切替時は同組全員のendMinを再計算
   if (field === 'mainType') {
     state.rows.filter(r => r.gid === row.gid && r.id === row.id).forEach(r => {
-      r.endMin = calcEndMin(r);
+      r.endMin = calcEndMin(r, state.rows);
     });
   }
   if (field === 'startMin') {
     state.rows.filter(r => r.gid === row.gid).forEach(r => {
       r.startMin = value;
-      r.endMin   = calcEndMin(r);
+      r.endMin   = calcEndMin(r, state.rows);
       _syncPosSetTimes(r);
     });
   }
@@ -10681,7 +10690,7 @@ function updateExtension(id, ci, value) {
   const first = state.rows.find(r => r.gid === row.gid && r.isFirst) || row;
   const oldExtCount = (Array.isArray(first.extensions) ? first.extensions : []).filter(v => parseInt(v) > 0).length;
   row.extensions[ci] = value;
-  row.endMin = calcEndMin(row);
+  row.endMin = calcEndMin(row, state.rows);
   // 先頭行の延長変更は同組全員の同列に連動。数値ならこのラウンドの課金席数(退席を除く)を記録。
   if (row.isFirst) {
     const min = parseInt(value);
@@ -10692,7 +10701,7 @@ function updateExtension(id, ci, value) {
       : null;
     state.rows.filter(r => r.gid === row.gid && !r.isFirst).forEach(r => {
       r.extensions[ci] = value;
-      r.endMin = calcEndMin(r);
+      r.endMin = calcEndMin(r, state.rows);
     });
   }
   const newExtCount = (Array.isArray(first.extensions) ? first.extensions : []).filter(v => parseInt(v) > 0).length;
@@ -11404,7 +11413,7 @@ function removeExtCol() {
   const removedIdx = state.extCols - 1;
   const changedFirstRows = state.rows.filter(r => r.isFirst && parseInt(r.extensions?.[removedIdx]) > 0);
   state.extCols--;
-  state.rows.forEach(r => { r.extensions = r.extensions.slice(0, state.extCols); r.endMin = calcEndMin(r); });
+  state.rows.forEach(r => { r.extensions = r.extensions.slice(0, state.extCols); r.endMin = calcEndMin(r, state.rows); });
   changedFirstRows.forEach(syncVipFeeOrder);
   renderTable(); saveState();
 }
@@ -23250,7 +23259,7 @@ function pastUpdateRow(id, field, value) {
   if (!row) return;
   row[field] = value;
   if (field === 'mainType') {
-    row.endMin = calcEndMin(row);
+    row.endMin = calcEndMin(row, pastState.rows);
     if (['jounai','enchoshimei','honshimei','douban'].includes(value)) {
       const lastRot = [...(row.rotations || [])].reverse().find(c => c && c.trim());
       if (lastRot) row.mainCast = lastRot;
@@ -23259,7 +23268,7 @@ function pastUpdateRow(id, field, value) {
   if (field === 'startMin') {
     pastState.rows.filter(r => r.gid === row.gid).forEach(r => {
       r.startMin = value;
-      r.endMin   = calcEndMin(r);
+      r.endMin   = calcEndMin(r, pastState.rows);
     });
   }
   if (row.isFirst && ['amountMethod','amountCash','amountCard'].includes(field)) {
@@ -23283,7 +23292,7 @@ function pastUpdateExt(id, ci, val) {
   const r = pastState.rows.find(r => r.id === id);
   if (!r) return;
   r.extensions[ci] = val;
-  r.endMin = calcEndMin(r);
+  r.endMin = calcEndMin(r, pastState.rows);
   renderPastTable();
 }
 function pastClearExt(id, ci) { pastUpdateExt(id, ci, ''); }
@@ -23370,7 +23379,7 @@ function pastRemExtCol() {
   pastState.extCols--;
   pastState.rows.forEach(r => {
     r.extensions = r.extensions.slice(0, pastState.extCols);
-    r.endMin = calcEndMin(r);
+    r.endMin = calcEndMin(r, pastState.rows);
   });
   renderPastTable();
 }
