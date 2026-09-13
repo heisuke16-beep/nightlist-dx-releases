@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.27">
+<meta name="app-version" content="1.1.28">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -2983,6 +2983,11 @@ table#customer-table { border-collapse: collapse; width: 100%; min-width: 800px;
 .pay-settings-row p { margin:5px 0 0; }
 .pay-settings-inputs { display:flex; align-items:center; justify-content:flex-end; gap:8px; flex-wrap:wrap; flex-shrink:0; font-size:12px; }
 .pay-settings-inputs .settings-input { width:96px; }
+.back-unit-control { display:flex; align-items:center; gap:6px; min-width:158px; }
+.back-unit-control .back-unit-value { width:82px; min-width:65px; padding:7px 8px; border:1px solid var(--bdr); border-radius:6px; background:var(--sur2); color:var(--tx); font:inherit; }
+.back-unit-toggle { display:flex; flex-shrink:0; overflow:hidden; border:1px solid var(--bdr2); border-radius:7px; }
+.back-unit-toggle button { min-width:36px; min-height:36px; border:0; background:var(--sur2); color:var(--tx2); font:inherit; cursor:pointer; }
+.back-unit-toggle button[aria-pressed="true"] { background:var(--gold); color:#201a0c; font-weight:700; }
 .pay-settings-inputs select.settings-input { width:auto; }
 .pay-settings-modal .settings-input { min-height:38px; box-sizing:border-box; font-size:14px; }
 .pay-settings-modal input[type="number"] { text-align:right; font-variant-numeric:tabular-nums; }
@@ -8781,6 +8786,8 @@ const CFG_DEFAULTS = {
   payrollLateFineUnitMin:        15,    // 遅刻罰金の単位（分。N分ごとに1段階）
   payrollLateFineAmt:            1000,  // 遅刻罰金の単位額（円・1段階あたり）
   payrollBottleSpRate:           0.2,   // SP参考値の率（ボトル小計×rate）。最終額は手入力優先。
+  payrollSpMode:                 'percent', // 店標準SP。既存データは従来の率を維持。
+  payrollSpFixed:                0, // 円モードの1本あたり額。率とは別に保持。
   defaultWage:                   0,     // 店標準時給（円/時）。キャスト個別の時給が空欄のときに適用。既定0=なしなので店が設定しない限り挙動不変。
   // --- ポイント設定（キャスト評価用。給与計算とは独立） ---
   pointsEnabled: false,
@@ -9126,8 +9133,8 @@ function minToHHMM(m) {
   if (!m && m !== 0) return '';
   return String(Math.floor(m / 60) % 24).padStart(2,'0') + ':' + String(m % 60).padStart(2,'0');
 }
-/* 退勤時刻の表示専用: 翌日午前を営業日の24時超表記へ揃える（01:00 → 25:00）。 */
-function formatCheckoutTime(hhmm) {
+/* 勤怠時刻の表示専用。保存値・勤務計算を変えず、出退勤を24時超表記へ揃える。 */
+function formatWorkTime(hhmm) {
   const match = /^(\d{1,2}):(\d{2})$/.exec(String(hhmm || ''));
   if (!match) return hhmm || '';
   const minute = Number(match[2]);
@@ -9136,6 +9143,7 @@ function formatCheckoutTime(hhmm) {
   if (hour < 12) hour += 24;
   return String(hour).padStart(2, '0') + ':' + match[2];
 }
+function formatCheckoutTime(hhmm) { return formatWorkTime(hhmm); }
 /* "HH:MM" → 営業日内の通算分（深夜跨ぎ補正：6時より前なら翌日扱い）。空なら Infinity */
 function clockInToMin(t) {
   if (!t) return Infinity;
@@ -10957,6 +10965,43 @@ function setCastSlideWage(name, enabled){
   getCastProfile(name).slideWage = !!enabled;
   saveState();
 }
+/* 未入力は店設定。%と円の入力値を別々に保持し、単位切替で金額を読み替えない。 */
+function castSpBackMode(name) {
+  return state.castProfiles?.[name]?.spBack?.mode === 'yen' ? 'yen' : 'percent';
+}
+function castSpBackConfig(name) {
+  const mode = castSpBackMode(name);
+  const raw = state.castProfiles?.[name]?.spBack?.[mode];
+  if (raw == null || String(raw).trim() === '') return null;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0 || (mode === 'percent' ? value > 100 : !Number.isInteger(value))) return null;
+  return { mode, value };
+}
+function castSpBackYen(name, amount, category) {
+  if (!['bottle', 'shot'].includes(category)) return null;
+  const setting = castSpBackConfig(name);
+  return setting ? Math.round(setting.mode === 'yen' ? setting.value : (Number(amount) || 0) * setting.value / 100) : null;
+}
+function setCastSpBack(name, value) {
+  const mode = castSpBackMode(name);
+  const raw = String(value ?? '').trim();
+  const number = Number(raw);
+  if (raw && (!Number.isFinite(number) || number < 0 || (mode === 'percent' ? number > 100 : !Number.isInteger(number)))) {
+    showToast(mode === 'percent' ? 'SP率は0〜100%で入力してください' : 'SP額は0円以上の整数で入力してください');
+    renderCastDetailModal();
+    return;
+  }
+  const profile = getCastProfile(name);
+  profile.spBack = { ...profile.spBack, mode, [mode]:raw === '' ? '' : number };
+  saveState();
+}
+function setCastSpBackMode(name, mode) {
+  if (!['percent', 'yen'].includes(mode)) return;
+  const profile = getCastProfile(name);
+  profile.spBack = { ...profile.spBack, mode };
+  saveState();
+  renderCastDetailModal();
+}
 /* 時給(wage)以外の単価項目だけを一括クリアする */
 async function clearCastPayExceptWage(name){
   if (!(await appConfirm('「' + name + '」の時給以外の単価をすべてクリアして標準額に戻しますか？', { danger: true }))) return;
@@ -12412,12 +12457,14 @@ function getClockInOptions(selected) {
   const from = cfg.clockInFrom ?? (cfg.timeStartH * 60);
   const to   = cfg.clockInTo   ?? (cfg.timeEndH   * 60);
   const regular = [];
-  for (let m = from; m <= to; m += step) regular.push(minToHHMM(m));
-  const isCustom = selected && selected !== '__manual__' && !regular.includes(selected);
+  for (let m = from; m <= to; m += step) regular.push({ value:minToHHMM(m), label:minToStr(m) });
+  const selectedLabel = formatWorkTime(selected);
+  const selectedRegular = regular.find(option => option.label === selectedLabel);
+  const isCustom = selected && selected !== '__manual__' && !selectedRegular;
   let html = `<option value="">—</option>`;
-  if (isCustom) html += `<option value="${escAttr(selected)}" selected>${escHtml(selected)}</option>`;
-  regular.forEach(val => {
-    html += `<option value="${val}"${val === selected ? ' selected' : ''}>${val}</option>`;
+  if (isCustom) html += `<option value="${escAttr(selected)}" selected>${escHtml(selectedLabel)}</option>`;
+  regular.forEach(option => {
+    html += `<option value="${option.value}"${option === selectedRegular ? ' selected' : ''}>${option.label}</option>`;
   });
   html += `<option value="__manual__">✎ 手動入力...</option>`;
   return html;
@@ -12674,7 +12721,7 @@ function ttSetPlannedClockIn(castName, timeStr) {
   tt.plannedClockIns[castName] = timeStr;
   if (!tt.chikokuMins[castName]) tt.chikokuMins[castName] = 0;
   saveTimetableState(tt);
-  showToast(`${castName} の予定出勤時刻を ${timeStr} に設定しました`);
+  showToast(`${castName} の予定出勤時刻を ${formatWorkTime(timeStr)} に設定しました`);
   renderTimetable();
   updateStoreStatusBadge();
 }
@@ -12894,7 +12941,7 @@ function ttCancelDoubanExec(castName, goWork) {
     if (!tt.clockIns) tt.clockIns = {};
 
     tt.clockIns[castName] = picked || getNowHHMM();
-    showToast(`${castName} 同伴NGで出勤になりました（${tt.clockIns[castName]}）`);
+    showToast(`${castName} 同伴NGで出勤になりました（${formatWorkTime(tt.clockIns[castName])}）`);
   } else {
     state.activeCasts = state.activeCasts.filter(c => c !== castName);
     showToast(`${castName} 同伴NGでそのまま帰りました`);
@@ -15640,8 +15687,8 @@ function posMenuAddItem(key) {
   tr.innerHTML = `<td class="pos-me-drag" title="ドラッグして並び替え">⠿</td>
     <td><input type="text" class="pos-me-name-input" value="" placeholder="メニュー名"></td>
     <td><input type="number" class="pos-me-price-input" value="" step="${_posMenuStep}" placeholder="金額"></td>
-    <td><input type="text" class="pos-me-back-input" value="" placeholder="${splitBack ? '空欄=通常' : '額 or %'}"></td>
-    ${splitBack ? '<td><input type="text" class="pos-me-back-free-input" value="" placeholder="空欄=同額"></td>' : ''}
+    <td>${_backUnitInputHtml('pos-me-back-input', '', splitBack ? '空欄=通常' : '空欄=なし', '指名バック')}</td>
+    ${splitBack ? '<td>' + _backUnitInputHtml('pos-me-back-free-input', '', '空欄=同額', '通常バック') + '</td>' : ''}
     <td><input type="number" class="pos-me-pt-input" value="" step="0.5" placeholder="0"></td>
     <td><button type="button" class="pos-me-del" onclick="posMenuDelItem(this)">削除</button></td>`;
   tbody.appendChild(tr);
@@ -15718,6 +15765,36 @@ function _posCatRowHTML(cat) {
   </tr>`;
 }
 
+/* 保存形式は従来の「500」「20%」。単位ごとの下書き値は切替中も保持する。 */
+function _backUnitInputHtml(className, value, placeholder, label) {
+  const raw = String(value ?? '').trim();
+  const percent = raw.endsWith('%');
+  const mode = percent ? 'percent' : 'yen';
+  const number = percent ? raw.slice(0, -1) : raw;
+  const button = (unit, title) => '<button type="button" aria-label="' + escAttr(label + 'の単位: ' + title) + '" aria-pressed="' + (mode === unit) + '" data-unit="' + unit + '" onclick="backUnitSelect(this)">' + title + '</button>';
+  return '<div class="back-unit-control" data-mode="' + mode + '" data-percent="' + escAttr(percent ? number : '') + '" data-yen="' + escAttr(percent ? '' : number) + '">'
+    + '<input type="hidden" class="' + className + '" value="' + escAttr(raw) + '">'
+    + '<input type="number" min="0" step="' + (percent ? 'any' : '1') + '" class="back-unit-value" aria-label="' + escAttr(label) + '" value="' + escAttr(number) + '" placeholder="' + escAttr(placeholder) + '" oninput="backUnitValueChanged(this)">'
+    + '<div class="back-unit-toggle" role="group" aria-label="' + escAttr(label + 'の単位') + '">' + button('percent', '%') + button('yen', '円') + '</div></div>';
+}
+function backUnitValueChanged(input) {
+  const control = input.closest('.back-unit-control');
+  const mode = control.dataset.mode;
+  control.dataset[mode] = input.value;
+  control.querySelector('input[type="hidden"]').value = input.value === '' ? '' : Number(input.value) + (mode === 'percent' ? '%' : '');
+  if (typeof _settingsMarkDirty === 'function') _settingsMarkDirty();
+}
+function backUnitSelect(button) {
+  const control = button.closest('.back-unit-control');
+  const mode = button.dataset.unit;
+  control.dataset.mode = mode;
+  const input = control.querySelector('.back-unit-value');
+  input.value = control.dataset[mode] || '';
+  input.step = mode === 'percent' ? 'any' : '1';
+  control.querySelectorAll('[data-unit]').forEach(el => el.setAttribute('aria-pressed', String(el.dataset.unit === mode)));
+  backUnitValueChanged(input);
+}
+
 function _posMenuEditorHTML(key, label, items, open = false) {
   if (key === 'special') {
     const rows = (items || []).map(item => {
@@ -15753,8 +15830,8 @@ function _posMenuEditorHTML(key, label, items, open = false) {
     <td class="pos-me-drag" title="ドラッグして並び替え">⠿</td>
     <td><input type="text" class="pos-me-name-input" value="${escAttr(item.name)}" placeholder="メニュー名"></td>
     <td><input type="number" class="pos-me-price-input" value="${Number(item.amount) || 0}" step="${_posMenuStep}" placeholder="金額"></td>
-    <td><input type="text" class="pos-me-back-input" value="${escAttr(item.back == null ? '' : String(item.back))}" placeholder="${splitBack ? '空欄=通常' : '額 or %'}"></td>
-    ${splitBack ? `<td><input type="text" class="pos-me-back-free-input" value="${escAttr(item.backFree == null ? '' : String(item.backFree))}" placeholder="空欄=同額"></td>` : ''}
+    <td>${_backUnitInputHtml('pos-me-back-input', item.back, splitBack ? '空欄=通常' : '空欄=なし', splitBack ? '指名バック' : 'バック')}</td>
+    ${splitBack ? '<td>' + _backUnitInputHtml('pos-me-back-free-input', item.backFree, '空欄=同額', '通常バック') + '</td>' : ''}
     <td><input type="number" class="pos-me-pt-input" value="${Number.isFinite(Number(item.pt)) && Number(item.pt) !== 0 ? Number(item.pt) : ''}" step="0.5" placeholder="0"></td>
     <td><button type="button" class="pos-me-del" onclick="posMenuDelItem(this)">削除</button></td>
   </tr>`).join('');
@@ -16002,7 +16079,12 @@ function posConfirmNewSlip() {
     updateStoreStatusBadge();
   }
   document.getElementById('pos-nsm-overlay')?.remove();
-  posBetaState.viewMode = 'slip';
+  if (newest) {
+    posBetaState.category = 'set';
+    posBetaState.assignCast = null;
+    posBetaState.assignShowtime = false;
+    posBetaState.viewMode = 'normal';
+  }
   renderPOSPanel();
 }
 
@@ -18390,7 +18472,7 @@ function _payrollTd(content, className, groupStart) {
 function _payrollTableColumns(countCols, deductionItems, showPoints) {
   const deductionOptionLabel = deductionItems.map(item => item.label || '').concat(['控除計', '差引支給']).join('・');
   const cols = [
-    { id:'clockin', group:'work', label:'出勤', cell:(x, start) => _payrollTd(x.plain ? (x.r.inHHMM || '') : _payrollClockSelectHtml(x.r.inHHMM, roundClockIn, "payrollSetClockIn('" + x.cj + "', this.value)"), '', start), total:(x, start) => _payrollTd('', '', start) },
+    { id:'clockin', group:'work', label:'出勤', cell:(x, start) => _payrollTd(x.plain ? formatWorkTime(x.r.inHHMM) : _payrollClockSelectHtml(x.r.inHHMM, roundClockIn, "payrollSetClockIn('" + x.cj + "', this.value)"), '', start), total:(x, start) => _payrollTd('', '', start) },
     { id:'clockout', group:'work', label:'退勤', cell:(x, start) => _payrollTd(x.plain ? formatCheckoutTime(x.r.outHHMM) : _payrollClockSelectHtml(x.r.outHHMM, roundClockOut, "payrollSetClockOut('" + x.cj + "', this.value)", cfg.clockOutFrom, cfg.clockOutTo), '', start), total:(x, start) => _payrollTd('', '', start) },
     { id:'work', group:'work', label:'勤務', cell:(x, start) => _payrollTd(_payWorkLabel(x.r.workMinutes), '', start), total:(x, start) => _payrollTd('', '', start) },
     { id:'hourly', group:'work', label:'時間給', cell:(x, start) => _payrollTd(x.hasOut ? _payYen(x.r.hourlyPay) : '—', 'pay-amt' + (x.hasOut ? '' : ' pay-muted'), start), total:(x, start) => _payrollTd('', '', start) },
@@ -19259,7 +19341,7 @@ function _payrollBreakdownData(r, src, countCols) {
   return {
     castName:String(r.castName || ''),
     dayLabel:(typeof bizKeyToLabel === 'function') ? bizKeyToLabel(src.dayKey || '') : String(src.dayKey || ''),
-    clockIn:_payClock24(r.roundedIn) || '—',
+    clockIn:formatWorkTime(r.roundedIn) || '—',
     clockOut:formatCheckoutTime(r.roundedOut) || '—',
     workLabel:`${Math.floor(workMinutes / 60)}時間${workMinutes % 60}分`,
     checkoutPending:!r.outHHMM,
@@ -19646,7 +19728,7 @@ function exportPayrollCSV() {
   rows.forEach(r => {
     const hasOut = !!checkouts[r.castName];
     const baseRow = [
-      r.castName, r.roundedIn || '', formatCheckoutTime(r.roundedOut), r.workMinutes,
+      r.castName, formatWorkTime(r.roundedIn), formatCheckoutTime(r.roundedOut), r.workMinutes,
       hasOut ? r.hourlyPay : '',
       ...countCols.map(([key]) => r.backCounts[key] || 0),
       r.sp||0, r.backTotal||0, r.lateFee||0, r.nibarai||0,
@@ -22126,8 +22208,10 @@ async function posAddItem(name, amount, category, spShares) {
   const amt = isSpecial && specialMode === 'fixed' ? specialValue : inputAmt;
   // 空欄だけ通常バックを使う。明示0は維持し、適用額は注文へ刻印して過去分を変えない。
   const backValue = String(item?.back ?? '').trim() === '' ? item?.backFree : item.back;
-  const backYen = (!isSpecial && !spShares && item) ? posMenuBackYen(backValue, amt) : 0;
-  const backFreeYen = (!isSpecial && !spShares && item && Object.prototype.hasOwnProperty.call(item, 'backFree'))
+  const cast = String(name).includes(':') ? String(name).slice(String(name).indexOf(':') + 1) : '';
+  const personalBack = !spShares && cast && state.allCasts.includes(cast) ? castSpBackYen(cast, amt, category) : null;
+  const backYen = personalBack != null ? personalBack : ((!isSpecial && !spShares && item) ? posMenuBackYen(backValue, amt) : 0);
+  const backFreeYen = personalBack != null ? personalBack : (!isSpecial && !spShares && item && Object.prototype.hasOwnProperty.call(item, 'backFree'))
     ? posMenuBackYen(item.backFree, amt)
     : undefined;
   const drinkItem = drinkItemByKey(category);
@@ -22313,6 +22397,7 @@ function _renderCastSplitModal() {
   if (!s) return;
   const esc = v => escAttr(String(v));
   const ratePct = Math.round((_payrollCfg().spRate) * 100);
+  const personal = ['bottle','shot'].includes(s.category) && Array.from(s.checked).some(c => castSpBackConfig(c));
   const casts = posActiveCastList();
   const rows = casts.map(c => {
     const checked = s.checked.has(c);
@@ -22333,10 +22418,10 @@ function _renderCastSplitModal() {
     + '<div class="pos-drink-pick-head"><span>' + escHtml(s.name) + ' — キャスト折半</span>'
     + '<button class="pos-drink-pick-close" onclick="posCastSplitClose()">×</button></div>'
     + '<div class="pos-cs-amount">販売金額（小計） <b>¥' + s.amount.toLocaleString() + '</b>'
-    + '<span class="pos-cs-back">バック（' + ratePct + '%） <b>¥' + s.backTotal.toLocaleString() + '</b></span>'
+    + '<span class="pos-cs-back">バック（' + (personal ? '個別設定' : cfg.payrollSpMode === 'yen' ? '1本あたり固定額' : ratePct + '%') + '） <b>¥' + s.backTotal.toLocaleString() + '</b></span>'
     + '<span class="pos-cs-remain" id="pos-cs-remain"></span></div>'
     + '<div class="pos-cs-list">' + (rows || '<div style="padding:8px;color:var(--tx3)">出勤中のキャストがいません</div>') + '</div>'
-    + '<div class="pos-cs-hint">「均等折半」で人数割りの初期値が入ります。金額は1人ずつ手修正できます（合計がバック額と一致したら確定）。</div>'
+    + '<div class="pos-cs-hint">「均等折半」で人数割りの初期値が入ります。個別SPは小計・1本あたりの額を人数割りして適用します。金額は1人ずつ手修正できます（合計がバック額と一致したら確定）。</div>'
     + '<div class="pos-cs-actions">'
     + '<button class="pos-co-btn cancel" onclick="posCastSplitBack()">戻る</button>'
     + '<button class="pos-co-btn" style="background:#2680e8" onclick="posCastSplitEven()">均等折半</button>'
@@ -22352,7 +22437,24 @@ function posCastSplitToggle(cast) {
   const s = _castSplitState;
   if (s.checked.has(cast)) { s.checked.delete(cast); delete s.shares[cast]; }
   else s.checked.add(cast);
+  s.backTotal = _castSplitDefaultAllocation(s).total;
   _renderCastSplitModal();
+}
+
+function _castSplitDefaultAllocation(s) {
+  const casts = Array.from(s.checked);
+  const personal = ['bottle','shot'].includes(s.category) && casts.some(c => castSpBackConfig(c));
+  if (!personal || !casts.length) {
+    const total = calcSpReference(s.amount);
+    const base = casts.length ? Math.floor(total / casts.length) : 0;
+    return { total, shares:Object.fromEntries(casts.map((c,i) => [c, base + (i < total - base * casts.length ? 1 : 0)])) };
+  }
+  const shares = Object.fromEntries(casts.map(c => {
+    const config = castSpBackConfig(c);
+    const full = config ? (config.mode === 'yen' ? config.value : s.amount * config.value / 100) : calcSpReference(s.amount);
+    return [c, Math.round(full / casts.length)];
+  }));
+  return { total:Object.values(shares).reduce((sum,value) => sum + value,0), shares };
 }
 
 /* 金額の手入力（比率変更）。再描画せず残額表示だけ更新する */
@@ -22368,10 +22470,9 @@ function posCastSplitEven() {
   if (!s) return;
   const casts = Array.from(s.checked);
   if (casts.length < 2) { showToast('折半するキャストを2名以上選んでください'); return; }
-  if (s.backTotal <= 0) { showToast('バック額が0円です（設定→給与計算ルール→SP参考値の率 を確認）'); return; }
-  const base = Math.floor(s.backTotal / casts.length);
-  const remainder = s.backTotal - base * casts.length;
-  casts.forEach((c, i) => { s.shares[c] = base + (i < remainder ? 1 : 0); });  // 端数は先頭のキャストへ寄せる
+  const allocation = _castSplitDefaultAllocation(s);
+  s.backTotal = allocation.total;
+  s.shares = allocation.shares;
   _renderCastSplitModal();
 }
 
@@ -22391,8 +22492,8 @@ async function posConfirmCastSplit() {
   if (!s) return;
   const casts = Array.from(s.checked);
   if (casts.length < 2) { showToast('折半するキャストを2名以上選んでください'); return; }
-  // 全員に金額が入っているか（0円は未入力扱い）
-  const missing = casts.filter(c => !(Math.round(Number(s.shares[c]) || 0) > 0));
+  // 明示0%・0円も有効。空欄と不正値だけを未入力扱いにする。
+  const missing = casts.filter(c => s.shares[c] == null || String(s.shares[c]).trim() === '' || !Number.isFinite(Number(s.shares[c])) || Number(s.shares[c]) < 0);
   if (missing.length) { showToast('金額が未入力のキャストがいます: ' + missing.join('・') + '（「均等折半」で初期値を入れられます）'); return; }
   // 割当合計 = バック額 を厳守（1円もズレない）
   const sum = _castSplitSum();
@@ -25415,6 +25516,12 @@ function settingsBusinessTypeChanged(value) {
 
 /* 設定を保存して全体に即時反映 */
 async function applySettings() {
+  const invalidBack = Array.from(document.querySelectorAll('.back-unit-value')).find(input => input.validity?.valid === false);
+  if (invalidBack) {
+    showToast('バックは0以上の数値で入力してください。円は整数で入力してください');
+    invalidBack.focus();
+    return;
+  }
   const get = id => document.getElementById(id);
 
   // 数値項目
@@ -25634,7 +25741,7 @@ async function applySettings() {
   // 給与は専用モーダルで保存済み。全体保存で不在の入力を既定値に戻さない。
   const {
     payrollClockInRoundMin, payrollClockOutRoundMin, payrollClockOutRoundThreshold,
-    payrollLateFineUnitMin, payrollLateFineAmt, payrollBottleSpRate, defaultWage, payrollPeriod,
+    payrollLateFineUnitMin, payrollLateFineAmt, payrollBottleSpRate, payrollSpMode, payrollSpFixed, defaultWage, payrollPeriod,
     payrollDouhanAddsHonshimei, payrollDouhanAddsHonenFirst, payrollSpInBackTotal,
     payrollSlideTable, payrollSlideSource, payrollPeriodDeductions, payrollRoundMode, payrollRoundUnit,
     payrollDeductions, payrollDeductionDisplayField, payrollDeductionDisplayPrint, payrollMergeDrinks,
@@ -25689,7 +25796,7 @@ async function applySettings() {
     receiptLayout, extTrialLayout, ryoshuOpts, receiptScale, extTrialScale, ryoshuScale,
     extTrialCompareEnabled: document.getElementById('cfg-extTrialCompareEnabled')?.checked ?? (cfg.extTrialCompareEnabled === true),
     payrollClockInRoundMin, payrollClockOutRoundMin, payrollClockOutRoundThreshold,
-    payrollLateFineUnitMin, payrollLateFineAmt, payrollBottleSpRate, defaultWage, payrollPeriod,
+    payrollLateFineUnitMin, payrollLateFineAmt, payrollBottleSpRate, payrollSpMode, payrollSpFixed, defaultWage, payrollPeriod,
     payrollDouhanAddsHonshimei, payrollDouhanAddsHonenFirst, payrollSpInBackTotal,
     payrollSlideTable, payrollSlideSource, payrollPeriodDeductions, payrollRoundMode, payrollRoundUnit,
     payrollDeductions, payrollDeductionDisplayField, payrollDeductionDisplayPrint, payrollMergeDrinks,
@@ -26194,7 +26301,7 @@ const PAYROLL_SETTINGS_GROUPS = [
 const PAYROLL_SETTINGS_KEYS = [
   'defaultWage', 'payrollClockInRoundMin', 'payrollClockOutRoundMin', 'payrollClockOutRoundThreshold',
   'payrollLateFineUnitMin', 'payrollLateFineAmt', 'payrollDouhanAddsHonshimei',
-  'payrollDouhanAddsHonenFirst', 'payrollSpInBackTotal', 'payrollBottleSpRate',
+  'payrollDouhanAddsHonenFirst', 'payrollSpInBackTotal', 'payrollBottleSpRate', 'payrollSpMode', 'payrollSpFixed',
   'payrollDeductions', 'payrollDeductionDisplayField', 'payrollDeductionDisplayPrint', 'payrollPeriodDeductions', 'payrollPeriod', 'payrollSlideSource',
   'payrollSlideTable', 'payrollRoundMode', 'payrollRoundUnit',
   'payrollMergeDrinks',
@@ -26268,7 +26375,11 @@ function _payrollSettingsModalHtml() {
           <label class="pay-settings-choice"><input type="checkbox" id="cfg-payrollDouhanAddsHonenFirst"${checked('payrollDouhanAddsHonenFirst')}><span>本指名延長 ＋1<small>延長項目の先頭（例：本延20）のバックを加算</small></span></label>
           <h3>SP・ボトルバック</h3>
           <label class="pay-settings-choice"><input type="checkbox" id="cfg-payrollSpInBackTotal"${checked('payrollSpInBackTotal')}><span>SPを日給に含める<small>OFFなら参考表示のみ。手入力SP・ボトル折半が対象。</small></span></label>
-          <div class="pay-settings-row"><div><label for="cfg-payrollBottleSpRate">ボトルバック率</label><p>ボトル小計に適用。SP参考額とPOSのキャスト折半に使用。</p></div><div class="pay-settings-inputs">${num('payrollBottleSpRate','ボトルバック率',0.2,0,100,1,100)}<span>%</span></div></div>
+          <div class="pay-settings-row"><div><label for="cfg-payrollBottleSpRate">店標準SP（ボトル・ショット）</label><p>%は小計に対する割合、円は1本あたり。SP参考額とキャスト折半に使用。個別設定があればそちらを優先。</p></div><div class="pay-settings-inputs" id="pay-sp-control" data-mode="${cfg.payrollSpMode === 'yen' ? 'yen' : 'percent'}">
+            <span data-sp-value="percent" ${cfg.payrollSpMode === 'yen' ? 'hidden' : ''}>${num('payrollBottleSpRate','店標準SP率',0.2,0,100,0.1,100)}</span>
+            <span data-sp-value="yen" ${cfg.payrollSpMode === 'yen' ? '' : 'hidden'}>${num('payrollSpFixed','店標準SP額',0,0,null,1)}</span>
+            <div role="group" aria-label="店標準SPの単位" class="back-unit-toggle"><button type="button" aria-label="店標準SPの単位: %" aria-pressed="${cfg.payrollSpMode !== 'yen'}" onclick="payrollSpModeSelect('percent')">%</button><button type="button" aria-label="店標準SPの単位: 円" aria-pressed="${cfg.payrollSpMode === 'yen'}" onclick="payrollSpModeSelect('yen')">円</button></div>
+          </div></div>
           <details class="pay-settings-details"><summary>バックの計算を確認</summary><p>バック ＝ 伝票から集計した本数 × 単価 ＋ 商品バック。単価はキャスト個別設定を優先し、空欄なら既定バックを使います。本数は日計表で修正できます。</p><p>SPは手入力額とボトル折半分の合計です。参考額をそのまま支給する設定ではありません。</p><p>給率 ＝ 日給 ÷ キャストの帰属売上 × 100（参考値）。</p></details>
         </section>
         <section id="pay-settings-group-deductions" role="tabpanel" aria-labelledby="pay-settings-tab-deductions" data-pay-group="deductions" hidden>
@@ -26360,6 +26471,15 @@ function payrollSettingsKeydown(event) {
   }
 }
 
+function payrollSpModeSelect(mode) {
+  const control = document.getElementById('pay-sp-control');
+  if (!control || !['percent', 'yen'].includes(mode)) return;
+  control.dataset.mode = mode;
+  control.querySelectorAll('[data-sp-value]').forEach(el => { el.hidden = el.dataset.spValue !== mode; });
+  control.querySelectorAll('button').forEach((el, index) => el.setAttribute('aria-pressed', String(mode === (index === 0 ? 'percent' : 'yen'))));
+  control.closest('.pay-settings-row').querySelector('label').htmlFor = mode === 'yen' ? 'cfg-payrollSpFixed' : 'cfg-payrollBottleSpRate';
+}
+
 function _collectPayrollSettings(overlay) {
   const get = id => overlay.querySelector('#cfg-' + id);
   const result = {};
@@ -26368,6 +26488,8 @@ function _collectPayrollSettings(overlay) {
     result[key] = el.value === '' ? Number(el.dataset.fallback) : Number(el.value);
   });
   result.payrollBottleSpRate /= 100;
+  result.payrollSpMode = overlay.querySelector('#pay-sp-control')?.dataset.mode === 'yen' ? 'yen' : 'percent';
+  result.payrollSpFixed = Number(get('payrollSpFixed')?.value ?? cfg.payrollSpFixed) || 0;
   ['payrollDouhanAddsHonshimei','payrollDouhanAddsHonenFirst','payrollSpInBackTotal'].forEach(key => { result[key] = get(key).checked; });
   result.payrollMergeDrinks = get('payrollMergeDrinks')?.checked === true;
   result.payrollDeductionDisplayField = normalizePayrollDeductionDisplayField(get('payrollDeductionDisplayField')?.value);
@@ -28417,8 +28539,8 @@ function printTimetable() {
     const isActive     = isEffActive(castName);
     // 実出勤があれば表示、なければ予定時刻を「予 HH:MM」で表示
     const clockIn  = clockIns[castName]
-      ? clockIns[castName]
-      : (plannedClockIns[castName] ? '予 ' + plannedClockIns[castName] : '');
+      ? formatWorkTime(clockIns[castName])
+      : (plannedClockIns[castName] ? '予 ' + formatWorkTime(plannedClockIns[castName]) : '');
     const checkOut = formatCheckoutTime(checkouts[castName]);
     const isTouketsu = touketsuSet.has(castName);
     const status   = isCheckedOut ? '退勤済' : isTouketsu ? '当欠' : isDouban ? '同伴中' : isActive ? '出勤中' : '未出勤';
@@ -29449,6 +29571,7 @@ function calcPayrollDeductions(dailyPay, items, overrides, flags) {
 ================================================================ */
 function calcSpReference(bottleSubtotal, opts) {
   const c = _payrollCfg(opts);
+  if (opts?.spRate == null && cfg.payrollSpMode === 'yen') return Math.max(0, Math.round(Number(cfg.payrollSpFixed) || 0));
   const sub = Number(bottleSubtotal) || 0;
   return Math.round(sub * c.spRate);
 }
@@ -30398,6 +30521,7 @@ function _castDetailProfileHtml(name) {
     + '<div class="cd-profile-grid">'
     + '<label class="cd-field"><span>番号</span><input type="number" class="settings-input" value="' + (p.no ?? '') + '" onchange="setCastNo(\'' + q + '\',this.value)"></label>'
     + castPayFields().map(fieldHtml).join('')
+    + _castDetailSpBackHtml(name)
     + '<label class="cd-field"><span>保証時給 <small>円/時</small></span><input type="number" class="settings-input" value="' + (p.guaranteeWage ?? 0) + '" min="0" step="100" onchange="setCastPay(\'' + q + '\',\'guaranteeWage\',this.value)"></label>'
     + '<label class="cd-field cd-check"><input type="checkbox" ' + (p.slideWage ? 'checked' : '') + ' onchange="setCastSlideWage(\'' + q + '\',this.checked)"><span>スライド時給を適用</span></label>'
     + '</div>'
@@ -30406,6 +30530,18 @@ function _castDetailProfileHtml(name) {
     + '<button class="btn" onclick="_castDetailRetire(\'' + q + '\')">退店</button>'
     + '<button class="btn danger" onclick="_castDetailDelete(\'' + q + '\')">完全削除</button>'
     + '</div></div>';
+}
+
+function _castDetailSpBackHtml(name) {
+  const mode = castSpBackMode(name);
+  const setting = castSpBackConfig(name);
+  const q = _cmq(name);
+  const toggle = (value, label) => '<button type="button" aria-label="SPの単位: ' + label + '" aria-pressed="' + (mode === value) + '" onclick="setCastSpBackMode(\'' + q + '\',\'' + value + '\')">' + label + '</button>';
+  return '<div class="cd-field cd-sp-field"><label for="cd-sp-back">SP（ボトル・ショット）</label>'
+    + '<div class="cd-sp-control"><input id="cd-sp-back" type="number" class="settings-input" min="0" ' + (mode === 'percent' ? 'max="100" step="0.1"' : 'step="1"')
+    + ' value="' + (setting ? setting.value : '') + '" placeholder="空欄=店設定" aria-describedby="cd-sp-hint" onchange="setCastSpBack(\'' + q + '\',this.value)">'
+    + '<div class="cd-sp-unit" role="group" aria-label="SPの単位">' + toggle('percent', '%') + toggle('yen', '円') + '</div></div>'
+    + '<small id="cd-sp-hint">%は小計に対する割合、円は1本あたり。空欄は店設定。次の注文から適用</small></div>';
 }
 
 /* 月次成績表の本数列キーを「ドリンク系」と「それ以外」に分ける。
@@ -30458,7 +30594,7 @@ function _castDetailMonthlyTableHtml(data, printMode) {
 
   const rowHtml = row => '<tr>'
     + '<td class="cd-sticky">' + escHtml(_payslipMd(row.bizKey)) + '</td>'
-    + '<td>' + escHtml(row.roundedIn || '') + '</td><td>' + escHtml(formatCheckoutTime(row.roundedOut)) + '</td><td>' + _payslipHm(row.workMinutes) + '</td>'
+    + '<td>' + escHtml(formatWorkTime(row.roundedIn)) + '</td><td>' + escHtml(formatCheckoutTime(row.roundedOut)) + '</td><td>' + _payslipHm(row.workMinutes) + '</td>'
     + '<td>' + yen(row.wage) + '</td><td>' + yen(row.hourlyPay) + '</td>'
     + countKeys.map(key => '<td>' + cnt(row, key) + '</td>').join('')
     + '<td>' + yen(row.backTotal) + '</td><td>' + yen(row.sp) + '</td><td>' + yen(row.dailyPay) + '</td><td>' + yen(row.nibarai) + '</td>'
@@ -30542,6 +30678,7 @@ function _castDetailStyles() {
     + '.cd-profile-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(122px,1fr));gap:10px}'
     + '.cd-field{display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--tx2)}'
     + '.cd-field small{color:var(--tx3)}'
+    + '.cd-sp-field{grid-column:span 2}.cd-sp-control{display:flex;gap:8px;align-items:stretch}.cd-sp-control input{min-width:0;flex:1;width:0}.cd-sp-unit{display:flex;border:1px solid var(--bdr2);border-radius:7px;overflow:hidden;flex-shrink:0}.cd-sp-unit button{min-width:42px;min-height:36px;border:0;background:var(--sur2);color:var(--tx2);font:inherit;cursor:pointer}.cd-sp-unit button[aria-pressed="true"]{background:var(--gold);color:#201a0c;font-weight:700}.cd-sp-field small{line-height:1.6}'
     + '.cd-check{flex-direction:row;align-items:center;gap:8px;justify-content:flex-start;padding:8px 0}'
     + '.cd-check input{width:20px;height:20px}'
     + '.cd-profile-actions{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap}'
@@ -30567,7 +30704,8 @@ function _castDetailStyles() {
     + '.cd-table td.cd-sticky,.cd-table th.cd-sticky{position:sticky;left:0;background:var(--sur);z-index:1;text-align:left}'
     + '.cd-table th.cd-sticky{background:var(--sur2);z-index:3}'
     + '.cd-table tr.cd-total td{background:var(--sur2);font-weight:700;border-top:2px solid var(--bdr2)}'
-    + '.cd-drink-summary{margin-top:8px;font-size:11px;color:var(--tx3)}'
+    + '.cd-drink-summary{margin-top:14px;font-size:11px;line-height:1.8;color:var(--tx3)}'
+    + '.cd-monthly .payslip-legal{margin-top:10px;font-size:12px;line-height:1.8}'
     + '.cd-monthly .payslip-warning{margin-bottom:10px}'
     + '@media(max-width:900px){.cd-profile-grid{grid-template-columns:repeat(auto-fill,minmax(102px,1fr))}}'
     + '</style>';
