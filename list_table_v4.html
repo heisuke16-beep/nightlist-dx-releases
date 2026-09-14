@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.29">
+<meta name="app-version" content="1.1.30">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -3182,19 +3182,24 @@ table#customer-table { border-collapse: collapse; width: 100%; min-width: 800px;
 ================================================================ */
 #past-panel { display: flex; height: calc((100vh - var(--app-header-height) - var(--app-footer-height)) / var(--uiz-past, 1)); overflow: hidden; }
 
-/* 集計は設定画面と同じ「左で選ぶ・右で読む」構成。表だけが横スクロールする。 */
-#report-panel { max-width:1520px !important; min-width:0; }
-.report-layout { display:flex; align-items:flex-start; gap:20px; min-width:0; }
-.report-nav { position:sticky; top:calc((var(--app-header-height) + 12px) / var(--uiz-report, 1)); max-height:calc((100vh - var(--app-header-height) - var(--app-footer-height) - 24px) / var(--uiz-report, 1)); overflow-y:auto; z-index:5; flex:0 0 190px; width:190px; }
-.report-content { flex:1 1 auto; min-width:0; }
-.report-nav-links { display:flex; flex-direction:column; gap:4px; max-height:calc(100vh - 180px); overflow-y:auto; padding:8px; border:1px solid var(--bdr); border-radius:10px; background:var(--sur); }
+/* 集計の左列は固定し、右の内容だけをスクロールする。画面別ズームも高さに反映。 */
+body[data-active-tab="report"] { overflow:hidden; }
+#report-panel { max-width:1520px !important; min-width:0; height:calc((100dvh - var(--app-header-height) - var(--app-footer-height) - 4px) / var(--uiz-report, 1)); overflow:hidden; }
+.report-layout { display:flex; align-items:stretch; gap:20px; min-width:0; height:100%; min-height:0; }
+.report-sidebar { flex:0 0 190px; width:190px; min-width:0; }
+.report-sidebar .report-period-switch { display:flex; width:100%; }
+.report-sidebar .report-period-switch .rp-btn { flex:1 1 0; min-width:0; min-height:40px; padding:8px 0; }
+.report-sidebar .report-end-business-day .btn { width:100%; }
+.report-nav { width:100%; min-width:0; }
+.report-content { flex:1 1 auto; min-width:0; min-height:0; height:100%; overflow:auto; overscroll-behavior:contain; scrollbar-gutter:stable; padding:0 8px 20px 0; }
+.report-nav-links { display:flex; flex-direction:column; gap:4px; padding:8px; border:1px solid var(--bdr); border-radius:10px; background:var(--sur); }
 .report-nav a { display:flex; align-items:center; min-height:44px; padding:8px 10px; border-radius:7px; color:var(--tx2); text-decoration:none; font-size:12px; font-weight:700; }
 .report-nav a:hover,.report-nav a:focus-visible,.report-nav a[aria-current="true"] { color:var(--gold2); background:var(--sur2); outline:2px solid var(--gold); outline-offset:1px; }
 .report-data-tools { margin-top:10px; padding:8px; border:1px solid var(--bdr); border-radius:10px; background:var(--sur); }
 .report-data-tools summary { cursor:pointer; min-height:44px; display:flex; align-items:center; color:var(--tx2); font-size:11px; font-weight:700; }
 .report-data-actions { display:flex; flex-direction:column; gap:5px; margin-top:7px; }
 .report-data-actions button { min-height:44px; border:1px solid var(--bdr2); border-radius:7px; background:var(--sur2); color:var(--tx2); cursor:pointer; }
-.report-anchor-section,.report-day-list,#report-payroll,#report-deduction,#daily-close-host,#report-slips,#report-range-overview,#report-range-days { scroll-margin-top:calc((var(--app-header-height) + 18px) / var(--uiz-report, 1)); }
+.report-anchor-section,.report-day-list,#report-payroll,#report-deduction,#daily-close-host,#report-slips,#report-range-overview,#report-range-days { scroll-margin-top:8px; }
 .report-day-link { padding:6px 8px; border:0; border-radius:6px; background:transparent; color:var(--gold2); cursor:pointer; text-decoration:underline; font:inherit; }
 .report-day-link:focus-visible { outline:2px solid var(--gold); outline-offset:2px; }
 .report-list-scroll { overflow-x:auto; }
@@ -3218,7 +3223,8 @@ table#customer-table { border-collapse: collapse; width: 100%; min-width: 800px;
 .report-list-table td small { color:var(--tx3); }
 .report-list-mode { color:var(--tx3); font-size:11px; }
 .report-list-empty { padding:28px; color:var(--tx3); text-align:center; }
-@media(max-width:900px) { .report-layout { display:block; } .report-nav { width:auto; margin:0 0 14px; position:static; max-height:none; overflow:visible; } .report-nav-links { flex-direction:row; flex-wrap:wrap; } .report-nav a { flex:1 1 120px; justify-content:center; } #report-panel { overflow-x:hidden; } }
+@media(max-width:900px) { .report-layout { gap:12px; } .report-sidebar { flex-basis:160px; width:160px; } }
+@media print { body[data-active-tab="report"] { overflow:visible; } #report-panel { height:auto; overflow:visible; } .report-layout { display:block; height:auto; } .report-sidebar { display:none; } .report-content { height:auto; overflow:visible; } }
 
 /* 左サイドバー：営業日一覧 */
 #past-sidebar {
@@ -18328,6 +18334,9 @@ function _weekRange(ref) {
 function renderReportPanel() {
   const panel = document.getElementById('report-panel');
   if (!panel) return;
+  const viewKey = reportPeriod + ':' + _reportDayKey();
+  const previousContent = panel.querySelector('.report-content');
+  const scrollTop = panel.dataset.reportViewKey === viewKey ? (previousContent?.scrollTop || 0) : 0;
   let endBusinessDayHtml = '';
   if (reportPeriod === 'day' && _reportDaySource().dayKey === getLoadedDayKey()) {
     const frozen = _dailyCloseNormalizeFrozen(_dailyCloseCurrentRecord().frozen).closedAt > 0;
@@ -18336,8 +18345,10 @@ function renderReportPanel() {
       : '<div class="report-end-business-day"><button type="button" class="btn danger" onclick="reportEndBusinessDay()">🔚 営業終了（日締め）</button></div>';
   }
   const body = reportPeriod === 'day' ? _renderReportDay() : _renderReportRange(reportPeriod);
-  panel.innerHTML = endBusinessDayHtml + _reportPeriodSwitchHtml()
-    + `<div class="report-layout">${_reportNavHtml(reportPeriod, body.includes('id="daily-close-host"'))}<div class="report-content">${body}</div></div>`;
+  panel.innerHTML = `<div class="report-layout"><aside class="report-sidebar">${endBusinessDayHtml}${_reportPeriodSwitchHtml()}${_reportNavHtml(reportPeriod, body.includes('id="daily-close-host"'))}</aside><div class="report-content" tabindex="0" role="region" aria-label="集計内容">${body}</div></div>`;
+  panel.dataset.reportViewKey = viewKey;
+  const content = panel.querySelector('.report-content');
+  if (content) content.scrollTop = scrollTop;
 }
 
 /* 週報・月報：営業日ごとの集計テーブル */
@@ -19823,7 +19834,13 @@ function _reportNavActivate(link, event) {
   link?.setAttribute('aria-current', 'true');
   if (target) {
     if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1');
-    target.scrollIntoView({ behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+    const content = document.querySelector('#report-panel .report-content');
+    if (content) {
+      const rect = content.getBoundingClientRect();
+      const scale = rect.height / content.offsetHeight || 1;
+      const top = content.scrollTop + (target.getBoundingClientRect().top - rect.top) / scale - 8;
+      content.scrollTo({ top:Math.max(0, top), behavior:window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+    }
     target.focus?.({ preventScroll: true });
   }
 }
