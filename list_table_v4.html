@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.32">
+<meta name="app-version" content="1.1.33">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -15442,20 +15442,41 @@ function posDeleteLastExtByMin(gid, min) {
   posOrderEditDeleteExt(idx, { skipConfirm: true });
 }
 
-function posDeleteSlipOrder(gid, orderId) {
-  const row = state.rows.find(r => String(r.gid) === String(gid) && r.isFirst);
-  if (!row) return;
+// 注文と客行の両方を同じundo単位で取り消す。料金行だけ消すとcalcBillが指名料を再生成する。
+function _posDeleteOrder(row, order) {
   const orders = posOrders(row);
-  const index = orders.findIndex(o => String(o.id) === String(orderId));
-  if (index < 0) return;
+  const index = orders.indexOf(order);
+  if (index < 0) return false;
   const removed = orders[index];
   pushUndo();
   orders.splice(index, 1);
+  const type = _POS_DESIG_CAT_TYPE[removed.category];
+  const castOf = o => { const name = String(o.name || ''); const i = name.indexOf(':'); return i < 0 ? '' : name.slice(i + 1); };
+  const cast = castOf(removed);
+  const groupRows = state.rows.filter(r => r.gid === row.gid);
+  const stillOrdered = groupRows.some(r => (r.posOrders || []).some(o => o.category === removed.category && castOf(o) === cast));
+  if (type && cast && !stillOrdered) {
+    groupRows.forEach(r => {
+      if (r.mainCast === cast && r.mainType === type) r.mainType = 'free';
+      if (Array.isArray(r.subCasts)) r.subCasts = r.subCasts.filter(sc => !(sc && sc.cast === cast && sc.type === type));
+    });
+    const first = groupRows.find(r => r.isFirst) || row;
+    if (!Array.isArray(first.designationRetargets)) first.designationRetargets = [];
+    if (!first.designationRetargets.some(d => d.cast === cast && d.type === type)) first.designationRetargets.push({ cast, type });
+  }
   saveState();
   renderTable();
   renderPOSPanel();
   updateStoreStatusBadge();
-  showToast((removed.name || '明細') + ' を削除しました');
+  showToast((removed.name || '明細') + ' を削除しました（「元に戻す」で復旧できます）');
+  return true;
+}
+
+function posDeleteSlipOrder(gid, orderId) {
+  const row = state.rows.find(r => String(r.gid) === String(gid) && r.isFirst);
+  if (!row) return;
+  const order = posOrders(row).find(o => String(o.id) === String(orderId));
+  if (order) _posDeleteOrder(row, order);
 }
 
 function posOpenDesignatedDrinkCastPick(name, amount, category) {
@@ -21432,10 +21453,13 @@ async function posOrderEditDelete(idx) {
   const row = posSelectedRow(); if (!row) return;
   const orders = posOrders(row);
   if (!orders[idx]) return;
-  if (!(await appConfirm(`「${orders[idx].name}」を削除しますか？`, { danger: true }))) return;
-  pushUndo();
-  orders.splice(idx, 1);
-  saveState(); renderPOSPanel(); _posOeRerender();
+  const order = orders[idx];
+  const note = _POS_DESIG_CAT_TYPE[order.category] ? '\n同じ指名の明細がほかになければ、客行の指名も取り消します。' : '';
+  if (!(await appConfirm(`「${order.name}」を削除しますか？${note}`, { danger: true }))) return;
+  // 確認中に伝票/明細が変わった場合、別の注文をindexで消さない。
+  if (String(posBetaState.selectedGid) !== String(row.gid) || posSelectedRow() !== row
+    || !state.rows.includes(row) || !posOrders(row).includes(order)) return;
+  if (_posDeleteOrder(row, order)) _posOeRerender();
 }
 
 /* 退席の取り消し（誤操作の訂正）。先頭行 departedCasts から指定indexを除く＝そのキャストの延長指名料・席数が戻る。 */
@@ -21526,7 +21550,6 @@ function posOrderEditSeatSet() {
   posBetaState.viewMode = 'normal';
   renderPOSPanel();
 }
-
 /* ================================================================
    POS レシート印刷（独立ウィンドウ）
 ================================================================ */
@@ -22190,13 +22213,13 @@ function _posCastDesignatedInList(row, cast) {
    - 書き込み先の客行: そのキャストが今座っている行。分からなければ組の先頭行
    - その行に指名キャストが未設定なら mainCast/mainType、埋まっていれば subCasts へ
    - 既に同じキャストが記録済みなら種別だけ更新する（重複行を作らない） */
-async function _posApplyDesignationToList(row, cast, desigType) {
+async function _posApplyDesignationToList(row, cast, desigType, selectedTarget) {
   const groupRows = state.rows.filter(r => r.gid === row.gid)
     .sort((a, b) => (a.gidx || 0) - (b.gidx || 0));
   if (!groupRows.length) return;
   const seated = groupRows.find(r => _posCurrentFloorCasts(r).includes(cast));
   const fallback = groupRows.find(r => r.isFirst) || groupRows[0];
-  let target = seated || (groupRows.length === 1 ? groupRows[0] : null);
+  let target = selectedTarget || seated || (groupRows.length === 1 ? groupRows[0] : null);
   let usedFallback = false;
   if (!target) {
     target = await _posPickDesignationTarget(groupRows, cast, desigType);
@@ -22224,6 +22247,21 @@ async function posAddItem(name, amount, category, spShares) {
   let row = posSelectedRow();
   if (!row) { posCreateSlip(1); row = posSelectedRow(); }
   if (!row) return;
+  const desigType = _POS_DESIG_CAT_TYPE[category];
+  const desigCast = String(name).includes(':') ? String(name).slice(String(name).indexOf(':') + 1) : String(name);
+  const first = state.rows.find(r => r.gid === row.gid && r.isFirst) || row;
+  const retarget = desigType && (first.designationRetargets || []).find(d => d.cast === desigCast && d.type === desigType);
+  let selectedTarget;
+  if (retarget) {
+    const groupRows = state.rows.filter(r => r.gid === row.gid).sort((a,b) => (a.gidx || 0) - (b.gidx || 0));
+    selectedTarget = groupRows.length === 1 ? groupRows[0] : await _posPickDesignationTarget(groupRows, desigCast, desigType);
+    if (!selectedTarget) return;
+    if (String(posBetaState.selectedGid) !== String(row.gid) || posSelectedRow() !== row
+      || !state.rows.includes(row) || !state.rows.includes(selectedTarget)
+      || row.settled || selectedTarget.settled || selectedTarget.gid !== row.gid
+      || !(first.designationRetargets || []).includes(retarget)) return;
+    pushUndo();
+  }
   const inputAmt = Number(amount) || 0;
   const orders = posOrders(row);
   const label = String(name).indexOf(':') >= 0 ? String(name).slice(0, String(name).indexOf(':')) : String(name);
@@ -22284,10 +22322,13 @@ async function posAddItem(name, amount, category, spShares) {
   }
   // 指名オーダーからリスト表の指名（キャスト・種別）を自動反映する。
   // 以前は1名の組だけが対象で、多人数卓では指名が一切記録されなかった（2026-07-20 修正）。
-  const desigType = _POS_DESIG_CAT_TYPE[category];
   if (desigType) {
     const cast = name.includes(':') ? name.slice(name.indexOf(':') + 1) : name;
-    if (cast) await _posApplyDesignationToList(row, cast, desigType);
+    if (cast) await _posApplyDesignationToList(row, cast, desigType, selectedTarget);
+    if (retarget) {
+      first.designationRetargets = first.designationRetargets.filter(d => d !== retarget);
+      if (!first.designationRetargets.length) delete first.designationRetargets;
+    }
     renderTable();
   }
   // 延指（延長指名料）オーダー: まだ指名として載っていないキャストなら「延長指名」としてリスト表へ反映する。
