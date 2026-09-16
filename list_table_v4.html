@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.34">
+<meta name="app-version" content="1.1.35">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -10963,6 +10963,11 @@ function rowCard(r) {
   const extra = (r.cardEntries||[]).reduce((s,e)=>s+(parseInt(e.amount)||0),0);
   return (parseInt(r.amountCard)||0) + extra;
 }
+/* カードを切った回数（1枚目=amountCard、2枚目以降=cardEntries）。カード端末の伝票枚数と照合する用 */
+function rowCardCount(r) {
+  const extra = (r.cardEntries||[]).reduce((s,e)=>s+((parseInt(e.amount)||0) > 0 ? 1 : 0),0);
+  return ((parseInt(r.amountCard)||0) > 0 ? 1 : 0) + extra;
+}
 /* ================================================================
    BILL AUTO-CALCULATION
 ================================================================ */
@@ -12269,13 +12274,7 @@ function _isPrintCardMethod(row) {
   return row.amountMethod === 'card' || row.amountMethod === 'both' || row.amountMethod === 'urikake';
 }
 function _countPrintCardSlips(row) {
-  if (!_isPrintCardMethod(row)) return 0;
-  const baseCard = parseInt(row.amountCard) || 0;
-  const extraCount = (row.cardEntries || []).reduce(
-    (s, e) => s + ((parseInt(e.amount) || 0) > 0 ? 1 : 0),
-    0
-  );
-  return (baseCard > 0 ? 1 : 0) + extraCount;
+  return _isPrintCardMethod(row) ? rowCardCount(row) : 0;
 }
 
 function doPrint() {
@@ -17496,18 +17495,11 @@ function posExecCheckout(method, urikakePayment, cardAmounts) {
   pushUndo();
   row.amountMethod = bd.amountMethod;
   row.amountCash = bd.amountCash ? String(bd.amountCash) : '';
-  if (method === 'card') {
-    const adv = _posAdvanceTotals(row);
-    const firstCard = cardSplit ? cardSplit[0] : (bd.amountCard - adv.card);
-    row.amountCard = (adv.card + firstCard) ? String(adv.card + firstCard) : '';
-    row.cardEntries = cardSplit ? cardSplit.slice(1).map((amount, i) => ({
-      label: 'カード' + (i + 2),
-      amount: String(amount),
-    })) : [];
-  } else {
-    row.amountCard = bd.amountCard ? String(bd.amountCard) : '';
-    row.cardEntries = [];
-  }
+  // カードは切った回数ぶん別々に記録する（前金カード→今回のカード）。合算すると枚数が1になる
+  const advCards = _posAdvanceCardCharges(row);
+  const todayCard = bd.amountCard - advCards.reduce((s, v) => s + v, 0);
+  const todayCards = method === 'card' ? (cardSplit || [todayCard]) : (todayCard > 0 ? [todayCard] : []);
+  _posAssignCardCharges(row, [...advCards, ...todayCards]);
   row.amountUrikake = bd.amountUrikake ? String(bd.amountUrikake) : '';
   row.settled = true;
   // グループ全員を精算済みに
@@ -17874,8 +17866,7 @@ function posSplitApply() {
   pushUndo();
   row.amountMethod = (totalCash > 0 && totalCard > 0) ? 'both' : (totalCard > 0 ? 'card' : 'cash');
   row.amountCash = totalCash ? String(totalCash) : '';
-  row.amountCard = totalCard ? String(totalCard) : '';
-  row.cardEntries = [];
+  _posAssignCardCharges(row, [..._posAdvanceCardCharges(row), card]);
   row.amountUrikake = '';
   // 「元に戻す」経由の再精算（分割）でも旧chargeを台帳に残さない（posExecCheckoutと同じ冪等化）
   urikakeRevokeByRowId(row.id);
@@ -17908,6 +17899,21 @@ function _posAdvanceTotals(row) {
     else cash += amt;
   });
   return { cash, card };
+}
+
+/* 前金のカード受領を1枚ずつ（元本+手数料＝実切り額）返す。 */
+function _posAdvanceCardCharges(row) {
+  return (row && Array.isArray(row.advances) ? row.advances : [])
+    .filter(a => a.method === 'card')
+    .map(a => (Number(a.amount) || 0) + (Number(a.fee) || 0))
+    .filter(v => v > 0);
+}
+
+/* カードの各切り額を 1枚目=amountCard・2枚目以降=cardEntries として記録する。 */
+function _posAssignCardCharges(row, charges) {
+  const list = charges.map(v => Number(v) || 0).filter(v => v > 0);
+  row.amountCard = list.length ? String(list[0]) : '';
+  row.cardEntries = list.slice(1).map((amount, i) => ({ label: 'カード' + (i + 2), amount: String(amount) }));
 }
 
 /* 精算の内訳を確定（単一窓口）。前金（現金/カード受領）＋今回の精算分を合算し、
@@ -18880,7 +18886,7 @@ function computeReportAgg(settled) {
     const method = r.amountMethod || 'cash';
     const cash = rowCash(r), card = rowCard(r);
     if ((method==='cash'||method==='both'||method==='urikake') && cash) { cashCount++; cashSum += cash; }
-    if ((method==='card'||method==='both'||method==='urikake') && card) { cardCount++; cardSum += card; }
+    if ((method==='card'||method==='both'||method==='urikake') && card) { cardCount += rowCardCount(r); cardSum += card; }
     if (method==='urikake') { urikakeCount++; urikakeSum += parseInt(r.amountUrikake)||0; }
     guests += r.gcount || 1;
     const src = r.source || '(未設定)';
