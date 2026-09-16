@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.33">
+<meta name="app-version" content="1.1.34">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -2579,19 +2579,20 @@ tr.grp-drag-over td { box-shadow: inset 0 2px 0 var(--gold) !important; }
 #summary-bar .sum-brand { margin-right: auto; }
 #summary-pos-actions { display: none; }
 #summary-bar.has-pos-actions {
-  gap: 10px;
-  padding-inline: 10px;
+  padding-inline: 10px 20px;
   justify-content: flex-start;
   flex-wrap: nowrap;
   overflow-x: auto;
   overflow-y: hidden;
 }
 #summary-bar.has-pos-actions .sum-brand { display: inline-flex; flex: 0 0 auto; margin-right: 0; }
+/* 統計は他タブと同じ右端に揃える（ボタン群の後ろで余白を吸収） */
 #summary-bar.has-pos-actions #summary-pos-actions {
   display: flex;
   flex: 0 0 auto;
   width: max-content;
   min-width: max-content;
+  margin-right: auto;
   gap: 4px;
   align-items: center;
   flex-wrap: nowrap;
@@ -2626,7 +2627,6 @@ tr.grp-drag-over td { box-shadow: inset 0 2px 0 var(--gold) !important; }
 }
 #summary-bar.has-pos-actions .sum-item,
 #summary-bar.has-pos-actions .sum-divider { flex: 0 0 auto; }
-#summary-bar.has-pos-actions .sum-sales-breakdown { display: none; }
 .sum-divider { width: 1px; height: 20px; background: var(--bdr); }
 .sum-item  { display: flex; gap: 6px; align-items: baseline; }
 .sum-label { color: var(--tx3); font-size: 11px; font-weight: 400; letter-spacing: 0.05em; }
@@ -5069,7 +5069,7 @@ html[data-theme="night"] .pos-drink-pick {
 html[data-theme="night"] #summary-bar.has-pos-actions {
   height: 56px;
   min-height: 56px;
-  padding: 0 10px;
+  padding: 0 20px 0 10px;
 }
 html[data-theme="night"] #summary-bar.has-pos-actions #summary-pos-actions .pos-bottom-btn {
   flex: 0 0 auto;
@@ -6168,7 +6168,7 @@ html[data-theme="night"] #summary-bar.has-pos-actions #summary-pos-actions .pos-
   html[data-theme="champagne"] #summary-bar.has-pos-actions {
     height: 56px;
     min-height: 56px;
-    padding: 0 10px;
+    padding: 0 20px 0 10px;
     justify-content: flex-start;
     overflow-x: auto;
     overflow-y: hidden;
@@ -8605,6 +8605,138 @@ function appPrompt(message, defaultValue = '') {
   return _appDialogEnqueue('prompt', message, {}, defaultValue);
 }
 /* ================================================================
+   EMERGENCY RESET — 画面が固まって見えた時に現場が自力で戻す導線
+   1回目: 開いている覆い・ダイアログ待ちをすべて解いて再描画（データは触らない）
+   2回目（10秒以内）: 保存してから再読み込み
+   発火: ヘッダー時計を3秒長押し（マウス/タッチ）／Escキーを3秒押し続ける
+   どちらも捕捉フェーズで拾うため、固まった覆いの下にある時計でも効く。
+   ※JS自体が停止するハードフリーズはページ内から復帰できない（F5で再読み込み）
+================================================================ */
+const EMERGENCY_HOLD_MS = 3000;
+const EMERGENCY_RELOAD_WINDOW_MS = 10000;
+let _emergencyLastResetAt = 0;
+let _emergencyHoldTimer = null;
+let _emergencyEscDownAt = 0;
+let _emergencyHintAt = 0;
+
+/* body直下で画面をほぼ覆う fixed 要素＝モーダル・ダイアログの覆い。常設要素は除外 */
+function _emergencyOverlays() {
+  const keep = new Set(['usb-boot-gate', 'auth-gate-overlay', 'generic-toast', 'summary-bar', 'sunflower-watermark']);
+  const out = [];
+  Array.from(document.body.children).forEach(el => {
+    if (keep.has(el.id) || el.tagName === 'SCRIPT' || el.tagName === 'STYLE') return;
+    const cs = getComputedStyle(el);
+    if (cs.position !== 'fixed' || cs.display === 'none' || cs.pointerEvents === 'none') return;
+    const r = el.getBoundingClientRect();
+    if (r.width >= window.innerWidth * 0.8 && r.height >= window.innerHeight * 0.8) out.push(el);
+  });
+  return out;
+}
+
+/* 待ち状態のアプリ内ダイアログをキャンセル値で解決し、呼び出し元の await を先へ進める */
+function _emergencyDrainDialogs() {
+  const active = _appDialogActive;
+  _appDialogActive = null;
+  document.removeEventListener('keydown', _appDialogKeydown);
+  let drained = 0;
+  if (active) {
+    try { active.overlay.remove(); } catch (_) {}
+    active.resolve(_appDialogCancelValue(active.type));
+    drained++;
+  }
+  while (_appDialogQueue.length) {
+    const d = _appDialogQueue.shift();
+    d.resolve(_appDialogCancelValue(d.type));
+    drained++;
+  }
+  return drained;
+}
+
+function emergencyResetScreen() {
+  const now = Date.now();
+  if (now - _emergencyLastResetAt < EMERGENCY_RELOAD_WINDOW_MS) {
+    emergencyReload();
+    return 'reload';
+  }
+  _emergencyLastResetAt = now;
+  _emergencyOverlays().forEach(el => el.remove());
+  _emergencyDrainDialogs();
+  ['posUrikakeClose', 'posCardSplitClose', 'posSplitClose', 'posAdvanceClose'].forEach(name => {
+    const fn = globalThis[name];
+    if (typeof fn === 'function') { try { fn(); } catch (_) {} }
+  });
+  document.body.style.overflow = '';
+  [renderTable, renderPOSPanel, renderReportPanel, updateSummary].forEach(fn => {
+    try { fn(); } catch (e) { console.error('[emergency] 再描画に失敗:', e); }
+  });
+  showToast('画面を復帰しました。まだ動かない時は、もう一度同じ操作で再読み込みします', 5000);
+  return 'reset';
+}
+
+function emergencyReload() {
+  try { saveState(); } catch (_) {}
+  _appExitIntent = true;
+  showToast('再読み込みします…', 3000);
+  setTimeout(() => location.reload(), 100);
+}
+
+function _emergencyHint() {
+  const now = Date.now();
+  if (now - _emergencyHintAt < 30000) return;
+  _emergencyHintAt = now;
+  showToast('エラーが発生しました。画面が動かない時は、時計を3秒長押し（またはEscを3秒長押し）で復帰できます', 6000);
+}
+
+function _emergencyPointInClock(x, y) {
+  const el = document.getElementById('clock');
+  if (!el) return false;
+  const r = el.getBoundingClientRect();
+  return r.width > 0 && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+}
+
+function _emergencyHoldBegin() {
+  if (_emergencyHoldTimer) return;
+  _emergencyHoldTimer = setTimeout(() => {
+    _emergencyHoldTimer = null;
+    emergencyResetScreen();
+  }, EMERGENCY_HOLD_MS);
+}
+
+function _emergencyHoldCancel() {
+  if (!_emergencyHoldTimer) return;
+  clearTimeout(_emergencyHoldTimer);
+  _emergencyHoldTimer = null;
+}
+
+document.addEventListener('pointerdown', e => {
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+  if (_emergencyPointInClock(e.clientX, e.clientY)) _emergencyHoldBegin();
+}, true);
+document.addEventListener('pointerup', _emergencyHoldCancel, true);
+document.addEventListener('pointercancel', _emergencyHoldCancel, true);
+document.addEventListener('pointermove', e => {
+  if (_emergencyHoldTimer && !_emergencyPointInClock(e.clientX, e.clientY)) _emergencyHoldCancel();
+}, true);
+document.addEventListener('contextmenu', e => {
+  if (_emergencyPointInClock(e.clientX, e.clientY)) e.preventDefault();
+}, true);
+
+// 押し続け中のリピートは既存のEsc処理（終了確認・ダイアログ取消）へ流さない
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  if (!e.repeat) { _emergencyEscDownAt = Date.now(); return; }
+  e.stopImmediatePropagation();
+  e.preventDefault();
+  if (_emergencyEscDownAt && Date.now() - _emergencyEscDownAt >= EMERGENCY_HOLD_MS) {
+    _emergencyEscDownAt = 0;
+    emergencyResetScreen();
+  }
+}, true);
+document.addEventListener('keyup', e => { if (e.key === 'Escape') _emergencyEscDownAt = 0; }, true);
+
+window.addEventListener('error', _emergencyHint);
+window.addEventListener('unhandledrejection', _emergencyHint);
+/* ================================================================
    SETTINGS (cfg)
 ================================================================ */
 const SHIMEI_EXT_DEFAULTS = {
@@ -8707,6 +8839,7 @@ const CFG_DEFAULTS = {
   clockOutTo:    1800,        // 退勤時刻の選択肢・終了（分）例:1800=30:00=翌6:00
   clockOutStep:  30,          // 退勤時刻の刻み（分）
   extOptions:   [20, 40, 60],// 延長の選択肢（分）
+  extPosHidden: [],           // 延長の選択肢のうちPOSの延長ボタンに出さない分数（料金表には残る）
   sources:      ['フロント','不明','新規','TikTok','紹介','案内所'],
   conditions:   ['NF','40込み','50込み','60込み','70込み'],
   staffNames:   [],          // 社員名簿（日次締め・社員日払いの名前補完に使用）
@@ -8762,6 +8895,7 @@ const CFG_DEFAULTS = {
   monitorShopId: '',        // オーナーダッシュボード用の不変店舗ID（初回送信時に生成）
   posMenu:         {},      // POSカスタムメニュー { shot:[{name,amount},...], bottle:[...], ... }
   posCatLayout:    [],      // POSカテゴリの並び・表示 [{key,visible}]。空=既定順・全表示
+  posCatLabels:    {},      // 既定POSカテゴリの表示名の上書き { set:'セット料金', ... }。未設定=既定名
   posCustomCats:   [        // 店舗独自のPOSカテゴリ（keyはラベル変更後も不変）
     { key: 'cust_1', label: 'その他' },
   ],
@@ -13252,16 +13386,19 @@ function resolvePosCatLayout(settings) {
   const src = settings || {};
   const all = [];
   const known = new Set();
+  // 既定カテゴリの表示名は店舗で上書きできる。defaultLabel は「既定に戻す」用に元の名前を保持する
+  const labelOverrides = (src.posCatLabels && typeof src.posCatLabels === 'object') ? src.posCatLabels : {};
   posBetaCategories(src).forEach(([key, label]) => {
     if (known.has(key)) return;
     known.add(key);
-    all.push({ key, label });
+    const override = String(labelOverrides[key] ?? '').trim();
+    all.push({ key, label: override || label, defaultLabel: label });
   });
   (Array.isArray(src.posCustomCats) ? src.posCustomCats : []).forEach(cat => {
     const key = String(cat?.key || '');
     if (!key || known.has(key)) return;
     known.add(key);
-    all.push({ key, label: String(cat?.label || key), drinkPick: !!cat?.drinkPick });
+    all.push({ key, label: String(cat?.label || key), defaultLabel: '', drinkPick: !!cat?.drinkPick });
   });
   const byKey = new Map(all.map(cat => [cat.key, cat]));
   const used = new Set();
@@ -13270,12 +13407,12 @@ function resolvePosCatLayout(settings) {
     const cat = byKey.get(entry?.key);
     if (!cat || used.has(cat.key)) return;
     used.add(cat.key);
-    resolved.push({ key: cat.key, label: cat.label, visible: entry.visible !== false, drinkPick: !!cat.drinkPick });
+    resolved.push({ key: cat.key, label: cat.label, defaultLabel: cat.defaultLabel, visible: entry.visible !== false, drinkPick: !!cat.drinkPick });
   });
   all.forEach(cat => {
     if (used.has(cat.key)) return;
     used.add(cat.key);
-    resolved.push({ key: cat.key, label: cat.label, visible: true, drinkPick: !!cat.drinkPick });
+    resolved.push({ key: cat.key, label: cat.label, defaultLabel: cat.defaultLabel, visible: true, drinkPick: !!cat.drinkPick });
   });
   return resolved;
 }
@@ -15542,14 +15679,20 @@ function posCategoryItems(category, row) {
     return casts.map(name => ({ name:drink.label + ':' + name, amount, category:drink.key }))
       .concat([{ name:drink.label + ':ボーイ', amount, category:drink.key }]);
   }
-  const extPrice = (min, fallback) => {
-    const opts = cfg.extOptions || [];
-    const idx = opts.findIndex(v => Number(v) === Number(min));
-    return idx >= 0 ? Number((cfg.extPrices || [])[idx] || fallback) : fallback;
-  };
+  // 延長ボタンは設定「延長料金」の行と一致させる（行を消せばボタンも消える）
+  const extDefaultPrice = { 20: 4000, 40: 7000, 60: 11000 };
+  const extOptions = (Array.isArray(cfg.extOptions) && cfg.extOptions.length ? cfg.extOptions : [20, 40, 60])
+    .map(v => Number(v)).filter(v => Number.isFinite(v) && v > 0);
+  const extPosHidden = (cfg.extPosHidden || []).map(Number);
+  const extItems = extOptions.map((min, idx) => ({
+    name: '延長' + min + '分',
+    amount: Number((cfg.extPrices || [])[idx] || extDefaultPrice[min] || 0),
+    category,
+    min,
+  })).filter(item => !extPosHidden.includes(item.min)).map(({ min, ...item }) => item);
   const map = {
     set: [{ name:'SET', amount: Number(cfg.setPrice || 7000), category }],
-    extension: [{ name:'延長20分', amount: extPrice(20, 4000), category }, { name:'延長40分', amount: extPrice(40, 7000), category }, { name:'延長60分', amount: extPrice(60, 11000), category }],
+    extension: extItems,
     nominate: castItems('指', Number(cfg.nominateFee || 2000)),
     dohan: castItems('同', Number(cfg.dohanFee || 15000)),
     // 空場内: 場内カテゴリ先頭固定。0円・キャスト無しで、押した本数ぶんを以降の延長料金へ繰延上乗せする
@@ -15680,6 +15823,9 @@ function extOptAddRow() {
       </div>
     </td>
     <td style="padding:5px 4px;text-align:center">
+      <input type="checkbox" id="cfg-extOpt-${idx}-pos" checked title="POSの延長ボタンに表示する">
+    </td>
+    <td style="padding:5px 4px;text-align:center">
       <button type="button" onclick="extOptDelRow(this)" style="background:none;border:none;cursor:pointer;color:var(--tx3);font-size:15px;padding:2px 6px;line-height:1" title="削除">✕</button>
     </td>`;
   tbody.appendChild(tr);
@@ -15786,13 +15932,14 @@ function _posMenuInitDndAll() {
 
 function _posCatRowHTML(cat) {
   const custom = String(cat.key).startsWith('cust_');
+  const defaultLabel = custom ? '' : String(cat.defaultLabel || cat.label);
   const label = custom
     ? `<input type="text" class="settings-input pos-cat-label-input" value="${escAttr(cat.label)}" placeholder="カテゴリ名" oninput="posCatSyncLabel('${cat.key}',this.value)">`
-    : `<span class="pos-cat-fixed-label">${escHtml(cat.label)}</span>`;
+    : `<input type="text" class="settings-input pos-cat-label-input" value="${escAttr(cat.label)}" placeholder="${escAttr(defaultLabel)}" title="空欄にすると既定名「${escAttr(defaultLabel)}」に戻ります" oninput="_settingsMarkDirty()">`;
   const drinkPick = custom
     ? `<input type="checkbox" class="pos-cat-drinkpick" ${cat.drinkPick ? 'checked' : ''} aria-label="${escAttr(cat.label)}のキャストバック対象を選択する">`
     : '';
-  return `<tr draggable="true" class="pos-cat-manage-row" data-key="${escAttr(cat.key)}" data-custom="${custom ? '1' : '0'}">
+  return `<tr draggable="true" class="pos-cat-manage-row" data-key="${escAttr(cat.key)}" data-custom="${custom ? '1' : '0'}" data-default-label="${escAttr(defaultLabel)}">
     <td class="pos-me-drag" title="ドラッグして並び替え">⠿</td>
     <td>${label}</td>
     <td style="text-align:center"><input type="checkbox" class="pos-cat-visible" ${cat.visible ? 'checked' : ''} aria-label="${escAttr(cat.label)}を表示"></td>
@@ -15888,6 +16035,20 @@ function _posMenuEditorHTML(key, label, items, open = false) {
 function posCatSyncLabel(key, label) {
   const heading = document.querySelector(`.pos-menu-editor[data-key="${key}"] .pos-menu-editor-label`);
   if (heading) heading.textContent = label.trim() || key;
+}
+
+/* 既定カテゴリの名前をすべて元に戻す（店舗独自カテゴリには既定名がないので触らない）。保存で確定 */
+function posCatResetLabels() {
+  let changed = 0;
+  document.querySelectorAll('#cfg-pos-cat-layout tr[data-key]').forEach(tr => {
+    if (tr.dataset.custom === '1') return;
+    const input = tr.querySelector('.pos-cat-label-input');
+    if (!input || input.value === tr.dataset.defaultLabel) return;
+    input.value = tr.dataset.defaultLabel || '';
+    changed++;
+  });
+  if (changed) _settingsMarkDirty();
+  showToast(changed ? `カテゴリ名を既定に戻しました（${changed}件）。「保存」で確定します` : 'カテゴリ名はすべて既定のままです');
 }
 
 async function posCatAdd() {
@@ -17133,11 +17294,15 @@ function _posInitSetEntry() {
     if (now >= fromMin && now < toMin) initPrice = cfg.earlySetPrice || initPrice;
   }
   // 既にSETが入っている場合は「追加の独立したセット」として1名分から始める
-  const hasSet = posOrders(row).some(o => o.category === 'set');
+  const orders = posOrders(row);
+  const hasSet = orders.some(o => o.category === 'set');
+  // 時間の初期値は最新SET明細そのものの長さ。伝票の滞在（延長込み）を拾うと延長が二重に見える
+  const latestSet = orders.find(o => o.category === 'set'
+    && Number.isFinite(o.startMin) && Number.isFinite(o.endMin) && o.endMin > o.startMin);
   _posSetEntry = {
     gid: row.gid,
     startMin: hasSet ? (row.startMin || now) : now,
-    duration: hasSet && row.endMin && row.startMin ? (row.endMin - row.startMin) : initDuration,
+    duration: latestSet ? (latestSet.endMin - latestSet.startMin) : initDuration,
     price: initPrice,
     people: hasSet ? 1 : (row.gcount || 1),
   };
@@ -17160,10 +17325,7 @@ function posSetEntryApply(taxIncluded) {
   if (!row) return;
   pushUndo();
   const grp = state.rows.filter(r => r.gid === _posSetEntry.gid);
-  grp.forEach(r => {
-    r.startMin = _posSetEntry.startMin;
-    r.endMin = _posSetEntry.startMin + _posSetEntry.duration;
-  });
+  grp.forEach(r => { r.startMin = _posSetEntry.startMin; });
   const isEdit = (typeof _posSetEntry.editIdx === 'number');
   const orders = posOrders(row);
   if (isEdit && orders[_posSetEntry.editIdx] && orders[_posSetEntry.editIdx].category === 'set') {
@@ -17187,6 +17349,8 @@ function posSetEntryApply(taxIncluded) {
       createdAt: Date.now()
     });
   }
+  // 終了時刻は明細更新後に算出する（延長分を落とさない）
+  grp.forEach(r => { r.endMin = calcEndMin(r, state.rows); });
   saveState();
   renderTable();
   showToast(isEdit ? 'セットを更新しました' : 'セットを追加しました');
@@ -17230,7 +17394,9 @@ function _posSetEntryHTML() {
         + val(minToHHMM(e.startMin))
         + btn('&gt;', "'startMin',1") + btn('&gt;&gt;', "'startMin',5"))
     + spin('時間',
-        btn('−', "'duration',-5") + val(e.duration + '分') + btn('＋', "'duration',5"))
+        btn('&lt;&lt;', "'duration',-5") + btn('&lt;', "'duration',-1")
+        + val(e.duration + '分')
+        + btn('&gt;', "'duration',1") + btn('&gt;&gt;', "'duration',5"))
     + spin('料金',
         btn('−', "'price',-500") + val('¥' + e.price.toLocaleString()) + btn('＋', "'price',500"))
     + spin('人数',
@@ -24493,12 +24659,13 @@ function renderSettingsPanel() {
             <div class="settings-label" style="font-weight:700;margin-bottom:0">延長料金</div>
             <button type="button" onclick="extOptAddRow()" style="background:var(--sur4);border:1px solid var(--bdr);border-radius:6px;color:var(--tx2);cursor:pointer;font-size:12px;padding:4px 10px">＋ オプションを追加</button>
           </div>
-          <div class="settings-sub">延長の時間と料金（小計）。行の追加・削除ができます</div>
+          <div class="settings-sub">延長の時間と料金（小計）。行の追加・削除ができます。「POSボタン」を外すと料金表には残したままPOSの延長ボタンからだけ消えます</div>
           <table style="width:100%;border-collapse:collapse">
             <thead>
               <tr style="border-bottom:1px solid var(--bdr)">
                 <th style="font-size:11px;color:var(--tx2);font-weight:normal;text-align:left;padding:4px 8px 6px">延長時間</th>
                 <th style="font-size:11px;color:var(--tx2);font-weight:normal;text-align:left;padding:4px 8px 6px">料金（小計）</th>
+                <th style="font-size:11px;color:var(--tx2);font-weight:normal;text-align:center;padding:4px 8px 6px;white-space:nowrap">POSボタン</th>
                 <th style="width:32px"></th>
               </tr>
             </thead>
@@ -24514,6 +24681,9 @@ function renderSettingsPanel() {
                     <div style="display:flex;align-items:center;gap:4px">
                       <input type="number" class="settings-input" id="cfg-extOpt-${i}-price" value="${(cfg.extPrices||[])[i] ?? ''}" min="0" step="500" style="width:80px"> 円
                     </div>
+                  </td>
+                  <td style="padding:5px 4px;text-align:center">
+                    <input type="checkbox" id="cfg-extOpt-${i}-pos" ${(cfg.extPosHidden || []).map(Number).includes(Number(min)) ? '' : 'checked'} title="POSの延長ボタンに表示する">
                   </td>
                   <td style="padding:5px 4px;text-align:center">
                     <button type="button" onclick="extOptDelRow(this)" style="background:none;border:none;cursor:pointer;color:var(--tx3);font-size:15px;padding:2px 6px;line-height:1" title="削除">✕</button>
@@ -24703,7 +24873,10 @@ function renderSettingsPanel() {
       <div class="settings-section-body">
         <div id="pos-menu-body">
           <div class="settings-group-head first">🗂 カテゴリ管理</div>
-          <div class="settings-sub" style="margin-bottom:8px">表示するカテゴリと並び順を店舗に合わせて変更できます。カテゴリの追加は下の「メニュー編集」の末尾から行えます。</div>
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:8px">
+            <div class="settings-sub" style="margin-bottom:0">表示するカテゴリ・並び順・名前を店舗に合わせて変更できます。名前は空欄にすると既定名に戻ります。カテゴリの追加は下の「メニュー編集」の末尾から行えます。</div>
+            <button type="button" onclick="posCatResetLabels()" style="flex-shrink:0;background:var(--sur4);border:1px solid var(--bdr);border-radius:6px;color:var(--tx2);cursor:pointer;font-size:12px;padding:4px 10px;white-space:nowrap">↺ 名前を既定に戻す</button>
+          </div>
           ${(() => {
             const cats = resolvePosCatLayout(cfg);
             return `<div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:8px">
@@ -25719,6 +25892,17 @@ async function applySettings() {
     });
     return prices.length ? prices : (cfg.extPrices || []);
   })();
+  const extPosHidden = (() => {
+    const rows = document.querySelectorAll('#ext-options-tbody tr');
+    if (!rows.length) return cfg.extPosHidden || [];
+    const hidden = [];
+    rows.forEach(tr => {
+      const v = parseInt(tr.querySelector('input[id$="-min"]')?.value);
+      const posInput = tr.querySelector('input[id$="-pos"]');
+      if (v > 0 && posInput && !posInput.checked) hidden.push(v);
+    });
+    return hidden;
+  })();
   const taxRate         = parseInt(get('cfg-taxRate')?.value)         ?? cfg.taxRate;
   const taxRound        = parseInt(get('cfg-taxRound')?.value)        || cfg.taxRound;
   const cardFeeRate     = parseInt(get('cfg-cardFeeRate')?.value)     ?? cfg.cardFeeRate;
@@ -25753,6 +25937,12 @@ async function applySettings() {
     return { key, label, drinkPick };
   });
   const posCatLayout = posCatRows.map(tr => ({ key: tr.dataset.key, visible: !!tr.querySelector('.pos-cat-visible')?.checked }));
+  // 既定カテゴリの名前: 既定名と同じ・空欄は保存しない（=既定名に戻る）
+  const posCatLabels = posCatRows.length ? {} : { ...(cfg.posCatLabels || {}) };
+  posCatRows.filter(tr => tr.dataset.custom !== '1').forEach(tr => {
+    const value = (tr.querySelector('.pos-cat-label-input')?.value || '').trim();
+    if (value && value !== (tr.dataset.defaultLabel || '')) posCatLabels[tr.dataset.key] = value;
+  });
   const currentCatKeys = new Set(posCatRows.map(tr => tr.dataset.key));
   const layoutKeys = new Set(posCatLayout.map(entry => entry.key));
   (cfg.posCatLayout || []).forEach(entry => {
@@ -25859,12 +26049,12 @@ async function applySettings() {
     nominateFee, dohanFee, dohanIncludesSet, jonaiFee, enchoshimeiFee,
     extFeeHonshimeiAmt, extFeeJounaiAmt, extFeeEnchoshimeiAmt,
     extFeeHonshimeiAmts, extFeeJounaiAmts, extFeeEnchoshimeiAmts,
-    extFeeOnHonshimei, extFeeOnJounai, extFeeOnEnchoshimei, extPrices,
+    extFeeOnHonshimei, extFeeOnJounai, extFeeOnEnchoshimei, extPrices, extPosHidden,
     extAutoShimeiFee, extBasePerSeat, extFeePerSeat, doubanAsHonshimeiExt, modoriHonshimeiAgg, modoriEnchoshimeiAgg,
     taxRate, taxRound, discountAfterTax, cardFeeRate, cardFeeRound, tillFloat,
     showCountdown, fullscreenOnBoot, monitorEnabled, monitorEndpoint, monitorWriteToken, monitorReadToken, monitorOpsToken,
     monitorShopId: cfg.monitorShopId || '',
-    posMenu, posCatLayout, posCustomCats, posPrices, shimeiExtItems, drinkItems, shotLabel,
+    posMenu, posCatLayout, posCatLabels, posCustomCats, posPrices, shimeiExtItems, drinkItems, shotLabel,
     specialRateRound: get('cfg-specialRateRound') ? (get('cfg-specialRateRound').value === '0' ? 0 : 100) : posSpecialRoundUnit(),
     receiptStoreName1, receiptStoreAddr, receiptStoreTel, receiptInvoiceNo, receiptNote,
     receiptLayout, extTrialLayout, ryoshuOpts, receiptScale, extTrialScale, ryoshuScale,
