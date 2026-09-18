@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.38">
+<meta name="app-version" content="1.1.39">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -1751,11 +1751,13 @@ select option { background: var(--sur2); }
 .pos-split-remain-val { font-size: 20px; font-weight: 900; font-family: var(--font); }
 .pos-split-keypad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 14px; }
 /* 前金登録モーダル: 本文だけスクロール・登録/キャンセルは常に見える footer。低い画面ではキーを詰める（2026-09-18） */
-.pos-advance-panel { max-height: 94vh; display: flex; flex-direction: column; }
-.pos-advance-panel > .pos-co-header { flex: 0 0 auto; }
-.pos-advance-panel > .pos-co-body { min-height: 0; overflow-y: auto; }
-.pos-advance-panel > .pos-co-footer { flex: 0 0 auto; padding: 0 20px 18px; }
-.pos-advance-panel > .pos-co-footer .pos-co-actions { margin-top: 12px; }
+.pos-advance-panel, .pos-checkout-panel { max-height: 94vh; display: flex; flex-direction: column; }
+.pos-advance-panel > .pos-co-header, .pos-checkout-panel > .pos-co-header { flex: 0 0 auto; }
+.pos-advance-panel > .pos-co-body, .pos-checkout-panel > .pos-co-body { min-height: 0; overflow-y: auto; }
+.pos-advance-panel > .pos-co-footer, .pos-checkout-panel > .pos-co-footer { flex: 0 0 auto; padding: 0 20px 18px; }
+.pos-advance-panel > .pos-co-footer .pos-co-actions, .pos-checkout-panel > .pos-co-footer .pos-co-actions { margin-top: 12px; }
+/* 精算パネルの前金一覧は自分でスクロールし、金額の要約行を押し出さない（2026-09-19） */
+.pos-checkout-panel .pos-co-advance-list { max-height: 24vh; overflow-y: auto; }
 @media (max-height: 820px) {
   .pos-advance-panel > .pos-co-body { padding: 12px 20px; }
   .pos-advance-panel .pos-split-key { height: 46px; font-size: 20px; }
@@ -17503,8 +17505,10 @@ function posOpenCheckoutPanel() {
   const table = row.tableNum ? posTableLabel(row.tableNum) : '-';
   const advRows = _posAdvanceListHTML(row);
 
+  // 前金が多いと縦に伸びて精算ボタンが画面外に出るため、本文だけスクロールさせ
+  // 精算ボタンは footer に固定して常に見せる（2026-09-19 ギャルサークル: 前金8件で精算できず）
   const html = '<div class="pos-co-overlay" id="pos-co-overlay" onclick="if(event.target===this)document.getElementById(\'pos-co-overlay\').remove()">'
-    + '<div class="pos-co-panel">'
+    + '<div class="pos-co-panel pos-checkout-panel">'
     + '<div class="pos-co-header">'
     + '<div class="pos-co-title">精算 — ' + escHtml(table) + ' / ' + (row.gcount||1) + '名</div>'
     + '<button class="pos-co-close" onclick="document.getElementById(\'pos-co-overlay\').remove()">×</button>'
@@ -17519,15 +17523,16 @@ function posOpenCheckoutPanel() {
     + '<div class="pos-co-amount-row"><span class="pos-co-amount-label" style="color:#fff">未収金</span><span class="pos-co-amount-val" style="color:#f5dfa0">¥' + due.toLocaleString() + '</span></div>'
     + '<div style="margin:12px 0;padding:10px;border:1px solid rgba(255,255,255,.15);border-radius:8px">'
     + '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px"><b>前金</b><button class="pos-co-btn both" style="min-height:34px;padding:8px 12px" onclick="posOpenAdvanceModal()">前金を登録</button></div>'
-    + (advRows || '<div style="color:var(--tx3);font-size:12px">登録済みの前金はありません</div>')
+    + '<div class="pos-co-advance-list">' + (advRows || '<div style="color:var(--tx3);font-size:12px">登録済みの前金はありません</div>') + '</div>'
     + '</div>'
-    + '<div class="pos-co-actions">'
+    + '</div>'
+    + '<div class="pos-co-footer"><div class="pos-co-actions">'
     + '<button class="pos-co-btn cash" onclick="posExecCheckout(\'cash\')">現金で精算<small>¥' + due.toLocaleString() + '</small></button>'
     + '<button class="pos-co-btn card" onclick="posOpenCardSplitModal()">カードで精算<small>¥' + dueCard.toLocaleString() + '</small></button>'
     + '<button class="pos-co-btn both" onclick="posOpenSplitModal()">分割で精算</button>'
     + '<button class="pos-co-btn urikake" onclick="posOpenUrikakeModal()">売掛で精算<small>¥' + due.toLocaleString() + '</small></button>'
-    + '</div>'
-    + '</div></div></div>';
+    + '</div></div>'
+    + '</div></div>';
   document.getElementById('pos-co-overlay')?.remove();
   document.body.insertAdjacentHTML('beforeend', html);
 }
