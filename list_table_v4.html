@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.37">
+<meta name="app-version" content="1.1.38">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -3140,6 +3140,7 @@ table#customer-table { border-collapse: collapse; width: 100%; min-width: 800px;
 .settings-row:last-child { border-bottom: none; }
 .settings-label {
   font-size: 12px; color: var(--tx2); min-width: 160px; flex-shrink: 0;
+  max-width: 62%; /* 説明文が長い行でも折り返し、右側のチェック・入力欄を画面外へ押し出さない（2026-09-19） */
 }
 .settings-sub {
   font-size: 10px; color: var(--tx3); margin-top: 2px;
@@ -24890,7 +24891,7 @@ function renderSettingsPanel() {
           <input type="number" class="settings-input" id="cfg-cardFeeRound" value="${cfg.cardFeeRound ?? 100}" min="1" step="10"> 円
         </div>
         <div class="settings-row">
-          <div class="settings-label">前金カード分割の手数料充当<div class="settings-sub">ON: 前金のカードを分けて切ると切り上げが複数回入り手数料が一括より多くなる。その超過分をお会計に充当し、伝票に「分割手数料の充当」を出す／OFF: 充当せず、前金は入力した元本の合計だけを引く（お客様は超過分の手数料をそのまま負担）</div></div>
+          <div class="settings-label">前金カード分割の手数料充当<div class="settings-sub">ON: 分けて切った分の切り上げ超過をお会計に充当し「分割手数料の充当」を印字／OFF: 充当せず、前金は元本の合計だけを引く</div></div>
           <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px"><input type="checkbox" id="cfg-advanceFeeCredit" ${cfg.advanceFeeCredit !== false ? 'checked' : ''}> 切り上げの超過分をお会計に充当する</label>
         </div>
         <div class="settings-group-head">🖥 表示</div>
