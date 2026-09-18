@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.35">
+<meta name="app-version" content="1.1.36">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -1750,6 +1750,18 @@ select option { background: var(--sur2); }
 .pos-split-remain-label { font-size: 13px; color: #9badc8; }
 .pos-split-remain-val { font-size: 20px; font-weight: 900; font-family: var(--font); }
 .pos-split-keypad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 14px; }
+/* 前金登録モーダル: 本文だけスクロール・登録/キャンセルは常に見える footer。低い画面ではキーを詰める（2026-09-18） */
+.pos-advance-panel { max-height: 94vh; display: flex; flex-direction: column; }
+.pos-advance-panel > .pos-co-header { flex: 0 0 auto; }
+.pos-advance-panel > .pos-co-body { min-height: 0; overflow-y: auto; }
+.pos-advance-panel > .pos-co-footer { flex: 0 0 auto; padding: 0 20px 18px; }
+.pos-advance-panel > .pos-co-footer .pos-co-actions { margin-top: 12px; }
+@media (max-height: 820px) {
+  .pos-advance-panel > .pos-co-body { padding: 12px 20px; }
+  .pos-advance-panel .pos-split-key { height: 46px; font-size: 20px; }
+  .pos-advance-panel .pos-split-keypad { gap: 6px; margin-bottom: 10px; }
+  .pos-advance-panel .pos-co-btn { height: 52px; }
+}
 .pos-split-key { height: 60px; border: 0; border-radius: 8px; background: #2a3a5a; color: #fff; font-size: 24px; font-weight: 900; cursor: pointer; }
 .pos-split-key:active { background: #3a4f7a; }
 .pos-split-key.fn { background: #4a3a5a; font-size: 18px; }
@@ -8757,7 +8769,35 @@ const DRINK_ITEM_DEFAULTS = [
   { key:'castM', label:'M', amount:2500, pt:0 },
   { key:'castL', label:'L', amount:3500, pt:0 },
 ];
+/* 伝票・レシートに印字される固定品目の名前。店舗ごとに cfg.posItemLabels で上書きできる。
+   キーは保存キー（category）とは別物で、印字名だけを差し替える。品目名は注文時に明細へ
+   焼き込まれるため、改名しても過去の伝票の印字は変わらない（2026-09-18 ギャルサークル要望）。 */
+const POS_ITEM_LABEL_DEFAULTS = {
+  set:         'SET',
+  nominate:    '指',
+  dohan:       '同',
+  jonai:       '場',
+  jonai_empty: '空場内',
+};
+const POS_ITEM_LABEL_FIELDS = [
+  { key:'set',         title:'セット',   withCast:false },
+  { key:'nominate',    title:'指名',     withCast:true  },
+  { key:'dohan',       title:'同伴',     withCast:true  },
+  { key:'jonai',       title:'場内',     withCast:true  },
+  { key:'jonai_empty', title:'空場内',   withCast:false },
+];
 
+function posItemLabel(key, settings) {
+  const src = settings || (typeof cfg !== 'undefined' ? cfg : null);
+  const overrides = (src && src.posItemLabels && typeof src.posItemLabels === 'object') ? src.posItemLabels : {};
+  return String(overrides[key] ?? '').trim() || POS_ITEM_LABEL_DEFAULTS[key] || String(key);
+}
+/* 「延長20分」の品目名。延長料金表の行（extOptionsと同じ並び）ごとに cfg.extNames で上書きできる。 */
+function extItemLabel(min, idx, settings) {
+  const src = settings || (typeof cfg !== 'undefined' ? cfg : null);
+  const names = (src && Array.isArray(src.extNames)) ? src.extNames : [];
+  return String(names[idx] ?? '').trim() || ('延長' + min + '分');
+}
 function shimeiExtDefaultItems() {
   return {
     enshi: SHIMEI_EXT_DEFAULTS.enshi.map(item => ({ ...item })),
@@ -8878,6 +8918,7 @@ const CFG_DEFAULTS = {
   modoriHonshimeiAgg: 'honen', // 出戻り本指の集計扱い: 'honen'=延長扱い(本延+1・既定) | 'honshimei'=本指名扱い(本指+1) | 'none'=カウントしない
   modoriEnchoshimeiAgg: 'enchoshimei40', // 出戻り延指（元:場内/延長指名）の集計扱い: 'enchoshimei40'=延指40+1(既定) | 'jounai'=場内+1 | 'none'=カウントしない
   extPrices:       [4000, 7000, 11000], // 延長料金（extOptionsと順番対応）
+  extNames:        [],      // 延長の伝票品目名の上書き（extOptionsと順番対応）。空=「延長◯分」
   taxRate:         20,      // 税サービス料率（%）
   taxRound:        100,     // 税サ端数単位（円、切り上げ）
   specialRateRound: 100,    // 特殊割合: 100円単位切上げ。0は従来の1円未満切捨て
@@ -8896,6 +8937,7 @@ const CFG_DEFAULTS = {
   posMenu:         {},      // POSカスタムメニュー { shot:[{name,amount},...], bottle:[...], ... }
   posCatLayout:    [],      // POSカテゴリの並び・表示 [{key,visible}]。空=既定順・全表示
   posCatLabels:    {},      // 既定POSカテゴリの表示名の上書き { set:'セット料金', ... }。未設定=既定名
+  posItemLabels:   {},      // 伝票に印字される固定品目名の上書き { set:'セット', nominate:'指名', ... }。未設定=既定名
   posCustomCats:   [        // 店舗独自のPOSカテゴリ（keyはラベル変更後も不変）
     { key: 'cust_1', label: 'その他' },
   ],
@@ -13755,7 +13797,11 @@ function _posCalcTotal(row) {
   // よって extraTaxable には足さない（足すと二重計上）。
   return _posComputeTotals(calcBill(row).subtotal, posOrders(row), 0);
 }
-function _posAdvancePrincipalValue(advances, cardFeeRate, cardFeeRound) {
+/* 前金の内訳。principal＝入力した元本の合計（現金・カード・手数料カット）。
+   extraFee＝カードを分けて切ったときに切り上げが複数回起きて、お客様が一括より多く払った手数料。
+   この分はお会計へ充当する（2026-08-06 仕様）ので、未収金の計算には credit（充当込み）を使う。
+   表示は principal と extraFee を分けて出す（2026-09-18 ギャルサークル要望: 前金は入力した元本の合計で見せる）。 */
+function _posAdvanceBreakdownValue(advances, cardFeeRate, cardFeeRound) {
   let cashAdv = 0, cardCutAdv = 0, cardAdvAmt = 0, cardAdvFee = 0;
   (Array.isArray(advances) ? advances : []).forEach(a => {
     const amt = Number(a.amount) || 0;
@@ -13769,14 +13815,21 @@ function _posAdvancePrincipalValue(advances, cardFeeRate, cardFeeRound) {
   });
   const feeOnSum = ceilAddRate(cardAdvAmt, cardFeeRate || 0, cardFeeRound || 100) - cardAdvAmt;
   const extraFee = Math.max(0, cardAdvFee - feeOnSum);
-  return cashAdv + cardCutAdv + cardAdvAmt + extraFee;
+  const principal = cashAdv + cardCutAdv + cardAdvAmt;
+  return { principal, extraFee, credit: principal + extraFee };
 }
-function _posAdvancePrincipal(row) {
-  return _posAdvancePrincipalValue(
+function _posAdvancePrincipalValue(advances, cardFeeRate, cardFeeRound) {
+  return _posAdvanceBreakdownValue(advances, cardFeeRate, cardFeeRound).credit;
+}
+function _posAdvanceBreakdown(row) {
+  return _posAdvanceBreakdownValue(
     row && Array.isArray(row.advances) ? row.advances : [],
     cfg.cardFeeRate || 0,
     cfg.cardFeeRound || 100
   );
+}
+function _posAdvancePrincipal(row) {
+  return _posAdvanceBreakdown(row).credit;
 }
 function _posDue(row) {
   if (!row) return 0;
@@ -13820,7 +13873,7 @@ function _posSeatLineItems(row) {
   })();
   // SETオーダーがある場合はオーダー側で表示するため、SET基本ラインは出さない
   const _hasSetOrder = Array.isArray(row.posOrders) && row.posOrders.some(o => o.category === 'set');
-  const items = (_hasSetOrder || row.posManaged) ? [] : [{ label: 'SET:' + minToHHMM(row.startMin) + '-' + minToHHMM(row.endMin), amount: baseSet }];
+  const items = (_hasSetOrder || row.posManaged) ? [] : [{ label: posItemLabel('set') + ':' + minToHHMM(row.startMin) + '-' + minToHHMM(row.endMin), amount: baseSet }];
   // 指名明細がオーダーにある場合、mainType由来の指名ラインは重複表示しない
   const _groupOrderRow = state.rows.find(r => r.gid === row.gid && r.isFirst) || row;
   const _mainCat = { honshimei:'nominate', douban:'dohan', jounai:'jonai' }[row.mainType];
@@ -13856,7 +13909,7 @@ function _posSeatLineItems(row) {
   Object.values(_baseAgg).sort((a, b) => a.min - b.min).forEach(g => {
     const idx = (cfg.extOptions || []).indexOf(g.min);
     const extPrice = (idx >= 0 && cfg.extPrices && cfg.extPrices[idx]) ? cfg.extPrices[idx] : 0;
-    if (extPrice) items.push({ label: '延長' + g.min + '分', amount: extPrice, qty: g.qty, extMin: g.min, extra: g.extra });
+    if (extPrice) items.push({ label: extItemLabel(g.min, idx), amount: extPrice, qty: g.qty, extMin: g.min, extra: g.extra });
   });
   return items;
 }
@@ -15684,19 +15737,19 @@ function posCategoryItems(category, row) {
     .map(v => Number(v)).filter(v => Number.isFinite(v) && v > 0);
   const extPosHidden = (cfg.extPosHidden || []).map(Number);
   const extItems = extOptions.map((min, idx) => ({
-    name: '延長' + min + '分',
+    name: extItemLabel(min, idx),
     amount: Number((cfg.extPrices || [])[idx] || extDefaultPrice[min] || 0),
     category,
     min,
   })).filter(item => !extPosHidden.includes(item.min)).map(({ min, ...item }) => item);
   const map = {
-    set: [{ name:'SET', amount: Number(cfg.setPrice || 7000), category }],
+    set: [{ name:posItemLabel('set'), amount: Number(cfg.setPrice || 7000), category }],
     extension: extItems,
-    nominate: castItems('指', Number(cfg.nominateFee || 2000)),
-    dohan: castItems('同', Number(cfg.dohanFee || 15000)),
+    nominate: castItems(posItemLabel('nominate'), Number(cfg.nominateFee || 2000)),
+    dohan: castItems(posItemLabel('dohan'), Number(cfg.dohanFee || 15000)),
     // 空場内: 場内カテゴリ先頭固定。0円・キャスト無しで、押した本数ぶんを以降の延長料金へ繰延上乗せする
     // （customizable対象外のためハードコードでよい。posAddItemが押下時点のcfg.jonaiFeeをdeferへ刻印する）
-    jonai: [{ name:'空場内', amount:0, category:'jonai_empty' }, ...castItems('場', Number(cfg.jonaiFee || 2000))],
+    jonai: [{ name:posItemLabel('jonai_empty'), amount:0, category:'jonai_empty' }, ...castItems(posItemLabel('jonai'), Number(cfg.jonaiFee || 2000))],
     // shot/bottleは店ごとに仕入れ銘柄が全く異なるため、新規導入店舗にそのまま実在商品名を
     // 出荷しないようダミー名にしてある（2026-07-03: 他店舗展開の洗い出しで指摘）。
     // 「設定→POSレジ→カスタムメニュー」で自店の商品に置き換える運用（cfg.posMenuで上書きされる）。
@@ -15820,6 +15873,9 @@ function extOptAddRow() {
       <div style="display:flex;align-items:center;gap:4px">
         <input type="number" class="settings-input" id="cfg-extOpt-${idx}-price" value="" min="0" step="500" style="width:80px"> 円
       </div>
+    </td>
+    <td style="padding:5px 4px">
+      <input type="text" class="settings-input" id="cfg-extOpt-${idx}-name" value="" placeholder="延長◯分" style="width:110px" title="空欄にすると「延長◯分」で印字されます" oninput="_settingsMarkDirty()">
     </td>
     <td style="padding:5px 4px;text-align:center">
       <input type="checkbox" id="cfg-extOpt-${idx}-pos" checked title="POSの延長ボタンに表示する">
@@ -16050,6 +16106,24 @@ function posCatResetLabels() {
   showToast(changed ? `カテゴリ名を既定に戻しました（${changed}件）。「保存」で確定します` : 'カテゴリ名はすべて既定のままです');
 }
 
+/* 伝票の品目名（固定品目＋延長）をすべて既定へ戻す。保存で確定 */
+function posItemLabelsReset() {
+  let changed = 0;
+  document.querySelectorAll('#cfg-pos-item-labels tr[data-key]').forEach(tr => {
+    const input = tr.querySelector('.pos-item-label-input');
+    if (!input || input.value === (tr.dataset.defaultLabel || '')) return;
+    input.value = tr.dataset.defaultLabel || '';
+    changed++;
+  });
+  document.querySelectorAll('#ext-options-tbody input[id$="-name"]').forEach(input => {
+    if (!input.value) return;
+    input.value = '';
+    changed++;
+  });
+  if (changed) _settingsMarkDirty();
+  showToast(changed ? `品目名を既定に戻しました（${changed}件）。「保存」で確定します` : '品目名はすべて既定のままです');
+}
+
 async function posCatAdd() {
   const label = ((await appPrompt('追加するカテゴリ名を入力してください')) || '').trim();
   if (!label) return;
@@ -16221,14 +16295,14 @@ function _posBuildDoubanOrders(row, cast, startMin) {
   const stay = Number(cfg.dohanStay) || 60;
   const mkId = () => 'po_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
   orders.push({
-    id: mkId(), name: 'SET',
+    id: mkId(), name: posItemLabel('set'),
     amount: cfg.dohanIncludesSet ? (Number(cfg.setPrice) || 0) : 0,
     qty: 1, category: 'set',
     startMin, endMin: startMin + stay,
     createdAt: Date.now(),
   });
   orders.push({
-    id: mkId(), name: '同:' + cast,
+    id: mkId(), name: posItemLabel('dohan') + ':' + cast,
     amount: Number(cfg.dohanFee) || 15000,
     qty: 1, category: 'dohan',
     createdAt: Date.now(),
@@ -17330,7 +17404,7 @@ function posSetEntryApply(taxIncluded) {
   if (isEdit && orders[_posSetEntry.editIdx] && orders[_posSetEntry.editIdx].category === 'set') {
     // 上書きモード：既存のid/createdAtは保持して値だけ更新（新規unshiftしない）。
     const existing = orders[_posSetEntry.editIdx];
-    existing.name = 'SET';
+    existing.name = posItemLabel('set');
     existing.amount = Math.max(0, _posSetEntry.price);
     existing.qty = Math.max(1, _posSetEntry.people);
     existing.category = 'set';
@@ -17342,7 +17416,7 @@ function posSetEntryApply(taxIncluded) {
     // 同伴用に0円セットも載せられるよう、金額0でも追加する。
     orders.unshift({
       id: 'po_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
-      name: 'SET', amount: Math.max(0, _posSetEntry.price), qty: Math.max(1, _posSetEntry.people),
+      name: posItemLabel('set'), amount: Math.max(0, _posSetEntry.price), qty: Math.max(1, _posSetEntry.people),
       category: 'set', taxIncluded: !!taxIncluded,
       startMin: _posSetEntry.startMin, endMin: _posSetEntry.startMin + _posSetEntry.duration,
       createdAt: Date.now()
@@ -17419,6 +17493,7 @@ function posOpenCheckoutPanel() {
   if (!row) { showToast('伝票を選択してください'); return; }
   const b = _posCalcTotal(row);
   const adv = _posAdvancePrincipal(row);
+  const advBd = _posAdvanceBreakdown(row);
   const due = _posDue(row);
   const dueCard = _posSplitCardFee(due);
   const table = row.tableNum ? posTableLabel(row.tableNum) : '-';
@@ -17435,7 +17510,8 @@ function posOpenCheckoutPanel() {
     + '<div class="pos-co-amount-row"><span class="pos-co-amount-label">税サ</span><span class="pos-co-amount-val">¥' + (b.cash - b.subtotal).toLocaleString() + '</span></div>'
     + '<div class="pos-co-amount-row"><span class="pos-co-amount-label" style="color:#fff">現金</span><span class="pos-co-amount-val" style="color:#38cc80">¥' + b.cash.toLocaleString() + '</span></div>'
     + '<div class="pos-co-amount-row"><span class="pos-co-amount-label" style="color:#fff">カード</span><span class="pos-co-amount-val" style="color:#40b8e0">¥' + b.card.toLocaleString() + '</span></div>'
-    + (adv ? '<div class="pos-co-amount-row"><span class="pos-co-amount-label">前金</span><span class="pos-co-amount-val">−¥' + adv.toLocaleString() + '</span></div>' : '')
+    + (adv ? '<div class="pos-co-amount-row"><span class="pos-co-amount-label">前金</span><span class="pos-co-amount-val">−¥' + advBd.principal.toLocaleString() + '</span></div>' : '')
+    + (advBd.extraFee ? '<div class="pos-co-amount-row"><span class="pos-co-amount-label">分割手数料の充当</span><span class="pos-co-amount-val">−¥' + advBd.extraFee.toLocaleString() + '</span></div>' : '')
     + '<div class="pos-co-amount-row"><span class="pos-co-amount-label" style="color:#fff">未収金</span><span class="pos-co-amount-val" style="color:#f5dfa0">¥' + due.toLocaleString() + '</span></div>'
     + '<div style="margin:12px 0;padding:10px;border:1px solid rgba(255,255,255,.15);border-radius:8px">'
     + '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px"><b>前金</b><button class="pos-co-btn both" style="min-height:34px;padding:8px 12px" onclick="posOpenAdvanceModal()">前金を登録</button></div>'
@@ -18011,7 +18087,9 @@ function _posAdvanceRender() {
   const fee = (_posAdvance.method === 'card' && !_posAdvance.feeCut) ? _advCardFee(amount) : 0;
   const key = (k, lbl, cls) => '<button class="pos-split-key' + (cls ? ' ' + cls : '') + '" onclick="posAdvanceKey(\'' + k + '\')">' + lbl + '</button>';
   const methodBtn = m => '<button class="pos-co-btn ' + (m === 'cash' ? 'cash' : 'card') + '" style="opacity:' + (_posAdvance.method === m ? '1' : '.55') + '" onclick="posAdvanceMethod(\'' + m + '\')">' + (m === 'cash' ? '現金' : 'カード') + '</button>';
-  ov.innerHTML = '<div class="pos-co-panel">'
+  // 登録済み前金が増えると縦に伸びて「登録」が画面外へ出るため、本文だけスクロールさせ
+  // 登録/キャンセルは footer に固定して常に見せる（2026-09-18 ギャルサークル報告）
+  ov.innerHTML = '<div class="pos-co-panel pos-advance-panel">'
     + '<div class="pos-co-header"><div class="pos-co-title">前金登録 — ' + escHtml(table) + '</div>'
     + '<button class="pos-co-close" onclick="posAdvanceClose()">×</button></div>'
     + '<div class="pos-co-body">'
@@ -18031,9 +18109,10 @@ function _posAdvanceRender() {
     + key('1','1') + key('2','2') + key('3','3')
     + key('00','00') + key('0','0') + key('back','⌫','fn')
     + '</div>'
-    + '<div class="pos-split-keypad" style="grid-template-columns:1fr"><button class="pos-split-key fn" onclick="posAdvanceKey(\'clear\')">クリア</button></div>'
-    + '<div class="pos-co-actions"><button class="pos-co-btn cash" onclick="posAdvanceApply()">登録</button><button class="pos-co-btn cancel" onclick="posAdvanceClose()">キャンセル</button></div>'
-    + '</div></div>';
+    + '<div class="pos-split-keypad" style="grid-template-columns:1fr;margin-bottom:0"><button class="pos-split-key fn" onclick="posAdvanceKey(\'clear\')">クリア</button></div>'
+    + '</div>'
+    + '<div class="pos-co-footer"><div class="pos-co-actions"><button class="pos-co-btn cash" onclick="posAdvanceApply()">登録</button><button class="pos-co-btn cancel" onclick="posAdvanceClose()">キャンセル</button></div></div>'
+    + '</div>';
 }
 
 function posAdvanceMethod(method) {
@@ -21795,6 +21874,7 @@ function posPrintReceipt() {
   const table = row.tableNum ? posTableLabel(row.tableNum) : '-';
   const opts  = cfg.extOptions || [];
   const advance = (typeof _posAdvancePrincipal === 'function') ? _posAdvancePrincipal(row) : 0;
+  const advBd = (typeof _posAdvanceBreakdown === 'function') ? _posAdvanceBreakdown(row) : { principal: advance, extraFee: 0 };
 
   // 現在金額：手動入力済みなら row.amountCash を優先（自動計算との乖離を防ぐ）
   const curCash = advance ? Math.max(0, b.cash - advance) : (parseInt(row.amountCash) || b.cash);
@@ -21827,7 +21907,7 @@ function posPrintReceipt() {
     + '<span class="pos-ext-cash">現金 ¥' + curCash.toLocaleString() + '</span>'
     + '<span class="pos-ext-card">カード ¥' + curCard.toLocaleString() + '</span>'
     + '</div>'
-    + (advance ? '<div class="pos-split-remain"><span class="pos-split-remain-label">前金 −¥' + advance.toLocaleString() + '</span><span class="pos-split-remain-val">残金 ¥' + curCash.toLocaleString() + '</span></div>' : '')
+    + (advance ? '<div class="pos-split-remain"><span class="pos-split-remain-label">前金 −¥' + advBd.principal.toLocaleString() + (advBd.extraFee ? '／分割手数料の充当 −¥' + advBd.extraFee.toLocaleString() : '') + '</span><span class="pos-split-remain-val">残金 ¥' + curCash.toLocaleString() + '</span></div>' : '')
     + '<div class="pos-ext-divider">延長した場合の試算</div>'
     + extRows
     + '<div class="pos-co-actions" style="margin-top:16px">'
@@ -22027,8 +22107,8 @@ function _receiptCategoryRows(row) {
     const q = item.qty === '' || item.qty === null || item.qty === undefined || !Number.isFinite(numericQty) ? 1 : numericQty;
     const amount = (Number(item.amount) || 0) * q + (Number(item.extra) || 0);
     let key = 'designation';
-    if (label.startsWith('SET:')) key = 'set';
-    else if (item.extMin != null || label.startsWith('延長')) key = 'extension';
+    if (item.extMin != null) key = 'extension';
+    else if (label.startsWith(posItemLabel('set') + ':')) key = 'set';
     groups[key].qty += q;
     groups[key].amount += amount;
   });
@@ -22121,6 +22201,7 @@ function _extTrialTableHtml(row, block, comparison) {
   const cardFeePct = cfg.cardFeeRate || 0;
   const cardFeeRound = cfg.cardFeeRound || 100;
   const advance = (typeof _posAdvancePrincipal === 'function') ? _posAdvancePrincipal(row) : 0;
+  const advBd = (typeof _posAdvanceBreakdown === 'function') ? _posAdvanceBreakdown(row) : { principal: advance, extraFee: 0 };
   const curCash = advance ? Math.max(0, b.cash - advance) : (parseInt(row.amountCash) || b.cash);
   const curCard = advance ? ceilAddRate(curCash, cardFeePct, cardFeeRound) : (parseInt(row.amountCard) || ceilAddRate(curCash, cardFeePct, cardFeeRound));
   const showCard = block.showCard !== false;
@@ -22136,7 +22217,8 @@ function _extTrialTableHtml(row, block, comparison) {
   });
   return '<div class="cur"><span class="lbl">現在の金額（現金）</span><span class="lead"></span><span class="amt">¥' + curCash.toLocaleString() + '</span></div>'
     + (showCard ? '<div class="cur"><span class="lbl">現在の金額（カード）</span><span class="lead"></span><span class="amt">¥' + curCard.toLocaleString() + '</span></div>' : '')
-    + (advance ? '<div class="cur"><span class="lbl">前金</span><span class="lead"></span><span class="amt">−¥' + advance.toLocaleString() + '</span></div>' : '')
+    + (advance ? '<div class="cur"><span class="lbl">前金</span><span class="lead"></span><span class="amt">−¥' + advBd.principal.toLocaleString() + '</span></div>' : '')
+    + (advBd.extraFee ? '<div class="cur"><span class="lbl">分割手数料の充当</span><span class="lead"></span><span class="amt">−¥' + advBd.extraFee.toLocaleString() + '</span></div>' : '')
     + (advance ? '<div class="cur"><span class="lbl">残金</span><span class="lead"></span><span class="amt">¥' + curCash.toLocaleString() + '</span></div>' : '')
     + '<div class="dash"></div>'
     + '<div class="bar">延長された場合の合計金額</div>'
@@ -22176,7 +22258,7 @@ function _receiptSampleRow() {
     extTrialOptions:[20, 40, 60],
     amountMethod:'cash', amountCash:30000, amountCard:0,
     posOrders:[
-      { category:'set', name:'SET', amount:cfg.setPrice || 7000, qty:2, startMin:1200, endMin:1240 },
+      { category:'set', name:posItemLabel('set'), amount:cfg.setPrice || 7000, qty:2, startMin:1200, endMin:1240 },
       { category:'nominate', name:'本指名:花子', amount:cfg.nominateFee || 2000, qty:1 },
       { category:'enshi40', name:'延指40:花子', amount:shimeiExtItem('enshi40')?.amount || 2000, qty:1 },
       { category:'drink', name:'S:花子', amount:1500, qty:1 },
@@ -22801,6 +22883,7 @@ function _extComparisonAmounts(sourceRow, casts) {
   const row = _extComparisonRow(sourceRow);
   const base = _posCalcTotal(row);
   const advance = _posAdvancePrincipal(row);
+  const advBd = _posAdvanceBreakdown(row);
   const currentCash = advance ? Math.max(0, base.cash - advance) : (parseInt(row.amountCash) || base.cash);
   const card = cash => ceilAddRate(cash, cfg.cardFeeRate || 0, cfg.cardFeeRound || 100);
   const currentCard = advance ? card(currentCash) : (parseInt(row.amountCard) || card(currentCash));
@@ -22809,7 +22892,7 @@ function _extComparisonAmounts(sourceRow, casts) {
     return { cash, card:card(cash) };
   };
   const options = Array.isArray(row.extTrialOptions) ? row.extTrialOptions : (cfg.extOptions || []);
-  return { currentCash, currentCard, advance,
+  return { currentCash, currentCard, advance, advancePrincipal: advBd.principal, advanceExtraFee: advBd.extraFee,
     rows: options.map(min => ({ min, free:amount(_posExtTrial(row, min)), nominated:amount(_posExtTrial(row, min, casts)) })) };
 }
 
@@ -22840,7 +22923,8 @@ function _extComparisonTableHtml(row, block, comparison) {
     + '</style><section class="extcmp">'
     + '<div class="extcmp-current"><span>' + (amounts.advance ? '現在の残金' : '現在の金額') + '（現金）</span><strong>' + yen(amounts.currentCash) + '</strong></div>'
     + (showCard ? '<div class="extcmp-current"><span>' + (amounts.advance ? '現在の残金' : '現在の金額') + '（カード）</span><strong>' + yen(amounts.currentCard) + '</strong></div>' : '')
-    + (amounts.advance ? '<div class="extcmp-current"><span>前金受領済み</span><strong>' + yen(amounts.advance) + '</strong></div>' : '')
+    + (amounts.advance ? '<div class="extcmp-current"><span>前金受領済み</span><strong>' + yen(amounts.advancePrincipal) + '</strong></div>' : '')
+    + (amounts.advanceExtraFee ? '<div class="extcmp-current"><span>分割手数料の充当</span><strong>' + yen(amounts.advanceExtraFee) + '</strong></div>' : '')
     + '<div class="extcmp-title">' + (amounts.advance ? '延長後の残金' : '延長後の合計金額') + '</div>'
     + '<div class="extcmp-target">延長指名：' + comparison.labels.map(escHtml).join('／') + '</div>'
     + '<table class="extcmp-table"><thead><tr><th scope="col">延長</th><th scope="col">' + (hasDesignation ? '指名追加なし' : 'フリー継続') + '</th><th scope="col">延長指名</th></tr></thead><tbody>'
@@ -22854,7 +22938,7 @@ function _extComparisonSample() {
   const row = { ..._receiptSampleRow(), id:'ext-comparison-sample', gid:'ext-comparison-sample',
     mainType:'free', mainCast:'花子', rotations:['花子'], settled:false, gcount:1,
     extensions:[], extSeats:[], extTrialOptions:[...(cfg.extOptions || [])],
-    posOrders:[{ category:'set', name:'SET', amount:cfg.setPrice || 7000, qty:1 }], amountCash:0 };
+    posOrders:[{ category:'set', name:posItemLabel('set'), amount:cfg.setPrice || 7000, qty:1 }], amountCash:0 };
   return { row, comparison:_extComparisonSelection(row, _extComparisonCandidates(row)) };
 }
 
@@ -24665,12 +24749,13 @@ function renderSettingsPanel() {
             <div class="settings-label" style="font-weight:700;margin-bottom:0">延長料金</div>
             <button type="button" onclick="extOptAddRow()" style="background:var(--sur4);border:1px solid var(--bdr);border-radius:6px;color:var(--tx2);cursor:pointer;font-size:12px;padding:4px 10px">＋ オプションを追加</button>
           </div>
-          <div class="settings-sub">延長の時間と料金（小計）。行の追加・削除ができます。「POSボタン」を外すと料金表には残したままPOSの延長ボタンからだけ消えます</div>
+          <div class="settings-sub">延長の時間と料金（小計）。行の追加・削除ができます。「POSボタン」を外すと料金表には残したままPOSの延長ボタンからだけ消えます。「伝票の品目名」は空欄なら「延長◯分」で印字されます</div>
           <table style="width:100%;border-collapse:collapse">
             <thead>
               <tr style="border-bottom:1px solid var(--bdr)">
                 <th style="font-size:11px;color:var(--tx2);font-weight:normal;text-align:left;padding:4px 8px 6px">延長時間</th>
                 <th style="font-size:11px;color:var(--tx2);font-weight:normal;text-align:left;padding:4px 8px 6px">料金（小計）</th>
+                <th style="font-size:11px;color:var(--tx2);font-weight:normal;text-align:left;padding:4px 8px 6px;white-space:nowrap">伝票の品目名</th>
                 <th style="font-size:11px;color:var(--tx2);font-weight:normal;text-align:center;padding:4px 8px 6px;white-space:nowrap">POSボタン</th>
                 <th style="width:32px"></th>
               </tr>
@@ -24687,6 +24772,9 @@ function renderSettingsPanel() {
                     <div style="display:flex;align-items:center;gap:4px">
                       <input type="number" class="settings-input" id="cfg-extOpt-${i}-price" value="${(cfg.extPrices||[])[i] ?? ''}" min="0" step="500" style="width:80px"> 円
                     </div>
+                  </td>
+                  <td style="padding:5px 4px">
+                    <input type="text" class="settings-input" id="cfg-extOpt-${i}-name" value="${escAttr((cfg.extNames||[])[i] ?? '')}" placeholder="延長${min}分" style="width:110px" title="空欄にすると「延長${min}分」で印字されます" oninput="_settingsMarkDirty()">
                   </td>
                   <td style="padding:5px 4px;text-align:center">
                     <input type="checkbox" id="cfg-extOpt-${i}-pos" ${(cfg.extPosHidden || []).map(Number).includes(Number(min)) ? '' : 'checked'} title="POSの延長ボタンに表示する">
@@ -24892,6 +24980,25 @@ function renderSettingsPanel() {
               </table>
             </div>`;
           })()}
+          <div class="settings-group-head">🧾 伝票の品目名</div>
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:8px">
+            <div class="settings-sub" style="margin-bottom:0">伝票・レシートに印字される品目の名前です。キャストが付く項目は「品目名:キャスト名」の形で印字されます。空欄にすると既定名に戻ります。変更後に取った注文から反映され、過去の伝票の印字は変わりません。延長の品目名は 料金・会計 → 延長料金 で設定します。</div>
+            <button type="button" onclick="posItemLabelsReset()" style="flex-shrink:0;background:var(--sur4);border:1px solid var(--bdr);border-radius:6px;color:var(--tx2);cursor:pointer;font-size:12px;padding:4px 10px;white-space:nowrap">↺ 名前を既定に戻す</button>
+          </div>
+          <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:8px">
+            <table class="pos-me-table">
+              <thead><tr><th style="width:90px">項目</th><th>伝票の品目名</th><th style="width:140px">印字例</th></tr></thead>
+              <tbody id="cfg-pos-item-labels">${POS_ITEM_LABEL_FIELDS.map(field => {
+                const def = POS_ITEM_LABEL_DEFAULTS[field.key];
+                const cur = posItemLabel(field.key, cfg);
+                return `<tr data-key="${escAttr(field.key)}" data-default-label="${escAttr(def)}">
+                  <td style="font-size:13px;color:var(--tx2)">${escHtml(field.title)}</td>
+                  <td><input type="text" class="settings-input pos-item-label-input" value="${escAttr(cur)}" placeholder="${escAttr(def)}" title="空欄にすると既定名「${escAttr(def)}」に戻ります" oninput="_settingsMarkDirty()"></td>
+                  <td style="font-size:12px;color:var(--tx3)">${escHtml(field.withCast ? cur + ':キャスト名' : cur)}</td>
+                </tr>`;
+              }).join('')}</tbody>
+            </table>
+          </div>
           <div class="settings-sub" style="margin:12px 0">単価・バック・ptは 料金・会計 → 料金マスター で設定します</div>
           <div class="settings-group-head">🍾 メニュー編集</div>
           <div class="settings-sub" style="margin-bottom:12px;line-height:1.7">
@@ -25898,6 +26005,16 @@ async function applySettings() {
     });
     return prices.length ? prices : (cfg.extPrices || []);
   })();
+  const extNames = (() => {
+    const rows = document.querySelectorAll('#ext-options-tbody tr');
+    if (!rows.length) return cfg.extNames || [];
+    const names = [];
+    rows.forEach(tr => {
+      const v = parseInt(tr.querySelector('input[id$="-min"]')?.value);
+      if (v > 0) names.push((tr.querySelector('input[id$="-name"]')?.value || '').trim());
+    });
+    return names;
+  })();
   const extPosHidden = (() => {
     const rows = document.querySelectorAll('#ext-options-tbody tr');
     if (!rows.length) return cfg.extPosHidden || [];
@@ -25944,6 +26061,12 @@ async function applySettings() {
   });
   const posCatLayout = posCatRows.map(tr => ({ key: tr.dataset.key, visible: !!tr.querySelector('.pos-cat-visible')?.checked }));
   // 既定カテゴリの名前: 既定名と同じ・空欄は保存しない（=既定名に戻る）
+  const posItemLabelRows = document.querySelectorAll('#cfg-pos-item-labels tr[data-key]');
+  const posItemLabels = posItemLabelRows.length ? {} : { ...(cfg.posItemLabels || {}) };
+  posItemLabelRows.forEach(tr => {
+    const value = (tr.querySelector('.pos-item-label-input')?.value || '').trim();
+    if (value && value !== (tr.dataset.defaultLabel || '')) posItemLabels[tr.dataset.key] = value;
+  });
   const posCatLabels = posCatRows.length ? {} : { ...(cfg.posCatLabels || {}) };
   posCatRows.filter(tr => tr.dataset.custom !== '1').forEach(tr => {
     const value = (tr.querySelector('.pos-cat-label-input')?.value || '').trim();
@@ -26055,12 +26178,12 @@ async function applySettings() {
     nominateFee, dohanFee, dohanIncludesSet, jonaiFee, enchoshimeiFee,
     extFeeHonshimeiAmt, extFeeJounaiAmt, extFeeEnchoshimeiAmt,
     extFeeHonshimeiAmts, extFeeJounaiAmts, extFeeEnchoshimeiAmts,
-    extFeeOnHonshimei, extFeeOnJounai, extFeeOnEnchoshimei, extPrices, extPosHidden,
+    extFeeOnHonshimei, extFeeOnJounai, extFeeOnEnchoshimei, extPrices, extPosHidden, extNames,
     extAutoShimeiFee, extBasePerSeat, extFeePerSeat, doubanAsHonshimeiExt, modoriHonshimeiAgg, modoriEnchoshimeiAgg,
     taxRate, taxRound, discountAfterTax, cardFeeRate, cardFeeRound, tillFloat,
     showCountdown, fullscreenOnBoot, monitorEnabled, monitorEndpoint, monitorWriteToken, monitorReadToken, monitorOpsToken,
     monitorShopId: cfg.monitorShopId || '',
-    posMenu, posCatLayout, posCatLabels, posCustomCats, posPrices, shimeiExtItems, drinkItems, shotLabel,
+    posMenu, posCatLayout, posCatLabels, posItemLabels, posCustomCats, posPrices, shimeiExtItems, drinkItems, shotLabel,
     specialRateRound: get('cfg-specialRateRound') ? (get('cfg-specialRateRound').value === '0' ? 0 : 100) : posSpecialRoundUnit(),
     receiptStoreName1, receiptStoreAddr, receiptStoreTel, receiptInvoiceNo, receiptNote,
     receiptLayout, extTrialLayout, ryoshuOpts, receiptScale, extTrialScale, ryoshuScale,
