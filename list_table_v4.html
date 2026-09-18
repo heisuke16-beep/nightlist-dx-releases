@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.39">
+<meta name="app-version" content="1.1.40">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -1681,7 +1681,15 @@ select option { background: var(--sur2); }
    POS 精算パネル
 ================================================================ */
 .pos-co-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.78); z-index: 9900; display: flex; align-items: center; justify-content: center; }
-.pos-co-panel { background: #1a1a2e; border: 1px solid #4a5c80; border-radius: 8px; width: min(520px, 95vw); box-shadow: 0 8px 40px rgba(0,0,0,0.85); overflow: hidden; }
+/* 2026-09-19 全モーダル監査: 内容が増えてもボタンが画面外に出ないよう、共通の器を画面高94%に収め、
+   header/footer は固定・本文（pos-co-body / pay-bd-body / pos-nsm-body / pos-cast-picker-body）だけをスクロールさせる。
+   前金登録・精算パネルで踏んだ「伸びてスクロールもできない」型を、新規伝票・延長試算・日給内訳・分割/売掛/カード分割にも波及させない。 */
+.pos-co-panel { background: #1a1a2e; border: 1px solid #4a5c80; border-radius: 8px; width: min(520px, 95vw); box-shadow: 0 8px 40px rgba(0,0,0,0.85); overflow: hidden; max-height: 94vh; display: flex; flex-direction: column; }
+.pos-co-panel > .pos-co-header, .pos-co-panel > .pay-bd-head, .pos-co-panel > .pos-co-footer { flex: 0 0 auto; }
+.pos-co-panel > .pos-co-body, .pos-co-panel > .pay-bd-body { min-height: 0; overflow-y: auto; }
+.pos-nsm { max-height: 94vh; display: flex; flex-direction: column; }
+.pos-nsm > .pos-nsm-header, .pos-nsm > .pos-nsm-footer { flex: 0 0 auto; }
+.pos-nsm > .pos-nsm-body, .pos-nsm > .pos-cast-picker-body { min-height: 0; overflow-y: auto; }
 .pos-drink-pick { background: #1a1a2e; border: 1px solid #4a5c80; border-radius: 8px; width: min(560px, 95vw); box-shadow: 0 8px 40px rgba(0,0,0,0.85); overflow: hidden; }
 .pos-drink-pick-head { background: #4a6fa5; padding: 12px 16px; display: flex; align-items: center; gap: 12px; }
 .pos-drink-pick-head span { font-size: 17px; font-weight: 900; color: #fff; flex: 1; }
@@ -3136,7 +3144,7 @@ table#customer-table { border-collapse: collapse; width: 100%; min-width: 800px;
   .ryoshu-preview-wrap { flex-basis:auto; width:100%; }
 }
 .settings-row {
-  display: flex; align-items: center; gap: 12px;
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap; /* 入力欄が幅を超えたら下へ折り返す（2026-09-19） */
   padding: 7px 0; border-bottom: 1px solid var(--bdr);
 }
 .settings-row:last-child { border-bottom: none; }
@@ -6792,6 +6800,9 @@ const Persist = {
       }
       return false;
     }
+    // undefined は JSON.stringify で undefined になり、保存先には文字列 'null' として書かれて
+    // そのキーの保存データを黙って消してしまう。明示的に消したい時は null を渡す（2026-09-19）
+    if (value === undefined) { console.error(`[Persist] write('${name}'): undefined は保存しません`); return false; }
     try {
       const raw = JSON.stringify(value);
       UsbStore.writeSync(name, raw);
@@ -6987,8 +6998,28 @@ const UsbStore = {
     }
     const beforeActive = this.active;
     const current = Persist.exportAll();
-    const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
-    const hasData = await this._probeHasData(handle);
+    let handle = await window.showDirectoryPicker({ mode: 'readwrite' });
+    let hasData = await this._probeHasData(handle);
+    // 起動時に、データの無いフォルダ（例: HTMLのある親フォルダ）を選んでしまう事故を防ぐ。
+    // その中に data フォルダがあって保存データを持つならそちらを提案し、無ければ「新規で始める」を明示的に確認する（2026-09-19 ギャルサークル）
+    if (opts.mode === 'boot' && !hasData) {
+      let sub = null;
+      try { sub = await handle.getDirectoryHandle('data'); } catch (_) { sub = null; }
+      if (sub && await this._probeHasData(sub)) {
+        const useSub = await appConfirm(`選んだフォルダ「${handle.name || ''}」には保存データがありませんが、その中の「data」フォルダにNightListのデータがあります。
+
+「data」フォルダを保存先にしますか？`);
+        if (useSub) { handle = sub; hasData = true; }
+      }
+      if (!hasData) {
+        const fresh = await appConfirm(`選んだフォルダ「${handle.name || ''}」にはNightListの保存データがありません。
+
+既存の店舗なら「キャンセル」を押して、listState.json などが入っているフォルダ（例: data）を選び直してください。
+
+新しく始める場合だけ「OK」を押してください。`, { danger: true });
+        if (!fresh) { this.active = beforeActive; return false; }
+      }
+    }
     this._dirHandle = handle;
     this._dirName = handle.name || '';
     this.cache = { ...current };
@@ -7619,7 +7650,7 @@ const UsbBootGate = {
     ` : `
       <div style="width:min(520px,92vw);padding:28px;border:1px solid rgba(216,184,108,0.35);border-radius:14px;background:#13161c;box-shadow:0 24px 80px rgba(0,0,0,0.65);text-align:center">
         <div style="font-size:13px;letter-spacing:.18em;color:#d8b86c;margin-bottom:8px">NightListDX</div>
-        <div style="font-size:22px;font-weight:800;margin-bottom:8px">初回セットアップ</div>
+        <div style="font-size:22px;font-weight:800;margin-bottom:8px">保存先フォルダの選択</div>
         <div style="font-size:12px;color:#a7b0c0;margin-bottom:22px">NightListDXはUSBメモリ内にデータを保存します。保存先フォルダ（新規・既存どちらでも可）を選んでください</div>
         <button id="usb-boot-select" type="button" style="width:100%;padding:16px 18px;border-radius:10px;border:1px solid #d8b86c;background:#d8b86c;color:#17120a;font-size:20px;font-weight:900;cursor:pointer">📁 USBフォルダを選択して開始</button>
         <div id="usb-boot-error" style="display:none;margin-top:14px;color:#ff8c8c;font-size:12px;line-height:1.6"></div>
@@ -7638,7 +7669,9 @@ const UsbBootGate = {
             return;
           }
           err.style.display = 'block';
-          err.textContent = 'このブラウザは非対応です。Chrome / Edge で開いてください。';
+          err.textContent = UsbStore.isSupported()
+            ? 'フォルダの選択を中止しました。もう一度ボタンを押して、保存データの入っているフォルダ（例: data）を選んでください。'
+            : 'このブラウザは非対応です。Chrome / Edge で開いてください。';
         } catch (_) {
           err.style.display = 'block';
           err.textContent = 'フォルダの選択がキャンセルされました。もう一度ボタンを押して選び直してください。';
@@ -7906,7 +7939,7 @@ const AuthGate = {
   },
 
   _renderSetup(resolve) {
-    const overlay = this._shell('初回セットアップ', `
+    const overlay = this._shell('ログイン設定（初回）', `
       <form id="auth-setup-form" autocomplete="off">
         <label style="display:block;margin-bottom:12px;font-size:13px;color:#d8d0bd">
           ユーザー名
@@ -12161,7 +12194,7 @@ function renderTable() {
           <div class="remarks-top">
             <div class="name-suggest-wrap">
               <input type="text" class="name-input linked-readonly" placeholder="客名"
-                value="${(linkedParent.guestName||'').replace(/"/g,'&quot;')}" readonly disabled>
+                value="${escAttr(linkedParent.guestName||'')}" readonly disabled>
             </div>
             <select class="source-sel linked-readonly" disabled>
               <option>${escHtml(linkedParent.source||'')}</option>
@@ -12424,20 +12457,20 @@ function doPrint() {
       let desigHtml = '';
       if (row.mainType === 'honshimei' || row.mainType === 'modori_honshimei') {
         const modoriMark = row.mainType === 'modori_honshimei' ? ' 戻' : '';
-        desigHtml = `<span style="color:#c00;font-weight:bold">${row.mainCast||''}${modoriMark}</span>`;
+        desigHtml = `<span style="color:#c00;font-weight:bold">${escHtml(row.mainCast||'')}${modoriMark}</span>`;
       } else if (row.mainType === 'douban') {
-        desigHtml = `<span style="color:#c00;font-weight:bold">${row.mainCast||''}同伴</span>`;
+        desigHtml = `<span style="color:#c00;font-weight:bold">${escHtml(row.mainCast||'')}同伴</span>`;
       } else if (row.mainType === 'jounai' || row.mainType === 'enchoshimei' || row.mainType === 'modori_enchoshimei') {
-        desigHtml = row.mainCast || '';
+        desigHtml = escHtml(row.mainCast || '');
         if (row.mainType === 'modori_enchoshimei' && desigHtml) desigHtml += ' 戻';
       } else if (row.mainType === 'modori_free') {
-        desigHtml = (row.mainCast || '') + (row.mainCast ? ' 戻' : '戻');
+        desigHtml = escHtml(row.mainCast || '') + (row.mainCast ? ' 戻' : '戻');
       }
       row.subCasts.forEach(s => {
         if (s.type === 'free') return;
         const sub = (s.type === 'honshimei' || s.type === 'modori_honshimei')
-          ? `<span style="color:#c00;font-weight:bold">${s.cast||''}${s.type==='modori_honshimei'?' 戻':''}</span>`
-          : (s.cast||'') + (s.type && s.type.startsWith('modori_') ? ' 戻' : '');
+          ? `<span style="color:#c00;font-weight:bold">${escHtml(s.cast||'')}${s.type==='modori_honshimei'?' 戻':''}</span>`
+          : escHtml(s.cast||'') + (s.type && s.type.startsWith('modori_') ? ' 戻' : '');
         desigHtml += (desigHtml ? '\n' : '') + sub;
       });
 
@@ -12525,9 +12558,9 @@ function doPrint() {
         <td style="${hasExt?'color:#c00;font-weight:bold':''}">${(row.isFirst||hasExt) ? _printHHMM(row.endMin) : '<span style="color:#999">│</span>'}</td>
         <td style="white-space:pre-line">${desigHtml}</td>
         <td>${row.tableNum||''}</td>
-        <td>${[row.rotations[0], row.rotations2?.[0]].filter(Boolean).join('/')}</td>
-        <td>${[row.rotations[1], row.rotations2?.[1]].filter(Boolean).join('/')}</td>
-        <td>${[row.rotations[2], row.rotations2?.[2]].filter(Boolean).join('/')}</td>
+        <td>${escHtml([row.rotations[0], row.rotations2?.[0]].filter(Boolean).join('/'))}</td>
+        <td>${escHtml([row.rotations[1], row.rotations2?.[1]].filter(Boolean).join('/'))}</td>
+        <td>${escHtml([row.rotations[2], row.rotations2?.[2]].filter(Boolean).join('/'))}</td>
         ${extCells}
         <td>${ryokinHtml}</td>
         <td style="position:relative">${remarkNotePart}${namePart}${condPart}</td>
@@ -28407,7 +28440,7 @@ function commitNameInput(input, rowId) {
         const isRed = (row.mainType==='honshimei' || row.mainType==='douban' || row.mainType==='modori_honshimei');
         const lbl = row.mainType==='douban' ? '同伴' : (row.mainType==='modori_honshimei' ? '↺ 出戻り本指' : '本指');
         const condHtml = isRed
-          ? `<span style="color:var(--pink);font-size:10px;font-weight:600">● ${row.mainCast||'?'}${lbl}</span>`
+          ? `<span style="color:var(--pink);font-size:10px;font-weight:600">● ${escHtml(row.mainCast||'?')}${lbl}</span>`
           : bottom.innerHTML; // 条件selectはそのまま
         if (isRed) bottom.innerHTML = condHtml;
       }
@@ -29127,7 +29160,7 @@ function printTimetable() {
 
     const tr = document.createElement('tr');
     tr.innerHTML = `
-      <td class="tp-name">${castName}</td>
+      <td class="tp-name">${escHtml(castName)}</td>
       <td style="font-family:monospace;text-align:center">${clockIn  || '—'}</td>
       <td style="font-family:monospace;text-align:center">${checkOut || '—'}</td>
       <td style="text-align:center;font-size:8pt">${status}</td>`;
