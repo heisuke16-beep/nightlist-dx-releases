@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.45">
+<meta name="app-version" content="1.1.46">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -9425,6 +9425,33 @@ function buildTimeOptions(sel) {
     html += `<option value="${t}"${t === sel ? ' selected' : ''}>${minToStr(t)}</option>`;
   return html;
 }
+
+/* 時刻セレクトの初期中身。選択中の1件だけを入れておき、実際に触られた時に
+   fillTimeOptions が全件（営業時間ぶん＝約540件）へ差し替える。
+   リスト表は時刻セレクトが数十個あり、全件を最初から入れると1画面で2万件を超えて
+   タブを開くたびに重くなるため（2026-09-20 オーナー報告）。 */
+function buildTimeOptionsLazy(sel) {
+  const value = Number.isFinite(sel) ? sel : getTimeMin();
+  return `<option value="${value}" selected>${minToStr(value)}</option>`;
+}
+
+/* 触られた時刻セレクトへ全件を入れる。すでに入っていれば何もしない。 */
+function fillTimeOptions(select) {
+  if (!select || select.dataset.timeFilled === '1') return;
+  const value = parseInt(select.value);
+  select.innerHTML = buildTimeOptions(Number.isFinite(value) ? value : getTimeMin());
+  select.dataset.timeFilled = '1';
+  if (Number.isFinite(value)) select.value = String(value);
+}
+
+/* リスト表・過去リストの時刻セレクトは、指やマウスが触れた時点で中身を作る。
+   pointerdown はネイティブの選択画面が開く前に走るため、開いた時には全件が入っている。 */
+['pointerdown', 'focusin', 'touchstart', 'keydown'].forEach(type => {
+  document.addEventListener(type, event => {
+    const select = event.target && event.target.closest && event.target.closest('select.time-sel');
+    if (select) fillTimeOptions(select);
+  }, true);
+});
 // 営業日の境界時刻（この時刻より前は前日扱い）を取得
 // cfgから動的に取得する（設定画面で変更可能）
 function getBizDayBoundaryHour() {
@@ -12097,7 +12124,7 @@ function renderTable() {
     const showStartSel = row.isFirst || hasDiffTime || row._indivTime;
 
     const startCell = showStartSel
-      ? `<td class="time-col"><select class="time-sel" onchange="updateRowIndivTime('${row.id}','startMin',parseInt(this.value))">${buildTimeOptions(row.startMin)}</select></td>`
+      ? `<td class="time-col"><select class="time-sel" onchange="updateRowIndivTime('${row.id}','startMin',parseInt(this.value))">${buildTimeOptionsLazy(row.startMin)}</select></td>`
       : `<td class="time-col"><span class="vline" style="cursor:pointer;color:var(--bdr3)" title="クリックで個別時刻を設定" onclick="enableIndivTime('${row.id}')">│</span></td>`;
     // 終了時刻：先頭行 or 延長あり or 同伴組の非同伴メンバー or 個別時刻 → セレクト表示（手動変更可）
     const showEndSel = row.isFirst || hasExt || (!row.isFirst && grpHasDouban) || hasDiffTime || row._indivTime;
@@ -12105,7 +12132,7 @@ function renderTable() {
       ? `<span class="countdown-badge" id="cd_${row.id}"></span>`
       : '';
     const endCell = showEndSel
-      ? `<td class="time-col"><select class="time-sel" style="${endStyle}" onchange="updateRowIndivTime('${row.id}','endMin',parseInt(this.value))">${buildTimeOptions(row.endMin)}</select>${cdSpan}</td>`
+      ? `<td class="time-col"><select class="time-sel" style="${endStyle}" onchange="updateRowIndivTime('${row.id}','endMin',parseInt(this.value))">${buildTimeOptionsLazy(row.endMin)}</select>${cdSpan}</td>`
       : `<td class="time-col"><span class="vline">│</span></td>`;
 
     // 種別の選択肢は MAIN_TYPES（01-constants.js）に集約。出戻り3種を末尾に並べる。
@@ -23720,11 +23747,11 @@ function renderPastTable() {
     const firstRow = ps.rows.find(r => r.gid === row.gid && r.isFirst);
     const hasDiffTime = !row.isFirst && firstRow && (row.startMin !== firstRow.startMin || row.endMin !== firstRow.endMin);
     const startCellH = row.isFirst
-      ? `<td class="time-col"><select class="time-sel" onchange="pastUpdateRow('${row.id}','startMin',parseInt(this.value))">${buildTimeOptions(row.startMin)}</select></td>`
+      ? `<td class="time-col"><select class="time-sel" onchange="pastUpdateRow('${row.id}','startMin',parseInt(this.value))">${buildTimeOptionsLazy(row.startMin)}</select></td>`
       : `<td class="time-col">${row.startMin !== firstRow?.startMin ? `<span class="saved-time">${escHtml(minToHHMM(row.startMin))}</span>` : '<span class="vline">│</span>'}</td>`;
     const showEndSel = row.isFirst || hasExt || (!row.isFirst && grpHasDouban) || hasDiffTime;
     const endCellH   = showEndSel
-      ? `<td class="time-col"><select class="time-sel" style="${endStyle}" onchange="pastUpdateRow('${row.id}','endMin',parseInt(this.value))">${buildTimeOptions(row.endMin)}</select></td>`
+      ? `<td class="time-col"><select class="time-sel" style="${endStyle}" onchange="pastUpdateRow('${row.id}','endMin',parseInt(this.value))">${buildTimeOptionsLazy(row.endMin)}</select></td>`
       : `<td class="time-col"><span class="vline">│</span></td>`;
 
     tr.innerHTML =
