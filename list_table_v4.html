@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.44">
+<meta name="app-version" content="1.1.45">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -256,6 +256,15 @@ select option { background: var(--sur2); }
 .col-ctrl-btn:hover { border-color: var(--gold); color: var(--gold); }
 
 .hidden { display: none !important; }
+/* スワイプでタブが変わる時、入ってくる画面を横から滑り込ませる（2026-09-20 オーナー要望）。
+   表示中の1枚にだけ animation を当てるので、パネルの配置や固定ヘッダー・フッターには影響しない。 */
+@keyframes tab-slide-from-right { from { transform: translateX(6%); opacity: .55; } to { transform: none; opacity: 1; } }
+@keyframes tab-slide-from-left  { from { transform: translateX(-6%); opacity: .55; } to { transform: none; opacity: 1; } }
+body[data-tab-slide="next"] > div:not(.hidden)[id$="-panel"] { animation: tab-slide-from-right .2s ease-out; }
+body[data-tab-slide="prev"] > div:not(.hidden)[id$="-panel"] { animation: tab-slide-from-left .2s ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  body[data-tab-slide] > div:not(.hidden)[id$="-panel"] { animation: none; }
+}
 
 /* ================================================================
    SUMMER LIGHT MODE
@@ -13572,10 +13581,22 @@ document.addEventListener('touchend', event => {
   if (_tabSwipeBlocked(swipe.target)) return;
   if (_tabSwipeInScrollableX(swipe.target, dx)) return;
   const next = _tabSwipeNext(dx);
-  if (next) showTab(next);
+  if (next) showTabWithSlide(next, dx < 0 ? 'next' : 'prev');
 }, { passive: true });
 
 document.addEventListener('touchcancel', () => { _tabSwipe = null; }, { passive: true });
+
+/* 向きを body[data-tab-slide] に立ててからタブを切り替える。
+   表示が終わったら外して、ボタンからの切り替え（アニメなし）に戻す。
+   showTab が未保存確認で止まった場合も、印が残らないようタイマーで必ず消す。 */
+let _tabSlideTimer = null;
+function showTabWithSlide(tab, direction) {
+  document.body.dataset.tabSlide = direction;
+  try { showTab(tab); } finally {
+    clearTimeout(_tabSlideTimer);
+    _tabSlideTimer = setTimeout(() => { delete document.body.dataset.tabSlide; }, 300);
+  }
+}
 /* ================================================================
    POS PANEL (β) - 現場向けフィールドUI
 ================================================================ */
