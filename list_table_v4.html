@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.43">
+<meta name="app-version" content="1.1.44">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -13494,6 +13494,88 @@ function restoreActiveTab() {
   showTab(saved && valid.indexOf(saved) >= 0 ? saved : 'pos');
 }
 
+/* ================================================================
+   TAB SWIPE — タッチ画面で横スワイプしてタブを切り替える（2026-09-20 オーナー要望）
+
+   誤爆防止（営業中に指が少し流れただけで切り替わらないための条件）:
+     1. タッチのみ。マウス・ペンでは働かない（伝票カードのドラッグと衝突させない）
+     2. 指1本だけ。2本以上（ピンチ等）は無視
+     3. 横 SWIPE_MIN_X 以上・縦のブレは横の半分未満・SWIPE_MAX_MS 以内の素早い動きだけ
+     4. 入力欄・ボタン・リンク・ドラッグ部品の上から始めたスワイプは無視
+     5. 横スクロールできる場所（リスト表・日計表・設定の表など）では、その方向へまだ
+        スクロールの余地がある間は無視する。端まで行っていれば切り替える
+     6. モーダル・アプリ内ダイアログが開いている間は無視
+     7. 端のタブから外側へは動かさない（ループしない）
+   showTab 側の未保存確認（設定・過去リスト編集）はそのまま通る。
+================================================================ */
+const TAB_SWIPE_ORDER = ['pos', 'list', 'cast', 'report', 'analytics', 'customer', 'settings'];
+const SWIPE_MIN_X = 90;     // 切り替えに必要な横移動(px)
+const SWIPE_MAX_MS = 700;   // これより遅い動きは「スクロール」とみなす
+const SWIPE_NO_START = 'input, textarea, select, button, a, label, [contenteditable], [draggable="true"], .pos-me-drag, .pos-cat-manage-row, canvas';
+
+let _tabSwipe = null;
+
+/* この要素、または祖先に「その向きへまだスクロールできる横スクロール領域」があるか */
+function _tabSwipeInScrollableX(el, dx) {
+  for (let node = el; node && node !== document.body; node = node.parentElement) {
+    if (!(node instanceof Element)) continue;
+    const style = getComputedStyle(node);
+    if (!/(auto|scroll)/.test(style.overflowX)) continue;
+    const max = node.scrollWidth - node.clientWidth;
+    if (max <= 1) continue;
+    const left = node.scrollLeft;
+    if (dx < 0 && left < max - 1) return true;   // 左へ払う＝右方向へまだスクロールできる
+    if (dx > 0 && left > 1) return true;         // 右へ払う＝左方向へまだスクロールできる
+  }
+  return false;
+}
+
+function _tabSwipeBlocked(target) {
+  if (typeof _isAppModalOrOverlayOpen === 'function' && _isAppModalOrOverlayOpen()) return true;
+  if (document.getElementById('usb-boot-gate') || document.getElementById('auth-gate-overlay')) return true;
+  return !!(target && target.closest && target.closest(SWIPE_NO_START));
+}
+
+function _tabSwipeNext(dx) {
+  const current = document.body.dataset.activeTab;
+  const index = TAB_SWIPE_ORDER.indexOf(current);
+  if (index < 0) return null;                      // 過去リスト編集など一覧外の画面では動かさない
+  const next = index + (dx < 0 ? 1 : -1);          // 左へ払う＝次のタブ
+  if (next < 0 || next >= TAB_SWIPE_ORDER.length) return null;
+  return TAB_SWIPE_ORDER[next];
+}
+
+document.addEventListener('touchstart', event => {
+  if (event.touches.length !== 1) { _tabSwipe = null; return; }
+  const touch = event.touches[0];
+  _tabSwipe = { x: touch.clientX, y: touch.clientY, at: Date.now(), target: event.target, cancelled: false };
+}, { passive: true });
+
+document.addEventListener('touchmove', event => {
+  if (!_tabSwipe) return;
+  if (event.touches.length !== 1) { _tabSwipe.cancelled = true; return; }
+  const touch = event.touches[0];
+  if (Math.abs(touch.clientY - _tabSwipe.y) > Math.abs(touch.clientX - _tabSwipe.x)) _tabSwipe.cancelled = true;
+}, { passive: true });
+
+document.addEventListener('touchend', event => {
+  const swipe = _tabSwipe;
+  _tabSwipe = null;
+  if (!swipe || swipe.cancelled) return;
+  const touch = event.changedTouches && event.changedTouches[0];
+  if (!touch) return;
+  const dx = touch.clientX - swipe.x;
+  const dy = touch.clientY - swipe.y;
+  if (Math.abs(dx) < SWIPE_MIN_X) return;
+  if (Math.abs(dy) >= Math.abs(dx) / 2) return;
+  if (Date.now() - swipe.at > SWIPE_MAX_MS) return;
+  if (_tabSwipeBlocked(swipe.target)) return;
+  if (_tabSwipeInScrollableX(swipe.target, dx)) return;
+  const next = _tabSwipeNext(dx);
+  if (next) showTab(next);
+}, { passive: true });
+
+document.addEventListener('touchcancel', () => { _tabSwipe = null; }, { passive: true });
 /* ================================================================
    POS PANEL (β) - 現場向けフィールドUI
 ================================================================ */
