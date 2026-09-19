@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.42">
+<meta name="app-version" content="1.1.43">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -14299,9 +14299,9 @@ function _posSlipTimerText(row) {
   // POSで新規作成しただけ（SET未追加）の伝票はタイマーを出さない（現場の混乱防止）
   const hasSet = Array.isArray(row.posOrders) && row.posOrders.some(o => o.category === 'set');
   if (row.posManaged && !hasSet) return { text: '', cls: '' };
-  // 終了時刻 − 現在時刻（DEV対応・営業時間クランプなし・秒精度）。待機分は残りに加算。
-  const waitSec = Math.floor((row.posTotalWaitMs || 0) / 1000);
-  const diffSec = row.endMin * 60 - _posNowSec() + waitSec;
+  // 終了時刻 − 現在時刻（DEV対応・営業時間クランプなし・秒精度）。
+  // 止めていた分は再開時にSET明細の終了時刻へ足し込むため、ここでは加算しない（二重加算になる）。
+  const diffSec = row.endMin * 60 - _posNowSec();
   if (diffSec < 0) {
     const overMin = Math.floor(-diffSec / 60);
     const overSec = (-diffSec) % 60;
@@ -14453,17 +14453,29 @@ function _posStopTimer() {
   if (_posTimerInterval) { clearInterval(_posTimerInterval); _posTimerInterval = null; }
 }
 
-/* 待機モード切替 */
+/* 待機モード切替。
+   再開時は止めていた分だけSET明細の終了時刻を後ろへずらす。こうすると calcEndMin の基本時間が伸び、
+   卓カードの残り・リスト表の終了時刻・延長料金のご案内・精算がすべて同じ終了時刻で揃う
+   （従来は残り時間にだけ足していたため表示と食い違い、セット入れ直しでも消えなかった。2026-09-19 オーナー報告）。 */
 function posToggleWait() {
   const row = posSelectedRow(); if (!row) return;
   pushUndo();
   if (row.posWaitStart) {
-    row.posTotalWaitMs = (row.posTotalWaitMs || 0) + (Date.now() - row.posWaitStart);
+    const pausedMs = Math.max(0, Date.now() - row.posWaitStart);
+    row.posTotalWaitMs = (row.posTotalWaitMs || 0) + pausedMs;
     row.posWaitStart = 0;
+    const pausedMin = Math.round(pausedMs / 60000);
+    if (pausedMin > 0) {
+      const set = posOrders(row).find(o => o.category === 'set'
+        && Number.isFinite(o.startMin) && Number.isFinite(o.endMin) && o.endMin > o.startMin);
+      if (set) set.endMin += pausedMin;
+      state.rows.filter(r => r.gid === row.gid).forEach(r => { r.endMin = calcEndMin(r, state.rows); });
+    }
   } else {
     row.posWaitStart = Date.now();
   }
   saveState();
+  renderTable();
   renderPOSPanel();
 }
 
@@ -17485,6 +17497,9 @@ function posSetEntryApply(taxIncluded) {
   const grp = state.rows.filter(r => r.gid === _posSetEntry.gid);
   grp.forEach(r => { r.startMin = _posSetEntry.startMin; });
   const isEdit = (typeof _posSetEntry.editIdx === 'number');
+  // セットを入れ直したら、前のセットで止めていた時間は持ち越さない（新しい滞在として数え直す。2026-09-19）
+  row.posTotalWaitMs = 0;
+  row.posWaitStart = 0;
   const orders = posOrders(row);
   if (isEdit && orders[_posSetEntry.editIdx] && orders[_posSetEntry.editIdx].category === 'set') {
     // 上書きモード：既存のid/createdAtは保持して値だけ更新（新規unshiftしない）。
