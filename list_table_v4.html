@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.46">
+<meta name="app-version" content="1.1.47">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -13509,7 +13509,8 @@ function showTab(tab) {
   if (tab === 'cast') renderCastPanel();
   if (tab === 'report') renderReportPanel();
   if (tab === 'analytics') renderBusinessAnalyticsPanel();
-  if (tab === 'customer') { syncCustomers(); renderCustomerTable(); }
+  // 顧客タブに入り直したら表示件数の上限を戻す（「すべて表示」は開いている間だけ有効）
+  if (tab === 'customer') { _customerShowAll = false; syncCustomers(); renderCustomerTable(); }
   if (tab === 'bottle') renderBottlePanel();
   if (tab === 'past') { renderPastSidebar(); renderPastMain(); }
   if (tab === 'settings') renderSettingsPanel();
@@ -16113,6 +16114,7 @@ function extOptAddRow() {
   tbody.appendChild(tr);
   tr.querySelector('input').focus();
   syncExtFeeRows();
+  if (typeof _posItemLabelsRefreshDynamic === 'function') _posItemLabelsRefreshDynamic();
   tr.dispatchEvent(new Event('change', { bubbles: true }));
   if (typeof _settingsMarkDirty === 'function') _settingsMarkDirty();
 }
@@ -16127,6 +16129,7 @@ function extOptDelRow(btn) {
   });
   tr.remove();
   syncExtFeeRows();
+  if (typeof _posItemLabelsRefreshDynamic === 'function') _posItemLabelsRefreshDynamic();
   document.getElementById('ext-options-tbody')?.dispatchEvent(new Event('change', { bubbles: true }));
   if (typeof _settingsMarkDirty === 'function') _settingsMarkDirty();
 }
@@ -16347,6 +16350,7 @@ function posItemLabelsReset() {
     input.value = '';
     changed++;
   });
+  if (typeof _posItemLabelsRefreshValues === 'function') _posItemLabelsRefreshValues();
   if (changed) _settingsMarkDirty();
   showToast(changed ? `品目名を既定に戻しました（${changed}件）。「保存」で確定します` : '品目名はすべて既定のままです');
 }
@@ -25284,7 +25288,7 @@ function renderSettingsPanel() {
           })()}
           <div class="settings-group-head">🧾 伝票の品目名</div>
           <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:8px">
-            <div class="settings-sub" style="margin-bottom:0">伝票・レシートに印字される品目の名前です。キャストが付く項目は「品目名:キャスト名」の形で印字されます。空欄にすると既定名に戻ります。変更後に取った注文から反映され、過去の伝票の印字は変わりません。延長の品目名は 料金・会計 → 延長料金 で設定します。</div>
+            <div class="settings-sub" style="margin-bottom:0">伝票・レシートに印字される品目の名前です。キャストが付く項目は「品目名:キャスト名」の形で印字されます。空欄にすると既定名に戻ります。変更後に取った注文から反映され、過去の伝票の印字は変わりません。延長・本指名延長・延長指名・ドリンクの名前は 料金・会計 の料金表と共通で、どちらで直しても同じです。「名前を既定に戻す」はセット〜空場内と延長が対象です。</div>
             <button type="button" onclick="posItemLabelsReset()" style="flex-shrink:0;background:var(--sur4);border:1px solid var(--bdr);border-radius:6px;color:var(--tx2);cursor:pointer;font-size:12px;padding:4px 10px;white-space:nowrap">↺ 名前を既定に戻す</button>
           </div>
           <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:8px">
@@ -25293,12 +25297,13 @@ function renderSettingsPanel() {
               <tbody id="cfg-pos-item-labels">${POS_ITEM_LABEL_FIELDS.map(field => {
                 const def = POS_ITEM_LABEL_DEFAULTS[field.key];
                 const cur = posItemLabel(field.key, cfg);
-                return `<tr data-key="${escAttr(field.key)}" data-default-label="${escAttr(def)}">
+                return `<tr data-key="${escAttr(field.key)}" data-default-label="${escAttr(def)}" data-with-cast="${field.withCast ? '1' : '0'}">
                   <td style="font-size:13px;color:var(--tx2)">${escHtml(field.title)}</td>
-                  <td><input type="text" class="settings-input pos-item-label-input" value="${escAttr(cur)}" placeholder="${escAttr(def)}" title="空欄にすると既定名「${escAttr(def)}」に戻ります" oninput="_settingsMarkDirty()"></td>
-                  <td style="font-size:12px;color:var(--tx3)">${escHtml(field.withCast ? cur + ':キャスト名' : cur)}</td>
+                  <td><input type="text" class="settings-input pos-item-label-input" value="${escAttr(cur)}" placeholder="${escAttr(def)}" title="空欄にすると既定名「${escAttr(def)}」に戻ります" oninput="posItemLabelSync(this)"></td>
+                  <td class="pos-item-label-sample" style="font-size:12px;color:var(--tx3)">${escHtml(field.withCast ? cur + ':キャスト名' : cur)}</td>
                 </tr>`;
               }).join('')}</tbody>
+              <tbody id="cfg-pos-item-labels-dyn">${_posItemLabelDynamicRowsHtml(false)}</tbody>
             </table>
           </div>
           <div class="settings-sub" style="margin:12px 0">単価・バック・ptは 料金・会計 → 料金マスター で設定します</div>
@@ -25882,6 +25887,110 @@ async function authSettingsClear() {
 
 /* タグ操作（設定パネル内のタグエディタ） */
 const _settingsTags = {};
+/* 伝票に印字される品目名のうち、金額と同じ行で持っているもの（延長・本指名延長・延長指名・
+   ドリンク）を「伝票の品目名」の一覧にも並べるための行データ。値を二重に持つと保存時に
+   どちらが勝つか分からなくなるため、保存先は従来どおり料金表側の入力欄1つだけにして、
+   この一覧の入力欄は data-src の指す欄へ書き写すだけにしてある（2026-09-21 ギャルサークル要望）。
+   useDom=false は設定画面を組み立てている最中（DOMがまだ無い）に cfg から作る場合。 */
+function _posItemLabelDynamicRows(useDom) {
+  const groups = [];
+  const extSel = i => `#ext-options-tbody tr:nth-of-type(${i + 1}) input[id$="-name"]`;
+  if (useDom) {
+    groups.push({ title:'⏱ 延長料金', rows: Array.from(document.querySelectorAll('#ext-options-tbody tr')).map((tr, i) => {
+      const input = tr.querySelector('input[id$="-name"]');
+      if (!input) return null;
+      const min = parseInt(tr.querySelector('input[id$="-min"]')?.value);
+      return { title: min > 0 ? min + '分' : '延長', value: input.value || '',
+        placeholder: min > 0 ? '延長' + min + '分' : '延長◯分', selector: extSel(i), withCast:false };
+    }).filter(Boolean) });
+  } else {
+    const mins = (Array.isArray(cfg.extOptions) && cfg.extOptions.length ? cfg.extOptions : [20, 40, 60]);
+    groups.push({ title:'⏱ 延長料金', rows: mins.map((min, i) => ({
+      title: Number(min) > 0 ? min + '分' : '延長', value: (cfg.extNames || [])[i] ?? '',
+      placeholder: Number(min) > 0 ? '延長' + min + '分' : '延長◯分', selector: extSel(i), withCast:false,
+    })) });
+  }
+  const feeGroup = (title, tbodyId, rowClass, items) => {
+    const rows = useDom
+      ? Array.from(document.querySelectorAll('#' + tbodyId + ' tr.' + rowClass)).map(tr => ({
+          key: tr.dataset.key || '', value: tr.querySelector('.shimei-ext-label')?.value || '' }))
+      : items.map(item => ({ key: item.key || '', value: item.label || '' }));
+    groups.push({ title, rows: rows.filter(row => row.key).map(row => ({
+      title: String(row.value).trim() || '（名称未設定）', value: row.value, placeholder:'項目名',
+      selector: '#' + tbodyId + ' tr[data-key="' + String(row.key).replace(/"/g, '') + '"] .shimei-ext-label', withCast:true,
+    })) });
+  };
+  feeGroup('🔁 本指名延長', 'cfg-shimei-honen', 'shimei-ext-row', shimeiExtGroup('honen'));
+  feeGroup('🔁 延長指名',   'cfg-shimei-enshi', 'shimei-ext-row', shimeiExtGroup('enshi'));
+  feeGroup('🥂 ドリンク',   'cfg-drink-items',  'drink-item-row', drinkItemList());
+  return groups;
+}
+
+function _posItemLabelDynamicRowsHtml(useDom) {
+  return _posItemLabelDynamicRows(useDom).map(group => {
+    if (!group.rows.length) return '';
+    return `<tr><td colspan="3" style="padding:12px 0 4px;font-size:12px;font-weight:700;color:var(--tx2)">${escHtml(group.title)}</td></tr>`
+      + group.rows.map(row => {
+        const name = String(row.value || '').trim() || row.placeholder;
+        return `<tr class="pos-item-label-dyn" data-src="${escAttr(row.selector)}" data-with-cast="${row.withCast ? '1' : '0'}">
+          <td style="font-size:13px;color:var(--tx2)">${escHtml(row.title)}</td>
+          <td><input type="text" class="settings-input pos-item-label-input" value="${escAttr(row.value)}" placeholder="${escAttr(row.placeholder)}" title="料金・会計の料金表にある同じ項目名です" oninput="posItemLabelSync(this)"></td>
+          <td class="pos-item-label-sample" style="font-size:12px;color:var(--tx3)">${escHtml(row.withCast ? name + ':キャスト名' : name)}</td>
+        </tr>`;
+      }).join('');
+  }).join('');
+}
+
+function _posItemLabelSampleText(tr) {
+  const input = tr && tr.querySelector('.pos-item-label-input');
+  const name = String(input?.value || '').trim() || String(input?.placeholder || '').trim();
+  if (!name) return '—';
+  return tr.dataset.withCast === '1' ? name + ':キャスト名' : name;
+}
+function _posItemLabelUpdateSample(tr) {
+  const cell = tr && tr.querySelector('.pos-item-label-sample');
+  if (cell) cell.textContent = _posItemLabelSampleText(tr);
+}
+
+/* 一覧で名前を直したら、保存元である料金表側の入力欄にも同じ値を入れる */
+function posItemLabelSync(input) {
+  const tr = input?.closest?.('tr');
+  if (!tr) return;
+  if (tr.dataset.src) {
+    const target = document.querySelector(tr.dataset.src);
+    if (target && target.value !== input.value) target.value = input.value;
+  }
+  _posItemLabelUpdateSample(tr);
+  _settingsMarkDirty();
+}
+
+/* 料金表側で直された名前を一覧に反映する（値と印字例だけ） */
+function _posItemLabelsRefreshValues() {
+  document.querySelectorAll('#cfg-pos-item-labels tr, #cfg-pos-item-labels-dyn tr').forEach(tr => {
+    const input = tr.querySelector('.pos-item-label-input');
+    if (!input) return;
+    const src = tr.dataset.src ? document.querySelector(tr.dataset.src) : null;
+    if (src && input.value !== src.value) input.value = src.value;
+    _posItemLabelUpdateSample(tr);
+  });
+}
+
+/* 料金表の行が増減したときに一覧を作り直す */
+function _posItemLabelsRefreshDynamic() {
+  const tbody = document.getElementById('cfg-pos-item-labels-dyn');
+  if (!tbody) return;
+  tbody.innerHTML = _posItemLabelDynamicRowsHtml(true);
+}
+
+/* 料金表側の項目名入力を見張って一覧へ反映する。設定画面は作り直されるので委譲で受ける */
+document.addEventListener('input', event => {
+  const target = event.target;
+  if (!target) return;
+  const isFeeLabel = !!(target.classList && target.classList.contains('shimei-ext-label'));
+  const isExtName = /^cfg-extOpt-\d+-name$/.test(target.id || '');
+  if (isFeeLabel || isExtName) _posItemLabelsRefreshValues();
+}, true);
+
 function _shimeiExtSettingsRowHTML(type, item) {
   const value = item || {};
   const back = state.castDefaults?.[value.key];
@@ -25903,6 +26012,7 @@ function shimeiExtAddRow(type) {
   do { key = type + '_' + Math.random().toString(36).slice(2, 7); } while (used.has(key));
   tbody.insertAdjacentHTML('beforeend', _shimeiExtSettingsRowHTML(type, { key, label:'', amount:0, pt:0 }));
   payrollRefreshDrinkMaster();
+  _posItemLabelsRefreshDynamic();
   tbody.querySelector('tr:last-child .shimei-ext-label')?.focus();
   _settingsMarkDirty();
 }
@@ -25916,6 +26026,7 @@ async function shimeiExtDelRow(button) {
   }
   if (!(await appConfirm('過去の集計・給与データは消えませんが、POSボタンと今後の集計列から外れます', { danger: true }))) return;
   row.remove();
+  _posItemLabelsRefreshDynamic();
   _settingsMarkDirty();
 }
 function drinkItemAddRow() {
@@ -25928,6 +26039,7 @@ function drinkItemAddRow() {
   if (shotRow) shotRow.insertAdjacentHTML('beforebegin', _feeMasterDrinkRowHTML({ key, label:'', amount:0, pt:0 }));
   else tbody.insertAdjacentHTML('beforeend', _feeMasterDrinkRowHTML({ key, label:'', amount:0, pt:0 }));
   payrollRefreshDrinkMaster();
+  _posItemLabelsRefreshDynamic();
   (shotRow ? shotRow.previousElementSibling : tbody.lastElementChild)?.querySelector('.shimei-ext-label')?.focus();
   _settingsMarkDirty();
 }
@@ -25941,6 +26053,7 @@ async function drinkItemDelRow(button) {
   }
   if (!(await appConfirm('過去の集計・給与データは消えませんが、POSボタンと今後の集計列から外れます', { danger: true }))) return;
   row.remove();
+  _posItemLabelsRefreshDynamic();
   _settingsMarkDirty();
 }
 
@@ -27675,6 +27788,17 @@ const SHIMEI_COLOR = {
 };
 
 /* 顧客テーブル描画 */
+/* 顧客一覧の初期表示件数。1行あたり28要素あり、全件描くと2,000人で56,000要素＝約160msかかる。
+   並び順の先頭（既定＝来店回数の多い順）だけを描き、残りは検索か「すべて表示」で出す（2026-09-20 速度改善）。 */
+const CUSTOMER_ROW_LIMIT = 200;
+let _customerShowAll = false;
+
+/* 「すべて表示」ボタン。押した時だけ全件を描く */
+function customerShowAllRows() {
+  _customerShowAll = true;
+  renderCustomerTable();
+}
+
 function renderCustomerTable() {
   const data   = loadCustomersWithKana();
   const query  = (document.getElementById('customer-search')?.value || '').trim().toLowerCase();
@@ -27708,7 +27832,12 @@ function renderCustomerTable() {
     }
   });
 
-  document.getElementById('customer-count').textContent = `${rows.length} 件`;
+  const totalRows = rows.length;
+  const limited = !_customerShowAll && totalRows > CUSTOMER_ROW_LIMIT;
+  if (limited) rows = rows.slice(0, CUSTOMER_ROW_LIMIT);
+  document.getElementById('customer-count').textContent = limited
+    ? `${totalRows} 件（先頭 ${rows.length} 件を表示）`
+    : `${totalRows} 件`;
 
   /* 統合バナー */
   const banner = document.getElementById('customer-merge-banner');
@@ -27840,6 +27969,16 @@ function renderCustomerTable() {
     const ta = tr.querySelector('.cust-memo');
     requestAnimationFrame(() => autoResizeMemo(ta));
   });
+
+  if (limited) {
+    const rest = totalRows - rows.length;
+    const more = document.createElement('tr');
+    more.innerHTML = `<td colspan="11" style="text-align:center;padding:14px;color:var(--tx2);font-size:12px">`
+      + `あと ${rest} 件あります。上の検索で絞り込むか、`
+      + `<button type="button" class="btn" style="margin-left:8px" onclick="customerShowAllRows()">すべて表示</button>`
+      + `</td>`;
+    tbody.appendChild(more);
+  }
 }
 
 function autoResizeMemo(ta) {
