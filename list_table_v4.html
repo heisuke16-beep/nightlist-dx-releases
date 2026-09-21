@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.47">
+<meta name="app-version" content="1.1.48">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -8346,9 +8346,14 @@ const SelfUpdate = {
       if (!UsbStore.active || !UsbStore._dirHandle) return this._result('aborted', 'USBモードで利用できます');
 
       onProgress('確認中…');
-      const versionRes = await fetch(updateUrl, { cache: 'no-store' });
-      if (!versionRes.ok) throw new Error('version.json fetch failed');
-      const info = this._validateVersionInfo(await versionRes.json());
+      const versionRes = await this._fetchNoStore(updateUrl);
+      let info;
+      try {
+        info = this._validateVersionInfo(await versionRes.json());
+      } catch (e) {
+        // 応答はあるが中身がJSONでない場合（社内プロキシの案内ページ等）もここに来る
+        throw this._coded(e, 'BAD_VERSION_INFO');
+      }
       const current = this._parseSemver(this.currentVersion());
       const next = this._parseSemver(info.version);
       if (this._compareSemver(next, current) <= 0) {
@@ -8361,9 +8366,13 @@ const SelfUpdate = {
 
       onProgress('ダウンロード中…');
       const htmlUrl = new URL(info.url, updateUrl).href;
-      const htmlRes = await fetch(htmlUrl, { cache: 'no-store' });
-      if (!htmlRes.ok) throw new Error('html fetch failed');
-      const bytes = await htmlRes.arrayBuffer();
+      const htmlRes = await this._fetchNoStore(htmlUrl);
+      let bytes;
+      try {
+        bytes = await htmlRes.arrayBuffer();
+      } catch (e) {
+        throw this._coded(e, 'OFFLINE');             // 受信の途中で切れた
+      }
       const actualHash = await this._sha256Hex(bytes);
       if (actualHash !== info.sha256.toLowerCase()) {
         return this._result('error', '取得ファイルの検証に失敗しました。更新を中止しました');
@@ -8373,11 +8382,24 @@ const SelfUpdate = {
         return this._result('error', '新版HTMLのバージョンが配信情報と一致しません');
       }
 
-      const appFileHandle = await this._getVerifiedAppFileHandle();
+      let appFileHandle;
+      try {
+        appFileHandle = await this._getVerifiedAppFileHandle();
+      } catch (e) {
+        // ファイル選択ダイアログを閉じた場合はAbortError。それ以外は本体を開けなかった場合。
+        throw this._coded(e, (e && e.name === 'AbortError') ? 'PICK_CANCELED' : 'NO_APP_FILE');
+      }
+
       onProgress('書き換え中…');
-      await UsbStore.flush();
-      const backupHtml = await (await appFileHandle.getFile()).text();
-      await this._writeTextVerified(await UsbStore._dirHandle.getFileHandle('app-backup.html', { create: true }), backupHtml);
+      let backupHtml;
+      try {
+        await UsbStore.flush();
+        backupHtml = await (await appFileHandle.getFile()).text();
+        await this._writeTextVerified(await UsbStore._dirHandle.getFileHandle('app-backup.html', { create: true }), backupHtml);
+      } catch (e) {
+        // 本体を書き換える前にバックアップを書くので、ここが保存先へ書けるかどうかの試験も兼ねる
+        throw this._coded(e, 'WRITE_FAILED');
+      }
       try {
         await this._writeTextVerified(appFileHandle, nextHtml);
         const writtenHtml = await (await appFileHandle.getFile()).text();
@@ -8405,11 +8427,39 @@ const SelfUpdate = {
     return { status, message };
   },
 
+  /* 失敗の理由を現場が次の一手を決められる文言にする。共通の「更新に失敗しました」だけだと、
+     端末が機内モードで通信できていないのか、マイクロSDに書けないのかが現地に行くまで分からない
+     （2026-09-21 ギャルサークルで実際に起きた）。 */
   _messageForError(e) {
-    if (e && e.code === 'BAD_VERSION_INFO') return '配信元の応答が不正です';
-    if (e && e.code === 'BAD_HASH') return '取得ファイルの検証に失敗しました';
-    if (e && e.code === 'BAD_SELF_FILE') return '選択されたファイルは起動中のアプリと一致しません';
+    const code = e && e.code;
+    if (code === 'OFFLINE') return 'インターネットにつながっていません。Wi-Fi（機内モード）を確認してください';
+    if (code === 'SOURCE_HTTP') return '配信元に接続できませんでした。時間をおいてもう一度お試しください';
+    if (code === 'BAD_VERSION_INFO') return '配信元の応答が不正です';
+    if (code === 'BAD_HASH') return '取得ファイルの検証に失敗しました';
+    if (code === 'BAD_SELF_FILE') return '選択されたファイルは起動中のアプリと一致しません';
+    if (code === 'PICK_CANCELED') return 'アプリ本体のファイルが選ばれなかったため中止しました';
+    if (code === 'NO_APP_FILE') return 'アプリ本体のファイルを開けませんでした。いま開いているHTMLを選び直してください';
+    if (code === 'WRITE_FAILED') return '保存先（USB・マイクロSD）に書き込めませんでした。抜き差ししてもう一度お試しください';
     return '更新に失敗しました';
+  },
+
+  /* 更新の取得はすべてここを通す。通信そのものが失敗したのか、配信元が応答を返したのかを分ける。 */
+  async _fetchNoStore(url) {
+    let res;
+    try {
+      res = await fetch(url, { cache: 'no-store' });
+    } catch (e) {
+      throw this._coded(e, 'OFFLINE');               // 機内モード・Wi-Fi断・名前解決不可
+    }
+    if (!res.ok) throw this._coded(new Error('http ' + res.status), 'SOURCE_HTTP');
+    return res;
+  },
+
+  /* 投げる前に理由の印を付ける。すでに印があれば内側の具体的な理由を優先する。 */
+  _coded(error, code) {
+    const err = (error instanceof Error) ? error : new Error(String(error));
+    if (!err.code) err.code = code;
+    return err;
   },
 
   _validateVersionInfo(info) {
