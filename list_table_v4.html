@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.49">
+<meta name="app-version" content="1.1.50">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -13948,6 +13948,10 @@ function _posExtSeats(row) {
   if (!row || (row.gcount || 1) < 2) return 1;
   return Math.max(1, (row.gcount || 1) - _posDepartedCount(row));
 }
+/* 画面に出す「いま卓にいる人数」。入店記録(gcount)から退席ぶんを引いた数で、延長の課金席数と同じ。
+   gcountは入店の記録なので減らさない（2026-09-23 オーナー指摘: 退席させても伝票の人数が入店時のままだった）。 */
+function _posCurrentGuests(row) { return _posExtSeats(row); }
+
 /* 先頭行の延長ラウンド一覧 [{min, seats}]。seats=そのラウンドを入れた時点の課金席数。
    帰宅後に入れた延長は席数が減る＝ラウンドごとに席数が異なりうる（既存ラウンドは不変）。
    row.extSeats[i] に記録した席数を使う。古いデータ(未記録)は基本席数で補完。1名卓は常に1。
@@ -14688,7 +14692,7 @@ function _posSlipCard(r, isSelected, totalCount, mode, padRows) {
   const seatBill = calcBill(r);
   const b = _posComputeTotals(seatBill.subtotal, orders, 0);
   const orderPricing = { subtotal:b.baseSubtotal, cash:b.baseCash };
-  const people = r.gcount || 1;
+  const people = _posCurrentGuests(r);
   const table = r.tableNum ? posTableLabel(r.tableNum) : '-';
   const source = r.source || '';
 
@@ -14883,7 +14887,7 @@ function _posOrderSlipPanel(r) {
   return '<section class="pos-order-slip-panel">'
     + '<header class="pos-order-slip-head">'
     + '<div class="pos-order-slip-headrow"><span class="pos-order-slip-table">' + tableHTML + '</span>'
-    + '<button type="button" class="pos-order-slip-people" onclick="posOpenDepartedModal()" aria-label="人数を調整"><small>人数 ±</small><b>' + escHtml(String(r.gcount || 1)) + '名</b></button>'
+    + '<button type="button" class="pos-order-slip-people" onclick="posOpenDepartedModal()" aria-label="人数を調整" title="いま卓にいる人数（入店記録は人数の調整で確認できます）"><small>人数 ±</small><b>' + escHtml(String(_posCurrentGuests(r))) + '名</b></button>'
     + '<span class="pos-order-slip-elapsed"><small>経過</small><b data-pos-elapsed-gid="' + r.gid + '">' + _posElapsedText(r) + '</b></span>'
     + (timer.text ? '<button class="pos-order-slip-remain status-' + status + '" data-gid="' + r.gid + '" onclick="posToggleWait()">' + _posOrderTimerHtml(timer) + '</button>' : '')
     + '</div>'
@@ -15664,7 +15668,7 @@ function _posFloorCard(row) {
     + ' ondragover="posCastDragOver(event)" ondragleave="posCastDragLeave(event)" ondrop="posCastDrop(event,' + row.gid + ')">'
     + '<span class="pos-floor-card-top">'
     + '<span class="pos-floor-tablewrap"><span class="pos-floor-table">' + escHtml(posTableDisplay(table)) + '</span>'
-    + '<span class="pos-floor-people">' + escHtml(String(row.gcount || 0)) + '名</span></span>'
+    + '<span class="pos-floor-people">' + escHtml(String(_posCurrentGuests(row))) + '名</span></span>'
     + (row.source ? '<span class="pos-floor-source">' + escHtml(row.source) + '</span>' : '')
     + '</span>'
     + statusRow
