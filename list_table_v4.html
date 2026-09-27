@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.50">
+<meta name="app-version" content="1.1.51">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -3591,6 +3591,12 @@ body[data-active-tab="report"] { overflow:hidden; }
 /* ================================================================
    TIMETABLE PRINT（タイムテーブル印刷用）
 ================================================================ */
+.cast-order-pick { display:inline-flex; align-items:center; gap:6px; margin-left:10px; font-size:11px; font-weight:400; color:var(--tx2); letter-spacing:0; }
+.cast-order-pick select { font-size:12px; padding:3px 6px; }
+.cast-drag-handle { display:inline-flex; align-items:center; justify-content:center; width:26px; height:30px; margin:-4px 0; color:var(--tx3); font-size:16px; cursor:grab; touch-action:none; user-select:none; -webkit-user-select:none; border-radius:4px; }
+.cast-drag-handle:hover { color:var(--tx); background:var(--sur2); }
+tr.cast-row-dragging { opacity:.6; outline:2px dashed var(--gold); outline-offset:-2px; }
+tr.cast-row-dragging .cast-drag-handle { cursor:grabbing; }
 #tt-print-pages { display: none; }
 @media print {
   body > *:not(#tt-print-pages):not(#print-pages) { display: none !important; }
@@ -6582,6 +6588,13 @@ html[data-display="desktop"] #tabs .tab-btn .tab-app-icon { width: 56px; height:
     <h2>出勤キャスト
       <button class="btn primary" onclick="ttClockInAllPlanned()">⏱ 一括出勤</button>
       <button class="btn" onclick="printTimetable()" style="font-size:10px;padding:3px 10px;margin-left:10px">🖨 印刷</button>
+      <label class="cast-order-pick">並び
+        <select id="tt-order-select" onchange="setCastListOrder(this.value)" aria-label="出勤キャストと日計表の並び順">
+          <option value="clockIn">出勤順</option>
+          <option value="roster">名簿順（固定）</option>
+          <option value="custom">手動（ドラッグ）</option>
+        </select>
+      </label>
     </h2>
     <div style="color:var(--tx3);font-size:11px;margin-bottom:10px;line-height:1.6">
       「出勤」ボタンを押すことで、手動でキャストを出勤状態にすることができます。出勤時刻をあらかじめ設定しておくことで、出勤時刻になったら自動的にキャストを出勤状態にすることができます。
@@ -9135,6 +9148,8 @@ const CFG_DEFAULTS = {
   payrollDeductionDisplayField:  'dailyPay', // 控除票の金額欄: dailyPay | nominatedSales
   payrollDeductionDisplayPrint:  true, // 控除票の先頭金額欄をA4印刷する（画面・計算には影響しない）
   payrollHiddenCols:             [],     // 日計表で非表示にする列ID（空=全列表示）
+  castListOrder:                 'clockIn', // 出勤キャスト・日計表の並び: clockIn=出勤順 | roster=名簿順（固定） | custom=手動（ドラッグ）
+  castListCustomOrder:           [],     // 手動（ドラッグ）で決めたキャスト名の並び
   // --- テーマ既定値（端末別。選択可能なのは従来nightとchampagneのみ） ---
   defaultTheme:                  'night', // 'night' | 'champagne'
   // --- POS指名系・ドリンクのボタン単価（店ごとに可変） ---
@@ -11412,6 +11427,89 @@ function castsSortedByClockIn(names, tt){
     })
     .map(o => o.name);
 }
+/* 出勤キャスト・日計表・控除票の並び（cfg.castListOrder）。
+   'clockIn'=出勤時刻の早い順（既定・従来どおり）／'roster'=名簿順で固定（キャスト管理のNo.順→登録順）／
+   'custom'=行の ⠿ をドラッグして決めた順（cfg.castListCustomOrder）。名簿順・手動順は時刻を直しても行が動かない。 */
+const CAST_LIST_ORDERS = [['clockIn','出勤順'],['roster','名簿順（固定）'],['custom','手動（ドラッグ）']];
+function castListOrderMode(){
+  const v = typeof cfg !== 'undefined' ? cfg.castListOrder : '';
+  return (v === 'roster' || v === 'custom') ? v : 'clockIn';
+}
+function castListOrderOptionsHtml(){
+  const mode = castListOrderMode();
+  return CAST_LIST_ORDERS.map(([v, l]) => '<option value="' + v + '"' + (v === mode ? ' selected' : '') + '>' + l + '</option>').join('');
+}
+function castsSortedByRoster(names){
+  ensureCastStores();
+  const pos = new Map((state.allCasts || []).map((n, i) => [n, i]));
+  const byRoster = names.slice().sort((a, b) =>
+    (pos.has(a) ? pos.get(a) : Infinity) - (pos.has(b) ? pos.get(b) : Infinity));
+  return castsSortedByNo(byRoster);
+}
+/* 手動順：並べたことのある子はその順、まだの子（新人など）は名簿順で後ろへ */
+function castsSortedByCustom(names){
+  const order = Array.isArray(cfg.castListCustomOrder) ? cfg.castListCustomOrder : [];
+  const pos = new Map(order.map((n, i) => [n, i]));
+  const known = names.filter(n => pos.has(n)).sort((a, b) => pos.get(a) - pos.get(b));
+  return known.concat(castsSortedByRoster(names.filter(n => !pos.has(n))));
+}
+/* 名簿順・手動順を適用。出勤順なら null（呼び出し側の従来ソートを使う） */
+function castsSortedByListOrder(names){
+  const mode = castListOrderMode();
+  if (mode === 'roster') return castsSortedByRoster(names);
+  if (mode === 'custom') return castsSortedByCustom(names);
+  return null;
+}
+function _rerenderCastOrderViews(){
+  if (typeof renderTimetable === 'function') renderTimetable();
+  if (document.getElementById('payroll-table-host') && typeof renderReportPanel === 'function') renderReportPanel();
+}
+function setCastListOrder(value){
+  cfg.castListOrder = CAST_LIST_ORDERS.some(([v]) => v === value) ? value : 'clockIn';
+  saveCfg();
+  _rerenderCastOrderViews();
+}
+/* 行ドラッグ（⠿ ハンドル。マウス・タッチ共通の pointer events）。
+   離した時点の画面の並びを手動順として保存し、表示中でない子の順番は後ろに残す。 */
+function castRowDragStart(event){
+  const handle = event.currentTarget;
+  const row = handle.closest('tr[data-cast]');
+  const tbody = row && row.parentElement;
+  if (!tbody) return;
+  event.preventDefault();
+  event.stopPropagation();
+  try { handle.setPointerCapture(event.pointerId); } catch(_){}
+  const before = Array.from(tbody.querySelectorAll('tr[data-cast]')).map(tr => tr.dataset.cast).join('\n');
+  row.classList.add('cast-row-dragging');
+  const move = e => {
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const over = el && el.closest('tr[data-cast]');
+    if (!over || over === row || over.parentElement !== tbody) return;
+    const r = over.getBoundingClientRect();
+    tbody.insertBefore(row, e.clientY < r.top + r.height / 2 ? over : over.nextSibling);
+  };
+  const end = () => {
+    handle.removeEventListener('pointermove', move);
+    handle.removeEventListener('pointerup', end);
+    handle.removeEventListener('pointercancel', end);
+    row.classList.remove('cast-row-dragging');
+    const shown = Array.from(tbody.querySelectorAll('tr[data-cast]')).map(tr => tr.dataset.cast);
+    if (shown.join('\n') === before) return;   // 動かしていない（タップだけ）なら何も変えない
+    const prev = Array.isArray(cfg.castListCustomOrder) && cfg.castListCustomOrder.length
+      ? cfg.castListCustomOrder : (castsSortedByListOrder(state.allCasts) || state.allCasts);
+    cfg.castListCustomOrder = shown.concat(prev.filter(n => !shown.includes(n)));
+    cfg.castListOrder = 'custom';
+    saveCfg();
+    _rerenderCastOrderViews();
+  };
+  handle.addEventListener('pointermove', move);
+  handle.addEventListener('pointerup', end);
+  handle.addEventListener('pointercancel', end);
+}
+function castDragHandleHtml(){
+  return '<span class="cast-drag-handle" role="button" aria-label="ドラッグで並べ替え" title="ドラッグで並べ替え"'
+    + ' onpointerdown="castRowDragStart(event)" onclick="event.stopPropagation()">⠿</span>';
+}
 /* 退店：名簿(allCasts/activeCasts)から退店リストへ移す。データ(castProfiles)は残す。 */
 async function retireCast(name){
   ensureCastStores();
@@ -12916,7 +13014,9 @@ function renderTimetable() {
     return 5;                            // 未出勤
   };
   const castTime = c => clockInToMin(clockIns[c] || plannedClockIns[c]);
-  const sorted = [...visibleCasts].sort((a, b) => {
+  const orderSel = document.getElementById('tt-order-select');
+  if (orderSel) orderSel.value = castListOrderMode();
+  const sorted = castsSortedByListOrder(visibleCasts) || [...visibleCasts].sort((a, b) => {
     const ta = castTime(a), tb = castTime(b);
     // 時刻がある同士 → 時刻順
     if (ta !== Infinity && tb !== Infinity) return ta - tb;
@@ -13019,9 +13119,11 @@ function renderTimetable() {
 
     const tr = document.createElement('tr');
     tr.className = rowClass;
+    tr.dataset.cast = castName;
     tr.innerHTML = `
       <td style="font-weight:600;white-space:nowrap">
         <div style="display:flex;align-items:center;gap:6px">
+          ${castDragHandleHtml()}
           <button class="tt-action-btn green" onclick="ttForceClockIn('${escAttr(castName)}')">出勤</button>
           <button class="tt-action-btn pink" onclick="ttSetDouban('${escAttr(castName)}')">同伴</button>
           <button class="tt-action-btn danger" onclick="ttCheckout('${escAttr(castName)}')">退勤</button>
@@ -13598,7 +13700,7 @@ function restoreActiveTab() {
 const TAB_SWIPE_ORDER = ['pos', 'list', 'cast', 'report', 'analytics', 'customer', 'settings'];
 const SWIPE_MIN_X = 90;     // 切り替えに必要な横移動(px)
 const SWIPE_MAX_MS = 700;   // これより遅い動きは「スクロール」とみなす
-const SWIPE_NO_START = 'input, textarea, select, button, a, label, [contenteditable], [draggable="true"], .pos-me-drag, .pos-cat-manage-row, canvas';
+const SWIPE_NO_START = 'input, textarea, select, button, a, label, [contenteditable], [draggable="true"], .pos-me-drag, .pos-cat-manage-row, .cast-drag-handle, canvas';
 
 let _tabSwipe = null;
 
@@ -20084,10 +20186,10 @@ function _payrollTableInnerHtml(src, model, opts = { plain:false }) {
     }
 
     const ctx = { r, cj, hasOut, manualDeductions, autoCounts, manCounts, tot, plain:opts.plain === true };
-    return '<tr>'
+    return '<tr data-cast="' + escAttr(c) + '">'
       + (opts.plain === true
         ? '<td class="pay-name">' + escHtml(c) + _payrollTouketsuMark(r) + '</td>'
-        : '<td class="pay-name pay-name-action" role="button" tabindex="0" onclick="payrollShowBreakdown(\'' + cj + '\')" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();payrollShowBreakdown(\'' + cj + '\')}"><span class="pay-name-inner"><span class="pay-name-label">' + escHtml(c) + _payrollTouketsuMark(r) + '</span><span class="pay-bd-btn" aria-hidden="true">ⓘ</span></span></td>')
+        : '<td class="pay-name pay-name-action" role="button" tabindex="0" onclick="payrollShowBreakdown(\'' + cj + '\')" onkeydown="if(event.key===\'Enter\'||event.key===\' \'){event.preventDefault();payrollShowBreakdown(\'' + cj + '\')}"><span class="pay-name-inner">' + castDragHandleHtml() + '<span class="pay-name-label">' + escHtml(c) + _payrollTouketsuMark(r) + '</span><span class="pay-bd-btn" aria-hidden="true">ⓘ</span></span></td>')
       + visibleColumns.map((col, index) => col.cell(ctx, index === 0 || col.group !== visibleColumns[index - 1].group)).join('')
       + '</tr>';
   }).join('');
@@ -20352,6 +20454,8 @@ function _payrollSectionHtml(src) {
     + '<button type="button" id="report-payroll-rules" onclick="payrollRulesOpenModal()">💴 給与ルール</button>'
     + '<button onclick="printReport()">🖨 印刷</button>'
     + '<button onclick="exportPayrollCSV()">💾 CSV保存</button>'
+    + '<label class="cast-order-pick">並び <select onchange="setCastListOrder(this.value)" aria-label="日計表と出勤キャストの並び順">'
+    + castListOrderOptionsHtml() + '</select></label>'
     + '<div class="payroll-cols-wrap"><button type="button" class="payroll-cols-toggle" aria-label="日計表の表示列を設定" aria-expanded="false" onclick="togglePayrollColumnPicker(event)">⚙</button>'
     + _payrollColumnPickerHtml(model.columns) + '</div>'
     + '</div></div>'
@@ -26672,6 +26776,8 @@ async function applySettings() {
     payrollSlideTable, payrollSlideSource, payrollPeriodDeductions, payrollRoundMode, payrollRoundUnit,
     payrollDeductions, payrollDeductionDisplayField, payrollDeductionDisplayPrint, payrollMergeDrinks,
     payrollHiddenCols: Array.isArray(cfg.payrollHiddenCols) ? cfg.payrollHiddenCols : [],
+    castListOrder: castListOrderMode(),
+    castListCustomOrder: Array.isArray(cfg.castListCustomOrder) ? cfg.castListCustomOrder : [],
     pointsEnabled, pointRules, rankingShowAmountToCast,
     defaultTheme,
     // 伝票ロゴ: 下書きがあれば確定、なければ既存値を引き継ぐ（cfg丸ごと再構築のため明示しないと保存で消える）
@@ -29593,8 +29699,10 @@ function printTimetable() {
   /* ソート：出勤中（時刻順） → 同伴中 → 退勤済 → 当欠 → 未出勤 */
   const sortOrder = c => checkouts[c] ? 2 : touketsuSet.has(c) ? 3 : doubanSet.has(c) ? 1 : isEffActive(c) ? 0 : 4;
   const allT = c => clockInToMin(clockIns[c] || plannedClockIns[c]);
-  const sorted = [...state.allCasts]
-    .filter(c => activeSet.has(c) || doubanSet.has(c) || !!checkouts[c] || touketsuSet.has(c))
+  const printCasts = [...state.allCasts]
+    .filter(c => activeSet.has(c) || doubanSet.has(c) || !!checkouts[c] || touketsuSet.has(c));
+  // 名簿順・手動順を選んでいる店は画面と同じ並びで印刷
+  const sorted = castsSortedByListOrder(printCasts) || printCasts
     .sort((a, b) => {
       const oa = sortOrder(a), ob = sortOrder(b);
       if (oa !== ob) return oa - ob;
@@ -30857,7 +30965,10 @@ function computePayrollTable(settled, opts) {
   let casts = Object.keys(set);
   // #13 日計表は「出勤時刻(clockIns)の早い順」。出勤時刻が無い子は末尾。
   // tt は opts.tt（過去日閲覧時はそのスナップ）優先で渡す。
-  if (typeof castsSortedByClockIn === 'function') casts = castsSortedByClockIn(casts, tt);
+  // 名簿順・手動順を選んだ店は時刻に関係なくその並び（setCastListOrder）。
+  const fixedOrder = (typeof castsSortedByListOrder === 'function') ? castsSortedByListOrder(casts) : null;
+  if (fixedOrder) casts = fixedOrder;
+  else if (typeof castsSortedByClockIn === 'function') casts = castsSortedByClockIn(casts, tt);
   else if (typeof castsSortedByNo === 'function') casts = castsSortedByNo(casts);
 
   const baseOpts = Object.assign({}, opts, { dayKey, tt, manual, nameGroups, prodBackByCast, prodPointsByCast, salesByCast, personalSubtotalByCast, rows: settled });
