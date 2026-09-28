@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.51">
+<meta name="app-version" content="1.1.52">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -2846,17 +2846,6 @@ table#customer-table { border-collapse: collapse; width: 100%; min-width: 800px;
 .analytics-empty { padding: 48px 20px; border: 1px dashed var(--bdr2); border-radius: 10px; color: var(--tx3); text-align: center; }
 @media (max-width: 900px) { .analytics-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .analytics-chart-grid { grid-template-columns: 1fr; } }
 @media (max-width: 520px) { .analytics-kpi-grid { grid-template-columns: 1fr; } }
-#bottle-panel { padding: 16px; }
-.bottle-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
-.bottle-toolbar h2 { font-size: 13px; color: var(--tx2); letter-spacing: .1em; }
-#bottle-table-wrapper { overflow-x: auto; }
-#bottle-table { border-collapse: collapse; width: 100%; min-width: 980px; }
-#bottle-table th, #bottle-table td { border: 1px solid var(--bdr); padding: 7px 8px; font-size: 12px; }
-#bottle-table th { background: var(--sur2); color: var(--tx3); white-space: nowrap; }
-#bottle-table tr.bottle-expired td { background: rgba(229,53,77,.14); }
-#bottle-table tr.bottle-warn td { background: rgba(232,192,48,.13); }
-#bottle-table select { background: var(--sur3); color: var(--tx); border: 1px solid var(--bdr2); border-radius: 4px; padding: 5px; }
-.bottle-edit-modal { width: min(680px, 95vw); max-height: 92vh; overflow-y: auto; }
 .cust-name {
   font-weight: 700; color: var(--tx); font-size: 13px;
   display: flex; align-items: center; gap: 6px;
@@ -3591,6 +3580,12 @@ body[data-active-tab="report"] { overflow:hidden; }
 /* ================================================================
    TIMETABLE PRINT（タイムテーブル印刷用）
 ================================================================ */
+.settings-savebar { position:sticky; top:0; z-index:5; display:flex; align-items:center; flex-wrap:wrap; gap:6px 14px; margin-bottom:14px; padding:10px 14px; border:1px solid var(--bdr2); border-radius:8px; background:var(--sur); }
+.settings-savebar-msg { font-size:13px; font-weight:600; color:var(--tx3); }
+.settings-savebar-note { font-size:11px; color:var(--tx3); flex:1 1 260px; }
+.settings-savebar .btn { margin-left:auto; min-width:120px; }
+.settings-savebar.is-dirty { border-color:var(--gold); background:var(--sur2); }
+.settings-savebar.is-dirty .settings-savebar-msg { color:var(--gold2); }
 .cast-order-pick { display:inline-flex; align-items:center; gap:6px; margin-left:10px; font-size:11px; font-weight:400; color:var(--tx2); letter-spacing:0; }
 .cast-order-pick select { font-size:12px; padding:3px 6px; }
 .cast-drag-handle { display:inline-flex; align-items:center; justify-content:center; width:26px; height:30px; margin:-4px 0; color:var(--tx3); font-size:16px; cursor:grab; touch-action:none; user-select:none; -webkit-user-select:none; border-radius:4px; }
@@ -4974,7 +4969,6 @@ html[data-theme="night"] #list-table,
 html[data-theme="night"] #past-table,
 html[data-theme="night"] .report-list-table,
 html[data-theme="night"] #customer-table,
-html[data-theme="night"] #bottle-table,
 html[data-theme="night"] #tt-simple-table,
 html[data-theme="night"] .settings-table,
 html[data-theme="night"] .agg-prod-table {
@@ -5011,8 +5005,7 @@ html[data-theme="night"] .pos-section-title,
 html[data-theme="night"] .past-sidebar-title,
 html[data-theme="night"] .analytics-title h2,
 html[data-theme="night"] #cast-panel h2,
-html[data-theme="night"] .customer-toolbar h2,
-html[data-theme="night"] .bottle-toolbar h2 {
+html[data-theme="night"] .customer-toolbar h2 {
   font-family: var(--font) !important;
   font-weight: 800;
 }
@@ -5440,15 +5433,13 @@ html[data-theme="night"] #summary-bar.has-pos-actions #summary-pos-actions .pos-
   html[data-theme="champagne"] #report-panel,
   html[data-theme="champagne"] #analytics-panel,
   html[data-theme="champagne"] #customer-panel,
-  html[data-theme="champagne"] #bottle-panel,
   html[data-theme="champagne"] #past-panel,
   html[data-theme="champagne"] #settings-panel {
     color: var(--tx);
   }
 
   html[data-theme="champagne"] #table-wrapper,
-  html[data-theme="champagne"] #customer-table-wrapper,
-  html[data-theme="champagne"] #bottle-table-wrapper {
+  html[data-theme="champagne"] #customer-table-wrapper {
     background: rgba(255, 248, 233, .7);
   }
 
@@ -5456,7 +5447,6 @@ html[data-theme="night"] #summary-bar.has-pos-actions #summary-pos-actions .pos-
   html[data-theme="champagne"] #past-table,
   html[data-theme="champagne"] .report-list-table,
   html[data-theme="champagne"] #customer-table,
-  html[data-theme="champagne"] #bottle-table,
   html[data-theme="champagne"] #tt-simple-table,
   html[data-theme="champagne"] .settings-table,
   html[data-theme="champagne"] .agg-prod-table {
@@ -5468,7 +5458,6 @@ html[data-theme="night"] #summary-bar.has-pos-actions #summary-pos-actions .pos-
   html[data-theme="champagne"] #past-table th,
   html[data-theme="champagne"] .report-list-table th,
   html[data-theme="champagne"] #customer-table th,
-  html[data-theme="champagne"] #bottle-table th,
   html[data-theme="champagne"] #tt-simple-table th,
   html[data-theme="champagne"] .settings-table th,
   html[data-theme="champagne"] .agg-prod-table th {
@@ -5481,7 +5470,6 @@ html[data-theme="night"] #summary-bar.has-pos-actions #summary-pos-actions .pos-
   html[data-theme="champagne"] #past-table td,
   html[data-theme="champagne"] .report-list-table td,
   html[data-theme="champagne"] #customer-table td,
-  html[data-theme="champagne"] #bottle-table td,
   html[data-theme="champagne"] #tt-simple-table td,
   html[data-theme="champagne"] .settings-table td,
   html[data-theme="champagne"] .agg-prod-table td {
@@ -5508,7 +5496,7 @@ html[data-theme="night"] #summary-bar.has-pos-actions #summary-pos-actions .pos-
     background-color: #fff;
   }
 
-  /* Cast, report, analytics, customers, bottles and settings share one
+  /* Cast, report, analytics, customers and settings share one
      ivory/card grammar while retaining their semantic state colors. */
   html[data-theme="champagne"] .cast-card,
   html[data-theme="champagne"] .agg-box,
@@ -5561,8 +5549,7 @@ html[data-theme="night"] #summary-bar.has-pos-actions #summary-pos-actions .pos-
   html[data-theme="champagne"] .past-sidebar-title,
   html[data-theme="champagne"] .analytics-title h2,
   html[data-theme="champagne"] #cast-panel h2,
-  html[data-theme="champagne"] .customer-toolbar h2,
-  html[data-theme="champagne"] .bottle-toolbar h2 {
+  html[data-theme="champagne"] .customer-toolbar h2 {
     color: #62400f;
     font-family: var(--font) !important;
     font-weight: 800;
@@ -5640,8 +5627,6 @@ html[data-theme="night"] #summary-bar.has-pos-actions #summary-pos-actions .pos-
   }
 
   html[data-theme="champagne"] .past-day-item.active .day-label { color: #62400f; }
-  html[data-theme="champagne"] .bottle-warn { color: #7b4c00; }
-  html[data-theme="champagne"] .bottle-expired { color: #a42a35; }
 
   /* Common suggestions, popovers, dialogs and customer picker. */
   html[data-theme="champagne"] .name-suggest-list,
@@ -6685,26 +6670,6 @@ html[data-display="desktop"] #tabs .tab-btn .tab-app-icon { width: 56px; height:
         </tr>
       </thead>
       <tbody id="customer-tbody"></tbody>
-    </table>
-  </div>
-</div>
-<!-- BOTTLE KEEP PANEL -->
-<div id="bottle-panel" class="hidden">
-  <div class="bottle-toolbar">
-    <h2>ボトルキープ</h2>
-    <input type="text" class="customer-search" id="bottle-search"
-           placeholder="🔍 顧客名・銘柄・タグNo" oninput="renderBottlePanel()">
-    <label style="font-size:12px;color:var(--tx2)"><input type="checkbox" id="bottle-show-all" onchange="renderBottlePanel()"> すべて表示</label>
-    <button class="btn" onclick="openBottleModal()">＋ 新規登録</button>
-    <span class="customer-count" id="bottle-count"></span>
-  </div>
-  <div id="bottle-table-wrapper">
-    <table id="bottle-table">
-      <thead><tr>
-        <th>顧客名</th><th>銘柄</th><th>タグNo</th><th>保管場所</th><th>残量</th>
-        <th>開始日</th><th>期限</th><th>状態</th><th>操作</th>
-      </tr></thead>
-      <tbody id="bottle-tbody"></tbody>
     </table>
   </div>
 </div>
@@ -9035,8 +9000,6 @@ const CFG_DEFAULTS = {
   specialInLabels: [],       // 日次締め・特別入金の内容候補
   rankVip:      10,          // VIP閾値（来店回数）
   rankRepeat:   3,           // リピーター閾値
-  bottleKeepDays: 90,        // ボトルキープ期限の既定日数
-  bottleWarnDays: 14,        // ボトル期限接近警告の日数
   birthdayAlertDays: 14,     // 誕生日接近バッジの日数
   // --- 料金設定 ---
   setPrice:        7000,    // セット料金（円）
@@ -9114,6 +9077,7 @@ const CFG_DEFAULTS = {
   payrollClockInRoundMin:        30,    // 出勤時刻の丸め単位（分・切り上げ）
   payrollClockOutRoundMin:       30,    // 退勤時刻の丸め単位（分）
   payrollClockOutRoundThreshold: 15,    // 退勤丸めの四捨五入境界（分。〜threshold未満は切り捨て）
+  payrollLateFineEnabled:        true,  // 遅刻罰金を取るか（false=遅刻は記録するが罰金0円。2026-09-28）
   payrollLateFineUnitMin:        15,    // 遅刻罰金の単位（分。N分ごとに1段階）
   payrollLateFineAmt:            1000,  // 遅刻罰金の単位額（円・1段階あたり）
   payrollBottleSpRate:           0.2,   // SP参考値の率（ボトル小計×rate）。最終額は手入力優先。
@@ -9383,7 +9347,7 @@ async function devSetNowTime() {
   Persist.write('devTime', { nowMin: _devNowMin, setAt: _devSetAt });
   _lastAutoCheckMinute = -1;
   showToast(`🎬 デモ: 現在時刻を ${val} にセット`);
-  renderSettingsPanel();
+  if (typeof _settingsRerender === 'function') _settingsRerender(); else renderSettingsPanel();
   renderTimetable();
   renderTable();          // ← ドロップダウンのキャスト一覧を時刻に合わせて再描画
   updateClock();
@@ -9396,7 +9360,7 @@ function devClearNowTime() {
   try { localStorage.removeItem(Persist.KEYS.devTime); } catch(_) {}
   _lastAutoCheckMinute = -1;
   showToast('時刻オーバーライドを解除しました');
-  renderSettingsPanel();
+  if (typeof _settingsRerender === 'function') _settingsRerender(); else renderSettingsPanel();
   renderTimetable();
   renderTable();          // ← 解除時もドロップダウンを実時刻で再描画
   updateClock();
@@ -9436,7 +9400,8 @@ function demoModeToggle() {
 }
 async function demoModeStart() {
   if (_demoMode) return;
-  const ok = await appConfirm('デモモードを開始します。デモ中の伝票・リスト表の操作（作成・編集・精算など）は保存されず、終了するとデモ開始前の状態に戻ります。設定画面での変更（料金・メニュー・店ルールなど）はデモ中でも保存されます。');
+  if (typeof _settingsResolveDirtyBeforeRerender === 'function') await _settingsResolveDirtyBeforeRerender();
+  const ok = await appConfirm('デモモードを開始します。デモ中の伝票・リスト表の操作（作成・編集・精算など）は保存されず、終了するとデモ開始前の状態に戻ります。設定タブで「保存する」を押した内容（料金・メニュー・店ルールなど）はデモ中でも保存されます。ただし、キャストの単価・料金マスターのバック列・キャスト名簿の変更は、終了すると元に戻ります。');
   if (!ok) return;
   saveState();
   await UsbStore.flush();
@@ -9447,7 +9412,7 @@ async function demoModeStart() {
   _demoMode = true;
   renderSettingsPanel();
   updateClock();
-  showToast('🎬 デモモードを開始しました（伝票・リスト表は保存されません／設定は保存されます）');
+  showToast('🎬 デモモードを開始しました（伝票・リスト表・キャストの単価は保存されません／設定タブの内容は保存されます）');
   _updateDemoTabBtn();
 }
 
@@ -13645,7 +13610,6 @@ function showTab(tab) {
   document.getElementById('list-panel').classList.toggle('hidden', tab !== 'list');
   document.getElementById('cast-panel').classList.toggle('hidden', tab !== 'cast');
   document.getElementById('customer-panel').classList.toggle('hidden', tab !== 'customer');
-  document.getElementById('bottle-panel').classList.toggle('hidden', tab !== 'bottle');
   document.getElementById('report-panel').classList.toggle('hidden', tab !== 'report');
   document.getElementById('analytics-panel').classList.toggle('hidden', tab !== 'analytics');
   document.getElementById('past-panel').classList.toggle('hidden', tab !== 'past');
@@ -13663,7 +13627,6 @@ function showTab(tab) {
   if (tab === 'analytics') renderBusinessAnalyticsPanel();
   // 顧客タブに入り直したら表示件数の上限を戻す（「すべて表示」は開いている間だけ有効）
   if (tab === 'customer') { _customerShowAll = false; syncCustomers(); renderCustomerTable(); }
-  if (tab === 'bottle') renderBottlePanel();
   if (tab === 'past') { renderPastSidebar(); renderPastMain(); }
   if (tab === 'settings') renderSettingsPanel();
   // F5リロード後に同じタブへ戻れるよう記憶（sessionStorage＝同一タブ内のみ有効。
@@ -13679,7 +13642,7 @@ function restoreActiveTab() {
   try { saved = sessionStorage.getItem('nightlist_active_tab'); } catch (_) {}
   // 旧版の独立pastタブを復元して編集状態に入れない。
   if (saved === 'past') saved = 'report';
-  const valid = ['pos', 'list', 'cast', 'customer', 'bottle', 'report', 'analytics', 'settings'];
+  const valid = ['pos', 'list', 'cast', 'customer', 'report', 'analytics', 'settings'];
   showTab(saved && valid.indexOf(saved) >= 0 ? saved : 'pos');
 }
 
@@ -14089,10 +14052,7 @@ function _posAutoExtShimeiFeeSync(row, min) {
     else if (d.role === '場内' || d.role === '延長指名') type = 'enshi';
     if (!type) return;
 
-    const items = shimeiExtGroup(type);
-    const key = type + String(targetMin);
-    const item = items.find(candidate => candidate.key === key)
-      || items.find(candidate => String(candidate.label || '').match(/(\d+)/)?.[1] === String(targetMin));
+    const item = shimeiExtItemForMinutes(type, targetMin);
     if (!item) return;
 
     const orders = posOrders(row);
@@ -14227,12 +14187,32 @@ function _posHasOrderCatCast(row, category, cast) {
     return o.category === category && separator >= 0 && name.slice(separator + 1) === cast;
   });
 }
-function _posExtFeeForType(type, idx) {
+/* 料金マスターの延長指名行（本延◯◯ / 延指◯◯）から、延長時間に合う行を返す。
+   延長を押したときの自動追加と、案内・比較・空場内の上乗せが同じ行を使う。 */
+function shimeiExtItemForMinutes(group, min) {
+  const items = shimeiExtGroup(group);
+  const key = group + String(min);
+  return items.find(candidate => candidate.key === key)
+    || items.find(candidate => String(candidate.label || '').match(/(\d+)/)?.[1] === String(min))
+    || null;
+}
+/* 延長指名料の金額（延長オプションの idx 番目）。金額の正本は料金マスター（2026-09-28 オーナー決定）。
+   本指名・同伴→「本指名延長」、場内・延長指名→「延長指名」の行。
+   cfg.extFeeOn* は、案内・比較・空場内の上乗せに指名料を載せるかどうかのON/OFF。
+   旧 cfg.extFee*Amts は画面から外したが、戻せるように保存値は残している。 */
+function extShimeiFeeAmount(type, idx) {
   if (type === 'douban' && cfg.doubanAsHonshimeiExt !== false) type = 'honshimei'; // 同伴を本指名扱い（設定でOFF可）
-  if (type === 'honshimei'   && cfg.extFeeOnHonshimei)   return cfg.extFeeHonshimeiAmts?.[idx]   ?? cfg.extFeeHonshimeiAmt   ?? cfg.enchoshimeiFee ?? 0;
-  if (type === 'jounai'      && cfg.extFeeOnJounai)      return cfg.extFeeJounaiAmts?.[idx]      ?? cfg.extFeeJounaiAmt      ?? cfg.enchoshimeiFee ?? 0;
-  if (type === 'enchoshimei' && cfg.extFeeOnEnchoshimei) return cfg.extFeeEnchoshimeiAmts?.[idx] ?? cfg.extFeeEnchoshimeiAmt ?? cfg.enchoshimeiFee ?? 0;
-  return 0;
+  const on = type === 'honshimei' ? cfg.extFeeOnHonshimei
+    : type === 'jounai' ? cfg.extFeeOnJounai
+    : type === 'enchoshimei' ? cfg.extFeeOnEnchoshimei : false;
+  if (!on) return 0;
+  const min = (cfg.extOptions || [])[idx];
+  if (min == null) return 0;
+  const item = shimeiExtItemForMinutes(type === 'honshimei' ? 'honen' : 'enshi', min);
+  return item ? (Number(item.amount) || 0) : 0;
+}
+function _posExtFeeForType(type, idx) {
+  return extShimeiFeeAmount(type, idx);
 }
 function _posSeatLineItems(row) {
   const baseSet = (() => {
@@ -16328,10 +16308,10 @@ function posMenuDelItem(btn) {
    保存（applySettings）した時点で cfg.posMenu に空配列として書かれ、
    デフォルト（澪/モエ等）にフォールバックしなくなる。 */
 async function posMenuClearAllDefaults() {
-  if (!(await appConfirm('ショット／ボトル／フード／持込／割引・割増／特殊／カスタムカテゴリ のメニューを全て削除します。\n\n（設定タブを離れるときに保存の確認が出ます）\n\n本当に削除しますか？', { danger: true }))) return;
+  if (!(await appConfirm('ショット／ボトル／フード／持込／割引・割増／特殊／カスタムカテゴリ のメニューを全て削除します。\n\n（画面上の「保存する」を押すまで確定しません）\n\n本当に削除しますか？', { danger: true }))) return;
   document.querySelectorAll('table[id^="cfg-posMenu-"] tbody').forEach(tbody => { tbody.innerHTML = ''; });
   if (typeof _settingsMarkDirty === 'function') _settingsMarkDirty();
-  if (typeof showToast === 'function') showToast('全カテゴリのメニューを削除しました。保存してください。');
+  if (typeof showToast === 'function') showToast('全カテゴリのメニューを削除しました。「保存する」で確定します');
 }
 
 function _posMenuInitDnd(tbody) {
@@ -16489,7 +16469,7 @@ function posCatResetLabels() {
     changed++;
   });
   if (changed) _settingsMarkDirty();
-  showToast(changed ? `カテゴリ名を既定に戻しました（${changed}件）。「保存」で確定します` : 'カテゴリ名はすべて既定のままです');
+  showToast(changed ? `カテゴリ名を既定に戻しました（${changed}件）。「保存する」で確定します` : 'カテゴリ名はすべて既定のままです');
 }
 
 /* 伝票の品目名（固定品目＋延長）をすべて既定へ戻す。保存で確定 */
@@ -16508,7 +16488,7 @@ function posItemLabelsReset() {
   });
   if (typeof _posItemLabelsRefreshValues === 'function') _posItemLabelsRefreshValues();
   if (changed) _settingsMarkDirty();
-  showToast(changed ? `品目名を既定に戻しました（${changed}件）。「保存」で確定します` : '品目名はすべて既定のままです');
+  showToast(changed ? `品目名を既定に戻しました（${changed}件）。「保存する」で確定します` : '品目名はすべて既定のままです');
 }
 
 async function posCatAdd() {
@@ -16660,7 +16640,7 @@ function posNsmToggleDouban(checked) {
     if (!L.source.some(s => String(s).includes('同伴'))) {
       if (!Array.isArray(cfg.sources)) cfg.sources = [];
       cfg.sources.push('同伴');
-      saveState();
+      saveCfg();   // 入店経路は店舗設定（cfg）。saveState では保存されない
     }
     const doubanSrc = _posNsmLists().source.findIndex(s => String(s).includes('同伴'));
     if (doubanSrc >= 0 && _posNsmIdx.source !== doubanSrc) {
@@ -20053,7 +20033,8 @@ function _payrollBreakdownData(r, src, countCols) {
     dailyPay:Number(r.dailyPay) || 0,
     deductions:(Array.isArray(r.deductions) ? r.deductions : []).map(item => ({
       label:String(item.label || ''),
-      value:item.mode === 'boolean' ? _payrollDeductionMark(item) : _payYen(item.amount),
+      value:item.mode === 'boolean' ? _payrollDeductionMark(item)
+        : (item.mode === 'flagFixed' ? (item.checked === true ? '○ ' + _payYen(item.amount) : '×') : _payYen(item.amount)),
     })),
     deductionTotal:Number(r.deductionTotal) || 0,
     netPay:Number(r.netPay) || 0,
@@ -20249,7 +20230,7 @@ function _deductionSheetInnerHtml(src, opts = { plain:false }) {
       if (opts.plain === true) return '<td>' + (hasOut ? _payYen(cell.value) : '') + '</td>';
       return '<td>' + _deductionCellInputHtml(cell, cj, item.key) + '</td>';
     }).join('');
-    const hasRecordedFlag = (r.deductions || []).some(item => item.mode === 'boolean' && item.checked === true);
+    const hasRecordedFlag = (r.deductions || []).some(item => isPayrollDeductionFlagMode(item.mode) && item.checked === true);
     return '<tr' + (!hasOut || ((Number(r.deductionTotal) || 0) === 0 && !hasRecordedFlag) ? ' class="ded-zero"' : '') + '>'
       + '<td class="pay-name">' + escHtml(c) + _payrollTouketsuMark(r) + '</td>'
       + '<td class="pay-daily' + (displayReady ? '' : ' pay-muted') + '">' + (displayReady ? _payYen(displayValue) : '（時給未確定）') + '</td>'
@@ -20267,11 +20248,11 @@ function _deductionSheetInnerHtml(src, opts = { plain:false }) {
 }
 
 /* 控除1セル分の値を決める純関数（日計表の控除列・控除票の画面・印刷で共通）。
-   ○×方式（boolean）は該当の有無だけを返し金額を持たない。金額方式は、手修正があればその値、
+   ○×方式（boolean / flagFixed）は該当の有無だけを返す（flagFixedの金額は控除計に入る）。金額方式は、手修正があればその値、
    無ければ自動計算値（fixed=固定額 / rate=日給×率 / manual=0）。 */
 function _deductionCellValue(item, calculated, manualDeductions) {
   const calc = calculated || {};
-  if (item.mode === 'boolean') return { flag:true, checked:calc.checked === true };
+  if (isPayrollDeductionFlagMode(item.mode)) return { flag:true, checked:calc.checked === true };
   const manual = manualDeductions || {};
   const hasManual = Object.prototype.hasOwnProperty.call(manual, item.key);
   const auto = Number(calc.auto) || 0;
@@ -20342,10 +20323,10 @@ function _deductionSheetPrintTableHtml(src) {
   const rowCount = Math.max(25, rows.length);
   for (let rowIndex = rows.length; rowIndex < rowCount; rowIndex += 1) {
     bodyRows.push('<tr><td class="cno"></td><td class="nm"></td>' + (displayPrintable ? '<td class="amt">¥</td>' : '')
-      + printableItems.map(({ item }) => '<td class="amt">' + (item.mode === 'boolean' ? '' : '¥') + '</td>').join('') + '</tr>');
+      + printableItems.map(({ item }) => '<td class="amt">' + (isPayrollDeductionFlagMode(item.mode) ? '' : '¥') + '</td>').join('') + '</tr>');
   }
   const sumRow = '<tr class="sum"><td class="cno"></td><td class="nm">合計</td>' + (displayPrintable ? '<td class="amt">' + displayYen(displayTotal) + '</td>' : '')
-    + totals.map((value, index) => '<td class="amt">' + (printableItems[index]?.item.mode === 'boolean' ? '—' : yen(value)) + '</td>').join('') + '</tr>';
+    + totals.map((value, index) => '<td class="amt">' + (isPayrollDeductionFlagMode(printableItems[index]?.item.mode) ? '—' : yen(value)) + '</td>').join('') + '</tr>';
   const countRow = '<tr class="sum"><td class="cno"></td><td class="nm">人数</td>' + (displayPrintable ? '<td class="amt">' + displayCount + ' 人</td>' : '')
     + counts.map(value => '<td class="amt">' + value + ' 人</td>').join('') + '</tr>';
   return '<table class="ded">' + head + '<tbody>' + bodyRows.join('') + sumRow + countRow + '</tbody></table>';
@@ -20451,7 +20432,7 @@ function _payrollSectionHtml(src) {
     + '<div class="agg-box-head">'
     + '<h3>日計表 <span class="payroll-note">※時給は表示されません（キャスト管理で管理）／社交名を固定して横にスクロールできます</span>' + deductionNote + '</h3>'
     + '<div class="agg-box-actions">'
-    + '<button type="button" id="report-payroll-rules" onclick="payrollRulesOpenModal()">💴 給与ルール</button>'
+    + '<button type="button" id="report-payroll-rules" onclick="payrollRulesOpenModal()">💴 給与計算ルール</button>'
     + '<button onclick="printReport()">🖨 印刷</button>'
     + '<button onclick="exportPayrollCSV()">💾 CSV保存</button>'
     + '<label class="cast-order-pick">並び <select onchange="setCastListOrder(this.value)" aria-label="日計表と出勤キャストの並び順">'
@@ -20467,7 +20448,7 @@ function _deductionSheetSectionHtml(src) {
   const hasDeductions = typeof cfg !== 'undefined' && Array.isArray(cfg.payrollDeductions) && cfg.payrollDeductions.length > 0;
   return '<div id="report-deduction" class="agg-box" style="margin-top:18px">'
     + '<div class="agg-box-head">'
-    + '<h3>控除票 <span class="payroll-note">※出勤キャスト全員。金額と○×は日計表に連動し、○×は控除計・差引支給に加算されません</span></h3>'
+    + '<h3>控除票 <span class="payroll-note">※出勤キャスト全員。金額と○×は日計表に連動し、○×記録（本部計算）は控除計・差引支給に加算されません</span></h3>'
     + '<div class="agg-box-actions">'
     + '<button onclick="printDeductionSheet()"' + (hasDeductions ? '' : ' disabled') + '>🖨 印刷</button>'
     + '<button type="button" onclick="payrollDeductionSettingsOpenModal()" aria-label="控除項目を設定" title="控除項目を設定">⚙</button>'
@@ -22213,13 +22194,9 @@ function _posExtTrial(row, extMin, trialCasts = []) {
   const extPrice = (idx >= 0 && cfg.extPrices) ? (cfg.extPrices[idx] || 0) : 0;
   let enchoshimeiExtra = 0;
   const _ef2 = t => {
-    if (t === 'douban' && cfg.doubanAsHonshimeiExt !== false) t = 'honshimei'; // 同伴を本指名扱い（設定でOFF可）
-    if (t === 'honshimei'   && cfg.extFeeOnHonshimei)   return cfg.extFeeHonshimeiAmts?.[idx]   ?? cfg.extFeeHonshimeiAmt   ?? cfg.enchoshimeiFee ?? 0;
-    if (t === 'jounai'      && cfg.extFeeOnJounai)      return cfg.extFeeJounaiAmts?.[idx]      ?? cfg.extFeeJounaiAmt      ?? cfg.enchoshimeiFee ?? 0;
     // 'free'(指名なし)は延長指名料の対象外。実精算側 _posExtFeeForType と一致させる
     // （指名が付いていないフロント卓に延長指名料を載せない）。延長指名(enchoshimei)のみ加算。
-    if (t === 'enchoshimei' && cfg.extFeeOnEnchoshimei) return cfg.extFeeEnchoshimeiAmts?.[idx] ?? cfg.extFeeEnchoshimeiAmt ?? cfg.enchoshimeiFee ?? 0;
-    return 0;
+    return extShimeiFeeAmount(t, idx);   // 金額は料金マスター（実際の請求と同じ）
   };
   // 延長指名料：延長時に「指名が付いている」キャストごとに1回ずつ加算する。
   // 指名の記録は3系統に散る: mainType / subCasts / 指名オーダー(nominate/jonai/dohan)・
@@ -22278,11 +22255,7 @@ function _posExtTrialFeeCasts(row) {
   if (!row) return [];
   const idx = 0;
   const fee = t => {
-    if (t === 'douban' && cfg.doubanAsHonshimeiExt !== false) t = 'honshimei';
-    if (t === 'honshimei'   && cfg.extFeeOnHonshimei)   return cfg.extFeeHonshimeiAmts?.[idx]   ?? cfg.extFeeHonshimeiAmt   ?? cfg.enchoshimeiFee ?? 0;
-    if (t === 'jounai'      && cfg.extFeeOnJounai)      return cfg.extFeeJounaiAmts?.[idx]      ?? cfg.extFeeJounaiAmt      ?? cfg.enchoshimeiFee ?? 0;
-    if (t === 'enchoshimei' && cfg.extFeeOnEnchoshimei) return cfg.extFeeEnchoshimeiAmts?.[idx] ?? cfg.extFeeEnchoshimeiAmt ?? cfg.enchoshimeiFee ?? 0;
-    return 0;
+    return extShimeiFeeAmount(t, idx);   // 金額は料金マスター（実際の請求と同じ）
   };
   const castOf = o => { const n = o.name || ''; const i = n.indexOf(':'); return i >= 0 ? n.slice(i + 1) : ''; };
   const departed = new Set((typeof _posDepartedCasts === 'function' ? _posDepartedCasts(row) : []).filter(Boolean));
@@ -24617,6 +24590,20 @@ function _feeMasterFixedRowHTML(key, label, amount, back, pt) {
   </tr>`;
 }
 
+/* 延長指名（明細なし）: リスト表で指名種類を「延長指名」にし、延指・本延の明細が無い卓に1回入る金額（cfg.enchoshimeiFee）。
+   2026-09-28 まで画面に入力欄が無かった。バック・ptは持たないので料金マスター行（fee-master-row）とは別扱い。 */
+function _feeMasterEnchoshimeiRowHTML(amount) {
+  const note = 'リスト表で指名の種類を「延長指名」にした卓で、延指・本延の明細が無いときだけ1回入ります';
+  return `<tr class="fee-master-extra-row" data-key="enchoshimeiFee">
+    <td>延長指名（明細なし）<div style="font-size:10px;color:var(--tx3);line-height:1.4;margin-top:2px">${note}</div></td>
+    <td><input type="number" class="settings-input" id="cfg-enchoshimeiFee" value="${_feeMasterNumber(amount)}" min="0" step="500"></td>
+    <td style="text-align:center;color:var(--tx3)">—</td>
+    <td style="text-align:center;color:var(--tx3)">—</td>
+    <td style="text-align:center;color:var(--tx3)">—</td>
+    <td></td>
+  </tr>`;
+}
+
 function _feeMasterDrinkRowHTML(item) {
   const value = item || {};
   const keys = drinkBackKeys(value);
@@ -24736,7 +24723,7 @@ function _receiptSettingsSectionHTML() {
       <div class="print-layout-tab-panel${_printLayoutActiveTab === 'extTrial' ? ' active' : ''}" data-print-panel="extTrial">
         <div class="receipt-layout-editor">
           <div class="receipt-layout-controls">
-            <div class="settings-row" style="display:block"><label style="display:flex;align-items:center;gap:8px;min-height:36px;cursor:pointer"><input type="checkbox" id="cfg-extTrialCompareEnabled" ${cfg.extTrialCompareEnabled === true ? 'checked' : ''} onchange="_printLayoutUpdatePreview('extTrial');_settingsMarkDirty()">フリー継続・延長指名を比較する</label><div class="settings-sub">OFFは従来どおり。ONは印刷前に対象キャストを選択。料金は「料金・会計」の延長指名料を使用します。</div></div>
+            <div class="settings-row" style="display:block"><label style="display:flex;align-items:center;gap:8px;min-height:36px;cursor:pointer"><input type="checkbox" id="cfg-extTrialCompareEnabled" ${cfg.extTrialCompareEnabled === true ? 'checked' : ''} onchange="_printLayoutUpdatePreview('extTrial');_settingsMarkDirty()">フリー継続・延長指名を比較する</label><div class="settings-sub">OFFは従来どおり。ONは印刷前に対象キャストを選択。延長指名料は「料金・会計」の料金マスター（本指名延長・延長指名）の金額を使います。</div></div>
             <div class="settings-row"><div class="settings-label">全体の文字サイズ</div><select id="cfg-extTrialScale" class="settings-input" onchange="printLayoutScaleUpdate('extTrial',Number(this.value))">${scaleOptions(_extTrialScaleDraft)}</select></div>
             <div id="ext-trial-block-list"></div>
             <div class="receipt-add-row"><select id="ext-trial-add-type">${extTypeOptions}</select><button type="button" class="btn" onclick="extTrialLayoutAdd()">＋ ブロックを追加</button></div>
@@ -25070,6 +25057,11 @@ function renderSettingsPanel() {
       <button type="button" class="settings-nav-btn" data-setcat="system" onclick="settingsSelectCategory('system')">💾 データ・システム</button>
     </nav>
     <div class="settings-content">
+    <div id="settings-savebar" class="settings-savebar" role="status" aria-live="polite">
+      <span class="settings-savebar-msg">変更はすべて保存済みです</span>
+      <span class="settings-savebar-note">給与計算ルール・延長の追加項目・キャストの単価・表示の切り替えは、押した時点で保存されます</span>
+      <button type="button" class="btn primary" onclick="settingsSaveNow()" disabled>保存する</button>
+    </div>
     <!-- 🏪 店舗情報 (最初に埋める場所) -->
     <div class="settings-section" data-setcat="basic">
       <div class="settings-section-header"><span class="settings-section-title">🏪 店舗情報</span></div>
@@ -25080,7 +25072,7 @@ function renderSettingsPanel() {
           ② <b style="color:var(--tx)">🏪 店舗基本の営業時間と、💴 料金・会計の料金／延長ルール／税サ・カード手数料</b>を自店に合わせて調整<br>
           ③ <b style="color:var(--tx)">🍶 POSレジ</b>でカスタムメニューを入れ替え（「🗑 全カテゴリのデフォルトメニューを削除」を押せばまっさらから組める）<br>
           ④ <b style="color:var(--tx)">👥 キャスト・給与</b>の「💴 給与計算ルール」で出退勤丸め単位・遅刻罰金・SP参考率を店舗運用に合わせ、「💴 キャスト管理」でキャストと単価を登録する<br>
-          ⑤ 最後に <b style="color:var(--tx)">保存</b>
+          ⑤ 最後に、画面上の <b style="color:var(--tx)">「保存する」</b> を押す（保存せずに別のタブへ移ると、保存するか確認が出ます）
         </div>
         <div class="settings-row">
           <div class="settings-label">店舗名（表示名）<div class="settings-sub">ヘッダー・印刷見出しに使用</div></div>
@@ -25124,7 +25116,7 @@ function renderSettingsPanel() {
       <div class="settings-section-header"><span class="settings-section-title">🕐 営業時間</span></div>
       <div class="settings-section-body">
         <div class="settings-row">
-          <div class="settings-label">営業開始時刻<div class="settings-sub">20時 = 20:00〜</div></div>
+          <div class="settings-label">営業開始時刻<div class="settings-sub">20時 = 20:00〜。リスト表の時刻の選択肢と、アプリが扱う時刻はこの開始〜終了の範囲に収まります</div></div>
           <input type="number" class="settings-input" id="cfg-timeStartH" value="${cfg.timeStartH}" min="17" max="22"> 時
         </div>
         <div class="settings-row">
@@ -25143,7 +25135,7 @@ function renderSettingsPanel() {
       <div class="settings-section-header"><span class="settings-section-title">🏪 業態設定</span></div>
       <div class="settings-section-body">
         <div class="settings-row">
-          <div class="settings-label"><label for="cfg-businessType">業態</label><div class="settings-sub">店舗の業態を選択してください</div></div>
+          <div class="settings-label"><label for="cfg-businessType">業態</label><div class="settings-sub">セクキャバを選ぶと、POSにショータイムのボタンが出ます。料金や集計の動きは業態では変わりません</div></div>
           <select class="settings-input" id="cfg-businessType" style="width:180px" onchange="settingsBusinessTypeChanged(this.value)">
             ${SHOP_BUSINESS_TYPES.map(type => `<option value="${type.value}" ${normalizeBusinessType(cfg.businessType) === type.value ? 'selected' : ''}>${type.label}</option>`).join('')}
           </select>
@@ -25170,7 +25162,7 @@ function renderSettingsPanel() {
             ['honshimei', '本指名', cfg.nominateFee ?? 2000, CD.honshimei, cfg.pointRules?.本指],
             ['jonai', '場内', cfg.jonaiFee ?? 2000, CD.jonai, cfg.pointRules?.場内],
             ['douhan', '同伴', cfg.dohanFee ?? 15000, CD.douhan, cfg.pointRules?.同伴],
-          ].map(row => _feeMasterFixedRowHTML(...row)).join('');
+          ].map(row => _feeMasterFixedRowHTML(...row)).join('') + _feeMasterEnchoshimeiRowHTML(cfg.enchoshimeiFee ?? 2000);
           return `<div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:6px;padding:8px 0 12px">
             <table class="pos-me-table" id="cfg-fee-master-table">
               <colgroup><col style="width:180px"><col style="width:110px"><col style="width:120px"><col style="width:120px"><col style="width:80px"><col style="width:52px"></colgroup>
@@ -25255,8 +25247,8 @@ function renderSettingsPanel() {
           </table>
         </div>
         <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:6px;padding:12px 0">
-          <div class="settings-label" style="font-weight:700;margin-bottom:2px">延長指名料</div>
-          <div class="settings-sub" style="margin-bottom:8px">延長のたびに指名料を取る場合はチェックし、延長時間ごとの金額を設定します</div>
+          <div class="settings-label" style="font-weight:700;margin-bottom:2px">延長指名料をご案内・空場内に載せる</div>
+          <div class="settings-sub" style="margin-bottom:8px">延長指名料の金額は、上の料金マスター「本指名延長」「延長指名」で決めます。ここでは、お会計伝票の「延長した場合」・延長料金のご案内・比較案内に指名料を含めるか、空場内の延長に上乗せするかを選びます。延長を押したときに伝票へ自動で指名料を入れるかは、下の「延長の計算ルール」で選びます。</div>
           <div style="padding:10px 12px;background:var(--sur3);border:1px solid var(--bdr);border-radius:8px;width:100%;box-sizing:border-box">
             <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer">
               <input type="checkbox" id="cfg-extFeeOnHonshimei" ${cfg.extFeeOnHonshimei !== false ? 'checked' : ''} style="margin-top:3px;flex-shrink:0">
@@ -25265,9 +25257,7 @@ function renderSettingsPanel() {
                 <div style="font-size:11px;color:var(--tx3);margin-top:2px">最初から「この子で」と指名があったお客様が延長するケース</div>
               </div>
             </label>
-            <div id="ext-fee-honshimei-opts" style="display:flex;flex-direction:column;gap:4px;margin-top:8px;margin-left:26px">
-              ${(cfg.extOptions || [20,40,60]).map((min, i) => `<div style="display:flex;align-items:center;gap:6px"><span style="font-size:12px;color:var(--tx2);min-width:36px">${min}分</span><input type="number" class="settings-input" id="cfg-extFeeHonshimeiAmts-${i}" value="${(cfg.extFeeHonshimeiAmts||[])[i] ?? cfg.extFeeHonshimeiAmt ?? 2000}" min="0" step="500" style="width:80px"> 円</div>`).join('')}
-            </div>
+            <div style="font-size:11px;color:var(--tx3);margin-top:6px;margin-left:26px">金額：料金マスター「本指名延長」の行（延長時間ごと）</div>
           </div>
           <div style="padding:10px 12px;background:var(--sur3);border:1px solid var(--bdr);border-radius:8px;width:100%;box-sizing:border-box">
             <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer">
@@ -25277,9 +25267,7 @@ function renderSettingsPanel() {
                 <div style="font-size:11px;color:var(--tx3);margin-top:2px">席についてから「この子で」と指名したお客様が延長するケース</div>
               </div>
             </label>
-            <div id="ext-fee-jounai-opts" style="display:flex;flex-direction:column;gap:4px;margin-top:8px;margin-left:26px">
-              ${(cfg.extOptions || [20,40,60]).map((min, i) => `<div style="display:flex;align-items:center;gap:6px"><span style="font-size:12px;color:var(--tx2);min-width:36px">${min}分</span><input type="number" class="settings-input" id="cfg-extFeeJounaiAmts-${i}" value="${(cfg.extFeeJounaiAmts||[])[i] ?? cfg.extFeeJounaiAmt ?? 2000}" min="0" step="500" style="width:80px"> 円</div>`).join('')}
-            </div>
+            <div style="font-size:11px;color:var(--tx3);margin-top:6px;margin-left:26px">金額：料金マスター「延長指名」の行（延長時間ごと）。空場内の延長への上乗せもこのチェックで決まります</div>
           </div>
           <div style="padding:10px 12px;background:var(--sur3);border:1px solid var(--bdr);border-radius:8px;width:100%;box-sizing:border-box">
             <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer">
@@ -25289,13 +25277,11 @@ function renderSettingsPanel() {
                 <div style="font-size:11px;color:var(--tx3);margin-top:2px">フリーで来たお客様が延長するタイミングで「この子で」と指名するケース</div>
               </div>
             </label>
-            <div id="ext-fee-enchoshimei-opts" style="display:flex;flex-direction:column;gap:4px;margin-top:8px;margin-left:26px">
-              ${(cfg.extOptions || [20,40,60]).map((min, i) => `<div style="display:flex;align-items:center;gap:6px"><span style="font-size:12px;color:var(--tx2);min-width:36px">${min}分</span><input type="number" class="settings-input" id="cfg-extFeeEnchoshimeiAmts-${i}" value="${(cfg.extFeeEnchoshimeiAmts||[])[i] ?? cfg.extFeeEnchoshimeiAmt ?? 2000}" min="0" step="500" style="width:80px"> 円</div>`).join('')}
-            </div>
+            <div style="font-size:11px;color:var(--tx3);margin-top:6px;margin-left:26px">金額：料金マスター「延長指名」の行（延長時間ごと）</div>
           </div>
         </div>
-        <div class="settings-group-head">📊 集計・店ルール</div>
-        <div class="settings-sub" style="margin-bottom:8px">お店によって違う計算ルール。基本は最初に1回だけ設定すればOKです。</div>
+        <div class="settings-group-head">⏱ 延長の計算ルール</div>
+        <div class="settings-sub" style="margin-bottom:8px">延長を押したときの料金の取り方。お店によって違うので、最初に1回だけ設定すればOKです。</div>
         <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:8px">
           <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:13px">
             <input type="checkbox" id="cfg-extBasePerSeat" ${cfg.extBasePerSeat !== false ? 'checked' : ''} style="margin-top:2px">
@@ -25310,27 +25296,11 @@ function renderSettingsPanel() {
           </div>
           <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:13px">
             <input type="checkbox" id="cfg-extFeePerSeat" ${cfg.extFeePerSeat ? 'checked' : ''} style="margin-top:2px">
-            <div><b>延長指名料を人数ぶん取る</b><div style="font-size:11px;color:var(--tx3)">ON: 指名1人につき人数ぶん／OFF: 延長1回につき1人分（おすすめ）</div></div>
+            <div><b>延長指名料を人数ぶん取る</b><div style="font-size:11px;color:var(--tx3)">ON: 指名1人につき人数ぶん／OFF: 延長1回につき1人分（おすすめ）。空場内の上乗せと延長のご案内の金額に効きます。延長を押して自動で入る指名料には効きません</div></div>
           </label>
           <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:13px">
             <input type="checkbox" id="cfg-doubanAsHonshimeiExt" ${cfg.doubanAsHonshimeiExt !== false ? 'checked' : ''} style="margin-top:2px">
             <div><b>同伴を本指名として延長指名料を取る</b><div style="font-size:11px;color:var(--tx3)">OFF: 同伴のお客様には延長指名料を取らない</div></div>
-          </label>
-          <label style="display:flex;align-items:flex-start;gap:8px;font-size:13px">
-            <div><b>出戻り本指の集計扱い</b><div style="font-size:11px;color:var(--tx3)">延長扱い・本指名扱いでは、出戻り卓のキャストドリンクは指D、卓の総計はキャスト別指名売上に含まれます。カウントしないでは指D・指名売上にも含まれません。</div></div>
-            <select class="settings-input" id="cfg-modoriHonshimeiAgg" style="min-width:240px">
-              <option value="honen" ${!['honshimei','none'].includes(cfg.modoriHonshimeiAgg) ? 'selected' : ''}>延長扱い（本延に+1・おすすめ）</option>
-              <option value="honshimei" ${cfg.modoriHonshimeiAgg === 'honshimei' ? 'selected' : ''}>本指名扱い（本指に+1）</option>
-              <option value="none" ${cfg.modoriHonshimeiAgg === 'none' ? 'selected' : ''}>カウントしない</option>
-            </select>
-          </label>
-          <label style="display:flex;align-items:flex-start;gap:8px;font-size:13px">
-            <div><b>出戻り延指の集計扱い</b><div style="font-size:11px;color:var(--tx3)">「元は場内」「元は延長指名」で出戻った客の集計先です。既定は延指40（場内カウントには含みません）。</div></div>
-            <select class="settings-input" id="cfg-modoriEnchoshimeiAgg" style="min-width:240px">
-              <option value="enchoshimei40" ${!['jounai','none'].includes(cfg.modoriEnchoshimeiAgg) ? 'selected' : ''}>延長指名扱い（延指40に+1・おすすめ）</option>
-              <option value="jounai" ${cfg.modoriEnchoshimeiAgg === 'jounai' ? 'selected' : ''}>場内扱い（場内に+1）</option>
-              <option value="none" ${cfg.modoriEnchoshimeiAgg === 'none' ? 'selected' : ''}>カウントしない</option>
-            </select>
           </label>
         </div>
         <div class="settings-group-head">🧾 税サ・カード</div>
@@ -25358,20 +25328,12 @@ function renderSettingsPanel() {
           <div class="settings-label">前金カード分割の手数料充当<div class="settings-sub">ON: 分けて切った分の切り上げ超過をお会計に充当し「分割手数料の充当」を印字／OFF: 充当せず、前金は元本の合計だけを引く</div></div>
           <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px"><input type="checkbox" id="cfg-advanceFeeCredit" ${cfg.advanceFeeCredit !== false ? 'checked' : ''}> 切り上げの超過分をお会計に充当する</label>
         </div>
-        <div class="settings-group-head">🖥 表示</div>
-        <div class="settings-row">
-          <div class="settings-label">残り時間カウントダウン<div class="settings-sub">各グループの終了時刻まで表示。10分以下で赤点滅</div></div>
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-            <input type="checkbox" id="cfg-showCountdown" ${cfg.showCountdown ? 'checked' : ''}>
-            <span>表示する</span>
-          </label>
-        </div>
       </div>
     </div>
 
-    <!-- 卓・延長 -->
+    <!-- 卓・VIP席 -->
     <div class="settings-section" data-setcat="fees">
-      <div class="settings-section-header"><span class="settings-section-title">🪑 卓・延長設定</span></div>
+      <div class="settings-section-header"><span class="settings-section-title">🪑 卓・VIP席</span></div>
       <div class="settings-section-body">
         <div class="settings-row">
           <div class="settings-label">卓番号の上限</div>
@@ -25401,35 +25363,6 @@ function renderSettingsPanel() {
             </div>
           </div>
         </div>
-        <div class="settings-row">
-          <div class="settings-label">出勤時刻・受付開始<div class="settings-sub">セレクトの一番上の時刻</div></div>
-          <input type="number" class="settings-input" id="cfg-clockInFromH" value="${Math.floor((cfg.clockInFrom??1200)/60)}" min="16" max="26" style="width:52px"> 時
-          <input type="number" class="settings-input" id="cfg-clockInFromM" value="${(cfg.clockInFrom??1200)%60}" min="0" max="59" step="30" style="width:52px"> 分
-        </div>
-        <div class="settings-row">
-          <div class="settings-label">出勤時刻・受付終了<div class="settings-sub">セレクトの一番下の時刻</div></div>
-          <input type="number" class="settings-input" id="cfg-clockInToH" value="${Math.floor((cfg.clockInTo??1410)/60)}" min="16" max="26" style="width:52px"> 時
-          <input type="number" class="settings-input" id="cfg-clockInToM" value="${(cfg.clockInTo??1410)%60}" min="0" max="59" step="30" style="width:52px"> 分
-        </div>
-        <div class="settings-row">
-          <div class="settings-label">出勤時刻の刻み<div class="settings-sub">セレクトボックスの間隔（分）</div></div>
-          <input type="number" class="settings-input" id="cfg-clockInStep" value="${cfg.clockInStep ?? 30}" min="5" max="60" step="5"> 分刻み
-        </div>
-        <div class="settings-row">
-          <div class="settings-label">退勤時刻・受付開始<div class="settings-sub">セレクトの一番上の時刻</div></div>
-          <input type="number" class="settings-input" id="cfg-clockOutFromH" value="${Math.floor((cfg.clockOutFrom??1320)/60)}" min="16" max="29" style="width:52px"> 時
-          <input type="number" class="settings-input" id="cfg-clockOutFromM" value="${(cfg.clockOutFrom??1320)%60}" min="0" max="59" step="30" style="width:52px"> 分
-        </div>
-        <div class="settings-row">
-          <div class="settings-label">退勤時刻・受付終了<div class="settings-sub">セレクトの一番下の時刻</div></div>
-          <input type="number" class="settings-input" id="cfg-clockOutToH" value="${Math.floor((cfg.clockOutTo??1800)/60)}" min="16" max="30" style="width:52px"> 時
-          <input type="number" class="settings-input" id="cfg-clockOutToM" value="${(cfg.clockOutTo??1800)%60}" min="0" max="59" step="30" style="width:52px"> 分
-        </div>
-        <div class="settings-row">
-          <div class="settings-label">退勤時刻の刻み<div class="settings-sub">セレクトボックスの間隔（分）</div></div>
-          <input type="number" class="settings-input" id="cfg-clockOutStep" value="${cfg.clockOutStep ?? 30}" min="5" max="60" step="5"> 分刻み
-        </div>
-        <!-- extOptions は会計設定の「延長料金設定」で管理 -->
       </div>
     </div>
 
@@ -25441,7 +25374,7 @@ function renderSettingsPanel() {
           <div class="settings-group-head first">🗂 カテゴリ管理</div>
           <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:8px">
             <div class="settings-sub" style="margin-bottom:0">表示するカテゴリ・並び順・名前を店舗に合わせて変更できます。名前は空欄にすると既定名に戻ります。カテゴリの追加は下の「メニュー編集」の末尾から行えます。</div>
-            <button type="button" onclick="posCatResetLabels()" style="flex-shrink:0;background:var(--sur4);border:1px solid var(--bdr);border-radius:6px;color:var(--tx2);cursor:pointer;font-size:12px;padding:4px 10px;white-space:nowrap">↺ 名前を既定に戻す</button>
+            <button type="button" onclick="posCatResetLabels()" style="flex-shrink:0;background:var(--sur4);border:1px solid var(--bdr);border-radius:6px;color:var(--tx2);cursor:pointer;font-size:12px;padding:4px 10px;white-space:nowrap">↺ カテゴリ名を既定に戻す</button>
           </div>
           ${(() => {
             const cats = resolvePosCatLayout(cfg);
@@ -25455,7 +25388,7 @@ function renderSettingsPanel() {
           <div class="settings-group-head">🧾 伝票の品目名</div>
           <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:8px">
             <div class="settings-sub" style="margin-bottom:0">伝票・レシートに印字される品目の名前です。キャストが付く項目は「品目名:キャスト名」の形で印字されます。空欄にすると既定名に戻ります。変更後に取った注文から反映され、過去の伝票の印字は変わりません。延長・本指名延長・延長指名・ドリンクの名前は 料金・会計 の料金表と共通で、どちらで直しても同じです。「名前を既定に戻す」はセット〜空場内と延長が対象です。</div>
-            <button type="button" onclick="posItemLabelsReset()" style="flex-shrink:0;background:var(--sur4);border:1px solid var(--bdr);border-radius:6px;color:var(--tx2);cursor:pointer;font-size:12px;padding:4px 10px;white-space:nowrap">↺ 名前を既定に戻す</button>
+            <button type="button" onclick="posItemLabelsReset()" style="flex-shrink:0;background:var(--sur4);border:1px solid var(--bdr);border-radius:6px;color:var(--tx2);cursor:pointer;font-size:12px;padding:4px 10px;white-space:nowrap">↺ 品目名を既定に戻す</button>
           </div>
           <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:8px">
             <table class="pos-me-table">
@@ -25475,7 +25408,7 @@ function renderSettingsPanel() {
           <div class="settings-sub" style="margin:12px 0">単価・バック・ptは 料金・会計 → 料金マスター で設定します</div>
           <div class="settings-group-head">🍾 メニュー編集</div>
           <div class="settings-sub" style="margin-bottom:12px;line-height:1.7">
-            各カテゴリのメニューを自由に編集できます。行を追加・削除して保存してください。<br>
+            各カテゴリのメニューを自由に編集できます。行を追加・削除したら、画面上の「保存する」を押してください。<br>
             金額はすべて小計で入力してください。<br>
             割引は金額をマイナスで入力してください（例：−1000）。<br>
             特殊は固定金額、税サ前の小計率、税サ後・カード手数料前の総計率から選べます。
@@ -25542,6 +25475,68 @@ function renderSettingsPanel() {
 
     ${_payrollSettingsSectionHtml()}
 
+    <!-- 出勤・退勤の時刻の選択肢（2026-09-28 料金・会計から移設） -->
+    <div class="settings-section" data-setcat="cast">
+      <div class="settings-section-header"><span class="settings-section-title">🕐 出勤・退勤の時刻</span></div>
+      <div class="settings-section-body">
+        <div class="settings-sub" style="margin-bottom:8px">出勤キャストで選ぶ出勤・退勤時刻の選択肢です。給与の丸め（何分単位で数えるか）は「💴 給与計算ルール」で決めます。</div>
+        <div class="settings-row">
+          <div class="settings-label">出勤時刻・受付開始<div class="settings-sub">セレクトの一番上の時刻</div></div>
+          <input type="number" class="settings-input" id="cfg-clockInFromH" value="${Math.floor((cfg.clockInFrom??1200)/60)}" min="16" max="26" style="width:52px"> 時
+          <input type="number" class="settings-input" id="cfg-clockInFromM" value="${(cfg.clockInFrom??1200)%60}" min="0" max="59" step="30" style="width:52px"> 分
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">出勤時刻・受付終了<div class="settings-sub">セレクトの一番下の時刻</div></div>
+          <input type="number" class="settings-input" id="cfg-clockInToH" value="${Math.floor((cfg.clockInTo??1410)/60)}" min="16" max="26" style="width:52px"> 時
+          <input type="number" class="settings-input" id="cfg-clockInToM" value="${(cfg.clockInTo??1410)%60}" min="0" max="59" step="30" style="width:52px"> 分
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">出勤時刻の刻み<div class="settings-sub">セレクトボックスの間隔（分）</div></div>
+          <input type="number" class="settings-input" id="cfg-clockInStep" value="${cfg.clockInStep ?? 30}" min="5" max="60" step="5"> 分刻み
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">退勤時刻・受付開始<div class="settings-sub">セレクトの一番上の時刻</div></div>
+          <input type="number" class="settings-input" id="cfg-clockOutFromH" value="${Math.floor((cfg.clockOutFrom??1320)/60)}" min="16" max="29" style="width:52px"> 時
+          <input type="number" class="settings-input" id="cfg-clockOutFromM" value="${(cfg.clockOutFrom??1320)%60}" min="0" max="59" step="30" style="width:52px"> 分
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">退勤時刻・受付終了<div class="settings-sub">セレクトの一番下の時刻</div></div>
+          <input type="number" class="settings-input" id="cfg-clockOutToH" value="${Math.floor((cfg.clockOutTo??1800)/60)}" min="16" max="30" style="width:52px"> 時
+          <input type="number" class="settings-input" id="cfg-clockOutToM" value="${(cfg.clockOutTo??1800)%60}" min="0" max="59" step="30" style="width:52px"> 分
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">退勤時刻の刻み<div class="settings-sub">セレクトボックスの間隔（分）</div></div>
+          <input type="number" class="settings-input" id="cfg-clockOutStep" value="${cfg.clockOutStep ?? 30}" min="5" max="60" step="5"> 分刻み
+        </div>
+      </div>
+    </div>
+
+    <!-- 本数の数え方（2026-09-28 料金・会計の集計・店ルールから移設） -->
+    <div class="settings-section" data-setcat="cast">
+      <div class="settings-section-header"><span class="settings-section-title">🔢 本数の数え方</span></div>
+      <div class="settings-section-body">
+        <div class="settings-sub" style="margin-bottom:8px">日計表・給与の本数の数え方です。お客様への請求額は変わりません。</div>
+        <div class="settings-row" style="flex-direction:column;align-items:stretch;gap:8px">
+          <label style="display:flex;align-items:flex-start;gap:8px;font-size:13px">
+            <div><b>出戻り本指の集計扱い</b><div style="font-size:11px;color:var(--tx3)">延長扱い・本指名扱いでは、出戻り卓のキャストドリンクは指D、卓の総計はキャスト別指名売上に含まれます。カウントしないでは指D・指名売上にも含まれません。</div></div>
+            <select class="settings-input" id="cfg-modoriHonshimeiAgg" style="min-width:240px">
+              <option value="honen" ${!['honshimei','none'].includes(cfg.modoriHonshimeiAgg) ? 'selected' : ''}>延長扱い（本延に+1・おすすめ）</option>
+              <option value="honshimei" ${cfg.modoriHonshimeiAgg === 'honshimei' ? 'selected' : ''}>本指名扱い（本指に+1）</option>
+              <option value="none" ${cfg.modoriHonshimeiAgg === 'none' ? 'selected' : ''}>カウントしない</option>
+            </select>
+          </label>
+          <label style="display:flex;align-items:flex-start;gap:8px;font-size:13px">
+            <div><b>出戻り延指の集計扱い</b><div style="font-size:11px;color:var(--tx3)">「元は場内」「元は延長指名」で出戻った客の集計先です。既定は延指40（場内カウントには含みません）。</div></div>
+            <select class="settings-input" id="cfg-modoriEnchoshimeiAgg" style="min-width:240px">
+              <option value="enchoshimei40" ${!['jounai','none'].includes(cfg.modoriEnchoshimeiAgg) ? 'selected' : ''}>延長指名扱い（延指40に+1・おすすめ）</option>
+              <option value="jounai" ${cfg.modoriEnchoshimeiAgg === 'jounai' ? 'selected' : ''}>場内扱い（場内に+1）</option>
+              <option value="none" ${cfg.modoriEnchoshimeiAgg === 'none' ? 'selected' : ''}>カウントしない</option>
+            </select>
+          </label>
+        </div>
+      </div>
+    </div>
+
     <!-- キャスト管理（時給・バック単価マスタ） -->
     <div class="settings-section" data-setcat="cast">
       <div class="settings-section-header"><span class="settings-section-title">💴 キャスト管理</span></div>
@@ -25556,17 +25551,6 @@ function renderSettingsPanel() {
             <button class="btn primary" onclick="addCast()">＋ キャスト追加</button>
           </div>
           <div id="castmgmt-table-wrapper"></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 社員名簿 -->
-    <div class="settings-section" data-setcat="cast">
-      <div class="settings-section-header"><span class="settings-section-title">👤 社員名簿</span></div>
-      <div class="settings-section-body">
-        <div class="settings-row">
-          <div class="settings-label">社員の名前<div class="settings-sub">Enterで追加、✕で削除。日次締め「社員日払い」の名前候補に出ます</div></div>
-          ${tagEditor('staffNames', cfg.staffNames || [])}
         </div>
       </div>
     </div>
@@ -25588,7 +25572,7 @@ function renderSettingsPanel() {
 
     <!-- 顧客ランク -->
     <div class="settings-section" data-setcat="customer">
-      <div class="settings-section-header"><span class="settings-section-title">👑 顧客ランク閾値</span></div>
+      <div class="settings-section-header"><span class="settings-section-title">👑 顧客ランク・誕生日</span></div>
       <div class="settings-section-body">
         <div class="settings-row">
           <div class="settings-label">VIPの来店回数<div class="settings-sub">この回数以上でVIP</div></div>
@@ -25624,6 +25608,17 @@ function renderSettingsPanel() {
         <div class="settings-row">
           <div class="settings-label">特別入金の項目<div class="settings-sub">Enterで追加、✕で削除。日次締めの内容候補に出ます</div></div>
           ${tagEditor('specialInLabels', cfg.specialInLabels || [])}
+        </div>
+      </div>
+    </div>
+
+    <!-- 社員名簿 -->
+    <div class="settings-section" data-setcat="slip">
+      <div class="settings-section-header"><span class="settings-section-title">👤 社員名簿</span></div>
+      <div class="settings-section-body">
+        <div class="settings-row">
+          <div class="settings-label">社員の名前<div class="settings-sub">Enterで追加、✕で削除。日次締め「社員日払い」の名前候補に出ます</div></div>
+          ${tagEditor('staffNames', cfg.staffNames || [])}
         </div>
       </div>
     </div>
@@ -25670,6 +25665,13 @@ function renderSettingsPanel() {
       <div class="settings-section-header"><span class="settings-section-title">🖥️ 表示・画面</span></div>
       <div class="settings-section-body">
         <div class="settings-row">
+          <div class="settings-label">残り時間カウントダウン<div class="settings-sub">各グループの終了時刻まで表示。10分以下で赤点滅</div></div>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" id="cfg-showCountdown" ${cfg.showCountdown ? 'checked' : ''}>
+            <span>表示する</span>
+          </label>
+        </div>
+        <div class="settings-row">
           <div class="settings-label">営業開始時にフルスクリーンにする<div class="settings-sub">起動ゲートから本画面へ進む時に適用します</div></div>
           <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
             <input type="checkbox" id="cfg-fullscreenOnBoot" ${cfg.fullscreenOnBoot !== false ? 'checked' : ''}>
@@ -25681,14 +25683,14 @@ function renderSettingsPanel() {
           <button type="button" class="btn" onclick="requestAppFullscreen()">⛶ フルスクリーン</button>
         </div>
         <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:6px">
-          <div class="settings-label" style="width:100%">この端末の表示モード<div class="settings-sub">タブレットや拡大表示の端末は「タブレット」推奨（端末ごとの設定・即反映）</div></div>
+          <div class="settings-label" style="width:100%">この端末の表示モード<div class="settings-sub">タブレットや拡大表示の端末は「タブレット」推奨（即反映）。USBに保存している店では、USBと一緒に別のPCへ移ります</div></div>
           <select class="settings-input" id="display-mode-select" style="width:180px" onchange="event.stopPropagation();applyDisplayMode(this.value)">
             <option value="desktop" ${document.documentElement.getAttribute('data-display')!=='tablet' ? 'selected' : ''}>デスクトップ 🖥️</option>
             <option value="tablet"  ${document.documentElement.getAttribute('data-display')==='tablet' ? 'selected' : ''}>タブレット 👆</option>
           </select>
         </div>
         <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:6px">
-          <div class="settings-label" style="width:100%">画面ごとの文字サイズ（この端末のみ・即反映）<div class="settings-sub">タブレットや店のモニタに合わせて画面単位で拡大縮小できます</div></div>
+          <div class="settings-label" style="width:100%">画面ごとの文字サイズ（このPCだけ・即反映）<div class="settings-sub">タブレットや店のモニタに合わせて画面単位で拡大縮小できます</div></div>
           ${UI_ZOOM_SCREEN_LIST.map(([key, label]) => {
             const current = uiZoomCurrentValue(key);
             const opts = UI_ZOOM_OPTIONS.map(v =>
@@ -25792,7 +25794,7 @@ function renderSettingsPanel() {
       <div class="settings-section-header"><span class="settings-section-title">🎨 表示テーマ</span></div>
       <div class="settings-section-body">
         <div class="settings-row">
-          <div class="settings-label"><label for="settings-current-theme">現在のテーマ</label><div class="settings-sub">この端末の表示をすぐに切り替えます。いつでも元に戻せます。${_demoMode ? '<br>デモ中はこの起動中だけ適用します。' : ''}</div></div>
+          <div class="settings-label"><label for="settings-current-theme">現在のテーマ</label><div class="settings-sub">すぐに切り替わり、いつでも元に戻せます。USBに保存している店では、USBと一緒に別のPCへ移ります。${_demoMode ? '<br>デモ中はこの起動中だけ適用します。' : ''}</div></div>
           <select class="settings-input" id="settings-current-theme" oninput="event.stopPropagation()" onchange="event.stopPropagation();onCurrentThemeChange(this)" style="width:160px">
             <option value="night">ナイト 🌙</option>
             <option value="champagne">シャンパン ◇</option>
@@ -25830,6 +25832,7 @@ function renderSettingsPanel() {
 }
 
 async function usbSettingsActivate() {
+  await _settingsResolveDirtyBeforeRerender();   // 最後の画面作り直しで未保存の編集を黙って捨てない
   try {
     await UsbStore.activateWithPicker({ mode: 'migrate' });
     renderSettingsPanel();
@@ -25857,6 +25860,7 @@ async function selfUpdateRunNow() {
 }
 
 async function usbSettingsDeactivate() {
+  await _settingsResolveDirtyBeforeRerender();   // 最後の画面作り直しで未保存の編集を黙って捨てない
   try {
     await UsbStore.deactivate();
     renderSettingsPanel();
@@ -25895,6 +25899,7 @@ function _authValidateNew(username, password, confirmPassword) {
 }
 
 async function authSettingsSetup() {
+  await _settingsResolveDirtyBeforeRerender();   // 最後の画面作り直しで未保存の編集を黙って捨てない
   const username = _authInputValue('auth-setup-username');
   const password = document.getElementById('auth-setup-password')?.value || '';
   const confirmPassword = document.getElementById('auth-setup-password2')?.value || '';
@@ -25913,6 +25918,7 @@ async function authSettingsSetup() {
 }
 
 async function authSettingsChange() {
+  await _settingsResolveDirtyBeforeRerender();   // 最後の画面作り直しで未保存の編集を黙って捨てない
   const currentPassword = document.getElementById('auth-current-password')?.value || '';
   const username = _authInputValue('auth-new-username');
   const password = document.getElementById('auth-new-password')?.value || '';
@@ -25942,6 +25948,7 @@ async function authSettingsChange() {
 }
 
 async function authSettingsResetWithRecovery() {
+  await _settingsResolveDirtyBeforeRerender();   // 最後の画面作り直しで未保存の編集を黙って捨てない
   const code = _authInputValue('auth-recovery-code');
   if (!code) {
     showToast('\u30ea\u30ab\u30d0\u30ea\u30fc\u30b3\u30fc\u30c9\u3092\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044');
@@ -26003,6 +26010,7 @@ function _applySlipCounterTarget(targetNo) {
 }
 
 async function resetSlipNumberWithRecovery() {
+  await _settingsResolveDirtyBeforeRerender();   // 最後の画面作り直しで未保存の編集を黙って捨てない
   const code = _authInputValue('slip-recovery-code');
   if (!code) { showToast('リカバリーコードを入力してください'); return; }
   const ok = await AuthStore.verifyRecovery(code);
@@ -26016,6 +26024,7 @@ async function resetSlipNumberWithRecovery() {
 }
 
 async function jumpSlipNumberWithRecovery() {
+  await _settingsResolveDirtyBeforeRerender();   // 最後の画面作り直しで未保存の編集を黙って捨てない
   const code = _authInputValue('slip-recovery-code');
   if (!code) { showToast('リカバリーコードを入力してください'); return; }
   const target = _parseSlipJumpTarget(_authInputValue('slip-jump-target'));
@@ -26031,6 +26040,7 @@ async function jumpSlipNumberWithRecovery() {
 }
 
 async function authSettingsClear() {
+  await _settingsResolveDirtyBeforeRerender();   // 最後の画面作り直しで未保存の編集を黙って捨てない
   const currentPassword = document.getElementById('auth-current-password')?.value || '';
   if (!currentPassword) {
     showToast('現在のパスワードを入力してください');
@@ -26264,15 +26274,50 @@ function rerenderTagEditor(id, values) {
 }
 
 /* 画面ごとの文字サイズ「すべて標準に戻す」ボタン用ハンドラ（47c-ui-zoom.js） */
-function settingsResetUiZoom() {
+async function settingsResetUiZoom() {
+  await _settingsResolveDirtyBeforeRerender();   // 最後の画面作り直しで未保存の編集を黙って捨てない
   resetAllUiZoom();
   renderSettingsPanel();
 }
 
 /* 未保存変更トラッキング（タブ離脱時のapplySettings呼び出し・閉じる前警告の判定に使用） */
 let _settingsDirty = false;
-function _settingsMarkDirty() { _settingsDirty = true; }
-function _settingsClearDirty() { _settingsDirty = false; }
+function _settingsMarkDirty() { _settingsDirty = true; _settingsUpdateSaveBar(); }
+function _settingsClearDirty() { _settingsDirty = false; _settingsUpdateSaveBar(); }
+/* 設定画面上部の保存バー。未保存の変更があるときだけ「保存する」を目立たせる。 */
+function _settingsUpdateSaveBar() {
+  if (typeof document === 'undefined' || typeof document.getElementById !== 'function') return;
+  const bar = document.getElementById('settings-savebar');
+  if (!bar) return;
+  bar.classList.toggle('is-dirty', _settingsDirty);
+  const msg = bar.querySelector('.settings-savebar-msg');
+  if (msg) msg.textContent = _settingsDirty
+    ? '保存していない変更があります'
+    : '変更はすべて保存済みです';
+  const btn = bar.querySelector('button');
+  if (btn) btn.disabled = !_settingsDirty;
+}
+async function settingsSaveNow() {
+  if (!_settingsDirty) return;
+  await applySettings();
+}
+/* 設定画面を作り直す操作（ログイン・伝票番号・USB・文字サイズのリセット等）の前に呼ぶ。
+   未保存の変更があれば保存するか捨てるかを聞き、確認なしで消えないようにする。 */
+async function _settingsResolveDirtyBeforeRerender() {
+  if (!_settingsDirty) return;
+  // 未保存フラグは設定タブの入力欄に対するもの。設定タブを開いていない時に古いフラグで保存すると、
+  // 画面に残った古い入力欄の値で cfg を上書きしてしまうため、確認も保存もしない。
+  if (typeof document === 'undefined' || document.body?.dataset?.activeTab !== 'settings' || !document.getElementById('settings-form')) return;
+  const save = await appConfirm('設定に保存していない変更があります。画面を更新する前に保存しますか？\n\n・保存する：変更を保存してから画面を更新します\n・変更を捨てる：変更を元に戻して画面を更新します', {
+    okLabel: '保存する',
+    cancelLabel: '変更を捨てる',
+  });
+  if (save) await applySettings();
+}
+async function _settingsRerender() {
+  await _settingsResolveDirtyBeforeRerender();
+  renderSettingsPanel();
+}
 
 /* ================================================================
    伝票ロゴ画像の取り込み
@@ -26436,7 +26481,7 @@ function _shopLogoFinalize(img, sx, sy, sw, sh) {
   const pv = document.getElementById('cfg-shopLogo-preview');
   if (pv) { pv.src = dataUrl; pv.style.display = ''; }
   _settingsMarkDirty();
-  showToast('ロゴを読み込みました。「保存」で確定します');
+  showToast('ロゴを読み込みました。「保存する」で確定します');
 }
 
 function shopLogoClear() {
@@ -26446,7 +26491,7 @@ function shopLogoClear() {
   const fi = document.getElementById('cfg-shopLogo-file');
   if (fi) fi.value = '';
   _settingsMarkDirty();
-  showToast('ロゴを削除します。設定タブを離れるときに確定します');
+  showToast('ロゴを削除します。「保存する」で確定します');
 }
 
 function settingsBusinessTypeChanged(value) {
@@ -26478,11 +26523,7 @@ async function applySettings() {
   const vipFeePerExtensionPerGuest = !!(get('cfg-vipFeePerExtensionPerGuest')?.checked);
   const rankVip            = parseInt(get('cfg-rankVip')?.value)            || cfg.rankVip;
   const rankRepeat         = parseInt(get('cfg-rankRepeat')?.value)         || cfg.rankRepeat;
-  const bottleKeepDaysVal  = parseInt(get('cfg-bottleKeepDays')?.value);
-  const bottleWarnDaysVal  = parseInt(get('cfg-bottleWarnDays')?.value);
   const birthdayAlertVal   = parseInt(get('cfg-birthdayAlertDays')?.value);
-  const bottleKeepDays     = isNaN(bottleKeepDaysVal) ? (cfg.bottleKeepDays ?? 90) : bottleKeepDaysVal;
-  const bottleWarnDays     = isNaN(bottleWarnDaysVal) ? (cfg.bottleWarnDays ?? 14) : bottleWarnDaysVal;
   const birthdayAlertDays  = isNaN(birthdayAlertVal) ? (cfg.birthdayAlertDays ?? 14) : birthdayAlertVal;
   const bizHour = isNaN(bizDayBoundaryHour) ? (cfg.bizDayBoundaryHour ?? 12) : bizDayBoundaryHour;
 
@@ -26501,7 +26542,7 @@ async function applySettings() {
   const clockInFromH  = _int('cfg-clockInFromH', 20);
   const clockInFromM  = parseInt(get('cfg-clockInFromM')?.value)  || 0;
   const clockInToH    = _int('cfg-clockInToH', 23);
-  const clockInToM    = parseInt(get('cfg-clockInToM')?.value)    || 30;
+  const clockInToM    = _int('cfg-clockInToM', 30);   // 0分（ちょうど）を30分に化けさせない
   const clockInFrom   = clockInFromH * 60 + clockInFromM;
   const clockInTo     = clockInToH   * 60 + clockInToM;
   const clockInStep   = parseInt(get('cfg-clockInStep')?.value)   || cfg.clockInStep  || 30;
@@ -26564,7 +26605,7 @@ async function applySettings() {
   const dohanFee        = feeMasterValues.dohanFee;
   const dohanIncludesSet = !!(get('cfg-dohanIncludesSet')?.checked);
   const jonaiFee        = feeMasterValues.jonaiFee;
-  const enchoshimeiFee        = cfg.enchoshimeiFee; // kept for legacy initial-seat-fee reference
+  const enchoshimeiFee        = _int('cfg-enchoshimeiFee', cfg.enchoshimeiFee ?? 2000); // 延長指名（明細なし）
   const extFeeHonshimeiAmt   = cfg.extFeeHonshimeiAmt   || 2000; // スカラーはフォールバック保持
   const extFeeJounaiAmt      = cfg.extFeeJounaiAmt      || 2000;
   const extFeeEnchoshimeiAmt = cfg.extFeeEnchoshimeiAmt || 2000;
@@ -26607,9 +26648,10 @@ async function applySettings() {
     });
     return hidden;
   })();
-  const taxRate         = parseInt(get('cfg-taxRate')?.value)         ?? cfg.taxRate;
+  // 空欄は NaN になり ?? では拾えず 0% で計算されていた → 数値でなければ現在値を保つ
+  const taxRate         = _int('cfg-taxRate', cfg.taxRate);
   const taxRound        = parseInt(get('cfg-taxRound')?.value)        || cfg.taxRound;
-  const cardFeeRate     = parseInt(get('cfg-cardFeeRate')?.value)     ?? cfg.cardFeeRate;
+  const cardFeeRate     = _int('cfg-cardFeeRate', cfg.cardFeeRate);
   const cardFeeRound    = parseInt(get('cfg-cardFeeRound')?.value)    || cfg.cardFeeRound;
   const advanceFeeCredit = get('cfg-advanceFeeCredit') ? !!get('cfg-advanceFeeCredit').checked : (cfg.advanceFeeCredit !== false);
   const tillFloat       = Math.max(0, parseInt(get('cfg-tillFloat')?.value) || 0);
@@ -26727,8 +26769,9 @@ async function applySettings() {
   const defaultThemeValue             = get('cfg-defaultTheme')?.value ?? cfg.defaultTheme;
   const defaultTheme                  = defaultThemeValue === 'champagne' ? 'champagne' : 'night';
 
-  // 領収書設定（文字列。空欄ならデフォルト保持）
-  const _rcpt = (id, def) => { const el = get(id); const v = el ? el.value.trim() : ''; return v || (cfg[def] ?? ''); };
+  // 領収書設定（文字列）。空欄で保存したら空欄にする（2026-09-28 オーナー決定。以前は空欄だと前の値が残り消せなかった）。
+  // 入力欄が無いとき（描画前など）だけ現在値を保つ。但し書きが空欄なら印刷時は「ご飲食代として」を使う（49-receipt-print.js）。
+  const _rcpt = (id, def) => { const el = get(id); return el ? el.value.trim() : (cfg[def] ?? ''); };
   const receiptStoreName1 = _rcpt('cfg-receiptStoreName1', 'receiptStoreName1');
   const receiptStoreAddr  = _rcpt('cfg-receiptStoreAddr',  'receiptStoreAddr');
   const receiptStoreTel   = _rcpt('cfg-receiptStoreTel',   'receiptStoreTel');
@@ -26747,7 +26790,10 @@ async function applySettings() {
   const extTrialScale = _printScaleValue(_extTrialScaleDraft);
   const ryoshuScale = _printScaleValue(_ryoshuScaleDraft);
 
+  // 画面で編集した項目だけを上書きする。以前は cfg を列挙キーだけで作り直していたため、
+  // 列挙し忘れたキー（他画面で編集する設定など）が保存のたびに消えていた（2026-09-28 castPayrollRatioMode）。
   cfg = {
+    ...cfg,
     extAutoShimeiMapping: cfg.extAutoShimeiMapping || null,
     shopName, businessType, showtimeScope,
     timeStartH, timeEndH, bizDayBoundaryHour: bizHour, defStay, dohanStay,
@@ -26755,7 +26801,7 @@ async function applySettings() {
     clockOutFrom, clockOutTo, clockOutStep,
     tableMax, vipEnabled, vipSeats, vipFeePerGuest, vipFeePerExtension, vipFeePerExtensionPerGuest,
     extOptions, sources, conditions, staffNames, hqOutLabels, specialInLabels, rankVip, rankRepeat,
-    bottleKeepDays, bottleWarnDays, birthdayAlertDays,
+    birthdayAlertDays,
     setPrice, earlySetEnabled, earlySetFromH, earlySetToH, earlySetPrice,
     nominateFee, dohanFee, dohanIncludesSet, jonaiFee, enchoshimeiFee,
     extFeeHonshimeiAmt, extFeeJounaiAmt, extFeeEnchoshimeiAmt,
@@ -26946,9 +26992,9 @@ function payrollBracketDel(btn) {
 
 function _payrollDeductionRowHTML(item) {
   const row = item || {};
-  const mode = ['fixed','rate','manual','boolean'].includes(row.mode) ? row.mode : 'manual';
+  const mode = ['fixed','rate','manual','boolean','flagFixed'].includes(row.mode) ? row.mode : 'manual';
   const disabled = mode === 'manual' || mode === 'boolean' ? ' disabled' : '';
-  const unit = mode === 'rate' ? '%' : (mode === 'fixed' ? '円' : (mode === 'boolean' ? '○／×' : '—'));
+  const unit = _payrollDeductionUnitLabel(mode);
   const step = mode === 'rate' ? '0.01' : '1';
   const printable = row.print !== false;
   return `<tr data-key="${escAttr(row.key || '')}">
@@ -26958,11 +27004,21 @@ function _payrollDeductionRowHTML(item) {
       <option value="rate"${mode === 'rate' ? ' selected' : ''}>率%</option>
       <option value="manual"${mode === 'manual' ? ' selected' : ''}>都度手入力</option>
       <option value="boolean"${mode === 'boolean' ? ' selected' : ''}>○×記録（本部計算）</option>
+      <option value="flagFixed"${mode === 'flagFixed' ? ' selected' : ''}>○×で固定額</option>
     </select></td>
     <td><span style="display:inline-flex;align-items:center;gap:4px"><input type="number" class="settings-input payroll-deduction-value" value="${mode === 'manual' || mode === 'boolean' ? 0 : (Number(row.value) || 0)}" step="${step}" style="width:88px"${disabled}><span class="payroll-deduction-unit" style="font-size:11px;color:var(--tx3)">${unit}</span></span></td>
     <td><label style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap"><input type="checkbox" class="payroll-deduction-print"${printable ? ' checked' : ''}>印刷</label></td>
     <td><button type="button" class="pos-me-del" onclick="payrollDeductionDel(this)">削除</button></td>
   </tr>`;
+}
+
+/* 金額・率欄の単位表示。flagFixed は「○の日に引く円」 */
+function _payrollDeductionUnitLabel(mode) {
+  if (mode === 'rate') return '%';
+  if (mode === 'fixed') return '円';
+  if (mode === 'flagFixed') return '円（○の日）';
+  if (mode === 'boolean') return '○／×';
+  return '—';
 }
 
 function _collectPayrollDeductionRows(tableId) {
@@ -26990,7 +27046,7 @@ function _payrollDeductionSettingsModalHtml() {
   const displayPrint = cfg.payrollDeductionDisplayPrint !== false;
   return '<div id="payroll-deduction-settings-overlay" class="pos-co-overlay" onclick="if(event.target===this)payrollDeductionSettingsCloseModal()">'
     + '<div class="pos-co-panel pay-bd-panel" style="width:min(760px,96vw);max-width:760px">'
-    + '<div class="pay-bd-head"><div><div class="pay-bd-title">控除項目設定</div><div class="pay-bd-date">金額計算または本部へ渡す○×記録を設定</div></div><button type="button" class="pay-bd-close" onclick="payrollDeductionSettingsCloseModal()" aria-label="閉じる">×</button></div>'
+    + '<div class="pay-bd-head"><div><div class="pay-bd-title">控除項目設定</div><div class="pay-bd-date">金額計算または本部へ渡す○×記録を設定（設定 → 💴 給与計算ルール →「控除・記録」と同じ内容です）</div></div><button type="button" class="pay-bd-close" onclick="payrollDeductionSettingsCloseModal()" aria-label="閉じる">×</button></div>'
     + '<div class="pay-bd-body" style="max-height:72vh;overflow-y:auto">'
     + '<div class="pay-settings-row" style="margin-bottom:12px"><div><label for="payroll-deduction-display-field">控除票の金額欄</label><p>画面には常に表示。紙へ出すかは右で選べます。</p></div><div class="pay-settings-inputs"><select id="payroll-deduction-display-field" class="settings-input"><option value="dailyPay"' + (displayField === 'dailyPay' ? ' selected' : '') + '>日給</option><option value="nominatedSales"' + (displayField === 'nominatedSales' ? ' selected' : '') + '>本指名売上</option></select><label style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap"><input type="checkbox" id="payroll-deduction-display-print"' + (displayPrint ? ' checked' : '') + '>印刷</label></div></div>'
     + '<div style="overflow-x:auto"><table class="pos-me-table" id="payroll-deduction-settings-table" style="min-width:590px">'
@@ -27038,7 +27094,7 @@ function payrollDeductionModeChanged(select) {
     input.step = select.value === 'rate' ? '0.01' : '1';
     if (select.value === 'manual' || select.value === 'boolean') input.value = '0';
   }
-  if (unit) unit.textContent = select.value === 'rate' ? '%' : (select.value === 'fixed' ? '円' : (select.value === 'boolean' ? '○／×' : '—'));
+  if (unit) unit.textContent = _payrollDeductionUnitLabel(select.value);
   _payrollDeductionEditorMarkDirty(select);
 }
 
@@ -27277,7 +27333,7 @@ const PAYROLL_SETTINGS_GROUPS = [
 ];
 const PAYROLL_SETTINGS_KEYS = [
   'defaultWage', 'payrollClockInRoundMin', 'payrollClockOutRoundMin', 'payrollClockOutRoundThreshold',
-  'payrollLateFineUnitMin', 'payrollLateFineAmt', 'payrollDouhanAddsHonshimei',
+  'payrollLateFineEnabled', 'payrollLateFineUnitMin', 'payrollLateFineAmt', 'payrollDouhanAddsHonshimei',
   'payrollDouhanAddsHonenFirst', 'payrollSpInBackTotal', 'payrollBottleSpRate', 'payrollSpMode', 'payrollSpFixed',
   'payrollDeductions', 'payrollDeductionDisplayField', 'payrollDeductionDisplayPrint', 'payrollPeriodDeductions', 'payrollPeriod', 'payrollSlideSource',
   'payrollSlideTable', 'payrollRoundMode', 'payrollRoundUnit',
@@ -27295,7 +27351,7 @@ function _payrollSettingsSummaryHtml() {
   if (cfg.payrollDouhanAddsHonshimei !== false) extra.push('本指名');
   if (cfg.payrollDouhanAddsHonenFirst !== false) extra.push('本指名延長');
   const summaries = {
-    work: '標準時給 ' + yen(cfg.defaultWage) + ' / 出勤 ' + (cfg.payrollClockInRoundMin ?? 30) + '分・退勤 ' + (cfg.payrollClockOutRoundMin ?? 30) + '分単位',
+    work: '標準時給 ' + yen(cfg.defaultWage) + ' / 出勤 ' + (cfg.payrollClockInRoundMin ?? 30) + '分・退勤 ' + (cfg.payrollClockOutRoundMin ?? 30) + '分単位' + (cfg.payrollLateFineEnabled === false ? ' / 遅刻罰金なし' : ''),
     back: 'ドリンク：' + (payrollDrinksMerged() ? '統合' : '指名・フリー別') + ' / 同伴：' + (extra.join('＋') || '追加なし') + ' / SP：' + (cfg.payrollSpInBackTotal === false ? '参考のみ' : '日給に含む'),
     deductions: '控除票：' + (normalizePayrollDeductionDisplayField(cfg.payrollDeductionDisplayField) === 'nominatedSales' ? '本指名売上' : '日給') + ' / 日ごと ' + (cfg.payrollDeductions || []).length + '項目 / 締めごと ' + (cfg.payrollPeriodDeductions || []).length + '項目',
     period: (cfg.payrollPeriod === 'half' ? '半月払い' : '月払い') + ' / スライド時給：' + ((cfg.payrollSlideTable || []).length ? (cfg.payrollSlideTable.length + '段階') : '未設定'),
@@ -27341,6 +27397,7 @@ function _payrollSettingsModalHtml() {
           <div class="pay-settings-row"><div><label for="cfg-payrollClockInRoundMin">出勤</label><p>指定した分単位で切り上げます。</p></div><div class="pay-settings-inputs">${num('payrollClockInRoundMin','出勤の計算単位',30,1,60)}<span>分単位</span></div></div>
           <div class="pay-settings-row"><div><label for="cfg-payrollClockOutRoundMin">退勤</label><p>境目未満は切り捨て、境目以上は切り上げ。</p></div><div class="pay-settings-inputs">${num('payrollClockOutRoundMin','退勤の計算単位',30,1,60)}<span>分単位</span><label for="cfg-payrollClockOutRoundThreshold">境目</label>${num('payrollClockOutRoundThreshold','退勤の切り上げ境目',15,1,60)}<span>分</span></div></div>
           <h3>遅刻罰金</h3>
+          <label class="pay-settings-choice"><input type="checkbox" id="cfg-payrollLateFineEnabled"${checked('payrollLateFineEnabled')}><span>遅刻罰金を取る<small>OFFにすると、遅刻は記録・表示されますが罰金は0円になります。</small></span></label>
           <div class="pay-settings-row"><div><label for="cfg-payrollLateFineUnitMin">遅刻時間ごとの金額</label><p>例：15分なら、1〜15分で1回分。空欄・0円は既定の1,000円。</p></div><div class="pay-settings-inputs">${num('payrollLateFineUnitMin','遅刻罰金の分単位',15,1,60)}<span>分ごとに</span>${num('payrollLateFineAmt','遅刻罰金の金額',1000,0,null,100)}<span>円</span></div></div>
           <details class="pay-settings-details"><summary>時間給の計算を確認</summary><p>時間給 ＝ 適用時給 × 計算後の勤務分 ÷ 60（1円未満は四捨五入）。個別時給が空欄なら店標準時給を使い、店標準も0円なら時間給は0円です。</p></details>
         </section>
@@ -27361,7 +27418,7 @@ function _payrollSettingsModalHtml() {
         </section>
         <section id="pay-settings-group-deductions" role="tabpanel" aria-labelledby="pay-settings-tab-deductions" data-pay-group="deductions" hidden>
           <h3>日ごとの控除・○×記録</h3>
-          <p class="pay-settings-note">日計表・控除票に表示。○×は本部への記録用で、金額計算には含めません。</p>
+          <p class="pay-settings-note">日計表・控除票に表示。「○×記録」は本部への記録用で金額計算に含めません。「○×で固定額」は日計表で○にした日だけ、その金額を控除します。</p>
           <div class="pay-settings-row"><div><label for="cfg-payrollDeductionDisplayField">控除票の金額欄</label><p>画面には常に表示。紙へ出すかは右で選べます。</p></div><div class="pay-settings-inputs"><select id="cfg-payrollDeductionDisplayField" class="settings-input">${options([['dailyPay','日給'],['nominatedSales','本指名売上']],normalizePayrollDeductionDisplayField(cfg.payrollDeductionDisplayField))}</select><label style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap"><input type="checkbox" id="cfg-payrollDeductionDisplayPrint"${cfg.payrollDeductionDisplayPrint !== false ? ' checked' : ''}>印刷</label></div></div>
           <div class="pay-settings-table-wrap"><table class="pos-me-table" id="cfg-payroll-deductions-table"><thead><tr><th>名称</th><th>方式</th><th>金額・率</th><th>印刷</th><th></th></tr></thead><tbody>${(cfg.payrollDeductions || []).map(_payrollDeductionRowHTML).join('')}</tbody></table></div>
           <div class="pay-settings-add"><button type="button" class="pos-me-add-btn" onclick="payrollDeductionAdd()">＋ 項目を追加</button>${PAYROLL_DEDUCTION_PRESETS.map(label => '<button type="button" class="btn" onclick="payrollDeductionAddPreset(\'' + escAttr(label) + '\')">＋ ' + label + '</button>').join('')}</div>
@@ -27467,7 +27524,7 @@ function _collectPayrollSettings(overlay) {
   result.payrollBottleSpRate /= 100;
   result.payrollSpMode = overlay.querySelector('#pay-sp-control')?.dataset.mode === 'yen' ? 'yen' : 'percent';
   result.payrollSpFixed = Number(get('payrollSpFixed')?.value ?? cfg.payrollSpFixed) || 0;
-  ['payrollDouhanAddsHonshimei','payrollDouhanAddsHonenFirst','payrollSpInBackTotal'].forEach(key => { result[key] = get(key).checked; });
+  ['payrollLateFineEnabled','payrollDouhanAddsHonshimei','payrollDouhanAddsHonenFirst','payrollSpInBackTotal'].forEach(key => { result[key] = get(key).checked; });
   result.payrollMergeDrinks = get('payrollMergeDrinks')?.checked === true;
   result.payrollDeductionDisplayField = normalizePayrollDeductionDisplayField(get('payrollDeductionDisplayField')?.value);
   result.payrollDeductionDisplayPrint = get('payrollDeductionDisplayPrint')?.checked !== false;
@@ -28559,16 +28616,6 @@ function doMerge(sourceName, targetName) {
   });
   if (bChanged) saveBackups(backups);
 
-  const bottles = loadBottles();
-  let bottleChanged = false;
-  bottles.forEach(b => {
-    if ((b.customerName || '').trim() === sourceName) {
-      b.customerName = targetName;
-      b.updatedAt = Date.now();
-      bottleChanged = true;
-    }
-  });
-  if (bottleChanged) saveBottles(bottles);
   urikakeRenameCustomer(sourceName, targetName);
 
   // 過去リスト閲覧中なら
@@ -28607,7 +28654,7 @@ async function editCustomerName(oldName) {
   if (data[trimmed] && trimmed !== oldName) {
     if (!(await appConfirm(`「${trimmed}」という顧客は既に存在します。\n統合して ${data[trimmed].visits}回＋${data[oldName]?.visits||0}回 の履歴としてまとめますか？`, { danger: true }))) return;
   } else {
-    if (!(await appConfirm(`「${oldName}」を「${trimmed}」に変更します。\n\n・今日のリストと、過去の全営業日の記録が新しい名前に変わります\n・ボトルキープ・売掛の名義も変わります\n・この操作は元に戻せません\n\n変更しますか？`, { danger: true }))) return;
+    if (!(await appConfirm(`「${oldName}」を「${trimmed}」に変更します。\n\n・今日のリストと、過去の全営業日の記録が新しい名前に変わります\n・売掛の名義も変わります\n・この操作は元に戻せません\n\n変更しますか？`, { danger: true }))) return;
   }
 
   // 1. 今日のリスト（state.rows）の客名を更新
@@ -28621,16 +28668,6 @@ async function editCustomerName(oldName) {
   });
   if (changedInBackups) saveBackups(backups);
 
-  const bottles = loadBottles();
-  let bottleChanged = false;
-  bottles.forEach(b => {
-    if ((b.customerName || '').trim() === oldName) {
-      b.customerName = trimmed;
-      b.updatedAt = Date.now();
-      bottleChanged = true;
-    }
-  });
-  if (bottleChanged) saveBottles(bottles);
   urikakeRenameCustomer(oldName, trimmed);
 
   // 3. 現在編集中の過去リスト（pastState）も更新
@@ -28702,176 +28739,6 @@ function escAttr(s) {
   return String(s||'').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
-/* ================================================================
-   BOTTLE KEEP
-================================================================ */
-function loadBottles() {
-  return Persist.read('bottles', {
-    onError: () => setTimeout(() => { try { showToast('⚠ ボトルデータの読込に失敗しました'); } catch (_) {} }, 100)
-  }) || [];
-}
-
-function saveBottles(arr) {
-  Persist.write('bottles', arr);
-}
-
-function addDaysToBizKey(key, days) {
-  if (!key || String(key).length !== 8) return '';
-  const s = String(key);
-  const date = new Date(Number(s.slice(0, 4)), Number(s.slice(4, 6)) - 1, Number(s.slice(6, 8)));
-  if (Number.isNaN(date.getTime())) return '';
-  date.setDate(date.getDate() + (Number(days) || 0));
-  return `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`;
-}
-
-function bottleDisplayStatus(bottle, todayKey, currentCfg) {
-  const status = bottle?.status || 'keep';
-  const labels = { keep: 'キープ中', finished: '飲み切り', expired: '期限切れ', disposed: '廃棄・流用' };
-  if (status !== 'keep') return { cls: status, label: labels[status] || status };
-  const expiresAt = bottle?.expiresAt || '';
-  if (expiresAt && expiresAt < todayKey) return { cls: 'expired', label: '期限切れ' };
-  const warnKey = addDaysToBizKey(todayKey, currentCfg?.bottleWarnDays ?? 14);
-  if (expiresAt && warnKey && expiresAt <= warnKey) return { cls: 'warn', label: '期限接近' };
-  return { cls: 'keep', label: 'キープ中' };
-}
-
-function _bottleDateInput(key) {
-  if (!key || String(key).length !== 8) return '';
-  const s = String(key);
-  return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
-}
-
-function _bottleDateKey(value) {
-  return String(value || '').replace(/-/g, '');
-}
-
-function renderBottlePanel() {
-  const tbody = document.getElementById('bottle-tbody');
-  if (!tbody) return;
-  const query = (document.getElementById('bottle-search')?.value || '').trim().toLowerCase();
-  const showAll = !!document.getElementById('bottle-show-all')?.checked;
-  let bottles = loadBottles();
-  if (!showAll) bottles = bottles.filter(b => b.status === 'keep');
-  if (query) bottles = bottles.filter(b => [b.customerName, b.brand, b.tagNo].some(v => String(v || '').toLowerCase().includes(query)));
-  bottles.sort((a, b) => (a.expiresAt || '99999999').localeCompare(b.expiresAt || '99999999'));
-  const count = document.getElementById('bottle-count');
-  if (count) count.textContent = `${bottles.length} 件`;
-  if (!bottles.length) {
-    tbody.innerHTML = '<tr><td colspan="9" class="cust-empty">表示するボトルがありません</td></tr>';
-    return;
-  }
-  const todayKey = getBizDayKey();
-  tbody.innerHTML = bottles.map(b => {
-    const display = bottleDisplayStatus(b, todayKey, cfg);
-    return `<tr class="bottle-${escAttr(display.cls)}">
-      <td>${escHtml(b.customerName || '—')}</td>
-      <td>${escHtml(b.brand || '—')}</td>
-      <td>${escHtml(b.tagNo || '—')}</td>
-      <td>${escHtml(b.location || '—')}</td>
-      <td><select onchange="updateBottleRemain('${escAttr(b.id)}',this.value)">
-        <option value="full" ${b.remain === 'full' ? 'selected' : ''}>満</option>
-        <option value="half" ${b.remain === 'half' ? 'selected' : ''}>半分</option>
-        <option value="low" ${b.remain === 'low' ? 'selected' : ''}>残りわずか</option>
-        <option value="empty" ${b.remain === 'empty' ? 'selected' : ''}>空</option>
-      </select></td>
-      <td>${bizKeyToShort(b.openedAt)}</td>
-      <td>${bizKeyToShort(b.expiresAt)}</td>
-      <td>${escHtml(display.label)}</td>
-      <td style="white-space:nowrap"><button class="btn" onclick="openBottleModal('${escAttr(b.id)}')">編集</button>
-        ${b.status === 'keep' ? `<button class="btn" onclick="changeBottleStatus('${escAttr(b.id)}','finished')">飲み切り</button><button class="btn" onclick="changeBottleStatus('${escAttr(b.id)}','disposed')">廃棄・流用</button>` : ''}
-      </td>
-    </tr>`;
-  }).join('');
-}
-
-function updateBottleRemain(id, remain) {
-  const bottles = loadBottles();
-  const bottle = bottles.find(b => b.id === id);
-  if (!bottle || !['full', 'half', 'low', 'empty'].includes(remain)) return;
-  bottle.remain = remain;
-  bottle.updatedAt = Date.now();
-  saveBottles(bottles);
-}
-
-function changeBottleStatus(id, status) {
-  if (!['keep', 'finished', 'expired', 'disposed'].includes(status)) return;
-  const bottles = loadBottles();
-  const bottle = bottles.find(b => b.id === id);
-  if (!bottle) return;
-  bottle.status = status;
-  bottle.updatedAt = Date.now();
-  saveBottles(bottles);
-  renderBottlePanel();
-}
-
-function openBottleModal(id, preset) {
-  const existing = id ? loadBottles().find(b => b.id === id) : null;
-  const openedAt = existing?.openedAt || preset?.openedAt || getBizDayKey();
-  const bottle = existing || {
-    customerName: preset?.customerName || '', brand: preset?.brand || '', tagNo: '', location: '', remain: 'full',
-    openedAt, expiresAt: addDaysToBizKey(openedAt, cfg.bottleKeepDays ?? 90), status: 'keep', note: '',
-  };
-  const customerOptions = (typeof getCustomerNames === 'function' ? getCustomerNames() : [])
-    .map(c => `<option value="${escAttr(c.name)}"></option>`).join('');
-  const brandOptions = ((cfg.posMenu && cfg.posMenu.bottle) || [])
-    .map(item => `<option value="${escAttr(item.name || '')}"></option>`).join('');
-  const html = `<div class="pos-co-overlay" id="bottle-edit-overlay" onclick="if(event.target===this)this.remove()">
-    <div class="pos-co-panel bottle-edit-modal">
-      <div class="pos-co-header"><div class="pos-co-title">${existing ? 'ボトル編集' : 'ボトル新規登録'}</div><button class="pos-co-close" onclick="document.getElementById('bottle-edit-overlay').remove()">×</button></div>
-      <div class="pos-co-body"><div class="customer-detail-grid">
-        <label class="customer-detail-field">顧客名<input id="bottle-edit-customer" type="text" list="bottle-customer-list" value="${escAttr(bottle.customerName || '')}"><datalist id="bottle-customer-list">${customerOptions}</datalist></label>
-        <label class="customer-detail-field">銘柄<input id="bottle-edit-brand" type="text" list="bottle-brand-list" value="${escAttr(bottle.brand || '')}"><datalist id="bottle-brand-list">${brandOptions}</datalist></label>
-        <label class="customer-detail-field">タグNo<input id="bottle-edit-tag" type="text" value="${escAttr(bottle.tagNo || '')}"></label>
-        <label class="customer-detail-field">保管場所<input id="bottle-edit-location" type="text" value="${escAttr(bottle.location || '')}"></label>
-        <label class="customer-detail-field">残量<select id="bottle-edit-remain">
-          <option value="full" ${bottle.remain === 'full' ? 'selected' : ''}>満</option><option value="half" ${bottle.remain === 'half' ? 'selected' : ''}>半分</option><option value="low" ${bottle.remain === 'low' ? 'selected' : ''}>残りわずか</option><option value="empty" ${bottle.remain === 'empty' ? 'selected' : ''}>空</option>
-        </select></label>
-        <label class="customer-detail-field">状態<select id="bottle-edit-status">
-          <option value="keep" ${bottle.status === 'keep' ? 'selected' : ''}>キープ中</option><option value="finished" ${bottle.status === 'finished' ? 'selected' : ''}>飲み切り</option><option value="expired" ${bottle.status === 'expired' ? 'selected' : ''}>期限切れ</option><option value="disposed" ${bottle.status === 'disposed' ? 'selected' : ''}>廃棄・流用</option>
-        </select></label>
-        <label class="customer-detail-field">開始日<input id="bottle-edit-opened" type="date" value="${_bottleDateInput(bottle.openedAt)}"></label>
-        <label class="customer-detail-field">期限<input id="bottle-edit-expires" type="date" value="${_bottleDateInput(bottle.expiresAt)}"></label>
-        <label class="customer-detail-field" style="grid-column:1/-1">メモ<textarea id="bottle-edit-note" rows="3">${escHtml(bottle.note || '')}</textarea></label>
-      </div><div class="pos-co-actions"><button class="pos-co-btn cash" onclick="saveBottleModal('${escAttr(existing?.id || '')}')">保存</button><button class="pos-co-btn cancel" onclick="document.getElementById('bottle-edit-overlay').remove()">キャンセル</button></div></div>
-    </div></div>`;
-  document.getElementById('bottle-edit-overlay')?.remove();
-  document.body.insertAdjacentHTML('beforeend', html);
-}
-
-function saveBottleModal(id) {
-  const bottles = loadBottles();
-  let bottle = id ? bottles.find(b => b.id === id) : null;
-  if (!bottle) {
-    bottle = { id: 'bt_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7) };
-    bottles.push(bottle);
-  }
-  bottle.customerName = document.getElementById('bottle-edit-customer')?.value.trim() || '';
-  bottle.brand = document.getElementById('bottle-edit-brand')?.value.trim() || '';
-  bottle.tagNo = document.getElementById('bottle-edit-tag')?.value.trim() || '';
-  bottle.location = document.getElementById('bottle-edit-location')?.value.trim() || '';
-  bottle.remain = document.getElementById('bottle-edit-remain')?.value || 'full';
-  bottle.openedAt = _bottleDateKey(document.getElementById('bottle-edit-opened')?.value);
-  bottle.expiresAt = _bottleDateKey(document.getElementById('bottle-edit-expires')?.value);
-  bottle.status = document.getElementById('bottle-edit-status')?.value || 'keep';
-  bottle.note = document.getElementById('bottle-edit-note')?.value || '';
-  bottle.updatedAt = Date.now();
-  saveBottles(bottles);
-  document.getElementById('bottle-edit-overlay')?.remove();
-  renderBottlePanel();
-  showToast('ボトルを保存しました');
-}
-
-function registerBottleFromOrder(brand, customerName) {
-  const openedAt = getBizDayKey();
-  openBottleModal('', { brand: brand || '', customerName: customerName || '', openedAt });
-}
-
-function openBottleTabForCustomer(name) {
-  showTab('bottle');
-  const search = document.getElementById('bottle-search');
-  if (search) search.value = name || '';
-  renderBottlePanel();
-}
 /* ================================================================
    NAME AUTOCOMPLETE
 ================================================================ */
@@ -30146,8 +30013,6 @@ function initListWhiteFromPersist() {
     'html[data-display="tablet"] .pos-cat-add-btn,html[data-display="tablet"] .pos-cat-delete-btn{min-height:44px;font-size:14px}',
     'html[data-display="tablet"] .pos-me-acc > summary{min-height:44px;display:flex;align-items:center}',
     'html[data-display="tablet"] .vip-seat-name-input,html[data-display="tablet"] .vip-seat-fee-input,html[data-display="tablet"] .vip-seat-add-btn,html[data-display="tablet"] .vip-seat-delete-btn{min-height:44px;font-size:14px}',
-    'html[data-display="tablet"] #bottle-panel button,html[data-display="tablet"] #bottle-panel input,html[data-display="tablet"] #bottle-panel select{min-height:42px;font-size:14px}',
-    'html[data-display="tablet"] .bottle-edit-modal button,html[data-display="tablet"] .bottle-edit-modal input,html[data-display="tablet"] .bottle-edit-modal select,html[data-display="tablet"] .bottle-edit-modal textarea{min-height:42px;font-size:15px}',
     'html[data-display="tablet"] .customer-detail-modal button,html[data-display="tablet"] .customer-detail-modal input,html[data-display="tablet"] .customer-detail-modal select,html[data-display="tablet"] .customer-detail-modal textarea{min-height:42px;font-size:15px}',
     // キャスト専用ページ（2026-08-20新設）: 一覧ボタンのタップ標的とモーダル内入力欄をタブレットで拡大
     'html[data-display="tablet"] .cast-mgmt-btn{min-height:52px;padding:12px 18px;font-size:15px}',
@@ -30322,7 +30187,6 @@ const UI_ZOOM_SCREENS = {
   report:    { selector: '#report-panel',         cssVar: '--uiz-report' },
   analytics: { selector: '#analytics-panel',      cssVar: '--uiz-analytics' },
   customer:  { selector: '#customer-panel',       cssVar: '--uiz-customer' },
-  bottle:    { selector: '#bottle-panel',         cssVar: '--uiz-bottle' },
   past:      { selector: '#past-panel',           cssVar: '--uiz-past' },
 };
 
@@ -30336,7 +30200,6 @@ const UI_ZOOM_SCREEN_LIST = [
   ['report', '集計'],
   ['analytics', '経営分析'],
   ['customer', '顧客管理'],
-  ['bottle', 'ボトル'],
   ['past', '集計：リスト編集'],
 ];
 
@@ -30567,6 +30430,8 @@ function calcWorkMinutes(inHHMM, outHHMM) {
 function calcLateFee(chikokuMin) {
   const m = Number(chikokuMin) || 0;
   if (m <= 0) return 0;
+  // 「遅刻罰金を取る」をOFFにした店は0円（金額0円＝既定1,000円の決まりは既存店のため変えない）
+  if (typeof cfg !== 'undefined' && cfg && cfg.payrollLateFineEnabled === false) return 0;
   const unit = _payrollNum('payrollLateFineUnitMin', 15);
   const amt  = _payrollNum('payrollLateFineAmt', 1000);
   return Math.ceil(m / unit) * amt;
@@ -30721,6 +30586,11 @@ function setPayrollDeductionFlagValue(dayKey, castName, key, checked) {
   return rec.deductionFlags[key];
 }
 
+/* ○×で入力する控除方式。boolean=本部計算用の記録のみ（金額0）／flagFixed=○の日だけ固定額を控除。 */
+function isPayrollDeductionFlagMode(mode) {
+  return mode === 'boolean' || mode === 'flagFixed';
+}
+
 /* 店舗定義の控除を日給から計算する純関数。 */
 function calcPayrollDeductions(dailyPay, items, overrides, flags) {
   const basePay = Math.max(0, Number(dailyPay) || 0);
@@ -30730,8 +30600,10 @@ function calcPayrollDeductions(dailyPay, items, overrides, flags) {
     const key = String(item?.key || '');
     const label = String(item?.label || '');
     const mode = String(item?.mode || 'manual');
-    if (mode === 'boolean') {
-      return { key, label, mode, amount:0, auto:0, checked:recorded[key] === true };
+    if (isPayrollDeductionFlagMode(mode)) {
+      const checked = recorded[key] === true;
+      const amount = mode === 'flagFixed' && checked ? Math.max(0, Number(item?.value) || 0) : 0;
+      return { key, label, mode, amount, auto:amount, checked };
     }
     const value = Number(item?.value) || 0;
     const auto = mode === 'fixed' ? value
