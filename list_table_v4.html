@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.53">
+<meta name="app-version" content="1.1.54">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -19300,7 +19300,6 @@ function _payrollTableColumns(countCols, deductionItems, showPoints) {
     })),
     { id:'firstRepeat', group:'pay', label:'初リピ', cell:(x, start) => _payrollTd((x.r.firstRepeatCount || 0).toLocaleString('ja-JP'), 'pay-total', start), total:(x, start) => _payrollTd(x.tot.firstRepeat.toLocaleString('ja-JP'), 'pay-total', start) },
     ...(showPoints ? [{ id:'points', group:'pay', label:'ポイント', cell:(x, start) => _payrollTd((x.r.pointsTotal || 0).toLocaleString('ja-JP') + 'pt', 'pay-total', start), total:(x, start) => _payrollTd(x.tot.points.toLocaleString('ja-JP') + 'pt', 'pay-total', start) }] : []),
-    { id:'prodBack', group:'pay', label:'商品B', cell:(x, start) => _payrollTd(x.r.prodBack ? _payYen(x.r.prodBack) : '—', 'pay-amt' + (x.r.prodBack ? '' : ' pay-muted'), start), total:(x, start) => _payrollTd(x.tot.prodBack ? _payYen(x.tot.prodBack) : '—', 'pay-amt', start) },
     { id:'sp', group:'pay', label:'SP', cell:(x, start) => _payrollTd(x.plain ? (x.r.sp ? _payYen(x.r.sp) : '') : '<input type="number" class="pay-in" value="' + (x.r.sp || '') + '" placeholder="0" onchange="payrollSetSP(\'' + x.cj + '\', this.value)">', '', start), total:(x, start) => _payrollTd('', '', start) },
     { id:'backTotal', group:'pay', label:'バック合計', cell:(x, start) => _payrollTd(_payYen(x.r.backTotal), 'pay-total', start), total:(x, start) => _payrollTd(_payYen(x.tot.back), 'pay-total', start) },
     { id:'late', group:'pay', label:'遅刻', cell:(x, start) => _payrollTd(x.r.lateFee ? '-' + _payYen(x.r.lateFee) : '—', 'pay-amt' + (x.r.lateFee ? '' : ' pay-muted'), start), total:(x, start) => _payrollTd(x.tot.late ? '-' + _payYen(x.tot.late) : '—', 'pay-amt', start) },
@@ -20052,7 +20051,7 @@ function _payrollDeductionFlagButton(castJs, key, checked, amountLabel) {
 /* SP/日払い/本数入力 → 保存 → 日計表のみ再描画。dayKey は閲覧中の営業日。 */
 function payrollSetSP(castName, value) {
   const dayKey = _reportDayKey();
-  const derived = spSharesTotal(_reportDaySource().rows, dayKey, castName);
+  const derived = payrollDerivedSp(_reportDaySource().rows, dayKey, castName);
   setPayrollSP(dayKey, castName, (Number(value) || 0) - derived);
   _rerenderPayrollTable();
 }
@@ -20205,7 +20204,7 @@ function _payrollBreakdownHtml(r, src, countCols) {
             <div class="pay-bd-time-line" data-time-range="${escHtml(d.clockIn)}→${escHtml(d.clockOut)}" aria-label="${escHtml(d.clockIn)}→${escHtml(d.clockOut)}"><div class="pay-bd-time-box"><span>出勤</span><b>${escHtml(d.clockIn)}</b></div><div class="pay-bd-time-arrow">→</div><div class="pay-bd-time-box"><span>退勤</span><b>${escHtml(d.clockOut)}</b></div></div>
             <div class="pay-bd-row"><span class="pay-bd-row-label">勤務時間</span><span class="pay-bd-row-value">${d.workLabel}</span></div><div class="pay-bd-row"><span class="pay-bd-row-label">時間給</span><span class="pay-bd-row-value">${_payYen(d.hourlyPay)}</span></div>${d.checkoutPending ? '<div class="pay-bd-note">退勤未入力のため、時間給は未確定です</div>' : ''}
           </div></section>
-          <section class="pay-bd-section"><div class="pay-bd-section-head"><span class="pay-bd-section-no">02</span>バック内訳</div><div class="pay-bd-section-body">${backRows || '<div class="pay-bd-empty">本数バックはありません</div>'}<div class="pay-bd-row"><span class="pay-bd-row-label">商品バック</span><span class="pay-bd-row-value">${_payYen(d.prodBack)}</span></div><div class="pay-bd-row"><span class="pay-bd-row-label">SP${d.spExcluded ? '（参考）' : ''}</span><span class="pay-bd-row-value">${_payYen(d.sp)}</span></div><div class="pay-bd-row pay-bd-row-total"><span class="pay-bd-row-label">バック合計</span><span class="pay-bd-row-value">${_payYen(d.backTotal)}</span></div>${d.spExcluded ? '<div class="pay-bd-note">SPは参考表示です。日給には含まれません</div>' : ''}</div></section>
+          <section class="pay-bd-section"><div class="pay-bd-section-head"><span class="pay-bd-section-no">02</span>バック内訳</div><div class="pay-bd-section-body">${backRows || '<div class="pay-bd-empty">本数バックはありません</div>'}${d.prodBack ? '<div class="pay-bd-row"><span class="pay-bd-row-label">商品バック</span><span class="pay-bd-row-value">' + _payYen(d.prodBack) + '</span></div>' : ''}<div class="pay-bd-row"><span class="pay-bd-row-label">SP${d.spExcluded ? '（参考）' : ''}</span><span class="pay-bd-row-value">${_payYen(d.sp)}</span></div><div class="pay-bd-row pay-bd-row-total"><span class="pay-bd-row-label">バック合計</span><span class="pay-bd-row-value">${_payYen(d.backTotal)}</span></div>${d.spExcluded ? '<div class="pay-bd-note">SPは参考表示です。日給には含まれません</div>' : ''}</div></section>
           <section class="pay-bd-section pay-bd-summary"><div class="pay-bd-section-head"><span class="pay-bd-section-no">03</span>支給計算</div><div class="pay-bd-section-body"><div class="pay-bd-equation"><div class="pay-bd-equation-part"><span>時間給</span><b>${_payYen(d.hourlyPay)}</b></div><span class="pay-bd-equation-op">＋</span><div class="pay-bd-equation-part"><span>バック</span><b>${_payYen(d.backTotal)}</b></div><span class="pay-bd-equation-op">−</span><div class="pay-bd-equation-part"><span>遅刻 ${d.lateMinutes ? `(${d.lateMinutes}分)` : ''}</span><b>${_payYen(d.lateFee)}</b></div><span class="pay-bd-equation-op">＝</span><div class="pay-bd-equation-part"><span>日給</span><b class="pay-bd-daily-value">${_payYen(d.dailyPay)}</b></div></div></div></section>
           <section class="pay-bd-section pay-bd-deductions"><div class="pay-bd-section-head"><span class="pay-bd-section-no">04</span>控除・記録</div><div class="pay-bd-section-body">${deductionRows}<div class="pay-bd-row pay-bd-row-total"><span class="pay-bd-row-label">控除計</span><span class="pay-bd-row-value">${_payYen(d.deductionTotal)}</span></div></div></section>
         </div>
@@ -20231,7 +20230,7 @@ function _payrollBreakdownPrintDocument(r, src, countCols) {
     + (shopName ? '<div class="shop">' + escHtml(shopName) + '</div>' : '')
     + '<div class="title">日給内訳</div><div class="meta">' + escHtml(d.castName) + '　' + escHtml(d.dayLabel) + '</div><hr class="rule">'
     + '<section class="section"><div class="section-title">勤務</div><div class="row"><span>出勤 → 退勤</span><b>' + escHtml(d.clockIn) + ' → ' + escHtml(d.clockOut) + '</b></div><div class="row"><span>勤務時間</span><b>' + d.workLabel + '</b></div><div class="row total"><span>時間給</span><b>' + _payYen(d.hourlyPay) + '</b></div>' + (d.checkoutPending ? '<div class="note">※退勤未入力のため時間給は未確定</div>' : '') + '</section>'
-    + '<section class="section"><div class="section-title">バック内訳</div>' + (backRows || '<div class="empty">本数バックなし</div>') + '<div class="row"><span>商品バック</span><b>' + _payYen(d.prodBack) + '</b></div><div class="row"><span>SP' + (d.spExcluded ? '（参考）' : '') + '</span><b>' + _payYen(d.sp) + '</b></div><div class="row total"><span>バック合計</span><b>' + _payYen(d.backTotal) + '</b></div>' + (d.spExcluded ? '<div class="note">※SPは日給に含みません</div>' : '') + '</section>'
+    + '<section class="section"><div class="section-title">バック内訳</div>' + (backRows || '<div class="empty">本数バックなし</div>') + (d.prodBack ? '<div class="row"><span>商品バック</span><b>' + _payYen(d.prodBack) + '</b></div>' : '') + '<div class="row"><span>SP' + (d.spExcluded ? '（参考）' : '') + '</span><b>' + _payYen(d.sp) + '</b></div><div class="row total"><span>バック合計</span><b>' + _payYen(d.backTotal) + '</b></div>' + (d.spExcluded ? '<div class="note">※SPは日給に含みません</div>' : '') + '</section>'
     + '<section class="section"><div class="section-title">支給計算</div><div class="row"><span>遅刻' + (d.lateMinutes ? '（' + d.lateMinutes + '分）' : '') + '</span><b>−' + _payYen(d.lateFee) + '</b></div><div class="calc">時間給 ' + _payYen(d.hourlyPay) + ' ＋ バック ' + _payYen(d.backTotal) + ' − 遅刻 ' + _payYen(d.lateFee) + '</div><div class="row total"><span>日給</span><b>' + _payYen(d.dailyPay) + '</b></div></section>'
     + '<section class="section"><div class="section-title">控除・記録</div>' + deductionRows + '<div class="row total"><span>控除計</span><b>' + _payYen(d.deductionTotal) + '</b></div></section>'
     + '<div class="grand"><span>差引支給</span><b>' + _payYen(d.netPay) + '</b></div><div class="rate"><span>給率</span><b>' + escHtml(d.rateLabel) + '</b></div>'
@@ -20284,7 +20283,7 @@ function _payrollTableInnerHtml(src, model, opts = { plain:false }) {
   const tt = src.tt || {};
   const checkouts = tt.checkouts || {};
   const visibleColumns = model.visibleColumns;
-  const tot = { firstRepeat: 0, points: 0, prodBack: 0, back: 0, late: 0, nibarai: 0, daily: 0, deduction: 0, net: 0 };
+  const tot = { firstRepeat: 0, points: 0, back: 0, late: 0, nibarai: 0, daily: 0, deduction: 0, net: 0 };
   const body = rows.map(r => {
     const c = r.castName;
     const cj = escHtml(c).replace(/'/g, "\\'");
@@ -20296,7 +20295,6 @@ function _payrollTableInnerHtml(src, model, opts = { plain:false }) {
     const autoCounts = r.autoCounts || r.backCounts || {};
     const manCounts = r.manualCounts || {};
 
-    tot.prodBack += r.prodBack || 0;
     tot.firstRepeat += r.firstRepeatCount || 0;
     tot.points += r.pointsTotal || 0;
     tot.back += r.backTotal || 0;
@@ -23111,10 +23109,11 @@ async function posAddItem(name, amount, category, spShares) {
   const backValue = String(item?.back ?? '').trim() === '' ? item?.backFree : item.back;
   const cast = String(name).includes(':') ? String(name).slice(String(name).indexOf(':') + 1) : '';
   const personalBack = !spShares && cast && state.allCasts.includes(cast) ? castSpBackYen(cast, amt, category) : null;
-  // キャスト1人に付けたボトル・ショットは、個別SPもメニューのバック額も無ければ店標準SPを使う。
-  // 以前は折半の時だけ店標準SPを使い、1人に付けるとバック0円だった（2026-09-29 オーナー決定・ギャルサークル報告）
+  // キャスト1人に付けたボトルは、個別SPもメニューのバック額も無ければ店標準SPを使う。
+  // 以前は折半の時だけ店標準SPを使い、1人に付けるとバック0円だった（2026-09-29 オーナー決定・ギャルサークル報告）。
+  // ショットは対象外。バックの無いショットは指D/Dの本数で払う店があり、v1.1.53で含めたら本数から外れた（2026-09-30 修正）
   const storeSpBack = personalBack == null && !spShares && !isSpecial && cast && state.allCasts.includes(cast)
-    && ['bottle', 'shot'].includes(category) && String(backValue ?? '').trim() === '' ? calcSpReference(amt) : null;
+    && category === 'bottle' && String(backValue ?? '').trim() === '' ? calcSpReference(amt) : null;
   const castBack = personalBack != null ? personalBack : storeSpBack;
   const backYen = castBack != null ? castBack : ((!isSpecial && !spShares && item) ? posMenuBackYen(backValue, amt) : 0);
   const backFreeYen = castBack != null ? castBack : (!isSpecial && !spShares && item && Object.prototype.hasOwnProperty.call(item, 'backFree'))
@@ -23257,6 +23256,46 @@ function posOpenDrinkCastPick(name, amount, category) {
 function posDrinkPickClose() {
   const el = document.getElementById('pos-drink-overlay');
   if (el) el.remove();
+}
+/* v1.1.53 の不具合の後始末（1回だけ）。v1.1.53 はキャスト1人に付けたショットにも店標準SPを刻印し、
+   そのショットが指D/Dの本数から外れた。配信後に入った注文のうち、この規則でしか付かない額
+   （メニューのバック欄が空・キャスト個別SPなし・額が店標準SPと一致）だけを外して、本数に戻す（2026-09-30）。 */
+const _SHOT_STORE_SP_SINCE = Date.parse('2026-09-29T11:50:00+09:00');
+function repairShotStoreSpBacks() {
+  if (cfg.shotStoreSpRepaired === true) return 0;
+  const menu = (cfg.posMenu && Array.isArray(cfg.posMenu.shot)) ? cfg.posMenu.shot : [];
+  const blankBack = item => !!item && String(item.back ?? '').trim() === '' && String(item.backFree ?? '').trim() === '';
+  const fix = rows => {
+    let changed = 0;
+    (Array.isArray(rows) ? rows : []).forEach(row => {
+      (Array.isArray(row?.posOrders) ? row.posOrders : []).forEach(o => {
+        if (!o || o.category !== 'shot' || o.spShares || !(Number(o.createdAt) >= _SHOT_STORE_SP_SINCE)) return;
+        const name = String(o.name || '');
+        const i = name.indexOf(':');
+        if (i < 0) return;
+        const label = name.slice(0, i);
+        const cast = name.slice(i + 1);
+        if (castSpBackConfig(cast)) return;
+        if (!blankBack(menu.find(item => item && item.name === label))) return;
+        const stamped = Number(o.back) || 0;
+        if (stamped <= 0 || stamped !== calcSpReference(o.amount)) return;
+        if (o.backFree !== undefined && Number(o.backFree) !== stamped) return;
+        delete o.back;
+        delete o.backFree;
+        changed++;
+      });
+    });
+    return changed;
+  };
+  const live = fix(state.rows);
+  if (live) saveState();
+  const backups = loadBackups();
+  let past = 0;
+  (Array.isArray(backups) ? backups : []).forEach(snap => { past += fix(snap && snap.rows); });
+  if (past) saveBackups(backups);
+  cfg.shotStoreSpRepaired = true;
+  saveCfg();
+  return live + past;
 }
 function posAddItemWithCast(name, amount, category, cast) {
   posDrinkPickClose();
@@ -25600,7 +25639,8 @@ function renderSettingsPanel() {
               ['special', '特殊'],
               ...resolvePosCatLayout(cfg).filter(cat => cat.key.startsWith('cust_')).map(cat => [cat.key, cat.label]),
             ].map(([key, label]) => _posMenuEditorHTML(key, label, posCategoryItems(key, null))
-              + (key === 'shot' ? '<div class="settings-sub" style="margin:-8px 0 12px 8px">バック（円/%）を入れた銘柄は商品バックになり、指D/D（計数グループ）の対象外になります</div>' : '')).join('')}
+              + (key === 'shot' ? '<div class="settings-sub" style="margin:-8px 0 12px 8px">バック（円/%）を入れた銘柄はSPになり、指D/D（計数グループ）の対象外になります。空欄の銘柄は指D/Dの本数で数えます</div>' : '')
+              + (key === 'bottle' ? '<div class="settings-sub" style="margin:-8px 0 12px 8px">指名・通常のバックとも空欄の銘柄は、キャストに付けた時に店標準SP（給与計算ルール）でバックを付けます。バックはすべて日計表のSPに入ります</div>' : '')).join('')}
           </div>
           <div class="settings-row" style="padding-bottom:10px;margin-bottom:12px;align-items:flex-start;flex-direction:column;gap:8px">
             <button type="button" class="pos-me-add-btn pos-cat-add-btn" onclick="posCatAdd()">＋ カテゴリを追加</button>
@@ -27569,13 +27609,13 @@ function _payrollSettingsModalHtml() {
           <label class="pay-settings-choice"><input type="checkbox" id="cfg-payrollDouhanAddsHonshimei"${checked('payrollDouhanAddsHonshimei')}><span>本指名 ＋1<small>本指名バックも加算</small></span></label>
           <label class="pay-settings-choice"><input type="checkbox" id="cfg-payrollDouhanAddsHonenFirst"${checked('payrollDouhanAddsHonenFirst')}><span>本指名延長 ＋1<small>延長項目の先頭（例：本延20）のバックを加算</small></span></label>
           <h3>SP・ボトルバック</h3>
-          <label class="pay-settings-choice"><input type="checkbox" id="cfg-payrollSpInBackTotal"${checked('payrollSpInBackTotal')}><span>SPを日給に含める<small>OFFなら参考表示のみ。手入力SP・ボトル折半が対象。</small></span></label>
-          <div class="pay-settings-row"><div><label for="cfg-payrollBottleSpRate">店標準SP（ボトル・ショット）</label><p>%は小計に対する割合、円は1本あたり。ボトル・ショットをキャストに付けた時（1人でも折半でも）のバックに使用。キャスト個別の設定、メニューのバック額があればそちらを優先。</p></div><div class="pay-settings-inputs" id="pay-sp-control" data-mode="${cfg.payrollSpMode === 'yen' ? 'yen' : 'percent'}">
+          <label class="pay-settings-choice"><input type="checkbox" id="cfg-payrollSpInBackTotal"${checked('payrollSpInBackTotal')}><span>SPを日給に含める<small>OFFなら参考表示のみ。手入力SP・キャスト折半・注文に付いたバック（ボトル・ショット、メニューのバック額）が対象。</small></span></label>
+          <div class="pay-settings-row"><div><label for="cfg-payrollBottleSpRate">店標準SP（ボトル・ショット）</label><p>%は小計に対する割合、円は1本あたり。ボトルをキャストに付けた時（1人でも折半でも）と、ショットを折半した時のバックに使用。キャスト個別の設定、メニューのバック額があればそちらを優先。</p></div><div class="pay-settings-inputs" id="pay-sp-control" data-mode="${cfg.payrollSpMode === 'yen' ? 'yen' : 'percent'}">
             <span data-sp-value="percent" ${cfg.payrollSpMode === 'yen' ? 'hidden' : ''}>${num('payrollBottleSpRate','店標準SP率',0.2,0,100,0.1,100)}</span>
             <span data-sp-value="yen" ${cfg.payrollSpMode === 'yen' ? '' : 'hidden'}>${num('payrollSpFixed','店標準SP額',0,0,null,1)}</span>
             <div role="group" aria-label="店標準SPの単位" class="back-unit-toggle"><button type="button" aria-label="店標準SPの単位: %" aria-pressed="${cfg.payrollSpMode !== 'yen'}" onclick="payrollSpModeSelect('percent')">%</button><button type="button" aria-label="店標準SPの単位: 円" aria-pressed="${cfg.payrollSpMode === 'yen'}" onclick="payrollSpModeSelect('yen')">円</button></div>
           </div></div>
-          <details class="pay-settings-details"><summary>バックの計算を確認</summary><p>バック ＝ 伝票から集計した本数 × 単価 ＋ 商品バック。単価はキャスト個別設定を優先し、空欄なら既定バックを使います。本数は日計表で修正できます。</p><p>SPは手入力額とボトル折半分の合計です。参考額をそのまま支給する設定ではありません。キャスト1人に付けたボトル・ショットのバックは、日給の「商品バック」に入ります。</p><p>給率 ＝ 日給 ÷ キャストの帰属売上 × 100（参考値）。</p></details>
+          <details class="pay-settings-details"><summary>バックの計算を確認</summary><p>バック ＝ 伝票から集計した本数 × 単価 ＋ SP（「SPを日給に含める」がONのとき）。単価はキャスト個別設定を優先し、空欄なら既定バックを使います。本数は日計表で修正できます。</p><p>SPは、日計表で手入力した額・キャスト折半の分・注文に付いたバック（ボトル・ショットやメニューのバック額）の合計です。キャスト1人に付けたボトルは、個別SP → メニューのバック額 → 店標準SP の順で決まります。ショットはメニューにバック額がある時だけSPになり、無ければ指D/Dの本数で数えます。</p><p>給率 ＝ 日給 ÷ キャストの帰属売上 × 100（参考値）。</p></details>
         </section>
         <section id="pay-settings-group-deductions" role="tabpanel" aria-labelledby="pay-settings-tab-deductions" data-pay-group="deductions" hidden>
           <h3>日ごとの控除・○×記録</h3>
@@ -29820,6 +29860,7 @@ async function __boot() {
   loadCfg();
   loadState();
   migrateShimeiExtModel();
+  try { repairShotStoreSpBacks(); } catch (e) { console.error('[init] shot SP repair failed:', e); }
   renderTable();
   renderCastPanel();
   refreshHistoryBtns();
@@ -30788,6 +30829,16 @@ function calcPayrollDeductions(dailyPay, items, overrides, flags) {
   return { list, total: list.reduce((sum, item) => sum + item.amount, 0) };
 }
 
+/* SPのうち伝票から自動で決まる分（キャスト折半＋注文に付いたバック）。日計表のSP欄は、これに手入力分を足した合計を出す。
+   orderBackByCast を渡さなければ、精算済みの伝票から集計する。 */
+function payrollDerivedSp(rows, dayKey, castName, orderBackByCast) {
+  const backs = orderBackByCast
+    || ((typeof computeReportAgg === 'function')
+      ? (computeReportAgg((Array.isArray(rows) ? rows : []).filter(r => r && r.isFirst && r.settled)).prodBackByCast || {})
+      : {});
+  return spSharesTotal(rows, dayKey, castName) + (Number(backs[castName]) || 0);
+}
+
 /* ================================================================
    SP参考値（補助）: ボトル類小計 × spRate。UI が初期値表示に使う想定。
    最終額は手入力（getPayrollManual().sp）優先。
@@ -30877,11 +30928,13 @@ function computePayrollForCast(castName, prodByCast, opts) {
     backAmounts[key] = (Number(backCounts[key]) || 0) * backUnits[key];
   });
 
-  /* --- SP / 日払い（手入力。manualRec は上で取得済み） --- */
+  /* --- SP / 日払い（手入力。manualRec は上で取得済み） ---
+     SP ＝ 手入力 ＋ キャスト折半 ＋ 注文に付いたバック（ボトル・ショットやメニューのバック額）。
+     注文のバックは以前「商品B」として別の列で必ず日給へ入れていたが、SPと同じ列・同じ扱いにまとめた（2026-09-30 オーナー決定） */
   const manualSp = (opts.sp != null) ? (Number(opts.sp) || 0) : (Number(manualRec.sp) || 0);
-  const derivedSp = spSharesTotal(opts.rows || ((typeof state !== 'undefined' && state.rows) || []), dayKey, castName);
+  const derivedSp = payrollDerivedSp(opts.rows || ((typeof state !== 'undefined' && state.rows) || []), dayKey, castName, opts.prodBackByCast || {});
   const sp = manualSp + derivedSp;
-  const prodBack = Number((opts.prodBackByCast || {})[castName]) || 0;
+  const prodBack = 0;   // 旧「商品B」。注文のバックはSPに入るので常に0（過去の締めデータにある値は読み取り側でそのまま扱う）
   const pointsProd = (typeof cfg !== 'undefined' && cfg.pointsEnabled)
     ? (Number((opts.prodPointsByCast || {})[castName]) || 0) : 0;
   const pointRules = (typeof cfg !== 'undefined' && cfg.pointRules) || {};
@@ -30898,7 +30951,7 @@ function computePayrollForCast(castName, prodByCast, opts) {
   const nibarai = (opts.nibarai != null) ? (Number(opts.nibarai) || 0) : (Number(manualRec.nibarai) || 0);
 
   /* --- バック合計（設定に応じてSPを含む。SP自体は参考表示用に常に返す） --- */
-  let backTotal = (c.payrollSpInBackTotal ? sp : 0) + prodBack;
+  let backTotal = c.payrollSpInBackTotal ? sp : 0;
   for (const k in backAmounts) backTotal += backAmounts[k];
 
   /* --- 遅刻罰金 --- */
