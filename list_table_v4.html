@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.54">
+<meta name="app-version" content="1.1.55">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -19012,7 +19012,11 @@ function _reportPeriodSwitchHtml() {
     + '.nominate-share-row{display:grid;grid-template-columns:minmax(80px,1fr) minmax(130px,180px);align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--bdr)}'
     + '.nominate-share-cast{min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--tx);font-weight:700}.nominate-share-input-wrap{display:flex;align-items:center;gap:6px;color:var(--tx2);font-family:var(--mono);font-weight:700}.nominate-share-input{width:100%;min-width:0;padding:8px 10px;border:1px solid var(--bdr2);border-radius:7px;background:var(--sur2);color:var(--tx);font:700 15px var(--mono);text-align:right}.nominate-share-input[readonly]{color:var(--gold);background:var(--sur)}.nominate-share-input.warn{border-color:#e67e22;color:#ffb36b}'
     + '.nominate-share-actions{grid-template-columns:repeat(3,minmax(0,1fr))}.nominate-share-actions .pos-co-btn{height:48px;padding:6px;font-size:14px}.nominate-share-reset{background:#555}.nominate-share-save{background:#16a085}.nominate-share-save:disabled{opacity:.45;cursor:not-allowed}'
-    + '@media(max-width:560px){.nominate-share-row{grid-template-columns:minmax(70px,1fr) minmax(120px,1fr)}.nominate-share-actions{grid-template-columns:1fr}.nominate-share-actions .pos-co-btn{height:44px}}'
+    + '.nominate-share-actions.single{grid-template-columns:1fr}'
+    + '.nominate-group{margin-top:16px;padding-top:12px;border-top:1px solid var(--bdr)}.nominate-group-head{font-weight:800;color:var(--tx);font-size:14px}.nominate-group-sub{margin:12px 0 4px;font-size:12px;font-weight:700;color:var(--tx2)}.nominate-group-note{margin:4px 0;font-size:11px;line-height:1.6;color:var(--tx3)}.nominate-group-empty{padding:8px 0;font-size:12px;color:var(--tx3)}'
+    + '.nominate-group-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--bdr)}.nominate-group-slip{min-width:0;font-size:13px;color:var(--tx);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}'
+    + '.nominate-group-btn{flex:0 0 auto;min-height:36px;padding:4px 12px;border:1px solid var(--bdr2);border-radius:8px;background:var(--sur2);color:var(--tx);font-size:13px;font-weight:700;cursor:pointer}.nominate-group-btn.add{border-color:var(--gold);color:var(--gold)}.nominate-group-btn.danger{border-color:#c0392b;color:#ff8a80}.nominate-group-btn:disabled{opacity:.45;cursor:not-allowed}.nominate-group-actions{display:flex;justify-content:flex-end;padding-top:8px}'
+    + '@media(max-width:560px){.nominate-share-row{grid-template-columns:minmax(70px,1fr) minmax(120px,1fr)}.nominate-share-actions{grid-template-columns:1fr}.nominate-share-actions .pos-co-btn{height:44px}.nominate-group-btn{min-height:44px}}'
     + '.agg-side-card{background:var(--sur);border:1px solid var(--bdr);border-radius:12px;padding:14px 16px;text-align:center}'
     + '.agg-side-card.total{background:linear-gradient(160deg,var(--sur2),var(--sur))}'
     + '.agg-side-label{font-size:11px;color:var(--tx3);margin-bottom:4px}'
@@ -19433,6 +19437,35 @@ function _nominateAllocatedShares(total, casts, nominateShares) {
   });
 }
 
+/* 指名売上（本指名・同伴）の対象になる指名種別。出戻り本指は設定で数える場合だけ含める */
+function _aggShimeiNominateTypes() {
+  const modoriAgg = ['honen','honshimei','none'].includes(cfg?.modoriHonshimeiAgg) ? cfg.modoriHonshimeiAgg : 'honen';
+  const types = ['honshimei', 'douban'];
+  if (modoriAgg !== 'none') types.push('modori_honshimei');
+  return types;
+}
+/* 1枚の伝票の指名キャスト（本指名/同伴の main・subCasts と、多人数卓の指名系オーダー）。
+   多人数卓は指名がオーダーで記録されるため、指名系オーダー(本指名 nominate / 同伴 dohan / 本延 honen)からも拾う。
+   これが無いと商品集計に出ても指名売上に出ない。場内(jonai)・延指(enshi)は指名売上の対象外なので除外。 */
+function _aggNominatorsOf(r, shimeiNominateTypes) {
+  const nominators = new Set();
+  if (r.mainCast && shimeiNominateTypes.indexOf(r.mainType) >= 0) nominators.add(r.mainCast);
+  (r.subCasts || []).forEach(sc => {
+    if (sc.cast && shimeiNominateTypes.indexOf(sc.type) >= 0) nominators.add(sc.cast);
+  });
+  posOrders(r).forEach(o => {
+    if (!/^(nominate|dohan|honen)/.test(o.category || '')) return;
+    const oc = _aggCastOf(o.name);
+    if (oc && oc !== 'ボーイ' && oc !== 'ゲスト') nominators.add(oc);
+  });
+  return nominators;
+}
+/* 卓をまとめた組（nominateGroupId が同じ伝票）のうち、精算済みの伝票 */
+function _nominateGroupSettledMembers(settledRows, groupId) {
+  if (!groupId) return [];
+  return (settledRows || []).filter(r => r && r.isFirst && r.settled && String(r.nominateGroupId) === String(groupId));
+}
+
 function computeReportAgg(settled) {
   const modoriAgg = ['honen','honshimei','none'].includes(cfg?.modoriHonshimeiAgg) ? cfg.modoriHonshimeiAgg : 'honen';
   const modoriEnchoshimeiAgg = ['enchoshimei40','jounai','none'].includes(cfg?.modoriEnchoshimeiAgg) ? cfg.modoriEnchoshimeiAgg : 'enchoshimei40';
@@ -19461,8 +19494,7 @@ function computeReportAgg(settled) {
   const nameGroups = {};   // cast -> { total, totalSub, lines:{label:{qty,amt}} }
   const ensureN = c => (nameGroups[c] = nameGroups[c] || { total:0, totalSub:0, lines:{}, lastSlipNo:0, lastSlipLabel:'' });
   // 指名売上の対象タイプ。場内(jounai)・延長指名(enchoshimei)は除外。
-  const SHIMEI_NOMINATE = ['honshimei', 'douban'];
-  if (modoriAgg !== 'none') SHIMEI_NOMINATE.push('modori_honshimei');
+  const SHIMEI_NOMINATE = _aggShimeiNominateTypes();
   // 個人小計売上（2026-08-20新設・給率多指標化）: 指名系すべて（本指名・同伴・場内・延長指名）の
   // 卓小計(税抜)をweight按分で帰属した合計。nameGroups（本指名/同伴のみ・税込中心）とは別軸の集計。
   // SHIMEI_TYPES（01-constants.js）= ['honshimei','douban','jounai','enchoshimei']をそのまま使う。
@@ -19477,6 +19509,14 @@ function computeReportAgg(settled) {
   // 「指名が来た子」: 本指名/同伴で卓に付いたキャスト（main または subCasts）。
   const nominatedCasts = {};
   let cashCount=0, cardCount=0, urikakeCount=0, cashSum=0, cardSum=0, urikakeSum=0, guests=0;
+  // 卓をまとめる（2026-09-30 ギャルサークル要望）: nominateGroupId が同じ精算済み伝票は、指名売上（nameGroups）だけ1組として配分する。
+  // 会計・本数・個人小計・その他の集計は伝票ごとのまま（オーナー「本指名の売上の配分だけ」）。
+  const nominateGroupRows = {};   // groupId -> [row...]（settled の順）
+  settled.forEach(r => {
+    if (!r || !r.nominateGroupId) return;
+    const key = String(r.nominateGroupId);
+    (nominateGroupRows[key] = nominateGroupRows[key] || []).push(r);
+  });
 
   settled.forEach(r => {
     const method = r.amountMethod || 'cash';
@@ -19497,45 +19537,49 @@ function computeReportAgg(settled) {
     const tableSubtotal = Number(tableTotals.subtotal) || 0;
     const orderPricing = { subtotal:tableTotals.baseSubtotal, cash:tableTotals.baseCash };
     subtotalSum += tableSubtotal;
-    const nominators = new Set();
-    if (r.mainCast && SHIMEI_NOMINATE.indexOf(r.mainType) >= 0) nominators.add(r.mainCast);
-    (r.subCasts || []).forEach(sc => {
-      if (sc.cast && SHIMEI_NOMINATE.indexOf(sc.type) >= 0) nominators.add(sc.cast);
-    });
-    // 多人数卓は指名がオーダーで記録されるため、指名系オーダー(本指名 nominate / 同伴 dohan / 本延 honen)からも拾う。
-    // これが無いと商品集計に出ても指名売上に出ない。場内(jonai)・延指(enshi)は指名売上の対象外なので除外。
-    posOrders(r).forEach(o => {
-      if (!/^(nominate|dohan|honen)/.test(o.category || '')) return;
-      const oc = _aggCastOf(o.name);
-      if (oc && oc !== 'ボーイ' && oc !== 'ゲスト') nominators.add(oc);
-    });
-    // R2: 1卓に指名系キャストが複数いる場合は卓総額をweight按分して各キャストへ計上する。
-    //     （旧実装は各キャストへ満額加算→複数指名で多重計上し、指名売上合計が店総売上を超えていた）
-    const nomList = Array.from(nominators);
-    const nominateGrossShares = _nominateAllocatedShares(tableTotal, nomList, r.nominateShares);
-    const nominateSubtotalShares = _nominateAllocatedShares(tableSubtotal, nomList, r.nominateShares);
-    const nominateWeights = nomList.map(cast => _nominateWeight(r.nominateShares, cast));
-    const evenGrossShares = _nominateAllocatedShares(tableTotal, nomList, null);
-    const nominateAdjusted = !!r.nominateShares && nominateGrossShares.some((share, index) => share !== evenGrossShares[index]);
-    nomList.forEach((cast, idx) => {
-      nominatedCasts[cast] = true;
-      const g = ensureN(cast);
-      const rowSlipNo = Number(r.slipNo) || 0;
-      const rowSlipLabel = slipNoLabel(r);
-      const label = 'No.' + slipNoLabel(r) + (r.source ? ' ' + r.source : '');
-      const ln = g.lines[label] = g.lines[label] || {
-        qty:0, amt:0, rowId:r.id, casts:nomList.slice(), nominateWeights:nominateWeights.slice(), nominateAdjusted:false
-      };
-      ln.nominateAdjusted = ln.nominateAdjusted || nominateAdjusted;
-      const share = nominateGrossShares[idx];
-      const shareSub = nominateSubtotalShares[idx];
-      ln.qty += 1; ln.amt += share; g.total += share;
-      g.totalSub += shareSub;
-      if (rowSlipNo > (Number(g.lastSlipNo) || 0)) {
-        g.lastSlipNo = rowSlipNo;
-        g.lastSlipLabel = rowSlipLabel;
-      }
-    });
+    // この伝票の指名キャスト。後段のドリンク指D/D・商品バックの指名/通常判定にも使う（卓をまとめても伝票ごとのまま）
+    const nominators = _aggNominatorsOf(r, SHIMEI_NOMINATE);
+    // 卓をまとめた組は、精算済みが2枚以上のときだけ、組の先頭の伝票で組全体を配分する（先頭以外は指名売上に積まない）
+    const groupRows = r.nominateGroupId ? nominateGroupRows[String(r.nominateGroupId)] : null;
+    const grouped = Array.isArray(groupRows) && groupRows.length >= 2;
+    if (!grouped || groupRows[0] === r) {
+      const allocRows = grouped ? groupRows : [r];
+      const allocTotal = grouped ? allocRows.reduce((sum, m) => sum + rowSales(m), 0) : tableTotal;
+      const allocSubtotal = grouped
+        ? allocRows.reduce((sum, m) => sum + (m === r ? tableSubtotal : (Number(_posCalcTotal(m).subtotal) || 0)), 0)
+        : tableSubtotal;
+      const allocShares = grouped ? ((allocRows.find(m => m.nominateGroupShares) || {}).nominateGroupShares || null) : r.nominateShares;
+      // R2: 1卓に指名系キャストが複数いる場合は卓総額をweight按分して各キャストへ計上する。
+      //     （旧実装は各キャストへ満額加算→複数指名で多重計上し、指名売上合計が店総売上を超えていた）
+      const nomList = grouped
+        ? Array.from(allocRows.reduce((set, m) => { _aggNominatorsOf(m, SHIMEI_NOMINATE).forEach(cast => set.add(cast)); return set; }, new Set()))
+        : Array.from(nominators);
+      const nominateGrossShares = _nominateAllocatedShares(allocTotal, nomList, allocShares);
+      const nominateSubtotalShares = _nominateAllocatedShares(allocSubtotal, nomList, allocShares);
+      const nominateWeights = nomList.map(cast => _nominateWeight(allocShares, cast));
+      const evenGrossShares = _nominateAllocatedShares(allocTotal, nomList, null);
+      const nominateAdjusted = !!allocShares && nominateGrossShares.some((share, index) => share !== evenGrossShares[index]);
+      const label = 'No.' + allocRows.map(m => slipNoLabel(m)).join('+') + (r.source ? ' ' + r.source : '');
+      nomList.forEach((cast, idx) => {
+        nominatedCasts[cast] = true;
+        const g = ensureN(cast);
+        const ln = g.lines[label] = g.lines[label] || {
+          qty:0, amt:0, rowId:r.id, casts:nomList.slice(), nominateWeights:nominateWeights.slice(), nominateAdjusted:false
+        };
+        ln.nominateAdjusted = ln.nominateAdjusted || nominateAdjusted;
+        const share = nominateGrossShares[idx];
+        const shareSub = nominateSubtotalShares[idx];
+        ln.qty += 1; ln.amt += share; g.total += share;
+        g.totalSub += shareSub;
+        allocRows.forEach(m => {
+          const rowSlipNo = Number(m.slipNo) || 0;
+          if (rowSlipNo > (Number(g.lastSlipNo) || 0)) {
+            g.lastSlipNo = rowSlipNo;
+            g.lastSlipLabel = slipNoLabel(m);
+          }
+        });
+      });
+    }
 
     // --- 個人小計売上（2026-08-20新設）: 指名系すべて（本指名・同伴・場内・延長指名）を対象に
     //     卓小計(税抜)をweight按分して計上。按分ロジック（weight・端数処理）はnameGroupsと同じR2方式。 ---
@@ -19689,7 +19733,8 @@ function _aggNameCardsHtml(nameGroups, nominatedCasts) {
     const g = nameGroups[c];
       const lines = Object.keys(g.lines).map(l => {
       const ln = g.lines[l];
-      const shareButton = Array.isArray(ln.casts) && ln.casts.length > 1 && ln.rowId != null
+      // 指名が1人の伝票でも、⚖ から別の卓と合算できるように常に出す（2026-09-30）
+      const shareButton = ln.rowId != null
         ? '<button type="button" class="agg-share-btn" data-row-id="' + escAttr(String(ln.rowId)) + '" onclick="nominateSharesOpenModal(this.dataset.rowId)" aria-label="指名売上の配分を変更">⚖' + (ln.nominateAdjusted ? '<span>調整済</span>' : '') + '</button>'
         : '';
       return '<div class="agg-card-line"><span class="agg-card-nm">' + escHtml(l) + '</span>'
@@ -19707,19 +19752,66 @@ function _aggNameCardsHtml(nameGroups, nominatedCasts) {
 
 let _nominateSharesEditor = null;
 
+/* ⚖ の対象。卓をまとめた組の伝票なら、どの伝票から開いても組の先頭の伝票に解決する */
 function _nominateSharesFindTarget(rowId) {
   const src = _reportDaySource();
-  const row = (src.rows || []).find(r => r.isFirst && String(r.id) === String(rowId));
+  const rows = src.rows || [];
+  const row = rows.find(r => r.isFirst && String(r.id) === String(rowId));
   if (!row) return null;
-  const agg = computeReportAgg([row]);
+  const settledRows = rows.filter(r => r && r.isFirst && r.settled);
+  const groupMembers = _nominateGroupSettledMembers(settledRows, row.nominateGroupId);
+  const grouped = groupMembers.length >= 2;
+  const lead = grouped ? groupMembers[0] : row;
+  const members = grouped ? groupMembers : [row];
+  const agg = computeReportAgg(members);
   let casts = [];
   Object.values(agg.nameGroups || {}).some(group => Object.values(group.lines || {}).some(line => {
-    if (String(line.rowId) !== String(rowId) || !Array.isArray(line.casts)) return false;
+    if (String(line.rowId) !== String(lead.id) || !Array.isArray(line.casts)) return false;
     casts = line.casts.slice();
     return true;
   }));
-  if (casts.length < 2) return null;
-  return { src, row, casts, total:rowSales(row) };
+  const shares = grouped ? ((members.find(m => m.nominateGroupShares) || {}).nominateGroupShares || null) : (row.nominateShares || null);
+  return {
+    src, row: lead, members, settledRows, grouped, groupId: grouped ? lead.nominateGroupId : null,
+    casts, shares, total: members.reduce((sum, m) => sum + rowSales(m), 0),
+  };
+}
+
+/* 候補・合算中の伝票の1行表示（No.・卓・人数・指名キャスト・金額） */
+function _nominateGroupSlipLabel(r) {
+  const casts = Array.from(_aggNominatorsOf(r, _aggShimeiNominateTypes()));
+  const table = posTableDisplay(posTableLabel(r.tableNum));
+  return 'No.' + slipNoLabel(r) + (table ? ' ' + table : '') + ' ' + (Number(r.gcount) || 1) + '名 '
+    + (casts.length ? casts.join('・') : '指名なし') + ' ¥' + rowSales(r).toLocaleString();
+}
+
+/* ⚖ の「別の卓と合算」欄。本指名の売上の配分だけを合算する（会計・他の集計は伝票ごとのまま） */
+function _nominateGroupSectionHtml(target) {
+  const memberIds = new Set(target.members.map(m => String(m.id)));
+  const line = (r, button) => '<div class="nominate-group-row"><span class="nominate-group-slip">' + escHtml(_nominateGroupSlipLabel(r)) + '</span>' + button + '</div>';
+  const current = target.grouped
+    ? target.members.map(r => line(r, '<button type="button" class="nominate-group-btn" data-row-id="' + escAttr(String(r.id)) + '" onclick="nominateGroupRemove(this.dataset.rowId)">外す</button>')).join('')
+      + '<div class="nominate-group-actions"><button type="button" class="nominate-group-btn danger" onclick="nominateGroupDissolve()">合算を解除</button></div>'
+    : '<div class="nominate-group-empty">なし（この伝票だけで配分）</div>';
+  const candidates = target.settledRows
+    .filter(r => !memberIds.has(String(r.id)))
+    .sort((a, b) => (Number(a.slipNo) || 0) - (Number(b.slipNo) || 0))
+    .map(r => {
+      const other = _nominateGroupSettledMembers(target.settledRows, r.nominateGroupId);
+      if (other.length >= 2) {
+        return line(r, '<button type="button" class="nominate-group-btn" disabled>合算に追加</button>')
+          + '<div class="nominate-group-note">別の合算（No.' + escHtml(other.map(m => slipNoLabel(m)).join('+')) + '）あり。先にそちらを解除してください</div>';
+      }
+      return line(r, '<button type="button" class="nominate-group-btn add" data-row-id="' + escAttr(String(r.id)) + '" onclick="nominateGroupAdd(this.dataset.rowId)">合算に追加</button>');
+    }).join('') || '<div class="nominate-group-empty">この営業日に他の精算済み伝票はありません</div>';
+  const closed = typeof loadDailyClose === 'function'
+    && _dailyCloseNormalizeFrozen((loadDailyClose()[target.src.dayKey] || {}).frozen).closedAt > 0;
+  return '<div class="nominate-group"><div class="nominate-group-head">別の卓と合算</div>'
+    + '<div class="nominate-group-note">1組のお客様が別の卓に分かれた時に使います。本指名の売上の配分だけが変わり、会計や他の集計は変わりません</div>'
+    + '<div class="nominate-group-sub">いまの合算</div>' + current
+    + '<div class="nominate-group-sub">候補（この営業日の精算済み伝票）</div>' + candidates
+    + (closed ? '<div class="nominate-group-note">この日は日次締め済みです。給与・ランキングへの反映は、月間ランキングの「🔄 再集計」で行われます</div>' : '')
+    + '</div>';
 }
 
 function nominateSharesOpenModal(rowId) {
@@ -19732,22 +19824,30 @@ function nominateSharesOpenModal(rowId) {
   _nominateSharesEditor = {
     dayKey: target.src.dayKey,
     rowId: target.row.id,
+    rowIds: target.members.map(m => m.id),
+    groupId: target.groupId,
+    field: target.grouped ? 'nominateGroupShares' : 'nominateShares',   // 組の比率は卓単位の比率（個人小計にも使う）と別に持つ
     casts: target.casts,
     total: Math.max(0, Math.round(Number(target.total) || 0)),
-    amounts: _nominateAllocatedShares(target.total, target.casts, target.row.nominateShares)
+    amounts: _nominateAllocatedShares(target.total, target.casts, target.shares)
   };
   const editor = _nominateSharesEditor;
+  const canEdit = editor.casts.length >= 2;
   const lastIndex = editor.casts.length - 1;
-  const rows = editor.casts.map((cast, index) => '<div class="nominate-share-row">'
+  const rows = canEdit ? editor.casts.map((cast, index) => '<div class="nominate-share-row">'
     + '<div class="nominate-share-cast">' + escHtml(cast) + '</div>'
-    + '<label class="nominate-share-input-wrap">¥<input id="nominate-share-amount-' + index + '" class="nominate-share-input" type="number" inputmode="numeric" min="0" step="100" value="' + editor.amounts[index] + '"' + (editor.casts.length > 2 && index === lastIndex ? ' readonly' : ' oninput="nominateSharesInput(' + index + ',this.value)"') + ' aria-label="' + escAttr(cast) + 'の配分金額"></label></div>').join('');
-  const helper = editor.casts.length > 2 ? '最後のキャストは残額を自動計算' : '片方を入力すると、もう片方を自動計算';
+    + '<label class="nominate-share-input-wrap">¥<input id="nominate-share-amount-' + index + '" class="nominate-share-input" type="number" inputmode="numeric" min="0" step="100" value="' + editor.amounts[index] + '"' + (editor.casts.length > 2 && index === lastIndex ? ' readonly' : ' oninput="nominateSharesInput(' + index + ',this.value)"') + ' aria-label="' + escAttr(cast) + 'の配分金額"></label></div>').join('')
+    : '<div class="nominate-group-empty">配分は指名キャストが2名以上のときに調整できます</div>';
+  const helper = !canEdit ? '' : (editor.casts.length > 2 ? '最後のキャストは残額を自動計算' : '片方を入力すると、もう片方を自動計算');
+  const actions = canEdit
+    ? '<div class="pos-co-actions nominate-share-actions"><button type="button" class="pos-co-btn nominate-share-reset" onclick="nominateSharesResetEven()">均等に戻す</button><button type="button" class="pos-co-btn cancel" onclick="nominateSharesCloseModal()">キャンセル</button><button id="nominate-share-save" type="button" class="pos-co-btn nominate-share-save" onclick="nominateSharesSave()">保存</button></div>'
+    : '<div class="pos-co-actions nominate-share-actions single"><button type="button" class="pos-co-btn cancel" onclick="nominateSharesCloseModal()">閉じる</button></div>';
   const html = '<div id="nominate-shares-overlay" class="pos-co-overlay" onclick="if(event.target===this)nominateSharesCloseModal()">'
-    + '<div class="pos-co-panel pay-bd-panel"><div class="pay-bd-head"><div><div class="pay-bd-title">指名売上の配分 — No.' + escHtml(slipNoLabel(target.row)) + '</div><div class="pay-bd-date">' + helper + '</div></div><button type="button" class="pay-bd-close" onclick="nominateSharesCloseModal()" aria-label="閉じる">×</button></div>'
-    + '<div class="pay-bd-body"><div id="nominate-share-total" class="nominate-share-total"></div>' + rows
-    + '<div class="pos-co-actions nominate-share-actions"><button type="button" class="pos-co-btn nominate-share-reset" onclick="nominateSharesResetEven()">均等に戻す</button><button type="button" class="pos-co-btn cancel" onclick="nominateSharesCloseModal()">キャンセル</button><button id="nominate-share-save" type="button" class="pos-co-btn nominate-share-save" onclick="nominateSharesSave()">保存</button></div></div></div></div>';
+    + '<div class="pos-co-panel pay-bd-panel"><div class="pay-bd-head"><div><div class="pay-bd-title">指名売上の配分 — No.' + escHtml(target.members.map(m => slipNoLabel(m)).join('+')) + '</div><div class="pay-bd-date">' + helper + '</div></div><button type="button" class="pay-bd-close" onclick="nominateSharesCloseModal()" aria-label="閉じる">×</button></div>'
+    + '<div class="pay-bd-body">' + (canEdit ? '<div id="nominate-share-total" class="nominate-share-total"></div>' : '') + rows
+    + actions + _nominateGroupSectionHtml(target) + '</div></div></div>';
   document.body.insertAdjacentHTML('beforeend', html);
-  _nominateSharesRenderAmounts();
+  if (canEdit) _nominateSharesRenderAmounts();
 }
 
 function nominateSharesCloseModal() {
@@ -19784,35 +19884,140 @@ function _nominateSharesRenderAmounts() {
   if (lastInput) lastInput.classList.toggle('warn', editor.amounts.length > 2 && editableTotal > editor.total);
   const totalNode = document.getElementById('nominate-share-total');
   if (totalNode) {
-    totalNode.textContent = '合計 ¥' + amountTotal.toLocaleString() + ' ／ 卓総額 ¥' + editor.total.toLocaleString();
+    totalNode.textContent = '合計 ¥' + amountTotal.toLocaleString() + ' ／ ' + ((editor.rowIds || []).length > 1 ? '合算総額' : '卓総額') + ' ¥' + editor.total.toLocaleString();
     totalNode.classList.toggle('warn', !isBalanced);
   }
   const saveButton = document.getElementById('nominate-share-save');
   if (saveButton) saveButton.disabled = !isBalanced;
 }
 
+/* 配分・合算を保存する先の伝票。今日の伝票が画面に残っていれば今日のデータ、無ければ（過去日・営業終了後の今日）その日のバックアップ */
+function _nominateDayRows(dayKey) {
+  if (dayKey === getLoadedDayKey() && Array.isArray(state.rows) && state.rows.length) {
+    return { rows: state.rows, save: () => { saveState(); return true; } };
+  }
+  const backups = (typeof loadBackups === 'function') ? loadBackups() : [];
+  const snap = backups.find(item => item.dayKey === dayKey);
+  if (!snap || !Array.isArray(snap.rows)) return null;
+  return { rows: snap.rows, save: () => { saveBackups(backups); return true; } };
+}
+/* mutate(rows) が false を返したら保存しない（行を書き換える前に判定すること） */
+function _nominateGroupPersist(dayKey, mutate) {
+  const store = _nominateDayRows(dayKey);
+  if (!store) return false;
+  if (mutate(store.rows) === false) return false;
+  return store.save();
+}
+
 function _nominateSharesPersist(nextShares) {
   const editor = _nominateSharesEditor;
   if (!editor) return false;
-  const liveKey = getLoadedDayKey();
-  if (editor.dayKey === liveKey) {
-    const row = (state.rows || []).find(r => r.isFirst && String(r.id) === String(editor.rowId));
-    if (!row) return false;
-    if (nextShares) row.nominateShares = nextShares;
-    else delete row.nominateShares;
-    saveState();
-    return true;
+  const ids = (Array.isArray(editor.rowIds) && editor.rowIds.length ? editor.rowIds : [editor.rowId]).map(String);
+  const field = editor.field || 'nominateShares';
+  return _nominateGroupPersist(editor.dayKey, rows => {
+    const targets = ids.map(id => rows.find(r => r && r.isFirst && String(r.id) === id));
+    if (targets.some(r => !r)) return false;
+    // 組の比率は全メンバーに同じ値を持たせる（先頭の伝票を未精算に戻しても比率が残るように）
+    targets.forEach(r => {
+      if (nextShares) r[field] = { ...nextShares };
+      else delete r[field];
+    });
+  });
+}
+
+function _nominateGroupNewId() {
+  return 'ng' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+function _nominateGroupAfterChange(reopenRowId) {
+  nominateSharesCloseModal();
+  renderReportPanel();
+  if (reopenRowId != null) nominateSharesOpenModal(reopenRowId);
+}
+
+/* 別の卓を合算に加える。合算の相手が変わると合計も変わるので、比率は均等に戻す */
+async function nominateGroupAdd(rowId) {
+  const editor = _nominateSharesEditor;
+  if (!editor) return;
+  const target = _nominateSharesFindTarget(editor.rowId);
+  const candidate = target && target.settledRows.find(r => String(r.id) === String(rowId));
+  if (!candidate) {
+    if (typeof showToast === 'function') showToast('精算済みの伝票だけ合算できます');
+    return;
   }
-  const backups = (typeof loadBackups === 'function') ? loadBackups() : [];
-  const snap = backups.find(item => item.dayKey === editor.dayKey);
-  const row = snap && Array.isArray(snap.rows)
-    ? snap.rows.find(r => r.isFirst && String(r.id) === String(editor.rowId))
-    : null;
-  if (!row) return false;
-  if (nextShares) row.nominateShares = nextShares;
-  else delete row.nominateShares;
-  saveBackups(backups);
-  return true;
+  if (_nominateGroupSettledMembers(target.settledRows, candidate.nominateGroupId).length >= 2) {
+    if (typeof showToast === 'function') showToast('先に既存の合算を解除してください');
+    return;
+  }
+  const groupId = String(target.groupId || target.row.nominateGroupId || _nominateGroupNewId());
+  const ids = new Set(target.members.map(m => String(m.id)).concat(String(rowId)));
+  const ok = _nominateGroupPersist(editor.dayKey, rows => {
+    const firsts = rows.filter(r => r && r.isFirst);
+    if (firsts.filter(r => ids.has(String(r.id))).length !== ids.size) return false;
+    firsts.forEach(r => {
+      if (ids.has(String(r.id))) {
+        r.nominateGroupId = groupId;
+        delete r.nominateGroupShares;
+      } else if (String(r.nominateGroupId) === groupId) {
+        delete r.nominateGroupShares;   // 未精算に戻っている同じ組の伝票も比率を揃える
+      }
+    });
+  });
+  if (!ok) {
+    if (typeof showToast === 'function') showToast('合算を保存できませんでした');
+    return;
+  }
+  _nominateGroupAfterChange(target.row.id);
+}
+
+/* 合算から1枚だけ外す。残りが1枚になったら合算そのものを解く */
+async function nominateGroupRemove(rowId) {
+  const editor = _nominateSharesEditor;
+  if (!editor || !editor.groupId) return;
+  const groupId = String(editor.groupId);
+  const store = _nominateDayRows(editor.dayKey);
+  const row = store && store.rows.find(r => r && r.isFirst && String(r.id) === String(rowId));
+  if (!row) {
+    if (typeof showToast === 'function') showToast('合算を保存できませんでした');
+    return;
+  }
+  if (!(await appConfirm('No.' + slipNoLabel(row) + ' を合算から外しますか？\n配分は均等に戻ります', { danger: true }))) return;
+  let reopenId = rowId;
+  const ok = _nominateGroupPersist(editor.dayKey, rows => {
+    const members = rows.filter(r => r && r.isFirst && String(r.nominateGroupId) === groupId);
+    const removed = members.find(r => String(r.id) === String(rowId));
+    if (!removed) return false;
+    members.forEach(r => { delete r.nominateGroupShares; });
+    delete removed.nominateGroupId;
+    const rest = members.filter(r => r !== removed);
+    if (rest.length <= 1) rest.forEach(r => { delete r.nominateGroupId; });
+    const next = rest.find(r => r.settled) || rest[0];
+    if (next) reopenId = next.id;
+  });
+  if (!ok) {
+    if (typeof showToast === 'function') showToast('合算を保存できませんでした');
+    return;
+  }
+  _nominateGroupAfterChange(reopenId);
+}
+
+/* 合算を解除して、それぞれの卓ごとの配分に戻す */
+async function nominateGroupDissolve() {
+  const editor = _nominateSharesEditor;
+  if (!editor || !editor.groupId) return;
+  const groupId = String(editor.groupId);
+  const target = _nominateSharesFindTarget(editor.rowId);
+  const label = target ? target.members.map(m => slipNoLabel(m)).join('+') : '';
+  if (!(await appConfirm('No.' + label + ' の合算を解除しますか？\nそれぞれの卓ごとの配分に戻ります', { danger: true }))) return;
+  const ok = _nominateGroupPersist(editor.dayKey, rows => {
+    const members = rows.filter(r => r && r.isFirst && String(r.nominateGroupId) === groupId);
+    if (!members.length) return false;
+    members.forEach(r => { delete r.nominateGroupId; delete r.nominateGroupShares; });
+  });
+  if (!ok) {
+    if (typeof showToast === 'function') showToast('合算を保存できませんでした');
+    return;
+  }
+  _nominateGroupAfterChange(editor.rowId);
 }
 
 function nominateSharesSave() {
