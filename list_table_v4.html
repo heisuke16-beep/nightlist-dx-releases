@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.52">
+<meta name="app-version" content="1.1.53">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -6963,6 +6963,8 @@ const UsbStore = {
   _dirHandle: null,
   _dirName: '',
   _dirty: new Set(),
+  _rev: {},            // キーごとの書込み回数。書込み中に新しい値が来たかを flush 完了時に見分ける（2026-09-28 総点検 B6）
+  _flushChain: null,
   _flushTimer: null,
   _flushInterval: null,
   _dbName: 'nightlist-usb',
@@ -7047,6 +7049,21 @@ const UsbStore = {
         if (!fresh) { this.active = beforeActive; return false; }
       }
     }
+    // 置き換えの確認は、保存先を差し替える前に行う。以前は差し替えた後に確認していたため、
+    // 「キャンセル」しても以後の保存が選んだフォルダへ書かれ、元のフォルダの入力が消えたように見えた（2026-09-28 総点検 B3）
+    if (hasData && opts.mode !== 'boot') {
+      const proceed = await appConfirm(`このフォルダには既にNightListのデータがあります。
+
+　フォルダ名: ${handle.name || ''}
+
+このまま進めると、フォルダの中のデータは
+いまこの画面のデータで置き換わります。
+
+置き換える前の状態は「消えた営業日を戻す」から戻せます。`, { danger: true });
+      if (!proceed) return false;
+    }
+    const prev = { handle: this._dirHandle, name: this._dirName, cache: this.cache };
+    let handleSaved = false;
     this._dirHandle = handle;
     this._dirName = handle.name || '';
     this.cache = { ...current };
@@ -7058,21 +7075,8 @@ const UsbStore = {
         this._toast('このフォルダの保存データを読み込みました');
         return true;
       }
-      if (hasData) {
-        const proceed = await appConfirm(`このフォルダには既にNightListのデータがあります。
-
-　フォルダ名: ${handle.name || ''}
-
-このまま進めると、フォルダの中のデータは
-いまこの画面のデータで置き換わります。
-
-置き換える前の状態は「消えた営業日を戻す」から戻せます。`, { danger: true });
-        if (!proceed) {
-          this.active = beforeActive;
-          return false;
-        }
-      }
       await this._saveHandle(handle);
+      handleSaved = true;
       await this._takeOwnership();
       if (hasData) {
         try {
@@ -7087,6 +7091,16 @@ const UsbStore = {
       this._toast('以後のデータはUSB側に保存されます');
       return true;
     } catch (e) {
+      // 失敗したら元の保存先へ戻す。次回起動で読む保存先（IndexedDB）も元へ戻す
+      if (opts.mode !== 'boot') {
+        this._dirHandle = prev.handle;
+        this._dirName = prev.name;
+        this.cache = prev.cache;
+        if (handleSaved && prev.handle) {
+          try { await this._saveHandle(prev.handle); }
+          catch (restoreError) { console.error('[UsbStore] restore handle failed:', restoreError); }
+        }
+      }
       this.active = beforeActive;
       this._toast(e?.code === 'RECOVERY_ARCHIVE_FAILED'
         ? '退避に失敗したため中止しました'
@@ -7198,12 +7212,27 @@ const UsbStore = {
 
   writeSync(name, raw) {
     this.cache[name] = raw;
+    this._rev[name] = (this._rev[name] || 0) + 1;
     if (!_demoWriteAllowed(name)) return;   // デモモード中は設定以外の保存を凍結（cacheのみ更新し、ディスクへは書かない）
     this._dirty.add(name);
     this._scheduleFlush();
   },
 
-  async flush(names) {
+  /* 書込みは1本ずつ順番に行う。重なると、古い値の書込みが後から終わって新しい値を上書きしうる（B6） */
+  flush(names) {
+    const run = () => this._flushOnce(names);
+    const next = (this._flushChain || Promise.resolve()).then(run, run);
+    this._flushChain = next.catch(() => {});
+    return next;
+  },
+
+  /* 書込み中に同じキーへ新しい値が来ていたら、dirty を残して次の flush で書く（B6） */
+  _markFlushed(name, rev) {
+    if ((this._rev[name] || 0) === rev) this._dirty.delete(name);
+    else this._scheduleFlush();
+  },
+
+  async _flushOnce(names) {
     if (!this.active || this._fenced || !this._dirHandle) return;
     clearTimeout(this._flushTimer);
     this._flushTimer = null;
@@ -7214,13 +7243,15 @@ const UsbStore = {
     const failed = [];
     for (const name of targets) {
       if (!Persist.KEYS[name]) continue;
+      let rev = this._rev[name] || 0;
       try {
         await this._writeFileVerified(name, this.cache[name], false);
-        this._dirty.delete(name);
+        this._markFlushed(name, rev);
       } catch (e) {
         try {
+          rev = this._rev[name] || 0;
           await this._writeFileVerified(name, this.cache[name], true);
-          this._dirty.delete(name);
+          this._markFlushed(name, rev);
         } catch (e2) {
           failed.push(name);
           console.error(`[UsbStore] flush '${name}' failed:`, e2);
@@ -7261,7 +7292,10 @@ const UsbStore = {
 
   markAllDirty() {
     if (_demoMode) return;
-    Object.keys(Persist.KEYS).forEach(name => this._dirty.add(name));
+    Object.keys(Persist.KEYS).forEach(name => {
+      this._dirty.add(name);
+      this._rev[name] = (this._rev[name] || 0) + 1;   // 取込直後に書込み中の古い値で dirty が消えないように（B6）
+    });
     this._scheduleFlush();
   },
 
@@ -8917,6 +8951,13 @@ function shimeiExtDefaultItems() {
     honen: SHIMEI_EXT_DEFAULTS.honen.map(item => ({ ...item })),
   };
 }
+/* 料金の設定値を数値で返す。0円は0円として扱い、未設定（null/undefined/空欄/数値でない）のときだけ fallback。
+   以前は `cfg.x || 既定値` で書かれていて、料金を0円にしても既定値で請求されていた（2026-09-28 修正）。 */
+function cfgYen(value, fallback) {
+  if (value === null || value === undefined || value === '') return fallback;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
 function shimeiExtGroup(type, settings) {
   const source = settings || (typeof cfg !== 'undefined' ? cfg : null);
   const items = source && source.shimeiExtItems && source.shimeiExtItems[type];
@@ -9046,6 +9087,7 @@ const CFG_DEFAULTS = {
   monitorReadToken: '',     // 店外モニター閲覧トークン（初回有効化時に生成）
   monitorOpsToken: '',      // 店外モニター操作トークン（初回有効化時に生成）
   monitorShopId: '',        // オーナーダッシュボード用の不変店舗ID（初回送信時に生成）
+  ownerExportEnabled: false, // オーナーダッシュボードへ客名を含む売上・顧客データを送る（店の同意が要る。店外モニターON中だけ動く）
   posMenu:         {},      // POSカスタムメニュー { shot:[{name,amount},...], bottle:[...], ... }
   posCatLayout:    [],      // POSカテゴリの並び・表示 [{key,visible}]。空=既定順・全表示
   posCatLabels:    {},      // 既定POSカテゴリの表示名の上書き { set:'セット料金', ... }。未設定=既定名
@@ -9139,6 +9181,11 @@ function mergeCfgDefaults(saved) {
   merged.payrollDeductionDisplayPrint = merged.payrollDeductionDisplayPrint !== false;
   // 旧既定値の28:00だけを30:00へ引き上げ、既存端末にも新しい選択肢を反映する。
   if (Number(merged.clockOutTo) === 1680) merged.clockOutTo = CFG_DEFAULTS.clockOutTo;
+  // 以前はオーナーダッシュボードへの送信が店外モニターと同じスイッチだった。今送っている店（アンベリール等）を
+  // 止めないよう、スイッチを分けた時点で店外モニターONの店だけONを引き継ぐ。新しくONにする店は明示の同意が要る（2026-09-28）
+  if (saved && !Object.prototype.hasOwnProperty.call(saved, 'ownerExportEnabled')) {
+    merged.ownerExportEnabled = merged.monitorEnabled === true;
+  }
   return merged;
 }
 
@@ -9233,6 +9280,44 @@ function _migrateDrinkItemsModel() {
 }
 
 /* 旧換算モデルから項目別モデルへ一度だけ移行する。旧キャスト単価キーはロールバック用に残す。 */
+/* 延長の選択肢のうち、料金マスターに延長指名料の行が無い分数へ行を作る（1回だけ）。
+   v1.1.52 で延長指名料の金額を料金マスターだけから取るようにした時、行の無い分数（例: 20・40分の行だけの店が
+   60分の延長を使う）の延長指名料が0円になった（2026-09-29 ギャルサークル報告）。それまでと同じ金額
+   （旧設定の分数別の額 → 旧設定の一律の額 → 延長指名料）で行を作る。店があとで消した行は作り直さない。 */
+function _migrateShimeiExtMinuteRows() {
+  if (cfg.shimeiExtMinuteRowsMigrated === true) return false;
+  const legacyAmount = (amounts, single, idx) => {
+    const perMinute = _shimeiExtNumeric(Array.isArray(amounts) ? amounts[idx] : null);
+    if (perMinute !== null) return perMinute;
+    const flat = _shimeiExtNumeric(single);
+    return flat !== null ? flat : _shimeiExtNumeric(cfg.enchoshimeiFee);
+  };
+  const groups = [
+    { group:'honen', prefix:'本延', amounts:cfg.extFeeHonshimeiAmts, single:cfg.extFeeHonshimeiAmt },
+    { group:'enshi', prefix:'延指', amounts:cfg.extFeeEnchoshimeiAmts, single:cfg.extFeeEnchoshimeiAmt },
+  ];
+  const next = { enshi:[...shimeiExtGroup('enshi')], honen:[...shimeiExtGroup('honen')] };
+  (Array.isArray(cfg.extOptions) ? cfg.extOptions : []).forEach((rawMin, idx) => {
+    const min = Number(rawMin);
+    if (!Number.isFinite(min) || min <= 0) return;
+    groups.forEach(({ group, prefix, amounts, single }) => {
+      const rows = next[group];
+      const has = rows.some(item => item.key === group + min || String(item.label || '').match(/(\d+)/)?.[1] === String(min));
+      if (has) return;
+      const amount = legacyAmount(amounts, single, idx);
+      if (amount === null) return;
+      // 店が名前を変えていれば、その書き方に合わせる（例: 「延長指名20分」→「延長指名60分」）
+      const sample = rows.find(item => /\d+/.test(String(item.label || '')));
+      const label = sample ? String(sample.label).replace(/\d+/, String(min)) : prefix + min;
+      let key = group + min;
+      while (rows.some(item => item.key === key)) key += '_';
+      rows.push({ key, label, amount, pt:0 });
+    });
+  });
+  cfg.shimeiExtItems = next;
+  cfg.shimeiExtMinuteRowsMigrated = true;
+  return true;
+}
 function migrateShimeiExtModel() {
   let migrated = _migrateDrinkItemsModel();
   if (_cfgNeedsShimeiExtMigration) {
@@ -9263,6 +9348,7 @@ function migrateShimeiExtModel() {
     _cfgNeedsShimeiExtMigration = false;
     migrated = true;
   }
+  if (_migrateShimeiExtMinuteRows()) migrated = true;
   if (!migrated) return false;
   saveCfg();
   if (typeof saveState === 'function') saveState();
@@ -9759,6 +9845,10 @@ function autoSave() {
     rows: state.rows, nextGid: state.nextGid, nextGuest: state.nextGuest,
     rotCols: state.rotCols, extCols: state.extCols,
     allCasts: state.allCasts, activeCasts: state.activeCasts,
+    manualSort: state.manualSort,
+    // 手動保存と同じく出退勤の記録も入れる。以前は入れていなかったため、2分ごとにその日のバックアップから
+    // 出退勤が消え、その日を過去日として開くと時間給が0円になっていた（2026-09-28 総点検 B4）
+    timetableSnap: loadTimetableState(),
     savedAt: new Date().toLocaleString('ja-JP'),
     guests, sales,
   };
@@ -9952,6 +10042,7 @@ async function manualSave() {
     rows: state.rows, nextGid: state.nextGid, nextGuest: state.nextGuest,
     rotCols: state.rotCols, extCols: state.extCols,
     allCasts: state.allCasts, activeCasts: state.activeCasts,
+    manualSort: state.manualSort,
     timetableSnap: loadTimetableState(),   // その日のタイムテーブル状態も保存
     savedAt: new Date().toLocaleString('ja-JP'),
     guests, sales,
@@ -10014,6 +10105,7 @@ function saveBackupForKey(dayKey) {
     rows: state.rows, nextGid: state.nextGid, nextGuest: state.nextGuest,
     rotCols: state.rotCols, extCols: state.extCols,
     allCasts: state.allCasts, activeCasts: state.activeCasts,
+    manualSort: state.manualSort,
     timetableSnap: loadTimetableState(),
     savedAt: new Date().toLocaleString('ja-JP'),
     guests, sales,
@@ -10970,6 +11062,14 @@ function _normalizeAmount(raw) {
   if (!Number.isSafeInteger(value) || value < 0) return null;
   return String(value);
 }
+/* 金額欄を離れた時の値。数字以外なら注意を出して、欄に入っていた元の値へ戻す */
+function _amountOnBlurValue(input) {
+  const normalized = _normalizeAmount(input.value);
+  if (normalized !== null) return normalized;
+  try { showToast('⚠ 金額の入力を確認してください（数字のみ）'); } catch (_) {}
+  const fallback = _normalizeAmount(input.defaultValue);
+  return fallback === null ? '' : fallback;
+}
 function onAmountBlur(id, field, input) {
   const row = state.rows.find(r => r.id === id);
   if (!row) return;
@@ -11171,7 +11271,7 @@ function calcBill(row) {
       const fromMin = (cfg.earlySetFromH || 18) * 60;
       const toMin   = (cfg.earlySetToH   || 21) * 60;
       if ((row.startMin || 0) >= fromMin && (row.startMin || 0) < toMin)
-        base = cfg.earlySetPrice || base;
+        base = cfgYen(cfg.earlySetPrice, base);
     }
     if (row.mainType === 'douban' && !cfg.dohanIncludesSet) base = 0;
   }
@@ -11435,7 +11535,16 @@ function setCastListOrder(value){
   _rerenderCastOrderViews();
 }
 /* 行ドラッグ（⠿ ハンドル。マウス・タッチ共通の pointer events）。
-   離した時点の画面の並びを手動順として保存し、表示中でない子の順番は後ろに残す。 */
+   離した時点の画面の並びを手動順として保存し、表示中でない子の順番は後ろに残す。
+   指の動きは document で受ける。行を動かすとブラウザがハンドルへの追跡（pointer capture）を外すため、
+   ハンドルで受けていた頃は、タブレットの指だと1行動かしたところで止まり、離しても保存されなかった（2026-09-29 ギャルサークル報告）。
+   ドラッグ中は出勤キャスト表の毎分の描き直しも止める（描き直すと掴んでいる行が消える）。 */
+let _castDragSince = 0;      // ドラッグ開始の時刻（0=ドラッグしていない）
+let _castDragStop = null;    // 離した合図を取りこぼしたドラッグを、次のドラッグ開始時に保存せず片付ける
+function castRowDragActive(){
+  // 離した合図を取りこぼしても表の描き直しが止まったままにならないよう、30秒で打ち切る
+  return _castDragSince > 0 && Date.now() - _castDragSince < 30000;
+}
 function castRowDragStart(event){
   const handle = event.currentTarget;
   const row = handle.closest('tr[data-cast]');
@@ -11443,21 +11552,30 @@ function castRowDragStart(event){
   if (!tbody) return;
   event.preventDefault();
   event.stopPropagation();
-  try { handle.setPointerCapture(event.pointerId); } catch(_){}
+  if (_castDragStop) _castDragStop();
+  const pointerId = event.pointerId;
   const before = Array.from(tbody.querySelectorAll('tr[data-cast]')).map(tr => tr.dataset.cast).join('\n');
   row.classList.add('cast-row-dragging');
+  _castDragSince = Date.now();
   const move = e => {
+    if (e.pointerId !== pointerId) return;
     const el = document.elementFromPoint(e.clientX, e.clientY);
     const over = el && el.closest('tr[data-cast]');
     if (!over || over === row || over.parentElement !== tbody) return;
     const r = over.getBoundingClientRect();
     tbody.insertBefore(row, e.clientY < r.top + r.height / 2 ? over : over.nextSibling);
   };
-  const end = () => {
-    handle.removeEventListener('pointermove', move);
-    handle.removeEventListener('pointerup', end);
-    handle.removeEventListener('pointercancel', end);
+  const stop = () => {
+    document.removeEventListener('pointermove', move);
+    document.removeEventListener('pointerup', end);
+    document.removeEventListener('pointercancel', end);
+    _castDragSince = 0;
+    _castDragStop = null;
     row.classList.remove('cast-row-dragging');
+  };
+  const end = e => {
+    if (e && e.pointerId !== pointerId) return;
+    stop();
     const shown = Array.from(tbody.querySelectorAll('tr[data-cast]')).map(tr => tr.dataset.cast);
     if (shown.join('\n') === before) return;   // 動かしていない（タップだけ）なら何も変えない
     const prev = Array.isArray(cfg.castListCustomOrder) && cfg.castListCustomOrder.length
@@ -11467,9 +11585,10 @@ function castRowDragStart(event){
     saveCfg();
     _rerenderCastOrderViews();
   };
-  handle.addEventListener('pointermove', move);
-  handle.addEventListener('pointerup', end);
-  handle.addEventListener('pointercancel', end);
+  _castDragStop = stop;
+  document.addEventListener('pointermove', move);
+  document.addEventListener('pointerup', end);
+  document.addEventListener('pointercancel', end);
 }
 function castDragHandleHtml(){
   return '<span class="cast-drag-handle" role="button" aria-label="ドラッグで並べ替え" title="ドラッグで並べ替え"'
@@ -11895,7 +12014,18 @@ function updateAmountEntryAmount(id, type, idx, value) {
   const row = state.rows.find(r => r.id === id);
   if (!row) return;
   const entries = type === 'cash' ? row.cashEntries : row.cardEntries;
-  if (entries && entries[idx]) { entries[idx].amount = value; updateSummary(); }
+  if (entries && entries[idx]) { entries[idx].amount = value; updateSummary(); saveState(); }
+}
+/* 追加入金（前金・2枚目のカード）の金額欄を離れた時。本体の金額欄と同じく数字に整えて保存する。
+   以前は保存せず（ほかの操作で保存されるまでに閉じると消えた）、「1,000」も1円として計算していた（2026-09-28 総点検 B7） */
+function onAmountEntryBlur(id, type, idx, input) {
+  const row = state.rows.find(r => r.id === id);
+  const entries = row && (type === 'cash' ? row.cashEntries : row.cardEntries);
+  if (entries && entries[idx]) {
+    entries[idx].amount = _amountOnBlurValue(input);
+    saveState();
+  }
+  renderTable();
 }
 
 /* 条件手入力中：stateのみ更新（renderTableを呼ばない＝カーソルが飛ばない） */
@@ -12319,7 +12449,7 @@ function renderTable() {
               onblur="updateAmountEntry('${row.id}','cash',${ei},'label',this.value)">
             <input type="text" inputmode="numeric" placeholder="0" value="${entry.amount||''}"
               oninput="updateAmountEntryAmount('${row.id}','cash',${ei},this.value)"
-              onblur="renderTable()"> 円
+              onblur="onAmountEntryBlur('${row.id}','cash',${ei},this)"> 円
             <button type="button" class="amount-del-btn" onclick="removeAmountEntry('${row.id}','cash',${ei})">✕</button>
           </div>`;
         });
@@ -12338,7 +12468,7 @@ function renderTable() {
               onblur="updateAmountEntry('${row.id}','card',${ei},'label',this.value)">
             <input type="text" inputmode="numeric" placeholder="0" value="${entry.amount||''}"
               oninput="updateAmountEntryAmount('${row.id}','card',${ei},this.value)"
-              onblur="renderTable()"> 円
+              onblur="onAmountEntryBlur('${row.id}','card',${ei},this)"> 円
             <button type="button" class="amount-del-btn" onclick="removeAmountEntry('${row.id}','card',${ei})">✕</button>
           </div>`;
         });
@@ -12926,6 +13056,7 @@ let _ttDragSrc = null; // { castName, fromKey } fromKey: 'pool'|'douban'|slotMin
    TIMETABLE RENDER（シンプル版: 出勤時刻 / 退勤時刻 一覧）
 ================================================================ */
 function renderTimetable() {
+  if (castRowDragActive()) return;   // 並べ替えのドラッグ中は描き直さない（離した時に描き直す）
   const body = document.getElementById('timetable-body');
   if (!body) return;
   body.innerHTML = '';
@@ -14221,7 +14352,7 @@ function _posSeatLineItems(row) {
     if (cfg.earlySetEnabled) {
       const fromMin = (cfg.earlySetFromH || 18) * 60;
       const toMin   = (cfg.earlySetToH   || 21) * 60;
-      if ((row.startMin || 0) >= fromMin && (row.startMin || 0) < toMin) amount = cfg.earlySetPrice || amount;
+      if ((row.startMin || 0) >= fromMin && (row.startMin || 0) < toMin) amount = cfgYen(cfg.earlySetPrice, amount);
     }
     return amount;
   })();
@@ -16102,18 +16233,18 @@ function posCategoryItems(category, row) {
   const extPosHidden = (cfg.extPosHidden || []).map(Number);
   const extItems = extOptions.map((min, idx) => ({
     name: extItemLabel(min, idx),
-    amount: Number((cfg.extPrices || [])[idx] || extDefaultPrice[min] || 0),
+    amount: cfgYen((cfg.extPrices || [])[idx], extDefaultPrice[min] ?? 0),
     category,
     min,
   })).filter(item => !extPosHidden.includes(item.min)).map(({ min, ...item }) => item);
   const map = {
-    set: [{ name:posItemLabel('set'), amount: Number(cfg.setPrice || 7000), category }],
+    set: [{ name:posItemLabel('set'), amount: cfgYen(cfg.setPrice, 7000), category }],
     extension: extItems,
-    nominate: castItems(posItemLabel('nominate'), Number(cfg.nominateFee || 2000)),
-    dohan: castItems(posItemLabel('dohan'), Number(cfg.dohanFee || 15000)),
+    nominate: castItems(posItemLabel('nominate'), cfgYen(cfg.nominateFee, 2000)),
+    dohan: castItems(posItemLabel('dohan'), cfgYen(cfg.dohanFee, 15000)),
     // 空場内: 場内カテゴリ先頭固定。0円・キャスト無しで、押した本数ぶんを以降の延長料金へ繰延上乗せする
     // （customizable対象外のためハードコードでよい。posAddItemが押下時点のcfg.jonaiFeeをdeferへ刻印する）
-    jonai: [{ name:posItemLabel('jonai_empty'), amount:0, category:'jonai_empty' }, ...castItems(posItemLabel('jonai'), Number(cfg.jonaiFee || 2000))],
+    jonai: [{ name:posItemLabel('jonai_empty'), amount:0, category:'jonai_empty' }, ...castItems(posItemLabel('jonai'), cfgYen(cfg.jonaiFee, 2000))],
     // shot/bottleは店ごとに仕入れ銘柄が全く異なるため、新規導入店舗にそのまま実在商品名を
     // 出荷しないようダミー名にしてある（2026-07-03: 他店舗展開の洗い出しで指摘）。
     // 「設定→POSレジ→カスタムメニュー」で自店の商品に置き換える運用（cfg.posMenuで上書きされる）。
@@ -16580,7 +16711,7 @@ function _renderPosNsm() {
           <div class="pos-nsm-rowlabel">同伴</div>
           <label class="pos-nsm-check">
             <input type="checkbox"${_posNsmIdx.douban ? ' checked' : ''} onchange="posNsmToggleDouban(this.checked)">
-            <span>🚗 同伴（${cfg.dohanStay || 60}分・${(Number(cfg.dohanFee) || 15000).toLocaleString()}円）</span>
+            <span>🚗 同伴（${cfg.dohanStay || 60}分・${cfgYen(cfg.dohanFee, 15000).toLocaleString()}円）</span>
           </label>
         </div>
         <div class="pos-nsm-row">
@@ -16670,7 +16801,7 @@ function _posBuildDoubanOrders(row, cast, startMin) {
   });
   orders.push({
     id: mkId(), name: posItemLabel('dohan') + ':' + cast,
-    amount: Number(cfg.dohanFee) || 15000,
+    amount: cfgYen(cfg.dohanFee, 15000),
     qty: 1, category: 'dohan',
     createdAt: Date.now(),
   });
@@ -17284,7 +17415,8 @@ const RemoteMonitor = (() => {
       sending = false;
     }
     if (sent && appliedCommand) await sendNow(false);
-    if (sent && applyCommands && typeof OwnerExport !== 'undefined') await OwnerExport.syncOne();
+    // 客名・顧客メモを含むオーナーダッシュボード用データは、店が別に同意（ONに）した時だけ送る（2026-09-28 総点検）
+    if (sent && applyCommands && cfg.ownerExportEnabled === true && typeof OwnerExport !== 'undefined') await OwnerExport.syncOne();
     return sent;
   }
 
@@ -17726,12 +17858,12 @@ function _posInitSetEntry() {
   const row = posSelectedRow();
   if (!row) { _posSetEntry = null; return; }
   const now = getNowMin();
-  let initPrice = cfg.setPrice || 7000;
+  let initPrice = cfgYen(cfg.setPrice, 7000);
   let initDuration = cfg.defStay || 40;
   if (cfg.earlySetEnabled) {
     const fromMin = (cfg.earlySetFromH || 18) * 60;
     const toMin = (cfg.earlySetToH || 21) * 60;
-    if (now >= fromMin && now < toMin) initPrice = cfg.earlySetPrice || initPrice;
+    if (now >= fromMin && now < toMin) initPrice = cfgYen(cfg.earlySetPrice, initPrice);
   }
   // 既にSETが入っている場合は「追加の独立したセット」として1名分から始める
   const orders = posOrders(row);
@@ -18308,6 +18440,11 @@ function posSplitApply() {
   if (!row || !_posSplit) return;
   const cash = _posSplit.cash || 0, card = _posSplit.card || 0;
   if (cash + card <= 0) { showToast('金額を入力してください'); return; }
+  // お会計を超える現金は売上として記録されてしまうため止める（お釣りは含めず、受け取る額だけを入力）。2026-09-28
+  if (cash > (_posSplit.total || 0)) {
+    showToast('お会計（¥' + (_posSplit.total || 0).toLocaleString() + '）を超える現金は入力できません。お釣りを含めずに入力してください');
+    return;
+  }
   // 前金を内訳へ畳み込む：今回の分割入力（未収金ぶん）に前金の現金/カード受領を合算。
   const adv = _posAdvanceTotals(row);
   const totalCash = adv.cash + cash;
@@ -18936,7 +19073,7 @@ function _reportPeriodSwitchHtml() {
     + '.payroll-table input.pay-in:focus{outline:none;border-color:var(--gold)}'
     + '.payroll-table input.pay-in.pay-edited{border-color:var(--gold);color:var(--gold);font-weight:700}'   /* #12 手修正セルを強調 */
     + '.payroll-table input.pay-in.pay-time{width:44px;text-align:center;font-family:var(--mono)}'   /* 出退勤HH:MM編集 */
-    + '.payroll-table td.pay-flag-cell{text-align:center}.pay-deduction-flag{min-width:32px;height:28px;padding:0 7px;border:1px solid var(--bdr2);border-radius:7px;background:var(--sur2);color:var(--tx3);font-size:16px;font-weight:800;cursor:pointer}.pay-deduction-flag.is-on{border-color:var(--gold);background:var(--goldglow);color:var(--gold)}.pay-deduction-flag:focus-visible{outline:2px solid var(--gold);outline-offset:2px}'
+    + '.payroll-table td.pay-flag-cell{text-align:center}.pay-deduction-flag{min-width:32px;height:28px;padding:0 7px;white-space:nowrap;border:1px solid var(--bdr2);border-radius:7px;background:var(--sur2);color:var(--tx3);font-size:16px;font-weight:800;cursor:pointer}.pay-deduction-flag.is-on{border-color:var(--gold);background:var(--goldglow);color:var(--gold)}.pay-deduction-flag:focus-visible{outline:2px solid var(--gold);outline-offset:2px}'
     + '.payroll-table select.pay-time{box-sizing:border-box;width:76px;font-size:11px;padding:3px 1px;background:var(--sur2);color:var(--tx);border:1px solid var(--bdr2);border-radius:5px;text-align:center;font-family:var(--mono);cursor:pointer}'   /* BIZ UDPゴシック5桁＋native矢印を欠けずに表示 */
     + '.payroll-table select.pay-time:focus{outline:none;border-color:var(--gold)}'
     + '.deduction-sheet tr.ded-zero td{color:var(--tx3)}'
@@ -19174,9 +19311,10 @@ function _payrollTableColumns(countCols, deductionItems, showPoints) {
       cell:(x, start) => {
         const cell = _deductionCellValue(item, (x.r.deductions || [])[index], x.manualDeductions);
         if (cell.flag) {
+          const amountLabel = _payrollFlagFixedAmountLabel(item, cell);
           return _payrollTd(x.plain
-            ? _payrollDeductionMark(cell)
-            : _payrollDeductionFlagButton(x.cj, item.key, cell.checked), 'pay-flag-cell', start);
+            ? _payrollDeductionMark(cell) + (amountLabel ? ' ' + amountLabel : '')
+            : _payrollDeductionFlagButton(x.cj, item.key, cell.checked, amountLabel), 'pay-flag-cell', start);
         }
         if (x.plain) return _payrollTd(x.hasOut && cell.value ? _payYen(cell.value) : '', '', start);
         return _payrollTd(_deductionCellInputHtml(cell, x.cj, item.key), '', start);
@@ -19902,8 +20040,12 @@ function _payWorkLabel(min) {
 }
 function _payYen(n) { return '¥' + (Number(n) || 0).toLocaleString(); }
 function _payrollDeductionMark(item) { return item && item.checked === true ? '○' : '×'; }
-function _payrollDeductionFlagButton(castJs, key, checked) {
-  const mark = checked ? '○' : '×';
+/* ○×で固定額（flagFixed）の、日計表に並べる金額。○の日だけ引く額を出す。控除票は○×だけのまま（2026-09-29 ギャルサークル要望） */
+function _payrollFlagFixedAmountLabel(item, cell) {
+  return item && item.mode === 'flagFixed' && cell.checked ? _payYen(cell.amount) : '';
+}
+function _payrollDeductionFlagButton(castJs, key, checked, amountLabel) {
+  const mark = (checked ? '○' : '×') + (amountLabel ? ' ' + amountLabel : '');
   return '<button type="button" class="pay-deduction-flag' + (checked ? ' is-on' : '') + '" aria-pressed="' + (checked ? 'true' : 'false') + '" onclick="payrollSetDeductionFlag(\'' + castJs + '\',\'' + key + '\',' + (!checked) + ')">' + mark + '</button>';
 }
 
@@ -20252,7 +20394,7 @@ function _deductionSheetInnerHtml(src, opts = { plain:false }) {
    無ければ自動計算値（fixed=固定額 / rate=日給×率 / manual=0）。 */
 function _deductionCellValue(item, calculated, manualDeductions) {
   const calc = calculated || {};
-  if (isPayrollDeductionFlagMode(item.mode)) return { flag:true, checked:calc.checked === true };
+  if (isPayrollDeductionFlagMode(item.mode)) return { flag:true, checked:calc.checked === true, amount:Number(calc.amount) || 0 };
   const manual = manualDeductions || {};
   const hasManual = Object.prototype.hasOwnProperty.call(manual, item.key);
   const auto = Number(calc.auto) || 0;
@@ -22969,8 +23111,13 @@ async function posAddItem(name, amount, category, spShares) {
   const backValue = String(item?.back ?? '').trim() === '' ? item?.backFree : item.back;
   const cast = String(name).includes(':') ? String(name).slice(String(name).indexOf(':') + 1) : '';
   const personalBack = !spShares && cast && state.allCasts.includes(cast) ? castSpBackYen(cast, amt, category) : null;
-  const backYen = personalBack != null ? personalBack : ((!isSpecial && !spShares && item) ? posMenuBackYen(backValue, amt) : 0);
-  const backFreeYen = personalBack != null ? personalBack : (!isSpecial && !spShares && item && Object.prototype.hasOwnProperty.call(item, 'backFree'))
+  // キャスト1人に付けたボトル・ショットは、個別SPもメニューのバック額も無ければ店標準SPを使う。
+  // 以前は折半の時だけ店標準SPを使い、1人に付けるとバック0円だった（2026-09-29 オーナー決定・ギャルサークル報告）
+  const storeSpBack = personalBack == null && !spShares && !isSpecial && cast && state.allCasts.includes(cast)
+    && ['bottle', 'shot'].includes(category) && String(backValue ?? '').trim() === '' ? calcSpReference(amt) : null;
+  const castBack = personalBack != null ? personalBack : storeSpBack;
+  const backYen = castBack != null ? castBack : ((!isSpecial && !spShares && item) ? posMenuBackYen(backValue, amt) : 0);
+  const backFreeYen = castBack != null ? castBack : (!isSpecial && !spShares && item && Object.prototype.hasOwnProperty.call(item, 'backFree'))
     ? posMenuBackYen(item.backFree, amt)
     : undefined;
   const drinkItem = drinkItemByKey(category);
@@ -23781,7 +23928,7 @@ function renderPastTable() {
               onblur="pastUpdateAmountEntry('${row.id}','cash',${ei},'label',this.value)">
             <input type="text" inputmode="numeric" placeholder="0" value="${entry.amount||''}"
               oninput="pastUpdateAmountEntryAmount('${row.id}','cash',${ei},this.value)"
-              onblur="renderPastTable()"> 円
+              onblur="onPastAmountEntryBlur('${row.id}','cash',${ei},this)"> 円
             <button type="button" class="amount-del-btn" onclick="pastRemoveAmountEntry('${row.id}','cash',${ei})">✕</button>
           </div>`;
         });
@@ -23800,7 +23947,7 @@ function renderPastTable() {
               onblur="pastUpdateAmountEntry('${row.id}','card',${ei},'label',this.value)">
             <input type="text" inputmode="numeric" placeholder="0" value="${entry.amount||''}"
               oninput="pastUpdateAmountEntryAmount('${row.id}','card',${ei},this.value)"
-              onblur="renderPastTable()"> 円
+              onblur="onPastAmountEntryBlur('${row.id}','card',${ei},this)"> 円
             <button type="button" class="amount-del-btn" onclick="pastRemoveAmountEntry('${row.id}','card',${ei})">✕</button>
           </div>`;
         });
@@ -23959,11 +24106,20 @@ function onPastAmountBlur(id, field, input) {
   if (!pastState) return;
   const row = pastState.rows.find(r => r.id === id);
   if (!row) return;
-  row[field] = input.value;
+  // 今のリスト表と同じく数字に整える（「1,000」が1円で計算されないように。2026-09-28 総点検 B7）
+  const value = _amountOnBlurValue(input);
+  row[field] = value;
   if (row.isFirst) {
     pastState.rows.filter(r => r.gid === row.gid && !r.isFirst)
-      .forEach(r => r[field] = input.value);
+      .forEach(r => r[field] = value);
   }
+  renderPastTable();
+}
+function onPastAmountEntryBlur(id, type, idx, input) {
+  if (!pastState) return;
+  const row = pastState.rows.find(r => r.id === id);
+  const entries = row && (type === 'cash' ? row.cashEntries : row.cardEntries);
+  if (entries && entries[idx]) entries[idx].amount = _amountOnBlurValue(input);
   renderPastTable();
 }
 // VIP席利用料の再同期はしない（過去リストは精算済みの確定データ）。
@@ -25633,11 +25789,11 @@ function renderSettingsPanel() {
         <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:8px">
           <div style="display:flex;gap:8px;flex-wrap:wrap">
             <button type="button" class="btn primary" onclick="usbSettingsActivate()">USBフォルダを選択して移行</button>
-            <button type="button" class="btn" onclick="usbSettingsDeactivate()" ${usbActive ? '' : 'disabled'}>PC内保存に戻す</button>
             <button type="button" class="btn danger" onclick="usbSettingsClearLocal()" ${usbActive ? '' : 'disabled'}>PC側データを消去</button>
           </div>
           <div class="settings-sub" style="line-height:1.7">
-            USBモードでは、営業データはUSB内にのみ保存されます。USBの紛失・破損に備え、定期的にJSONエクスポートで控えを取ってください。対応ブラウザ: Chrome / Edge
+            USBモードでは、営業データはUSB内にのみ保存されます。USBの紛失・破損に備え、定期的にJSONエクスポートで控えを取ってください。対応ブラウザ: Chrome / Edge<br>
+            PC内だけに保存するモードはありません（以前あった「PC内保存に戻す」は、押すと以後の入力が保存されなくなるため外しました）。
           </div>
         </div>
         <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:8px">
@@ -25712,7 +25868,7 @@ function renderSettingsPanel() {
       <div class="settings-section-header"><span class="settings-section-title">📡 店外モニター</span></div>
       <div class="settings-section-body">
         <div class="settings-row">
-          <div class="settings-label">店外モニターを有効にする<div class="settings-sub">匿名の店内状況を30秒ごとに送信します</div></div>
+          <div class="settings-label">店外モニターを有効にする<div class="settings-sub">卓ごとの人数・時間・会計の明細、出勤キャストの名前などの店内状況を、30秒ごとに運営者のサーバーへ送ります。お客様の名前は送りません</div></div>
           <label style="display:flex;align-items:center;gap:6px;min-height:44px;cursor:pointer">
             <input type="checkbox" id="cfg-monitorEnabled" ${cfg.monitorEnabled ? 'checked' : ''}>
             <span>有効</span>
@@ -25732,6 +25888,13 @@ function renderSettingsPanel() {
           <div class="settings-label" style="width:100%">送信トークン</div>
           <input type="password" class="settings-input" id="cfg-monitorWriteToken" value="${escAttr(cfg.monitorWriteToken || '')}" autocomplete="off" style="width:min(100%,520px)">
         </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">オーナーダッシュボードへ売上・顧客データも送る<div class="settings-sub">リスト表（客名・注文の明細を含む）と顧客一覧（メモ・誕生日・職業・勤務先などを含む）を運営者のサーバーへ送り、400日保存します。お店の同意を得てからONにしてください。店外モニターが有効な時だけ送ります</div></div>
+          <label style="display:flex;align-items:center;gap:6px;min-height:44px;cursor:pointer">
+            <input type="checkbox" id="cfg-ownerExportEnabled" ${cfg.ownerExportEnabled === true ? 'checked' : ''}>
+            <span>送る</span>
+          </label>
         </div>
         <div class="settings-row">
           <div class="settings-label">店舗ID（オーナーダッシュボード用）<div class="settings-sub">運営者に伝えると、ダッシュボードでこの店舗を見られるようになります</div></div>
@@ -26061,8 +26224,9 @@ async function authSettingsClear() {
   }
 }
 
-/* タグ操作（設定パネル内のタグエディタ） */
-const _settingsTags = {};
+/* タグ操作（設定パネル内のタグエディタ）
+   編集中の値は画面のタグ（DOM）だけに持つ。以前は別の下書き変数にも持っていたが、どこでも消されないため、
+   「変更を捨てる」で捨てた編集が次の保存で復活し、POSの同伴で足した入店経路も消えていた（2026-09-28 総点検 B1） */
 /* 伝票に印字される品目名のうち、金額と同じ行で持っているもの（延長・本指名延長・延長指名・
    ドリンク）を「伝票の品目名」の一覧にも並べるための行データ。値を二重に持つと保存時に
    どちらが勝つか分からなくなるため、保存先は従来どおり料金表側の入力欄1つだけにして、
@@ -26241,8 +26405,6 @@ function settingTagDel(id, idx) {
     el.childNodes[0].textContent.trim()
   );
   tags.splice(idx, 1);
-  // cfgの一時変数に保存して再描画
-  _settingsTags[id] = tags;
   rerenderTagEditor(id, tags);
   _settingsMarkDirty();
 }
@@ -26257,7 +26419,6 @@ function settingTagAdd(id) {
   );
   const added = !tags.includes(val);
   if (added) tags.push(val);
-  _settingsTags[id] = tags;
   rerenderTagEditor(id, tags);
   inp.value = '';
   if (added) _settingsMarkDirty();
@@ -26527,9 +26688,8 @@ async function applySettings() {
   const birthdayAlertDays  = isNaN(birthdayAlertVal) ? (cfg.birthdayAlertDays ?? 14) : birthdayAlertVal;
   const bizHour = isNaN(bizDayBoundaryHour) ? (cfg.bizDayBoundaryHour ?? 12) : bizDayBoundaryHour;
 
-  // タグ項目（DOMから読み出し or _settingsTags）
+  // タグ項目（画面のタグから読み出す。画面に無ければ今の値のまま）
   function readTags(id, defaultVal) {
-    if (_settingsTags[id]) return _settingsTags[id];
     const container = document.getElementById(`tag-${id}`);
     if (!container) return defaultVal;
     return [...container.querySelectorAll('.tag-item')].map(el =>
@@ -26668,6 +26828,7 @@ async function applySettings() {
   const showCountdown   = !!(get('cfg-showCountdown')?.checked);
   const fullscreenOnBoot = !!(get('cfg-fullscreenOnBoot')?.checked);
   const monitorEnabled = !!(get('cfg-monitorEnabled')?.checked);
+  const ownerExportEnabled = get('cfg-ownerExportEnabled') ? !!get('cfg-ownerExportEnabled').checked : cfg.ownerExportEnabled === true;
   const monitorEndpoint = (get('cfg-monitorEndpoint')?.value || '').trim();
   const monitorWriteToken = (get('cfg-monitorWriteToken')?.value || '').trim();
   let monitorReadToken = String(cfg.monitorReadToken || '').trim();
@@ -26809,7 +26970,7 @@ async function applySettings() {
     extFeeOnHonshimei, extFeeOnJounai, extFeeOnEnchoshimei, extPrices, extPosHidden, extNames,
     extAutoShimeiFee, extBasePerSeat, extFeePerSeat, doubanAsHonshimeiExt, modoriHonshimeiAgg, modoriEnchoshimeiAgg,
     taxRate, taxRound, discountAfterTax, cardFeeRate, cardFeeRound, advanceFeeCredit, tillFloat,
-    showCountdown, fullscreenOnBoot, monitorEnabled, monitorEndpoint, monitorWriteToken, monitorReadToken, monitorOpsToken,
+    showCountdown, fullscreenOnBoot, monitorEnabled, ownerExportEnabled, monitorEndpoint, monitorWriteToken, monitorReadToken, monitorOpsToken,
     monitorShopId: cfg.monitorShopId || '',
     posMenu, posCatLayout, posCatLabels, posItemLabels, posCustomCats, posPrices, shimeiExtItems, drinkItems, shotLabel,
     specialRateRound: get('cfg-specialRateRound') ? (get('cfg-specialRateRound').value === '0' ? 0 : 100) : posSpecialRoundUnit(),
@@ -27409,12 +27570,12 @@ function _payrollSettingsModalHtml() {
           <label class="pay-settings-choice"><input type="checkbox" id="cfg-payrollDouhanAddsHonenFirst"${checked('payrollDouhanAddsHonenFirst')}><span>本指名延長 ＋1<small>延長項目の先頭（例：本延20）のバックを加算</small></span></label>
           <h3>SP・ボトルバック</h3>
           <label class="pay-settings-choice"><input type="checkbox" id="cfg-payrollSpInBackTotal"${checked('payrollSpInBackTotal')}><span>SPを日給に含める<small>OFFなら参考表示のみ。手入力SP・ボトル折半が対象。</small></span></label>
-          <div class="pay-settings-row"><div><label for="cfg-payrollBottleSpRate">店標準SP（ボトル・ショット）</label><p>%は小計に対する割合、円は1本あたり。SP参考額とキャスト折半に使用。個別設定があればそちらを優先。</p></div><div class="pay-settings-inputs" id="pay-sp-control" data-mode="${cfg.payrollSpMode === 'yen' ? 'yen' : 'percent'}">
+          <div class="pay-settings-row"><div><label for="cfg-payrollBottleSpRate">店標準SP（ボトル・ショット）</label><p>%は小計に対する割合、円は1本あたり。ボトル・ショットをキャストに付けた時（1人でも折半でも）のバックに使用。キャスト個別の設定、メニューのバック額があればそちらを優先。</p></div><div class="pay-settings-inputs" id="pay-sp-control" data-mode="${cfg.payrollSpMode === 'yen' ? 'yen' : 'percent'}">
             <span data-sp-value="percent" ${cfg.payrollSpMode === 'yen' ? 'hidden' : ''}>${num('payrollBottleSpRate','店標準SP率',0.2,0,100,0.1,100)}</span>
             <span data-sp-value="yen" ${cfg.payrollSpMode === 'yen' ? '' : 'hidden'}>${num('payrollSpFixed','店標準SP額',0,0,null,1)}</span>
             <div role="group" aria-label="店標準SPの単位" class="back-unit-toggle"><button type="button" aria-label="店標準SPの単位: %" aria-pressed="${cfg.payrollSpMode !== 'yen'}" onclick="payrollSpModeSelect('percent')">%</button><button type="button" aria-label="店標準SPの単位: 円" aria-pressed="${cfg.payrollSpMode === 'yen'}" onclick="payrollSpModeSelect('yen')">円</button></div>
           </div></div>
-          <details class="pay-settings-details"><summary>バックの計算を確認</summary><p>バック ＝ 伝票から集計した本数 × 単価 ＋ 商品バック。単価はキャスト個別設定を優先し、空欄なら既定バックを使います。本数は日計表で修正できます。</p><p>SPは手入力額とボトル折半分の合計です。参考額をそのまま支給する設定ではありません。</p><p>給率 ＝ 日給 ÷ キャストの帰属売上 × 100（参考値）。</p></details>
+          <details class="pay-settings-details"><summary>バックの計算を確認</summary><p>バック ＝ 伝票から集計した本数 × 単価 ＋ 商品バック。単価はキャスト個別設定を優先し、空欄なら既定バックを使います。本数は日計表で修正できます。</p><p>SPは手入力額とボトル折半分の合計です。参考額をそのまま支給する設定ではありません。キャスト1人に付けたボトル・ショットのバックは、日給の「商品バック」に入ります。</p><p>給率 ＝ 日給 ÷ キャストの帰属売上 × 100（参考値）。</p></details>
         </section>
         <section id="pay-settings-group-deductions" role="tabpanel" aria-labelledby="pay-settings-tab-deductions" data-pay-group="deductions" hidden>
           <h3>日ごとの控除・○×記録</h3>
@@ -27597,10 +27758,14 @@ function payrollSettingsSave() {
    DATA EXPORT / IMPORT
 ================================================================ */
 async function exportAllData() {
+  const data = Persist.exportAll();  // {listState, backups, customers, settings, timetable, ...} 文字列辞書
+  // ログインのパスワード情報（ハッシュ）とリカバリーコードは書き出さない。読み込み側でも使っていない（2026-09-28 総点検）
+  delete data.auth;
+  delete data.authRecovery;
   const exportData = {
     version: '2.3',
     exportedAt: new Date().toLocaleString('ja-JP'),
-    data: Persist.exportAll(),  // {listState, backups, customers, settings, timetable} 文字列辞書
+    data,
   };
   const json  = JSON.stringify(exportData, null, 2);
   const date  = new Date();
@@ -29295,6 +29460,11 @@ function onImportFileSelected(input) {
       const payslipsStr  = isNewFormat ? payload.data?.payslips   : null;
       const settingsStr  = isNewFormat ? payload.data?.settings   : null;
       const timetableStr = isNewFormat ? payload.data?.timetable  : null;
+      // 伝票番号の続き・削除した伝票・リスト表の白背景も戻す。以前は戻さなかったため、
+      // 別の端末へ移すと伝票番号が1から振り直されて重複した（2026-09-28 総点検 B5）
+      const slipCounterStr  = isNewFormat ? payload.data?.slipCounter  : null;
+      const deletedSlipsStr = isNewFormat ? payload.data?.deletedSlips : null;
+      const listWhiteStr    = isNewFormat ? payload.data?.listWhite    : null;
       const themeStr     = isNewFormat ? payload.data?.theme      : null;
       const importedTheme = typeof resolveImportedTheme === 'function'
         ? resolveImportedTheme(themeStr)
@@ -29346,6 +29516,9 @@ function onImportFileSelected(input) {
           payslips:  payslipsStr,
           settings:  settingsStr,
           timetable: timetableStr,
+          slipCounter:  slipCounterStr,
+          deletedSlips: deletedSlipsStr,
+          listWhite:    listWhiteStr,
           ...(importedTheme ? { theme: JSON.stringify(importedTheme), themeSelection: JSON.stringify(1) } : {}),
         });
         loadCfg();
