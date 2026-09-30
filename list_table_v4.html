@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.57">
+<meta name="app-version" content="1.1.58">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -8258,17 +8258,22 @@ const SelfUpdate = {
   startAutoCheck() {
     if (this._autoCheckStarted) return;
     this._autoCheckStarted = true;
-    const check = () => {
-      this._checkForUpdateNotification().catch(e => console.warn('[SelfUpdate] auto check failed:', e));
+    const check = (opts) => {
+      this._checkForUpdateNotification(opts).catch(e => console.warn('[SelfUpdate] auto check failed:', e));
     };
     setTimeout(() => {
-      check();
-      setInterval(check, SELF_UPDATE_CHECK_INTERVAL_MS);
+      check({ initial: true });
+      setInterval(() => check({ initial: false }), SELF_UPDATE_CHECK_INTERVAL_MS);
     }, 5000);
   },
 
-  async _checkForUpdateNotification() {
+  async _checkForUpdateNotification(opts = {}) {
     try {
+      const managed = await this._fetchManagedStatus();
+      if (managed) {
+        this._handleManagedCheck(managed, opts);
+        return;
+      }
       const versionRes = await fetch(SELF_UPDATE_URL, { cache: 'no-store' });
       if (!versionRes.ok) throw new Error('version.json fetch failed');
       const info = this._validateVersionInfo(await versionRes.json());
@@ -8289,7 +8294,68 @@ const SelfUpdate = {
     return this._compareSemver(remote, current) > 0 && remoteInfo.version !== dismissedVersion;
   },
 
-  _showUpdateNotification(remoteVersion, currentVersion) {
+  /* 端末側スクリプト（nightlist-updater.ps1）が更新を受け持つ端末かを配信サーバーに聞く。
+     受け持つ端末では、アプリは自分のファイルを書き換えず「端末が受け取った版」だけを見る
+     （2026-09-23 起動スクリプト側更新。自分のファイルの場所を推測して探す作りが
+     ギャルサークルの「ファイルを選んでください」「起動中のアプリと一致しません」の原因だった）。
+     応答が無い・managed でない端末は従来どおり自己更新。 */
+  async _fetchManagedStatus() {
+    try {
+      const controller = (typeof AbortController === 'function') ? new AbortController() : null;
+      const timer = controller ? setTimeout(() => controller.abort(), 1500) : null;
+      let res;
+      try {
+        res = await fetch('/__update_status', { cache: 'no-store', signal: controller ? controller.signal : undefined });
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+      if (!res || !res.ok) return null;
+      const info = await res.json();
+      if (!info || info.managed !== true) return null;
+      return { fileVersion: String(info.fileVersion || ''), lastResult: String(info.lastResult || '') };
+    } catch (_) {
+      return null;
+    }
+  },
+
+  _managedHasNewer(managed) {
+    const current = this.currentVersion();
+    if (!this._isSemver(current) || !this._isSemver(managed.fileVersion)) return false;
+    return this._compareSemver(this._parseSemver(managed.fileVersion), this._parseSemver(current)) > 0;
+  },
+
+  /* 起動直後（未保存の作業が無い）なら黙って開き直す。同じ版への開き直しは1回だけにして
+     ループを防ぐ。営業中の6時間ごとの確認では「開き直す」ボタン付きの案内に留める。 */
+  _handleManagedCheck(managed, { initial = false } = {}) {
+    if (!this._managedHasNewer(managed)) return 'none';
+    if (initial && this._markManagedReloadOnce(managed.fileVersion)) {
+      location.reload();
+      return 'reload';
+    }
+    if (managed.fileVersion === selfUpdateDismissedVersion) return 'dismissed';
+    this._showUpdateNotification(managed.fileVersion, this.currentVersion(), { reloadOnly: true });
+    return 'notify';
+  },
+
+  _markManagedReloadOnce(version) {
+    try {
+      const key = 'nl-managed-reload';
+      if (sessionStorage.getItem(key) === version) return false;
+      sessionStorage.setItem(key, version);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  },
+
+  _managedResult(managed) {
+    if (this._managedHasNewer(managed)) {
+      return this._result('ready', `✅ v${managed.fileVersion} が準備できています。ブラウザを開き直すと反映されます`);
+    }
+    return this._result('latest', `最新版です（v${this.currentVersion()}）。更新は端末が自動で受け取ります`);
+  },
+
+  _showUpdateNotification(remoteVersion, currentVersion, { reloadOnly = false } = {}) {
     const previous = document.getElementById('self-update-notification');
     if (previous?.dataset.version === remoteVersion) return;
     if (previous) previous.remove();
@@ -8307,7 +8373,9 @@ const SelfUpdate = {
     ].join(';');
 
     const message = document.createElement('div');
-    message.textContent = `🔄 新しいバージョン v${remoteVersion} が利用可能です（現在 v${currentVersion}）`;
+    message.textContent = reloadOnly
+      ? `🔄 新しいバージョン v${remoteVersion} が端末に届いています（現在 v${currentVersion}）。開き直すと反映されます`
+      : `🔄 新しいバージョン v${remoteVersion} が利用可能です（現在 v${currentVersion}）`;
     message.style.cssText = 'font-size:14px;font-weight:700;line-height:1.6';
 
     const progress = document.createElement('div');
@@ -8318,7 +8386,7 @@ const SelfUpdate = {
 
     const updateButton = document.createElement('button');
     updateButton.type = 'button';
-    updateButton.textContent = '今すぐ更新';
+    updateButton.textContent = reloadOnly ? '開き直す' : '今すぐ更新';
     updateButton.style.cssText = 'min-height:40px;padding:8px 16px;border:1px solid var(--gold);border-radius:8px;background:var(--gold);color:var(--bg);font:inherit;font-weight:700;cursor:pointer';
 
     const laterButton = document.createElement('button');
@@ -8327,6 +8395,10 @@ const SelfUpdate = {
     laterButton.style.cssText = 'min-height:40px;padding:8px 16px;border:1px solid var(--bdr2);border-radius:8px;background:var(--sur2);color:var(--gold);font:inherit;font-weight:700;cursor:pointer';
 
     updateButton.addEventListener('click', async () => {
+      if (reloadOnly) {
+        location.reload();
+        return;
+      }
       updateButton.disabled = true;
       updateButton.textContent = '更新中…';
       progress.textContent = '確認中…';
@@ -8375,9 +8447,13 @@ const SelfUpdate = {
     const onProgress = typeof options.onProgress === 'function' ? options.onProgress : () => {};
     try {
       const updateUrl = SELF_UPDATE_URL;
+      onProgress('確認中…');
+      // 端末側スクリプトが更新を受け持つ端末では、ファイルの書き換えもファイル選択も行わない
+      const managed = await this._fetchManagedStatus();
+      if (managed) return this._managedResult(managed);
+
       if (!UsbStore.active || !UsbStore._dirHandle) return this._result('aborted', 'USBモードで利用できます');
 
-      onProgress('確認中…');
       const versionRes = await this._fetchNoStore(updateUrl);
       let info;
       try {
