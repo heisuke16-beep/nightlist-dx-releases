@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.56">
+<meta name="app-version" content="1.1.57">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -2171,6 +2171,14 @@ tr.grp-drag-over td { box-shadow: inset 0 2px 0 var(--gold) !important; }
   width: 100%;
   min-width: 0;
 }
+/* 11th以降は1st〜の下の段（2026-09-30 オーナー判断）。上の段との境目に点線 */
+#list-table .rot-cell > .rot-slot-stack.rot-tier2,
+#past-table .rot-cell > .rot-slot-stack.rot-tier2 {
+  margin-top: 3px;
+  padding-top: 3px;
+  border-top: 1px dashed var(--bdr3);
+  min-height: 22px;
+}
 
 /* 延長 */
 .ext-cell { min-width: 44px; text-align: center; }
@@ -4025,6 +4033,15 @@ select:focus, input:focus { border-color: var(--gold); box-shadow: 0 0 0 3px var
 #past-table .amount-layout > .card-row {
   grid-column: 2;
   margin-bottom: 0;
+}
+#list-table .amount-layout > .urikake-row,
+#past-table .amount-layout > .urikake-row {
+  grid-column: 2;
+  padding: 3px 4px;
+  color: var(--pink);
+  font-weight: 600;
+  text-align: right;
+  white-space: nowrap;
 }
 #list-table .method-btn,
 #past-table .method-btn {
@@ -6723,6 +6740,9 @@ html[data-display="desktop"] #tabs .tab-btn .tab-app-icon { width: 56px; height:
 const CIRCLE   = ['①','②','③','④','⑤','⑥','⑦','⑧','⑨','⑩','⑪','⑫','⑬','⑭','⑮','⑯','⑰','⑱','⑲','⑳','㉑','㉒','㉓','㉔','㉕','㉖','㉗','㉘','㉙','㉚','㉛','㉜','㉝','㉞','㉟','㊱','㊲','㊳','㊴','㊵'];
 const WEEKDAYS = ['日','月','火','水','木','金','土'];
 const UNDO_MAX = 50;
+// 席次は1段10列。11th以降は1st〜の下の段へ折り返し、最大20人まで（2026-09-30 オーナー判断。長居の客で10列が埋まった）
+const ROT_COLS_PER_TIER = 10;
+const ROT_COLS_MAX = 20;
 
 /* 来店種別 — ラベル / 料金キー（cfg側） / CSSクラス。
    参照側（renderTable, renderPastTable, calcBill, syncCustomers 等）の
@@ -11240,6 +11260,10 @@ function rowSales(r) {
   // 単純合算でちょうど店ルールの売上になる。
   return cash + card; // both
 }
+/* 売掛で精算した伝票の売掛額（現金・カードで受け取っていない分）。売掛以外は0 */
+function rowUrikake(r) {
+  return r.amountMethod === 'urikake' ? (parseInt(r.amountUrikake)||0) : 0;
+}
 function rowCash(r) {
   const extra = (r.cashEntries||[]).reduce((s,e)=>s+(parseInt(e.amount)||0),0);
   return (parseInt(r.amountCash)||0) + extra;
@@ -11316,6 +11340,10 @@ function buildCumulMap() {
 function calcTotalSales() {
   return state.rows.filter(r => r.isFirst && r.settled)
     .reduce((s,r) => s + rowSales(r), 0);
+}
+function calcUrikakeSales() {
+  return state.rows.filter(r => r.isFirst && r.settled)
+    .reduce((s,r) => s + rowUrikake(r), 0);
 }
 function calcCashCardSales() {
   const rows = state.rows.filter(r => r.isFirst && r.settled);
@@ -11915,7 +11943,7 @@ function payslipPrint(allCasts) {
 /* ================================================================
    COLUMN OPERATIONS
 ================================================================ */
-function addRotCol()    { if (state.rotCols>=10) return; state.rotCols++; state.rows.forEach(r=>{ r.rotations.push(''); r.rotations2.push(''); }); renderTable(); saveState(); }
+function addRotCol()    { if (state.rotCols>=ROT_COLS_MAX) return; state.rotCols++; state.rows.forEach(r=>{ r.rotations.push(''); r.rotations2.push(''); }); renderTable(); saveState(); }
 function rotColHasData() {
   const removedIdx = state.rotCols - 1;
   return state.rows.some(r =>
@@ -12237,9 +12265,26 @@ function visibleTableColumnCount(key, total, secondaryKey, rows = state.rows) {
   return Math.max(1, Math.min(usedMax + 2, total));
 }
 
+/* 席次の列見出し（1st, 2nd, …, 11th, …）。下の段がある列は「1st/11th」 */
+function rotOrdinal(i) {
+  const n = i + 1;
+  const suffix = (n % 100 >= 11 && n % 100 <= 13) ? 'th' : ({ 1:'st', 2:'nd', 3:'rd' }[n % 10] || 'th');
+  return n + suffix;
+}
+function rotTierCols(visRot) { return Math.min(visRot, ROT_COLS_PER_TIER); }
+function rotHeaderLabel(ci, visRot) {
+  const lower = ci + ROT_COLS_PER_TIER;
+  return lower < visRot ? rotOrdinal(ci) + '/' + rotOrdinal(lower) : rotOrdinal(ci);
+}
+/* 席次セルの中身。11th以降がある日は、上の段=ci、下の段=ci+10 を縦に並べる */
+function rotCellStackHtml(ci, visRot, slotHtml) {
+  if (visRot <= ROT_COLS_PER_TIER) return slotHtml(ci, '');
+  const lower = ci + ROT_COLS_PER_TIER;
+  return slotHtml(ci, '') + (lower < visRot ? slotHtml(lower, ' rot-tier2') : '<div class="rot-slot-stack rot-tier2"></div>');
+}
+
 function rebuildHeader(visRot, visExt) {
-  const rLabels = ['1st','2nd','3rd','4th','5th','6th','7th','8th','9th','10th'];
-  const rotThs  = Array.from({length:visRot},(_,i)=>`<th class="${i===0?'gline':''}" style="min-width:64px">${rLabels[i]||rLabels[rLabels.length-1]}</th>`).join('');
+  const rotThs  = Array.from({length:rotTierCols(visRot)},(_,i)=>`<th class="${i===0?'gline':''}" style="min-width:64px">${rotHeaderLabel(i, visRot)}</th>`).join('');
   const extThs  = Array.from({length:visExt},(_,i)=>`<th class="${i===0?'gline':''}" style="min-width:44px">延${i+1}</th>`).join('');
   const headerRow = document.getElementById('thead-row');
   let groupRow = document.getElementById('thead-group-row');
@@ -12251,7 +12296,7 @@ function rebuildHeader(visRot, visExt) {
   }
   groupRow.innerHTML = `
     <th colspan="6"></th>
-    <th class="column-group-label gline" colspan="${visRot + 1}">席次</th>
+    <th class="column-group-label gline" colspan="${rotTierCols(visRot) + 1}">席次</th>
     <th class="column-group-label gline" colspan="${visExt + 1}">延長</th>
     <th class="gline" colspan="4"></th>`;
   headerRow.innerHTML = `
@@ -12407,14 +12452,17 @@ function renderTable() {
       : `<td class="table-cell"><span class="vline" style="cursor:pointer;color:var(--bdr3)" title="クリックで個別卓を設定" onclick="enableIndivTable('${row.id}')">│</span></td>`;
 
     let rotCells = '';
-    for (let ci=0; ci<visRot; ci++) {
-      const v = row.rotations[ci] || '';
-      const v2 = row.rotations2[ci] || '';
+    const rotSlot = (si, tierCls) => {
+      const v = row.rotations[si] || '';
+      const v2 = row.rotations2[si] || '';
       // 2段になるのは2人目が付いている時だけ。2人目の追加は指名欄の＋に一本化した（2026-07-20 オーナー判断）
       const second = v2
-        ? `<select class="rot-secondary" aria-label="${ci+1}番目の席次の2人目" onchange="updateRotation2('${row.id}',${ci},this.value)">${castOptions(v2)}</select>`
+        ? `<select class="rot-secondary" aria-label="${si+1}番目の席次の2人目" onchange="updateRotation2('${row.id}',${si},this.value)">${castOptions(v2)}</select>`
         : '';
-      rotCells += `<td class="rot-cell${ci===0?' gline':''}"><div class="rot-slot-stack"><select class="${v ? '' : 'is-empty'}" onchange="updateRotation('${row.id}',${ci},this.value)">${castOptions(v)}</select>${second}</div></td>`;
+      return `<div class="rot-slot-stack${tierCls}"><select class="${v ? '' : 'is-empty'}" aria-label="${rotOrdinal(si)}" onchange="updateRotation('${row.id}',${si},this.value)">${castOptions(v)}</select>${second}</div>`;
+    };
+    for (let ci=0; ci<rotTierCols(visRot); ci++) {
+      rotCells += `<td class="rot-cell${ci===0?' gline':''}">${rotCellStackHtml(ci, visRot, rotSlot)}</td>`;
     }
     rotCells += row.isFirst ? `<td rowspan="${span}" style="min-width:46px"></td>` : '';
 
@@ -12472,6 +12520,10 @@ function renderTable() {
             <button type="button" class="amount-del-btn" onclick="removeAmountEntry('${row.id}','card',${ei})">✕</button>
           </div>`;
         });
+      }
+      if (rowUrikake(row) > 0) {
+        // 売掛分は現金・カード欄に入らないため、会計の全体が見えるよう別行で出す（2026-09-30 オーナー要望）
+        inputs += `<div class="urikake-row">売掛 ${rowUrikake(row).toLocaleString()} 円</div>`;
       }
       amountCell = `<td class="amount-cell gline" rowspan="${span}"><div class="amount-layout"><div class="amount-method">${mBtns}</div>${inputs}</div></td>`;
     }
@@ -12708,6 +12760,7 @@ function doPrint() {
   const { cash, card } = calcCashCardSales();
   const cardCount = settledFirstRows.reduce((s, r) => s + _countPrintCardSlips(r), 0);
   const totalSales  = calcTotalSales();
+  const urikakeTotal = calcUrikakeSales();
   const settledGids2 = new Set(allRows.filter(r => r.isFirst && r.settled).map(r => r.gid));
   const settledPeople = allRows.filter(r => settledGids2.has(r.gid)).length;
   const avg         = settledPeople > 0 ? Math.round(totalSales / settledPeople) : 0;
@@ -12833,6 +12886,11 @@ function doPrint() {
               ryokinHtml += (ryokinHtml?'<br>':'') + `<span style="color:#c00">${baseCard.toLocaleString()}</span>`;
             }
           }
+          // 売掛分は現金・カードに入らないため「売」付きで併記し、会計の全額を見せる
+          const urikakeAmt = rowUrikake(row);
+          if (urikakeAmt > 0) {
+            ryokinHtml += (ryokinHtml?'<br>':'') + `<span style="color:#000">売${urikakeAmt.toLocaleString()}</span>`;
+          }
         }
       } else {
         ryokinHtml = '<span style="color:#999">│</span>';
@@ -12900,7 +12958,8 @@ function doPrint() {
       const footerSlip = document.createElement('span');
       footerSlip.className = 'print-footer-slip';
       const lastSlipNo = liveMaxSlipNo(allRows);
-      footerSlip.textContent = '最終伝票 No.' + (lastSlipNo > 0 ? lastSlipNo : '-');
+      // 最終伝票番号の左にその日の売掛金額を出す（2026-09-30 オーナー要望）
+      footerSlip.textContent = '売掛 ¥' + urikakeTotal.toLocaleString() + '　最終伝票 No.' + (lastSlipNo > 0 ? lastSlipNo : '-');
       footer.append(footerMain, footerSlip);
       footerMain.textContent = `入客 ${totalGuests}人　${totalGroups}組　売上 ¥${totalSales.toLocaleString()}（現金 ¥${cash.toLocaleString()} / カード ¥${card.toLocaleString()} ${cardCount}枚）　単価：¥${avg > 0 ? avg.toLocaleString() : '-'}`;
       page.appendChild(footer);
@@ -15570,7 +15629,7 @@ function _posFloorAssignmentTarget(row, assignmentMode = 'auto') {
 
 function _posApplyCastFloorAssignment(row, castName, helpRelease, assignmentMode = 'auto') {
   let target = _posFloorAssignmentTarget(row, assignmentMode);
-  if (target.key === 'rotations' && target.slot === -1 && state.rotCols >= 10) {
+  if (target.key === 'rotations' && target.slot === -1 && state.rotCols >= ROT_COLS_MAX) {
     showToast('席次列（1st〜）が上限まで埋まっています');
     return false;
   }
@@ -15641,7 +15700,7 @@ function _posCommitCastFloorAssignment(row, castName, assignmentMode) {
     assignmentMode = 'replace';
   }
   const target = _posFloorAssignmentTarget(row, assignmentMode);
-  if (target.key === 'rotations' && target.slot === -1 && state.rotCols >= 10) {
+  if (target.key === 'rotations' && target.slot === -1 && state.rotCols >= ROT_COLS_MAX) {
     showToast('席次列（1st〜）が上限まで埋まっています');
     return false;
   }
@@ -15659,7 +15718,7 @@ function _posCommitCastFloorAssignment(row, castName, assignmentMode) {
 
 function _posApplyInTableRotation(groupRows, sourceRow, castName, partner) {
   const slot = Math.max(...groupRows.map(row => _posCurrentFloorSlotIndex(row))) + 1;
-  if (slot >= state.rotCols && state.rotCols >= 10) {
+  if (slot >= state.rotCols && state.rotCols >= ROT_COLS_MAX) {
     showToast('席次列（1st〜）が上限まで埋まっています');
     return false;
   }
@@ -20898,9 +20957,9 @@ function _reportReadonlyListHtml(src) {
   const extTotal = Math.max(Number(src.extCols)||0, ...rows.map(r => Array.isArray(r.extensions) ? r.extensions.length : 0), 0);
   const rotCols = visibleTableColumnCount('rotations', rotTotal, 'rotations2', rows);
   const extCols = visibleTableColumnCount('extensions', extTotal, undefined, rows);
-  const ordinals = ['1st','2nd','3rd','4th','5th','6th','7th','8th','9th','10th'];
-  const head = ['入客','組','開始','終了','指名','卓',...Array.from({length:rotCols},(_,i)=>ordinals[i] || `${i+1}th`),'',...Array.from({length:extCols},(_,i)=>`延${i+1}`),'','料金','備考','総売上','精算'];
-  const groupHead = `<tr id="report-list-thead-group-row" class="column-group-row"><th colspan="6"></th><th class="column-group-label gline" colspan="${rotCols + 1}">席次</th><th class="column-group-label gline" colspan="${extCols + 1}">延長</th><th class="gline" colspan="4"></th></tr>`;
+  const rotTier = rotTierCols(rotCols);
+  const head = ['入客','組','開始','終了','指名','卓',...Array.from({length:rotTier},(_,i)=>rotHeaderLabel(i, rotCols)),'',...Array.from({length:extCols},(_,i)=>`延${i+1}`),'','料金','備考','総売上','精算'];
+  const groupHead = `<tr id="report-list-thead-group-row" class="column-group-row"><th colspan="6"></th><th class="column-group-label gline" colspan="${rotTier + 1}">席次</th><th class="column-group-label gline" colspan="${extCols + 1}">延長</th><th class="gline" colspan="4"></th></tr>`;
   const headRow = `<tr id="report-list-thead-row">${head.map(v=>`<th>${v}</th>`).join('')}</tr>`;
   const groupSize = new Map(); rows.forEach(r => groupSize.set(r.gid, (groupSize.get(r.gid)||0)+1));
   const groupOrd = new Map(); rows.forEach(r => { if (!groupOrd.has(r.gid)) groupOrd.set(r.gid, groupOrd.size + 1); });
@@ -20915,7 +20974,9 @@ function _reportReadonlyListHtml(src) {
     const first = !groupSeen.has(r.gid); if (first) groupSeen.add(r.gid);
     const parent = r.linkedParentId ? rows.find(p => p.id === r.linkedParentId) : null;
     const designations = [_reportReadonlyDesignation(r.mainCast, r.mainType), ...(Array.isArray(r.subCasts) ? r.subCasts.map(s => _reportReadonlyDesignation(s.cast, s.type)) : [])].filter(Boolean).join('');
-    const rot = Array.from({length:rotCols},(_,i)=>[r.rotations?.[i],r.rotations2?.[i]].filter(Boolean).map(_reportReadonlyText).join('・'));
+    const rotText = i => [r.rotations?.[i],r.rotations2?.[i]].filter(Boolean).map(_reportReadonlyText).join('・');
+    // 11th以降は上の段の下に改行して出す（リストの2段表示と同じ並び）
+    const rot = Array.from({length:rotTier},(_,i)=>[rotText(i), i + ROT_COLS_PER_TIER < rotCols ? rotText(i + ROT_COLS_PER_TIER) : ''].filter(Boolean).join('<br>'));
     const ext = Array.from({length:extCols},(_,i)=>_reportReadonlyText(r.extensions?.[i]));
     const noteSource = parent || r;
     const notes = [noteSource.guestName, noteSource.source, r.condition].filter(v => v != null && v !== '').map(_reportReadonlyText).join(' / ');
@@ -24065,19 +24126,18 @@ function renderPastMain() {
 function renderPastTable() {
   if (!pastState) return;
   const ps = pastState;
-  const rLabels = ['1st','2nd','3rd','4th','5th','6th','7th','8th','9th','10th'];
   const rotTotal = Math.max(Number(ps.rotCols) || 0, ...ps.rows.map(r => Array.isArray(r.rotations) ? r.rotations.length : 0), ...ps.rows.map(r => Array.isArray(r.rotations2) ? r.rotations2.length : 0), 0);
   const extTotal = Math.max(Number(ps.extCols) || 0, ...ps.rows.map(r => Array.isArray(r.extensions) ? r.extensions.length : 0), 0);
   const visRot = visibleTableColumnCount('rotations', rotTotal, 'rotations2', ps.rows);
   const visExt = visibleTableColumnCount('extensions', extTotal, undefined, ps.rows);
-  const rotThs = Array.from({length:visRot},(_,i)=>`<th style="min-width:64px">${rLabels[i]||rLabels[rLabels.length-1]}</th>`).join('');
+  const rotThs = Array.from({length:rotTierCols(visRot)},(_,i)=>`<th style="min-width:64px">${rotHeaderLabel(i, visRot)}</th>`).join('');
   const extThs = Array.from({length:visExt},(_,i)=>`<th style="min-width:44px">延${i+1}</th>`).join('');
   const head = document.getElementById('past-thead-row');
   const groupHead = document.getElementById('past-thead-group-row') || (() => {
     const tr = document.createElement('tr'); tr.id = 'past-thead-group-row'; tr.className = 'column-group-row';
     head.parentNode.insertBefore(tr, head); return tr;
   })();
-  groupHead.innerHTML = `<th colspan="6"></th><th class="column-group-label gline" colspan="${visRot + 1}">席次</th><th class="column-group-label gline" colspan="${visExt + 1}">延長</th><th class="gline" colspan="4"></th>`;
+  groupHead.innerHTML = `<th colspan="6"></th><th class="column-group-label gline" colspan="${rotTierCols(visRot) + 1}">席次</th><th class="column-group-label gline" colspan="${visExt + 1}">延長</th><th class="gline" colspan="4"></th>`;
   head.innerHTML = `
     <th style="min-width:30px">入客</th><th style="min-width:34px">組</th>
     <th class="time-col">開始</th><th class="time-col">終了</th>
@@ -24162,13 +24222,16 @@ function renderPastTable() {
     const tableCell = `<td class="table-cell"><select class="${row.tableNum ? '' : 'is-empty'}" onchange="pastUpdateRowTable('${row.id}',this.value)">${pTableOpts(row.tableNum)}</select></td>`;
 
     let rotCells = '';
-    for (let ci = 0; ci < visRot; ci++) {
-      const v = row.rotations[ci] || '';
-      const v2 = row.rotations2[ci] || '';
+    const rotSlot = (si, tierCls) => {
+      const v = row.rotations[si] || '';
+      const v2 = row.rotations2[si] || '';
       const second = v2
-        ? `<select class="rot-secondary" aria-label="${ci+1}番目の席次の2人目" onchange="pastUpdateRot2('${row.id}',${ci},this.value)">${pCastOpts(v2)}</select>`
+        ? `<select class="rot-secondary" aria-label="${si+1}番目の席次の2人目" onchange="pastUpdateRot2('${row.id}',${si},this.value)">${pCastOpts(v2)}</select>`
         : '';
-      rotCells += `<td class="rot-cell${ci===0?' gline':''}"><div class="rot-slot-stack"><select class="${v ? '' : 'is-empty'}" onchange="pastUpdateRot('${row.id}',${ci},this.value)">${pCastOpts(v)}</select>${second}</div></td>`;
+      return `<div class="rot-slot-stack${tierCls}"><select class="${v ? '' : 'is-empty'}" aria-label="${rotOrdinal(si)}" onchange="pastUpdateRot('${row.id}',${si},this.value)">${pCastOpts(v)}</select>${second}</div>`;
+    };
+    for (let ci = 0; ci < rotTierCols(visRot); ci++) {
+      rotCells += `<td class="rot-cell${ci===0?' gline':''}">${rotCellStackHtml(ci, visRot, rotSlot)}</td>`;
     }
     rotCells += row.isFirst ? `<td rowspan="${span}" style="min-width:46px"></td>` : '';
 
@@ -24226,6 +24289,10 @@ function renderPastTable() {
             <button type="button" class="amount-del-btn" onclick="pastRemoveAmountEntry('${row.id}','card',${ei})">✕</button>
           </div>`;
         });
+      }
+      if (rowUrikake(row) > 0) {
+        // 売掛分は現金・カード欄に入らないため、会計の全体が見えるよう別行で出す（2026-09-30 オーナー要望）
+        inputs += `<div class="urikake-row">売掛 ${rowUrikake(row).toLocaleString()} 円</div>`;
       }
       amountCell = `<td class="amount-cell gline" rowspan="${span}"><div class="amount-layout"><div class="amount-method">${mBtns}</div>${inputs}</div></td>`;
     }
@@ -24531,7 +24598,7 @@ function pastCancelSettle(id) {
   renderPastTable();
 }
 function pastAddRotCol() {
-  if (!pastState || pastState.rotCols >= 10) return;
+  if (!pastState || pastState.rotCols >= ROT_COLS_MAX) return;
   pastState.rotCols++;
   pastState.rows.forEach(r => { r.rotations.push(''); r.rotations2.push(''); });
   renderPastTable();
