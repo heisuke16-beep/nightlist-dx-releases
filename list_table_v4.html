@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.55">
+<meta name="app-version" content="1.1.56">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -13187,29 +13187,39 @@ function renderTimetable() {
            title="退勤時刻を変更">${getClockOutOptions(checkOut)}</select>`
       : `<span style="color:var(--tx3)">—</span>`;
 
-    /* ボタン群 */
+    /* ボタン群。どの状態の行にも「消去」を付ける（記録ごと消して一覧から外す。2026-09-30 ギャルサークル要望） */
+    const eraseBtn = `<button class="tt-action-btn" onclick="ttEraseCast('${escAttr(castName)}')" title="この子の今日の出勤記録をすべて消して、一覧から外します">消去</button>`;
     let btns = '';
     if (isCheckedOut) {
-      btns = `<button class="tt-action-btn" onclick="ttUndoCheckout('${escAttr(castName)}')">取消</button>`;
+      btns = `<div class="tt-btn-group">
+        <button class="tt-action-btn" onclick="ttUndoCheckout('${escAttr(castName)}')">取消</button>
+        ${eraseBtn}
+      </div>`;
     } else if (isTouketsu) {
-      btns = `<button class="tt-action-btn" onclick="ttUnmarkTouketsu('${escAttr(castName)}')">取消</button>`;
+      btns = `<div class="tt-btn-group">
+        <button class="tt-action-btn" onclick="ttUnmarkTouketsu('${escAttr(castName)}')">取消</button>
+        ${eraseBtn}
+      </div>`;
     } else if (isDouban) {
       btns = `
         <div class="tt-btn-group">
           <button class="tt-action-btn cyan"   onclick="ttUndouban('${escAttr(castName)}')">→ 入店</button>
           <button class="tt-action-btn"        onclick="ttCancelDouban('${escAttr(castName)}')">🚫 同伴NG</button>
+          ${eraseBtn}
         </div>`;
     } else if (isActive) {
       btns = `
         <div class="tt-btn-group">
           <button class="tt-action-btn gold"   onclick="ttAddChikoku('${escAttr(castName)}')">遅刻+30</button>
           <button class="tt-action-btn"        onclick="ttMarkTouketsu('${escAttr(castName)}')">当欠</button>
+          ${eraseBtn}
         </div>`;
     } else {
       btns = `<div class="tt-btn-group">
         <button class="tt-action-btn gold" onclick="ttAddChikoku('${escAttr(castName)}')">遅刻 +30</button>
         ${chikokuMin > 0 ? `<button class="tt-action-btn" onclick="ttResetChikoku('${escAttr(castName)}')">取消</button>` : ''}
         <button class="tt-action-btn" onclick="ttMarkTouketsu('${escAttr(castName)}')">当欠</button>
+        ${eraseBtn}
       </div>`;
     }
 
@@ -13392,6 +13402,27 @@ async function ttClockInAllPlanned() {
 }
 
 /* 当欠マーク */
+/* 消去：その子の今日の出勤記録（出勤・退勤・同伴・当欠・遅刻・予定時刻）をすべて消し、出勤予定からも外す。
+   記録が無くなるので出勤キャストの一覧からも消える。退勤済みの子が一覧に残り続ける・間違えて出勤させた、を片付けるため（2026-09-30 ギャルサークル要望）。
+   伝票の売上と、日計表で手入力したSP・日払い・控除は消さない。 */
+async function ttEraseCast(castName) {
+  if (!(await appConfirm('「' + castName + '」の今日の出勤記録を消去しますか？\n出勤・退勤・同伴・当欠・遅刻・予定時刻がすべて消え、出勤キャストの一覧から外れます。\n日計表の出勤・退勤時刻も消えるので、時間給は0円になります。元に戻せません。', { danger: true }))) return;
+  const tt = loadTimetableState();
+  ['clockIns', 'checkouts', 'plannedClockIns', 'chikokuMins'].forEach(key => {
+    if (tt[key] && typeof tt[key] === 'object') delete tt[key][castName];
+  });
+  tt.douban = (tt.douban || []).filter(c => c !== castName);
+  tt.touketsu = (tt.touketsu || []).filter(c => c !== castName);
+  state.activeCasts = state.activeCasts.filter(c => c !== castName);
+  saveTimetableState(tt);
+  saveState();
+  renderTimetable();
+  renderCastPanel();
+  renderTable();
+  updateStoreStatusBadge();
+  showToast(`${castName} の出勤記録を消去しました`);
+}
+
 function ttMarkTouketsu(castName) {
   const tt = loadTimetableState();
   if (!tt.touketsu) tt.touketsu = [];
