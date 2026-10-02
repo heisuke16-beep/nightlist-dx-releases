@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.58">
+<meta name="app-version" content="1.1.59">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -25309,7 +25309,7 @@ function _receiptSettingsSectionHTML() {
       <div class="print-layout-tab-panel${_printLayoutActiveTab === 'ryoshu' ? ' active' : ''}" data-print-panel="ryoshu">
         <div class="receipt-layout-editor ryoshu-layout-editor">
           <div class="receipt-layout-controls">
-            <div class="settings-row"><div class="settings-label">デザイン</div><select id="cfg-ryoshu-template" class="settings-input" onchange="ryoshuDraftUpdate('template',this.value)">${_receiptSelectOptions(['standard','botanical'], ro.template, {standard:'標準',botanical:'花柄'})}</select></div>
+            <div class="settings-row"><div class="settings-label">デザイン</div><select id="cfg-ryoshu-template" class="settings-input" onchange="ryoshuDraftUpdate('template',this.value)">${_receiptSelectOptions(['standard','botanical','framed'], ro.template, {standard:'標準',botanical:'花柄',framed:'枠付き'})}</select></div>
             <div class="settings-row"><div class="settings-label">全体の文字サイズ</div><select id="cfg-ryoshuScale" class="settings-input" onchange="printLayoutScaleUpdate('ryoshu',Number(this.value))">${scaleOptions(_ryoshuScaleDraft)}</select></div>
             <div class="settings-row"><div class="settings-label">タイトル文言</div><input id="cfg-ryoshu-titleText" type="text" class="settings-input receipt-wide-input" value="${escAttr(ro.titleText)}" oninput="ryoshuDraftUpdate('titleText',this.value)"></div>
             <div class="settings-row"><div class="settings-label">但し書き前置き</div><input id="cfg-ryoshu-notePrefix" type="text" class="settings-input receipt-wide-input" value="${escAttr(ro.notePrefix)}" oninput="ryoshuDraftUpdate('notePrefix',this.value)"></div>
@@ -25479,9 +25479,12 @@ function _ryoshuUpdatePreview() {
   const preview = document.getElementById('ryoshu-layout-preview');
   if (!preview) return;
   const data = { guestName:'山田', amount:55000, note:'ご飲食代として', slipNo:'260824-01', blankDate:false };
-  if (_ryoshuOpts(_ryoshuOptsDraft).template === 'botanical') {
-    const html = _ryoshuBotanicalDocumentHtml(data, { sourceOpts:_ryoshuOptsDraft, scale:_ryoshuScaleDraft, preview:true });
-    preview.innerHTML = '<iframe title="花柄領収書のプレビュー" sandbox="" style="width:100%;height:100%;border:0;display:block" srcdoc="' + escAttr(html.replace(/&/g, '&amp;')) + '"></iframe>';
+  const template = _ryoshuOpts(_ryoshuOptsDraft).template;
+  if (template === 'botanical' || template === 'framed') {
+    const docOpts = { sourceOpts:_ryoshuOptsDraft, scale:_ryoshuScaleDraft, preview:true };
+    const html = template === 'botanical' ? _ryoshuBotanicalDocumentHtml(data, docOpts) : _ryoshuFramedDocumentHtml(data, docOpts);
+    const title = template === 'botanical' ? '花柄領収書のプレビュー' : '枠付き領収書のプレビュー';
+    preview.innerHTML = '<iframe title="' + title + '" sandbox="" style="width:100%;height:100%;border:0;display:block" srcdoc="' + escAttr(html.replace(/&/g, '&amp;')) + '"></iframe>';
     return;
   }
   preview.innerHTML = _ryoshuSheetHtml(data, _ryoshuOptsDraft);
@@ -32416,7 +32419,7 @@ function castMonthlyPrint() {
 /* ================================================================
    領収書印刷（独立ウィンドウ・80mmレシート）
    領収書を 80mm 幅レシート紙向けにブラウザ印刷で出す。
-   印刷設定で標準デザインと花柄デザインを選び、発行時は保存したデザインを使う。
+   印刷設定で標準・花柄・枠付きのデザインを選び、発行時は保存したデザインを使う。
    - printReceipt(rowId, opts): 対象伝票から宛名・金額の初期値を取得 →
      宛名／金額／但し書きを確認・修正できる小モーダル → 「印刷」で
      別ウィンドウを開いて document.write → window.onload で印刷ダイアログ。
@@ -32463,7 +32466,7 @@ function _ryoshuOpts(source) {
   const threshold = Number(opts.inshiThreshold);
   opts.inshiThreshold = Number.isFinite(threshold) ? Math.max(0, threshold) : _RYOSHU_DEFAULT_OPTS.inshiThreshold;
   opts.font = opts.font === 'gothic' ? 'gothic' : 'mincho';
-  opts.template = opts.template === 'botanical' ? 'botanical' : 'standard';
+  opts.template = opts.template === 'botanical' || opts.template === 'framed' ? opts.template : 'standard';
   opts.showNo = opts.showNo !== false;
   opts.showAddr = opts.showAddr !== false;
   opts.showTel = opts.showTel !== false;
@@ -32709,6 +32712,66 @@ function _ryoshuBotanicalDocumentHtml(data, { sourceOpts, scale = cfg.ryoshuScal
     + '</body></html>';
 }
 
+// 枠付き: 二重線の見出し・下線付きの宛名・金額の囲み枠・下線付きの但し書き・右下の発行者欄（2026-10-02 オーナー指定のA4領収書を80mm用に縮小）
+function _ryoshuFramedSheetHtml(data, sourceOpts) {
+  const { opts, dateStr, name1, addr, tel, inv, amtStr, noteText } = _ryoshuPrintModel(data, sourceOpts);
+  const inshi = opts.showInshi && (Number(data.amount) || 0) >= opts.inshiThreshold;
+  return '<div class="rf-stage"><div class="rf-sheet r-font-' + opts.font + '">'
+    + '<div class="rf-title">' + escHtml(opts.titleText) + '</div>'
+    + (opts.showNo ? '<div class="rf-no">No. ' + escHtml(data.slipNo || '') + '</div>' : '')
+    + (data.guestName ? '<div class="rf-recipient">' + escHtml(data.guestName) + '<span>様</span></div>' : '<div class="rf-recipient rf-blank"><span>様</span></div>')
+    + '<div class="rf-date">' + dateStr + '</div>'
+    + '<div class="rf-amount"><span>金額</span><strong>¥' + amtStr + '-</strong><span>（税込）</span></div>'
+    + (inshi ? '<div class="rf-inshi">収入<br>印紙</div>' : '')
+    + '<div class="rf-body"><div class="rf-note">' + noteText + '</div><div class="rf-certify">' + escHtml(opts.certifyText) + '</div></div>'
+    + '<div class="rf-sign">'
+    +   '<div class="rf-store">' + escHtml(name1) + '</div>'
+    +   (opts.showAddr && addr ? '<div>' + escHtml(addr) + '</div>' : '')
+    +   (opts.showTel && tel ? '<div>TEL ' + escHtml(tel) + '</div>' : '')
+    +   (opts.showInvoice && inv ? '<div>登録番号 ' + escHtml(inv) + '</div>' : '')
+    + '</div>'
+    + '</div></div>';
+}
+
+// 感熱印刷で細線・明朝の横画が薄くならないよう、標準・花柄と同じく全体を太字にする。
+function _ryoshuFramedDocumentHtml(data, { sourceOpts, scale = cfg.ryoshuScale, preview = false } = {}) {
+  const opts = _ryoshuOpts(sourceOpts);
+  const scaleCss = _printScaleCss(scale);
+  return '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>領収書</title>'
+    + '<style>'
+    + '@page{size:80mm auto;margin:0}'
+    + '*{box-sizing:border-box;margin:0;padding:0}'
+    + 'html,body{font-family:"Hiragino Mincho ProN","Yu Mincho","MS Mincho",serif;color:#000;background:#fff;font-weight:700}'
+    + '.r-font-mincho{font-family:"Hiragino Mincho ProN","Yu Mincho","MS Mincho",serif}.r-font-gothic{font-family:"Hiragino Kaku Gothic ProN","Meiryo",sans-serif}'
+    + '.rf-stage{position:relative;width:72mm;height:134mm;overflow:hidden;margin:0 auto}'
+    + '.rf-sheet{position:absolute;top:0;left:0;width:134mm;height:72mm;overflow:hidden;background:#fff;'
+    +   'transform-origin:0 0;transform:rotate(90deg) translateY(-72mm)' + scaleCss + '}'
+    + '.rf-title{position:absolute;top:3mm;left:30mm;right:30mm;text-align:center;font-size:15pt;letter-spacing:6px;text-indent:6px;white-space:nowrap;line-height:1.2}'
+    + '.rf-title::after{content:"";display:block;width:34mm;margin:0.8mm auto 0;border-top:0.8mm double #000}'
+    + '.rf-no{position:absolute;top:4mm;right:6mm;font-size:7.5pt;white-space:nowrap}'
+    + '.rf-recipient{position:absolute;top:14mm;left:6mm;min-width:68mm;max-width:94mm;min-height:6.5mm;border-bottom:0.3mm solid #000;'
+    +   'padding:0 1.5mm 0.5mm;font-size:11pt;white-space:nowrap;display:flex;align-items:flex-end}'
+    + '.rf-recipient span{font-size:9pt;margin-left:4mm}.rf-recipient.rf-blank span{margin-left:auto}'
+    + '.rf-date{position:absolute;top:14mm;right:6mm;height:6.5mm;display:flex;align-items:flex-end;padding-bottom:0.5mm;font-size:8.5pt;white-space:nowrap}'
+    + '.rf-amount{position:absolute;top:24mm;left:24mm;width:86mm;height:12mm;display:flex;align-items:center;justify-content:center;gap:4mm;'
+    +   'border:0.35mm solid #000;font-size:8pt}'
+    + '.rf-amount strong{font-size:17pt;letter-spacing:0.5px;font-variant-numeric:tabular-nums}'
+    + '.rf-amount span:last-child{font-size:7pt}'
+    + '.rf-inshi{position:absolute;top:24.5mm;left:114mm;width:11mm;height:11mm;border:0.3mm dashed #000;'
+    +   'display:flex;align-items:center;justify-content:center;text-align:center;font-size:6pt;line-height:1.4}'
+    + '.rf-body{position:absolute;top:39.5mm;left:24mm;width:86mm}'
+    + '.rf-note{font-size:9pt;border-bottom:0.3mm solid #000;padding-bottom:0.5mm}'
+    + '.rf-certify{margin-top:1.2mm;font-size:7.5pt}'
+    + '.rf-sign{position:absolute;right:6mm;bottom:3.5mm;width:54mm;font-size:6.5pt;line-height:1.4}'
+    + '.rf-store{font-family:"Hiragino Kaku Gothic ProN","Yu Gothic","Meiryo",sans-serif;font-size:10pt;margin-bottom:0.4mm}'
+    + (preview ? 'html,body{width:72mm;overflow:hidden}body{zoom:.78}.rf-stage{margin:0}' : '')
+    + '</style></head><body>'
+    + _ryoshuFramedSheetHtml(data, opts)
+    + (preview ? '' : '<div style="margin:10mm auto 0;width:0.5mm;height:0;border-top:1px solid #000;print-color-adjust:exact;-webkit-print-color-adjust:exact"></div>')
+    + (preview ? '' : '<script>window.onafterprint=()=>setTimeout(()=>window.close(),100);window.onload=()=>window.print()<\/script>')
+    + '</body></html>';
+}
+
 /* 領収書HTMLを組み立てて別ウィンドウで印刷（80mmレシート向け） */
 function _receiptOpenWindow(data, template = _ryoshuOpts().template) {
   if (template === 'botanical') {
@@ -32716,6 +32779,13 @@ function _receiptOpenWindow(data, template = _ryoshuOpts().template) {
     if (!botanicalWindow) { showToast('ポップアップがブロックされました'); return; }
     botanicalWindow.document.write(_ryoshuBotanicalDocumentHtml(data));
     botanicalWindow.document.close();
+    return;
+  }
+  if (template === 'framed') {
+    const framedWindow = window.open('', '_blank', 'width=720,height=420');
+    if (!framedWindow) { showToast('ポップアップがブロックされました'); return; }
+    framedWindow.document.write(_ryoshuFramedDocumentHtml(data));
+    framedWindow.document.close();
     return;
   }
   const opts = _ryoshuOpts();
