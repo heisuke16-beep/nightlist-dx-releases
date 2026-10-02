@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.59">
+<meta name="app-version" content="1.1.60">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -32677,6 +32677,7 @@ function _ryoshuBotanicalSheetHtml(data, sourceOpts) {
 }
 
 // 花柄も標準版と同じ黒・太字にして、感熱印刷で明朝の細い横画が薄くなるのを抑える。
+// 書体は枠付きと同じ MS P明朝の合成太字（游明朝は横画が細いまま残り実機で薄かった。2026-10-02 オーナー指摘）。
 function _ryoshuBotanicalDocumentHtml(data, { sourceOpts, scale = cfg.ryoshuScale, preview = false } = {}) {
   const opts = _ryoshuOpts(sourceOpts);
   const scaleCss = _printScaleCss(scale);
@@ -32684,8 +32685,8 @@ function _ryoshuBotanicalDocumentHtml(data, { sourceOpts, scale = cfg.ryoshuScal
     + '<style>'
     + '@page{size:80mm auto;margin:0}'
     + '*{box-sizing:border-box;margin:0;padding:0}'
-    + 'html,body{font-family:"Hiragino Mincho ProN","Yu Mincho","MS Mincho",serif;color:#000;background:#fff;font-weight:700}'
-    + '.r-font-mincho{font-family:"Hiragino Mincho ProN","Yu Mincho","MS Mincho",serif}.r-font-gothic{font-family:"Hiragino Kaku Gothic ProN","Meiryo",sans-serif}'
+    + 'html,body{font-family:"Hiragino Mincho ProN","MS PMincho","MS Mincho",serif;color:#000;background:#fff;font-weight:700}'
+    + '.r-font-mincho{font-family:"Hiragino Mincho ProN","MS PMincho","MS Mincho",serif}.r-font-gothic{font-family:"Hiragino Kaku Gothic ProN","Meiryo",sans-serif}'
     + '.rb-stage{position:relative;width:72mm;height:134mm;overflow:hidden;margin:0 auto}'
     + '.rb-sheet{position:absolute;top:0;left:0;width:134mm;height:72mm;overflow:hidden;background:#fff;'
     +   'transform-origin:0 0;transform:rotate(90deg) translateY(-72mm)' + scaleCss + ';'
@@ -32712,15 +32713,15 @@ function _ryoshuBotanicalDocumentHtml(data, { sourceOpts, scale = cfg.ryoshuScal
     + '</body></html>';
 }
 
-// 枠付き: 二重線の見出し・下線付きの宛名・金額の囲み枠・下線付きの但し書き・右下の発行者欄（2026-10-02 オーナー指定のA4領収書を80mm用に縮小）
+// 枠付き: 左上の日付・二重線の見出し・下線付きの宛名・金額の囲み枠・下線付きの但し書き・右下の発行者欄（2026-10-02 オーナー指定のA4領収書を80mm用に縮小）
 function _ryoshuFramedSheetHtml(data, sourceOpts) {
   const { opts, dateStr, name1, addr, tel, inv, amtStr, noteText } = _ryoshuPrintModel(data, sourceOpts);
   const inshi = opts.showInshi && (Number(data.amount) || 0) >= opts.inshiThreshold;
   return '<div class="rf-stage"><div class="rf-sheet r-font-' + opts.font + '">'
     + '<div class="rf-title">' + escHtml(opts.titleText) + '</div>'
+    + '<div class="rf-date">' + dateStr + '</div>'
     + (opts.showNo ? '<div class="rf-no">No. ' + escHtml(data.slipNo || '') + '</div>' : '')
     + (data.guestName ? '<div class="rf-recipient">' + escHtml(data.guestName) + '<span>様</span></div>' : '<div class="rf-recipient rf-blank"><span>様</span></div>')
-    + '<div class="rf-date">' + dateStr + '</div>'
     + '<div class="rf-amount"><span>金額</span><strong>¥' + amtStr + '-</strong><span>（税込）</span></div>'
     + (inshi ? '<div class="rf-inshi">収入<br>印紙</div>' : '')
     + '<div class="rf-body"><div class="rf-note">' + noteText + '</div><div class="rf-certify">' + escHtml(opts.certifyText) + '</div></div>'
@@ -32733,7 +32734,9 @@ function _ryoshuFramedSheetHtml(data, sourceOpts) {
     + '</div></div>';
 }
 
-// 感熱印刷で細線・明朝の横画が薄くならないよう、標準・花柄と同じく全体を太字にする。
+// 感熱印刷で明朝の細い横画が薄くならないよう、標準と同じ MS明朝系の太字（全画を太らせる合成太字）を使う。
+// 游明朝は本物の太字書体を持ち横画が細いまま残るため、実機で小さい字がかすれた（2026-10-02 オーナー実機確認）。
+// 字幅固定の MS明朝だと金額や英数字が間延びするので、同じ字形で字幅を詰めた MS P明朝を先に使う。
 function _ryoshuFramedDocumentHtml(data, { sourceOpts, scale = cfg.ryoshuScale, preview = false } = {}) {
   const opts = _ryoshuOpts(sourceOpts);
   const scaleCss = _printScaleCss(scale);
@@ -32741,29 +32744,29 @@ function _ryoshuFramedDocumentHtml(data, { sourceOpts, scale = cfg.ryoshuScale, 
     + '<style>'
     + '@page{size:80mm auto;margin:0}'
     + '*{box-sizing:border-box;margin:0;padding:0}'
-    + 'html,body{font-family:"Hiragino Mincho ProN","Yu Mincho","MS Mincho",serif;color:#000;background:#fff;font-weight:700}'
-    + '.r-font-mincho{font-family:"Hiragino Mincho ProN","Yu Mincho","MS Mincho",serif}.r-font-gothic{font-family:"Hiragino Kaku Gothic ProN","Meiryo",sans-serif}'
+    + 'html,body{font-family:"Hiragino Mincho ProN","MS PMincho","MS Mincho",serif;color:#000;background:#fff;font-weight:700}'
+    + '.r-font-mincho{font-family:"Hiragino Mincho ProN","MS PMincho","MS Mincho",serif}.r-font-gothic{font-family:"Hiragino Kaku Gothic ProN","Meiryo",sans-serif}'
     + '.rf-stage{position:relative;width:72mm;height:134mm;overflow:hidden;margin:0 auto}'
     + '.rf-sheet{position:absolute;top:0;left:0;width:134mm;height:72mm;overflow:hidden;background:#fff;'
     +   'transform-origin:0 0;transform:rotate(90deg) translateY(-72mm)' + scaleCss + '}'
-    + '.rf-title{position:absolute;top:3mm;left:30mm;right:30mm;text-align:center;font-size:15pt;letter-spacing:6px;text-indent:6px;white-space:nowrap;line-height:1.2}'
+    + '.rf-title{position:absolute;top:2.5mm;left:30mm;right:30mm;text-align:center;font-size:15pt;letter-spacing:6px;text-indent:6px;white-space:nowrap;line-height:1.2}'
     + '.rf-title::after{content:"";display:block;width:34mm;margin:0.8mm auto 0;border-top:0.8mm double #000}'
-    + '.rf-no{position:absolute;top:4mm;right:6mm;font-size:7.5pt;white-space:nowrap}'
-    + '.rf-recipient{position:absolute;top:14mm;left:6mm;min-width:68mm;max-width:94mm;min-height:6.5mm;border-bottom:0.3mm solid #000;'
+    + '.rf-no{position:absolute;top:4mm;right:6mm;font-size:8.5pt;white-space:nowrap}'
+    + '.rf-recipient{position:absolute;top:12.5mm;left:6mm;min-width:68mm;max-width:122mm;min-height:6.5mm;border-bottom:0.3mm solid #000;'
     +   'padding:0 1.5mm 0.5mm;font-size:11pt;white-space:nowrap;display:flex;align-items:flex-end}'
     + '.rf-recipient span{font-size:9pt;margin-left:4mm}.rf-recipient.rf-blank span{margin-left:auto}'
-    + '.rf-date{position:absolute;top:14mm;right:6mm;height:6.5mm;display:flex;align-items:flex-end;padding-bottom:0.5mm;font-size:8.5pt;white-space:nowrap}'
-    + '.rf-amount{position:absolute;top:24mm;left:24mm;width:86mm;height:12mm;display:flex;align-items:center;justify-content:center;gap:4mm;'
-    +   'border:0.35mm solid #000;font-size:8pt}'
+    + '.rf-date{position:absolute;top:4mm;left:6mm;font-size:9.5pt;white-space:nowrap}'
+    + '.rf-amount{position:absolute;top:22mm;left:24mm;width:86mm;height:11.5mm;display:flex;align-items:center;justify-content:center;gap:4mm;'
+    +   'border:0.35mm solid #000;font-size:9pt}'
     + '.rf-amount strong{font-size:17pt;letter-spacing:0.5px;font-variant-numeric:tabular-nums}'
-    + '.rf-amount span:last-child{font-size:7pt}'
-    + '.rf-inshi{position:absolute;top:24.5mm;left:114mm;width:11mm;height:11mm;border:0.3mm dashed #000;'
+    + '.rf-amount span:last-child{font-size:8pt}'
+    + '.rf-inshi{position:absolute;top:22.25mm;left:114mm;width:11mm;height:11mm;border:0.3mm dashed #000;'
     +   'display:flex;align-items:center;justify-content:center;text-align:center;font-size:6pt;line-height:1.4}'
-    + '.rf-body{position:absolute;top:39.5mm;left:24mm;width:86mm}'
-    + '.rf-note{font-size:9pt;border-bottom:0.3mm solid #000;padding-bottom:0.5mm}'
-    + '.rf-certify{margin-top:1.2mm;font-size:7.5pt}'
-    + '.rf-sign{position:absolute;right:6mm;bottom:3.5mm;width:54mm;font-size:6.5pt;line-height:1.4}'
-    + '.rf-store{font-family:"Hiragino Kaku Gothic ProN","Yu Gothic","Meiryo",sans-serif;font-size:10pt;margin-bottom:0.4mm}'
+    + '.rf-body{position:absolute;top:36.5mm;left:24mm;width:86mm}'
+    + '.rf-note{font-size:10pt;border-bottom:0.3mm solid #000;padding-bottom:0.5mm}'
+    + '.rf-certify{margin-top:1mm;font-size:8.5pt}'
+    + '.rf-sign{position:absolute;left:62mm;right:5mm;bottom:2.5mm;font-size:8.5pt;line-height:1.3}'
+    + '.rf-store{font-family:"Hiragino Kaku Gothic ProN","Yu Gothic","Meiryo",sans-serif;font-size:11pt;margin-bottom:0.4mm}'
     + (preview ? 'html,body{width:72mm;overflow:hidden}body{zoom:.78}.rf-stage{margin:0}' : '')
     + '</style></head><body>'
     + _ryoshuFramedSheetHtml(data, opts)
