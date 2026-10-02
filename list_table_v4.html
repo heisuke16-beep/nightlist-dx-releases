@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.60">
+<meta name="app-version" content="1.1.61">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -13913,7 +13913,9 @@ function showTab(tab) {
   document.getElementById('settings-panel').classList.toggle('hidden', tab !== 'settings');
   document.getElementById('toolbar').style.display = tab === 'list' ? '' : 'none';
   document.body.dataset.activeTab = tab;
-  if (tab === 'pos') { document.body.style.overflow = 'hidden'; renderPOSPanel(); _posStartTimer(); }
+  // POSは画面全体のスクロールを止めるため、縦に長い設定などでスクロールした位置を持ち込むと
+  // 上端の卓がヘッダーの裏に隠れたまま戻せない（2026-10-02 オーナー報告）。開くたびに先頭へ戻す。
+  if (tab === 'pos') { window.scrollTo(0, 0); document.body.style.overflow = 'hidden'; renderPOSPanel(); _posStartTimer(); }
   else { document.body.style.overflow = ''; _posStopTimer(); }
   if (typeof _renderSummaryPosActions === 'function') _renderSummaryPosActions();
   // 他タブでの変更（卓移動・伝票編集等）を取りこぼさないよう、戻ってきたら再描画。
@@ -32678,6 +32680,7 @@ function _ryoshuBotanicalSheetHtml(data, sourceOpts) {
 
 // 花柄も標準版と同じ黒・太字にして、感熱印刷で明朝の細い横画が薄くなるのを抑える。
 // 書体は枠付きと同じ MS P明朝の合成太字（游明朝は横画が細いまま残り実機で薄かった。2026-10-02 オーナー指摘）。
+// 店舗情報・No.・日付は 8.5pt 以上（6.5pt は実機で正しく印字されなかった。同日）。但し書き欄を左に寄せ、店舗情報欄と横に重ならない。
 function _ryoshuBotanicalDocumentHtml(data, { sourceOpts, scale = cfg.ryoshuScale, preview = false } = {}) {
   const opts = _ryoshuOpts(sourceOpts);
   const scaleCss = _printScaleCss(scale);
@@ -32695,15 +32698,15 @@ function _ryoshuBotanicalDocumentHtml(data, { sourceOpts, scale = cfg.ryoshuScal
     + '.rb-title{position:absolute;top:4mm;left:20mm;right:8mm;text-align:center;font-size:17pt;letter-spacing:5px;text-indent:5px;white-space:nowrap}'
     + '.rb-recipient{position:absolute;top:14mm;left:22mm;width:58mm;min-height:7mm;border-bottom:0.35mm solid #000;'
     +   'padding:0 2mm 1mm;text-align:right;font-size:11pt;white-space:nowrap}'
-    + '.rb-meta{position:absolute;top:5mm;right:8mm;text-align:right;font-size:8pt;line-height:1.5;white-space:nowrap}'
+    + '.rb-meta{position:absolute;top:5mm;right:8mm;text-align:right;font-size:8.5pt;line-height:1.5;white-space:nowrap}'
     + '.rb-amount{position:absolute;top:27mm;left:22mm;width:78mm;height:14mm;display:grid;grid-template-columns:12mm 1fr 22mm;'
     +   'align-items:center;padding:0 4mm;background:#fae9e6;border:0.25mm solid #000;font-size:11pt}'
     + '.rb-amount strong{text-align:center;font-size:19pt;letter-spacing:1px;font-variant-numeric:tabular-nums}'
     + '.rb-amount span:last-child{text-align:right;font-size:9pt;white-space:nowrap}'
-    + '.rb-note{position:absolute;top:47mm;left:22mm;width:58mm;font-size:9pt;line-height:1.75}'
+    + '.rb-note{position:absolute;top:44.5mm;left:22mm;width:42mm;font-size:9pt;line-height:1.6}'
     + '.rb-inshi{position:absolute;top:28.5mm;left:105mm;width:11mm;height:11mm;border:0.3mm dashed #000;'
     +   'display:flex;align-items:center;justify-content:center;text-align:center;font-size:6pt;line-height:1.4}'
-    + '.rb-sign{position:absolute;right:8mm;bottom:5mm;width:45mm;text-align:right;font-size:6.5pt;line-height:1.35}'
+    + '.rb-sign{position:absolute;left:67mm;right:6mm;bottom:3.5mm;text-align:right;font-size:8.5pt;line-height:1.3}'
     + '.rb-store{font-size:11pt;letter-spacing:1.5px;margin-bottom:0.6mm}'
     + (preview ? 'html,body{width:72mm;overflow:hidden}body{zoom:.78}.rb-stage{margin:0}' : '')
     + '</style></head><body>'
