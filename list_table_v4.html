@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.61">
+<meta name="app-version" content="1.1.62">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -6771,6 +6771,45 @@ function _baseMainType(t) {
 }
 
 /* ================================================================
+   保存データの台帳（ここが唯一の一覧）
+   PC内保存のキー（Persist.KEYS）・USBのファイル名（UsbStore.FILES）・JSON書き出し・JSON読み込みの
+   対象はすべてここから導く。以前は一覧が4か所に分かれていて食い違い、listWhite だけUSBのファイル名が
+   無く「undefined」という名前のファイルに保存されていた（2026-10-02 SaaS下準備A1で一本化）。
+   - key:      PC内保存（localStorage）のキー
+   - file:     USB保存のファイル名
+   - legacyFiles: 旧版が書いていたファイル名。新しい名前のファイルが無いときだけ読む（書くのは file だけ）
+   - export:   JSON書き出しに入れるか（ログイン情報は入れない）
+   - import:   JSON読み込みの扱い。'raw'=そのまま戻す／'theme'=テーマとして検証して戻す／false=戻さない
+   保存データを足すときは、ここに1行足すだけで4つの一覧すべてに入る。
+================================================================ */
+const STORAGE_LEDGER = {
+  listState:   { key:'nightlist__state_v2',          file:'listState.json',     export:true,  import:'raw' },
+  backups:     { key:'nightlist__backups_v2',        file:'backups.json',       export:true,  import:'raw' },
+  customers:   { key:'nightlist__customers_v1',      file:'customers.json',     export:true,  import:'raw' },
+  bottles:     { key:'nightlist__bottles_v1',        file:'bottles.json',       export:true,  import:'raw' },   // ボトルキープは機能削除済み。既存データ保全のため残す
+  urikake:     { key:'nightlist__urikake_v1',        file:'urikake.json',       export:true,  import:'raw' },
+  dailyclose:  { key:'nightlist__dailyclose_v1',     file:'dailyclose.json',    export:true,  import:'raw' },
+  payslips:    { key:'nightlist__payslips_v1',       file:'payslips.json',      export:true,  import:'raw' },
+  settings:    { key:'nightlist__cfg_v1',            file:'settings.json',      export:true,  import:'raw' },
+  timetable:   { key:'nightlist__timetable_v1',      file:'timetable.json',     export:true,  import:'raw' },
+  devTime:     { key:'nightlist__dev_v1',            file:'devTime.json',       export:true,  import:false },   // デモ中の時刻上書き。起動のたびに破棄する
+  recovery:    { key:'nightlist__recovery_v1',       file:'recovery.json',      export:true,  import:false },   // 上書き・削除で失われた営業日スナップの退避先（データ復旧用）
+  slipCounter: { key:'nightlist__slip_counter_v1',   file:'slipCounter.json',   export:true,  import:'raw' },
+  deletedSlips:{ key:'nightlist__deleted_slips_v1',  file:'deletedSlips.json',  export:true,  import:'raw' },
+  theme:       { key:'nightlist_theme',              file:'theme.json',         export:true,  import:'theme' }, // テーマ選択（export/importに含めて店舗設定として持ち運べる）
+  themeSelection: { key:'nightlist__theme_selection_v1', file:'themeSelection.json', export:true, import:false }, // テーマを明示選択した印。読み込み時はテーマと一緒に立てる
+  listWhite:   { key:'nightlist__list_white_v1',     file:'listWhite.json',     legacyFiles:['undefined'], export:true, import:'raw' }, // リスト表の白背景（現場要望 2026-08-29）
+  displayMode: { key:'nightlist_display_mode',       file:'displayMode.json',   export:true,  import:false },   // 表示モード（desktop/tablet）
+  auth:        { key:'nightlist__auth_v1',           file:'auth.json',          export:false, import:false },   // ログインのパスワード情報（ハッシュ）
+  authRecovery:{ key:'nightlist__auth_recovery_v1',  file:'authRecovery.json',  export:false, import:false },   // ログインのリカバリーコード
+  meta:        { key:'nightlist__meta_v1',           file:'meta.json',          export:true,  import:false },   // 保存データの版番号・店舗ID（起動時に書き直す）
+};
+
+/* 保存データの形式の版。旧版のアプリが読めない形に変えたときだけ上げる。
+   これより新しい版のデータを読んだら、壊さないよう保存を止める（2026-10-02 SaaS下準備A4）。 */
+const STORAGE_SCHEMA_VERSION = 1;
+
+/* ================================================================
    PERSIST LAYER
    localStorage への全アクセスを集約。SaaS化時はここを Supabase 呼出に
    差し替えるだけで、各 saveXxx/loadXxx の呼出側は変更不要。
@@ -6779,26 +6818,9 @@ function _baseMainType(t) {
 const Persist = {
   failedReads: new Set(),
   _lockAlerted: new Set(),
-  KEYS: {
-    listState: 'nightlist__state_v2',
-    backups:   'nightlist__backups_v2',
-    customers: 'nightlist__customers_v1',
-    bottles:   'nightlist__bottles_v1',
-    urikake:   'nightlist__urikake_v1',
-    dailyclose:'nightlist__dailyclose_v1',
-    payslips:  'nightlist__payslips_v1',
-    settings:  'nightlist__cfg_v1',
-    timetable: 'nightlist__timetable_v1',
-    devTime:   'nightlist__dev_v1',
-    recovery:  'nightlist__recovery_v1',   // 上書き・削除で失われた営業日スナップの退避先（データ復旧用）
-    slipCounter: 'nightlist__slip_counter_v1',
-    deletedSlips: 'nightlist__deleted_slips_v1',
-    theme:     'nightlist_theme',          // テーマ選択（端末別。export/importに含めて店舗設定として持ち運べる）
-    themeSelection: 'nightlist__theme_selection_v1', // 利用者がテーマを明示選択したことを示す互換マーカー
-    listWhite: 'nightlist__list_white_v1', // リスト表の白背景トグル（現場要望 2026-08-29。扱いはthemeと同じ＝export/importに同梱）
-    displayMode: 'nightlist_display_mode', // 表示モード（desktop/tablet。扱いはthemeと同じ）
-    auth:      'nightlist__auth_v1',
-  },
+  writeBlockedReason: '',   // 空でなければ全データの保存を止める（新しい版のデータを古いアプリで開いたとき）
+  _writeBlockAlerted: false,
+  KEYS: Object.fromEntries(Object.entries(STORAGE_LEDGER).map(([name, entry]) => [name, entry.key])),
   /* parsed JSON を返す。失敗時は null（fallback は呼出側の責務）。
      opts.onError(err) が指定されていれば、parse失敗時に呼ばれる（呼出側でユーザー通知用）。 */
   read(name, opts = {}) {
@@ -6830,6 +6852,7 @@ const Persist = {
   write(name, value) {
     const key = this.KEYS[name];
     if (!key) { console.error(`[Persist] unknown key: ${name}`); return false; }
+    if (this.writeBlockedReason) { this._alertWriteBlocked(); return false; }
     if (this.failedReads.has(name)) {
       if (!this._lockAlerted.has(name)) {
         this._lockAlerted.add(name);
@@ -6857,6 +6880,19 @@ const Persist = {
     }
     catch(e) { console.error(`[Persist] write('${name}') failed:`, e); return false; }
   },
+  _alertWriteBlocked() {
+    if (this._writeBlockAlerted) return;
+    this._writeBlockAlerted = true;
+    const message = this.writeBlockedReason;
+    if (typeof appAlert === 'function') {
+      try {
+        const pending = appAlert(message);
+        if (pending && typeof pending.catch === 'function') pending.catch(e => console.error('[Persist] write-block notification failed:', e));
+      } catch (e) { console.error('[Persist] write-block notification failed:', e); }
+    } else {
+      console.error(`[Persist] ${message}`);
+    }
+  },
   unlock(name) {
     this.failedReads.delete(name);
   },
@@ -6871,8 +6907,9 @@ const Persist = {
     });
     return out;
   },
-  /* 文字列キー → 文字列値の辞書を一括書込（import用）。null/undefined はスキップ */
+  /* 文字列キー → 文字列値の辞書を一括書込（import用）。null/undefined はスキップ。保存停止中は何もせず false */
   importAll(data) {
+    if (this.writeBlockedReason) { this._alertWriteBlocked(); return false; }
     if (!data) return;
     Object.keys(this.KEYS).forEach(name => {
       const val = data[name];
@@ -6886,6 +6923,33 @@ const Persist = {
     UsbStore.markAllDirty();
   },
 };
+
+/* 起動時、保存先の準備ができた直後（どの保存よりも前）に呼ぶ。
+   このアプリより新しい形式で保存されたデータなら、上書きして壊さないよう全データの保存を止める。 */
+function checkStorageSchemaBeforeWrites() {
+  const meta = Persist.read('meta');
+  const version = Number(meta && meta.schemaVersion) || 0;
+  if (version <= STORAGE_SCHEMA_VERSION) return true;
+  Persist.writeBlockedReason = 'この保存データは、いま開いているアプリより新しい版で保存されています。\n\nデータを壊さないよう、このアプリでは保存を止めています（画面は見られます）。\nアプリを最新版に更新してから開き直してください。';
+  Persist._alertWriteBlocked();
+  return false;
+}
+
+/* 設定を読み込んで店舗IDを決めた後に呼ぶ。版番号・店舗ID・最後に書いたアプリの版を保存データに残す。
+   meta は毎回作り直せるので、壊れて読めなかったときも書き直してよい。 */
+function writeStorageMeta() {
+  if (Persist.writeBlockedReason) return false;
+  const prev = Persist.read('meta');
+  if (Persist.failedReads.has('meta')) Persist.unlock('meta');
+  const now = new Date().toISOString();
+  return Persist.write('meta', {
+    schemaVersion: STORAGE_SCHEMA_VERSION,
+    shopId: (typeof cfg !== 'undefined' && cfg.shopId) || prev?.shopId || '',
+    createdAt: prev?.createdAt || now,
+    lastWriterAppVersion: document.querySelector('meta[name="app-version"]')?.content || 'unknown',
+    lastWrittenAt: now,
+  });
+}
 
 function loadUrikake() {
   return Persist.read('urikake', {
@@ -6993,26 +7057,7 @@ const UsbStore = {
   _tabId: createUsbOwnerTabId(),
   _fenced: false,
   _ownerChannel: null,
-  FILES: {
-    listState: 'listState.json',
-    backups:   'backups.json',
-    customers: 'customers.json',
-    settings:  'settings.json',
-    timetable: 'timetable.json',
-    devTime:   'devTime.json',
-    recovery:  'recovery.json',
-    slipCounter: 'slipCounter.json',
-    deletedSlips: 'deletedSlips.json',
-    theme:     'theme.json',
-    themeSelection: 'themeSelection.json',
-    displayMode: 'displayMode.json',  // 表示モード（desktop/tablet）。扱いはthemeと同じ
-    auth:      'auth.json',
-    authRecovery: 'authRecovery.json',
-    bottles:   'bottles.json',
-    urikake:   'urikake.json',
-    dailyclose:'dailyclose.json',
-    payslips:  'payslips.json',
-  },
+  FILES: Object.fromEntries(Object.entries(STORAGE_LEDGER).map(([name, entry]) => [name, entry.file])),  // 一覧は 01-constants.js の STORAGE_LEDGER
 
   async init() {
     this._installFlushHooks();
@@ -7438,16 +7483,21 @@ const UsbStore = {
     overlay.querySelector('#usb-owner-reload').onclick = () => location.reload();
   },
 
+  /* 新しい名前のファイルが無ければ、台帳の legacyFiles（旧版が書いていた名前）を順に読む。
+     書き込みは常に新しい名前へ行い、旧ファイルは消さずに残す（2026-10-02 listWhite が「undefined」に保存されていた件） */
   async _readFile(name) {
-    const fileName = this.FILES[name];
-    try {
-      const fh = await this._dirHandle.getFileHandle(fileName);
-      const file = await fh.getFile();
-      return await file.text();
-    } catch (e) {
-      if (e && (e.name === 'NotFoundError' || e.name === 'NotFoundError DOMException')) return null;
-      throw e;
+    const fileNames = [this.FILES[name], ...(STORAGE_LEDGER[name]?.legacyFiles || [])];
+    for (const fileName of fileNames) {
+      try {
+        const fh = await this._dirHandle.getFileHandle(fileName);
+        const file = await fh.getFile();
+        return await file.text();
+      } catch (e) {
+        if (e && (e.name === 'NotFoundError' || e.name === 'NotFoundError DOMException')) continue;
+        throw e;
+      }
     }
+    return null;
   },
 
   async _writeFileVerified(name, raw) {
@@ -7791,10 +7841,6 @@ const UsbBootGate = {
 /* ================================================================
    AUTH GATE
 ================================================================ */
-if (typeof Persist !== 'undefined' && Persist.KEYS && !Persist.KEYS.authRecovery) {
-  Persist.KEYS.authRecovery = 'nightlist__auth_recovery_v1';
-}
-
 const AuthStore = {
   iterations: 100000,
 
@@ -8082,7 +8128,8 @@ const AuthGate = {
       } catch (ex) {
         console.error('[AuthGate] setup failed:', ex);
         err.style.display = 'block';
-        err.textContent = 'ログイン設定に失敗しました';
+        err.style.whiteSpace = 'pre-line';
+        err.textContent = Persist.writeBlockedReason || 'ログイン設定に失敗しました';   // 保存停止中はその理由を出す
       } finally {
         btn.disabled = false;
         btn.textContent = '設定して開始';
@@ -8118,7 +8165,8 @@ const AuthGate = {
         const ok = await AuthStore.resetWithRecovery(code.value);
         if (!ok) {
           err.style.display = 'block';
-          err.textContent = 'リカバリーコードが違います';
+          err.style.whiteSpace = 'pre-line';
+          err.textContent = Persist.writeBlockedReason || 'リカバリーコードが違います';   // 保存停止中は書けないだけでコード違いではない
           code.select();
           return;
         }
@@ -9182,7 +9230,8 @@ const CFG_DEFAULTS = {
   monitorWriteToken: '',    // 店外モニター送信認証トークン
   monitorReadToken: '',     // 店外モニター閲覧トークン（初回有効化時に生成）
   monitorOpsToken: '',      // 店外モニター操作トークン（初回有効化時に生成）
-  monitorShopId: '',        // オーナーダッシュボード用の不変店舗ID（初回送信時に生成）
+  monitorShopId: '',        // オーナーダッシュボード用の不変店舗ID（初回送信時に生成。shopId と同じ値）
+  shopId:        '',        // 店舗ID（不変）。起動時に無ければ作る。店外モニター・ダッシュボード・保存データの meta で同じ値を使う
   ownerExportEnabled: false, // オーナーダッシュボードへ客名を含む売上・顧客データを送る（店の同意が要る。店外モニターON中だけ動く）
   posMenu:         {},      // POSカスタムメニュー { shot:[{name,amount},...], bottle:[...], ... }
   posCatLayout:    [],      // POSカテゴリの並び・表示 [{key,visible}]。空=既定順・全表示
@@ -9301,6 +9350,24 @@ function loadCfg() {
 }
 function saveCfg() {
   Persist.write('settings', cfg);
+}
+
+/* 店舗IDを常に持たせる（2026-10-02 SaaS下準備A3）。店外モニターで使っている店は、その店舗IDを引き継ぐので
+   ダッシュボードの紐付けは変わらない。Workerが32桁の16進を受け付けるため、モニターのトークンと同じ形式で作る。
+   設定が読めずに保存を止めている間は作らない（仮のIDで送信・保存しないため）。
+   JSON読み込みで設定を移したときは元の店舗IDを引き継ぐ（＝同じ店として扱う）。 */
+function ensureShopId() {
+  if (cfg.shopId) return false;
+  if (Persist.failedReads.has('settings') || Persist.writeBlockedReason) return false;
+  if (cfg.monitorShopId) {
+    cfg.shopId = cfg.monitorShopId;
+  } else {
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    cfg.shopId = Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('');
+  }
+  saveCfg();
+  return true;
 }
 
 // cfg から導出するゲッター
@@ -17540,7 +17607,7 @@ const RemoteMonitor = (() => {
   async function sendNow(applyCommands = true) {
     if (!canSend() || sending) return false;
     if (!cfg.monitorShopId) {
-      cfg.monitorShopId = monitorGenerateReadToken();
+      cfg.monitorShopId = cfg.shopId || monitorGenerateReadToken();   // 店舗IDがあれば同じ値を使う
       saveCfg();
     }
     sending = true;
@@ -28181,14 +28248,20 @@ function payrollSettingsSave() {
 /* ================================================================
    DATA EXPORT / IMPORT
 ================================================================ */
+/* JSON書き出しに入れるデータ（文字列辞書）。対象は STORAGE_LEDGER の export。
+   ログインのパスワード情報（ハッシュ）とリカバリーコードは書き出さない（2026-09-28 総点検） */
+function exportableData() {
+  const data = Persist.exportAll();
+  Object.keys(data).forEach(name => { if (!STORAGE_LEDGER[name]?.export) delete data[name]; });
+  return data;
+}
+
 async function exportAllData() {
-  const data = Persist.exportAll();  // {listState, backups, customers, settings, timetable, ...} 文字列辞書
-  // ログインのパスワード情報（ハッシュ）とリカバリーコードは書き出さない。読み込み側でも使っていない（2026-09-28 総点検）
-  delete data.auth;
-  delete data.authRecovery;
+  const data = exportableData();
   const exportData = {
     version: '2.3',
     exportedAt: new Date().toLocaleString('ja-JP'),
+    shopId: cfg.shopId || '',
     data,
   };
   const json  = JSON.stringify(exportData, null, 2);
@@ -29852,6 +29925,32 @@ function openCustomerPicker(opts) {
 /* ================================================================
    IMPORT LAUNCHER（ヘッダーボタン用 — ファイル選択ダイアログを開く）
 ================================================================ */
+/* JSON読み込みで戻すデータ（文字列辞書）。対象は STORAGE_LEDGER の import。
+   テーマは検証してから戻し、明示選択の印も立てる。それ以外の戻さないデータ（ログイン情報・退避・meta 等）は含めない */
+function importableData(data) {
+  const out = {};
+  Object.entries(STORAGE_LEDGER).forEach(([name, entry]) => {
+    if (entry.import === 'raw') out[name] = data?.[name] ?? null;
+  });
+  const importedTheme = typeof resolveImportedTheme === 'function' ? resolveImportedTheme(data?.theme) : null;
+  if (importedTheme) {
+    out.theme = JSON.stringify(importedTheme);
+    out.themeSelection = JSON.stringify(1);
+  }
+  return out;
+}
+
+/* 読み込んだデータで、起動時と同じ順に読み直す（料金の移し替え→店舗ID→meta）。
+   店舗IDを先に保存すると、古い控え（料金の新形式が無い設定）の旧料金が既定値で上書き保存され、
+   次の起動で移し替えが走らなくなる（2026-10-02 Fableレビュー） */
+function reloadAfterImport() {
+  loadCfg();
+  loadState();
+  migrateShimeiExtModel();
+  ensureShopId();
+  writeStorageMeta();
+}
+
 function openImportDialog() {
   const input = document.getElementById('import-file-input');
   if (!input) return;
@@ -29878,21 +29977,9 @@ function onImportFileSelected(input) {
       const listStateStr = isNewFormat ? payload.data?.listState  : null;
       const backupsStr   = isNewFormat ? payload.data?.backups    : null;
       const customersStr = isNewFormat ? payload.data?.customers  : null;
-      const bottlesStr   = isNewFormat ? payload.data?.bottles    : null;
-      const urikakeStr   = isNewFormat ? payload.data?.urikake    : null;
-      const dailycloseStr= isNewFormat ? payload.data?.dailyclose : null;
-      const payslipsStr  = isNewFormat ? payload.data?.payslips   : null;
-      const settingsStr  = isNewFormat ? payload.data?.settings   : null;
-      const timetableStr = isNewFormat ? payload.data?.timetable  : null;
-      // 伝票番号の続き・削除した伝票・リスト表の白背景も戻す。以前は戻さなかったため、
-      // 別の端末へ移すと伝票番号が1から振り直されて重複した（2026-09-28 総点検 B5）
-      const slipCounterStr  = isNewFormat ? payload.data?.slipCounter  : null;
-      const deletedSlipsStr = isNewFormat ? payload.data?.deletedSlips : null;
-      const listWhiteStr    = isNewFormat ? payload.data?.listWhite    : null;
-      const themeStr     = isNewFormat ? payload.data?.theme      : null;
-      const importedTheme = typeof resolveImportedTheme === 'function'
-        ? resolveImportedTheme(themeStr)
-        : null;
+      // 戻すデータの一覧は STORAGE_LEDGER から作る（伝票番号の続き・削除した伝票・白背景を戻し忘れた 2026-09-28 総点検 B5 の再発防止）
+      const importData = isNewFormat ? importableData(payload.data) : null;
+      const importedTheme = isNewFormat && importData.theme ? JSON.parse(importData.theme) : null;
 
       // 旧形式の場合はオブジェクト直参照
       const legacyState    = !isNewFormat ? payload.currentState  : null;
@@ -29928,25 +30015,10 @@ function onImportFileSelected(input) {
 
       Persist.unlockAll();
 
-      // 新形式：各キーをそのままlocalStorageに書き込む
+      // 新形式：各キーをそのまま保存先に書き込む（保存停止中は書かずに終える）
       if (isNewFormat) {
-        Persist.importAll({
-          listState: listStateStr,
-          backups:   backupsStr,
-          customers: customersStr,
-          bottles:   bottlesStr,
-          urikake:   urikakeStr,
-          dailyclose:dailycloseStr,
-          payslips:  payslipsStr,
-          settings:  settingsStr,
-          timetable: timetableStr,
-          slipCounter:  slipCounterStr,
-          deletedSlips: deletedSlipsStr,
-          listWhite:    listWhiteStr,
-          ...(importedTheme ? { theme: JSON.stringify(importedTheme), themeSelection: JSON.stringify(1) } : {}),
-        });
-        loadCfg();
-        loadState();
+        if (Persist.importAll(importData) === false) return;
+        reloadAfterImport();   // 店舗IDは読み込んだ設定のものを引き継ぐ（古い控えで無ければここで作る）
       } else {
         // 旧形式：currentStateをstateに直接マージ
         Object.assign(state, legacyState);
@@ -30235,6 +30307,7 @@ function _purgeStaleDevTime() {
 async function __boot() {
   await UsbStore.init();
   await UsbBootGate.show();
+  checkStorageSchemaBeforeWrites();   // 新しい版のデータなら、どの保存よりも前に保存を止める
   if (typeof restoreThemeVisualFromPersist === 'function') restoreThemeVisualFromPersist();
   await AuthGate.check();
 
@@ -30245,6 +30318,9 @@ async function __boot() {
   loadState();
   migrateShimeiExtModel();
   try { repairShotStoreSpBacks(); } catch (e) { console.error('[init] shot SP repair failed:', e); }
+  // 店舗IDの保存は設定の移し替えの後。先に保存すると、移し替え前の既定料金が入った設定が残りうる（2026-10-02 Fableレビュー）
+  ensureShopId();
+  writeStorageMeta();
   renderTable();
   renderCastPanel();
   refreshHistoryBtns();
