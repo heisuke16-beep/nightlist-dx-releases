@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.63">
+<meta name="app-version" content="1.1.64">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -1060,6 +1060,19 @@ body[data-tab-slide="prev"] > div:not(.hidden)[id$="-panel"] { animation: tab-sl
 .pos-nsm-castbtn:hover { background: #e2e2e2; }
 .pos-nsm-castbtn.selected { background: #2680e8; border-color: #2680e8; color: #fff; }
 .pos-nsm-castpick-empty { color: #888; font-size: 13px; padding: 14px 0; }
+/* 設定「卓の呼び名」: 番号ごとの入力欄を並べる */
+.table-name-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; width: 100%; }
+.table-name-item { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.table-name-item span { min-width: 22px; text-align: right; color: var(--tx2); font-size: 12px; }
+.table-name-item input { flex: 1; min-width: 0; width: auto; }
+/* 新規伝票「同時に使う卓」: 卓の数が多いのでキャスト選択より小さめのボタンにする */
+.pos-nsm-castbtn.pos-nsm-tablebtn { min-width: 64px; min-height: 44px; padding: 0 10px; }
+.pos-nsm-castbtn.pos-nsm-tablebtn:disabled { opacity: .35; cursor: default; }
+/* テーブルで選んだ主の卓。位置を詰めずに同じ場所へ点線で残す（ほかのボタンの位置を動かさないため） */
+.pos-nsm-castbtn.pos-nsm-tablebtn.is-main:disabled { opacity: .7; border-style: dashed; background: transparent; }
+.pos-nsm-extratables { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+/* 案内は必ず1行（折り返すとモーダルの高さが変わり、押す場所がずれる） */
+.pos-nsm-extrahint { height: 16px; line-height: 16px; color: #888; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pos-nsm-footer {
   padding: 16px 24px 20px;
   display: flex; justify-content: center;
@@ -1292,6 +1305,37 @@ body[data-tab-slide="prev"] > div:not(.hidden)[id$="-panel"] { animation: tab-sl
 .pos-floor-total small { color: var(--tx2); font-size: 10px; }
 .pos-floor-total b { color: var(--tx); font-family: var(--mono); font-size: 21px; letter-spacing: .03em; }
 .pos-floor-card.empty { opacity: .45; border-left-color: var(--bdr2); }
+/* 会計済みでまだ席にいる卓（2026-10-04）。残り時間の色は在卓と同じ状態色のまま、カード全体は押せない */
+.pos-floor-card.is-paid { cursor: default; }
+.pos-floor-card.is-paid:active { transform: none; }
+.pos-floor-paid-badge {
+  margin-left: auto;
+  padding: 2px 9px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, .92);
+  color: #1f4a7c;
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+/* 会計済カードのボタン列（取消・伝票・領収書・退店）。退店だけ塗りで目立たせる */
+.pos-floor-paid-actions { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; width: 100%; }
+.pos-floor-paid-btn {
+  min-height: 40px;
+  padding: 4px 2px;
+  border: 1px solid currentColor;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.pos-floor-paid-btn.leave { border-color: #fff; background: #fff; color: #1f4a7c; }
+.pos-floor-paid-btn:active { transform: scale(.96); }
+/* 会計済は青（緑=在卓・黄=10分前・赤=超過・白=空席と被らない色）。残り時間の警告は上端の帯と残り時間の枠で出す */
+.pos-floor-legend .status-paid { color: #6f9fe0; }
 /* 空きカードの「空き」: 大きめ・カードど真ん中（絶対中央。上段の卓番位置に影響されない） */
 .pos-floor-empty-label {
   position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
@@ -1698,6 +1742,12 @@ body[data-tab-slide="prev"] > div:not(.hidden)[id$="-panel"] { animation: tab-sl
 .pos-co-panel > .pos-co-body, .pos-co-panel > .pay-bd-body { min-height: 0; overflow-y: auto; }
 .pos-nsm { max-height: 94vh; display: flex; flex-direction: column; }
 .pos-nsm > .pos-nsm-header, .pos-nsm > .pos-nsm-footer { flex: 0 0 auto; }
+/* 新規伝票モーダルだけ上端そろえ（2026-10-04 オーナー指摘）。中央そろえだと、同伴キャストの欄が出て高さが変わるたびに
+   全体が上下に動き、人数やテーブルの押す場所がずれる。上端の位置を固定し、増えた分は下へだけ伸ばす。
+   上端は画面の高さだけで決まる（中身に左右されない）。上下とも画面からはみ出さないよう、高さは「上端から下3vhまで」を上限にし、
+   超えた分は本文だけがスクロールする（見出しと「作成」ボタンは常に見える。v1.1.40 のはみ出し対策と同じ考え方）。 */
+#pos-nsm-overlay { --pos-nsm-top: max(3vh, calc(50vh - 400px)); align-items: flex-start; }
+#pos-nsm-overlay > .pos-nsm { margin-top: var(--pos-nsm-top); max-height: calc(100vh - var(--pos-nsm-top) - 3vh); }
 .pos-nsm > .pos-nsm-body, .pos-nsm > .pos-cast-picker-body { min-height: 0; overflow-y: auto; }
 .pos-drink-pick { background: #1a1a2e; border: 1px solid #4a5c80; border-radius: 8px; width: min(560px, 95vw); box-shadow: 0 8px 40px rgba(0,0,0,0.85); overflow: hidden; }
 .pos-drink-pick-head { background: #4a6fa5; padding: 12px 16px; display: flex; align-items: center; gap: 12px; }
@@ -3183,6 +3233,13 @@ table#customer-table { border-collapse: collapse; width: 100%; min-width: 800px;
 .settings-ext-rule-edit:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
 .settings-ext-rule-edit > :last-child { font-size:20px; line-height:1; color:var(--tx2); }
 @media(max-width:640px) { .settings-ext-rule { align-items:stretch; flex-direction:column; gap:12px; padding:14px; } .settings-ext-rule-edit { margin-left:23px; } }
+/* メニュー編集のタブ（2026-10-04）。選んだカテゴリの表だけを出す。ほかのカテゴリは消さずに隠すだけ（保存は全カテゴリまとめて） */
+.pos-me-tabs { display:flex; flex-wrap:wrap; gap:6px; width:100%; margin:4px 0 12px; padding-bottom:10px; border-bottom:1px solid var(--bdr); }
+.pos-me-tab { min-height:40px; padding:6px 16px; border:1px solid var(--bdr2); border-radius:20px; background:var(--sur3); color:var(--tx2); font-family:inherit; font-size:13px; font-weight:700; cursor:pointer; white-space:nowrap; }
+.pos-me-tab.is-active { border-color:var(--gold2); background:var(--goldglow); color:var(--gold2); }
+.pos-me-tabbed > .pos-menu-editor:not(.is-active),
+.pos-me-tabbed > .pos-me-hint:not(.is-active) { display:none !important; }
+.pos-me-tabbed .pos-me-acc > summary { display:none; }
 .pos-me-acc { width:100%; }
 .pos-me-acc > summary { cursor:pointer; padding:8px 10px; border:1px solid var(--bdr); border-radius:8px; background:var(--sur3); font-size:13px; user-select:none; }
 .pos-me-acc > summary:hover { border-color: var(--bdr2); }
@@ -4385,6 +4442,37 @@ html[data-display="tablet"] #list-table .col-ctrl-btn { min-width: 32px; min-hei
 #pos-panel .pos-floor-card.status-wait[data-gid] {
   background: linear-gradient(160deg, rgba(91,141,217,.12), rgba(91,141,217,0) 55%), linear-gradient(160deg, var(--pos-panel2), var(--pos-panel));
 }
+/* 会計済みでまだ席にいる卓（状態色の指定より後に置く。同じ強さなので後勝ち） */
+#pos-panel .pos-floor-legend .status-paid { color: #6f9fe0; }
+#pos-panel .pos-floor-legend-champagne .status-paid i { background: #5b8bc9; }
+#pos-panel .pos-floor-card.is-paid[data-gid] {
+  border-color: #4d6f9e;
+  background: linear-gradient(160deg, rgba(111,159,224,.34), rgba(111,159,224,.14) 60%), linear-gradient(160deg, var(--pos-panel2), var(--pos-panel));
+}
+#pos-panel .pos-floor-card.is-paid.status-warn[data-gid] { box-shadow: inset 0 5px var(--pos-warn); }
+#pos-panel .pos-floor-card.is-paid.status-over[data-gid] { box-shadow: inset 0 5px var(--pos-over); }
+/* 同じ伝票で一緒に使っている卓（2026-10-04）。状態色は主の卓と同じ。点線の枠と「◯卓と同じ伝票」で区別する */
+#pos-panel .pos-floor-card.is-linked[data-gid] { border-style: dashed; border-width: 2px; }
+.pos-floor-link-tag {
+  padding: 2px 9px;
+  border: 1px solid currentColor;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+  opacity: .88;
+}
+/* 同時に使う卓のカード: 真ん中に「◯卓と同じ伝票」（空きカードの「空き」と同じ置き方）、下にその卓のキャスト */
+.pos-floor-link-center {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  font-size: 17px; font-weight: 800; white-space: nowrap;
+}
+/* 付け回しの順番「なな→あさみ」。客ごとに1行。今付いているキャスト（最後）だけ濃く・太く */
+.pos-floor-rots { display: flex; flex-direction: column; gap: 3px; margin-top: auto; width: 100%; }
+.pos-floor-rot { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 5px; font-size: 12px; line-height: 1.3; }
+.pos-floor-rot i { font-style: normal; opacity: .6; }
+.pos-floor-rot-step { opacity: .62; }
+.pos-floor-rot-step.is-now { opacity: 1; font-size: 14px; font-weight: 800; }
 #pos-panel .pos-floor-card.drop-target {
   border-color: var(--pos-amber);
   box-shadow: 0 0 0 2px var(--pos-amber), 0 8px 24px -8px rgba(232,163,61,.55);
@@ -5886,6 +5974,65 @@ html[data-theme="night"] #summary-bar.has-pos-actions #summary-pos-actions .pos-
     background: linear-gradient(155deg, #b92f38, #a92430 58%, #891b28);
     color: #fff8e9;
     box-shadow: 0 8px 18px rgba(75, 15, 21, .26), inset 0 5px #df7478;
+  }
+
+  /* 会計済みでまだ席にいる卓は青（2026-10-04）。10分前・超過は上端の帯と残り時間の枠で知らせる */
+  html[data-theme="champagne"] #pos-panel .pos-floor-card.is-paid[data-gid] {
+    border-color: #b4cdee;
+    background: linear-gradient(155deg, #86aee2, #6394d2 58%, #4f81c2);
+    color: #0b1f3a;
+    box-shadow: 0 8px 18px rgba(20, 44, 82, .22), inset 0 1px rgba(255, 255, 255, .3);
+  }
+  html[data-theme="champagne"] #pos-panel .pos-floor-card.is-paid.status-warn[data-gid] {
+    box-shadow: 0 8px 18px rgba(20, 44, 82, .22), inset 0 6px #f7df42;
+  }
+  html[data-theme="champagne"] #pos-panel .pos-floor-card.is-paid.status-over[data-gid] {
+    box-shadow: 0 8px 18px rgba(20, 44, 82, .22), inset 0 6px #b92f38;
+  }
+  html[data-theme="champagne"] #pos-panel .pos-floor-card.is-paid.status-warn .pos-floor-timer {
+    border-color: #a8930f;
+    background: #f7df42;
+    color: #312807;
+  }
+  html[data-theme="champagne"] #pos-panel .pos-floor-card.is-paid.status-over .pos-floor-timer {
+    border-color: #7d1a24;
+    background: #b92f38;
+    color: #fff8e9;
+  }
+  html[data-theme="champagne"] #pos-panel .pos-floor-card.is-paid.status-warn .pos-floor-timer b { color: #312807; }
+  html[data-theme="champagne"] #pos-panel .pos-floor-legend-champagne .status-paid i { background: #6394d2; }
+
+  /* 同じ伝票で一緒に使っている卓は、主の卓と同じ色相の薄い色にして見分ける（2026-10-04 オーナー「濃すぎて分かりづらい」） */
+  html[data-theme="champagne"] #pos-panel .pos-floor-card.is-linked.status-none[data-gid],
+  html[data-theme="champagne"] #pos-panel .pos-floor-card.is-linked.status-wait[data-gid] {
+    border-color: #d9bf7c;
+    background: linear-gradient(155deg, #f3e6c4, #ecdaa9 58%, #e5cf96);
+    color: #3a2a10;
+    box-shadow: 0 4px 12px rgba(63, 42, 14, .12), inset 0 1px rgba(255, 255, 255, .6);
+  }
+  html[data-theme="champagne"] #pos-panel .pos-floor-card.is-linked.status-ok[data-gid] {
+    border-color: #8fcaa3;
+    background: linear-gradient(155deg, #e6f5ea, #d6eedd 58%, #c8e6d1);
+    color: #17432a;
+    box-shadow: 0 4px 12px rgba(24, 66, 38, .12), inset 0 1px rgba(255, 255, 255, .6);
+  }
+  html[data-theme="champagne"] #pos-panel .pos-floor-card.is-linked.status-warn[data-gid] {
+    border-color: #dcc84f;
+    background: linear-gradient(155deg, #fffbd9, #fbf4b6 58%, #f6eb9c);
+    color: #4a3d0a;
+    box-shadow: 0 4px 12px rgba(83, 63, 6, .12), inset 0 1px rgba(255, 255, 255, .6);
+  }
+  html[data-theme="champagne"] #pos-panel .pos-floor-card.is-linked.status-over[data-gid] {
+    border-color: #d98a90;
+    background: linear-gradient(155deg, #f8dcde, #f1c6ca 58%, #eab3b8);
+    color: #5c1219;
+    box-shadow: 0 4px 12px rgba(75, 15, 21, .14), inset 0 1px rgba(255, 255, 255, .6);
+  }
+  html[data-theme="champagne"] #pos-panel .pos-floor-card.is-linked.is-paid[data-gid] {
+    border-color: #9dbbe6;
+    background: linear-gradient(155deg, #dee9f8, #cddef3 58%, #bfd3ee);
+    color: #12305a;
+    box-shadow: 0 4px 12px rgba(20, 44, 82, .12), inset 0 1px rgba(255, 255, 255, .6);
   }
 
   html[data-theme="champagne"] #pos-panel .pos-floor-card.empty {
@@ -9165,6 +9312,7 @@ const CFG_DEFAULTS = {
   defStay:      40,          // デフォルトセット分
   dohanStay:    60,          // 同伴セット分（店別可変）
   tableMax:     14,          // 卓番号上限
+  tableNames:   {},          // 卓の呼び名（番号→店での呼び方。空=「3卓」。保存・照合は番号のまま表示だけ変える。2026-10-04）
   vipEnabled:   false,       // VIP席を使うか
   vipSeats:     [{ name: 'VIP', fee: 0 }], // VIP席名と利用料（0=無料）
   vipFeePerGuest: false,             // VIP席の基本利用料を人数分にする
@@ -9223,6 +9371,7 @@ const CFG_DEFAULTS = {
   cardFeeRound:    100,     // カード手数料端数単位（円、切り上げ）
   advanceFeeCredit: true,   // 前金カード分割の切り上げ超過手数料をお会計に充当する（false=充当せず元本だけ引く。2026-09-19 ギャルサークル要望）
   tillFloat:       60000,   // レジ常備金（超過分を本社へ振込）
+  posKeepTableAfterCheckout: false, // true=精算しても「退店」を押すまで卓ビューに残す（会計済の卓と残り時間が見える。2026-10-04）
   showCountdown:   true,    // 残り時間カウントダウン表示
   fullscreenOnBoot: true,   // 営業開始時にフルスクリーンにする
   monitorEnabled: false,    // 店外モニターへの送信ON/OFF
@@ -11358,6 +11507,7 @@ async function settle(id) {
   pushUndo();
   row.settled   = true;
   row.settledAt = row.settledAt || Date.now();
+  if (typeof posMarkFloorStay === 'function') posMarkFloorStay(row);
   renderTable(); saveState();
   if (typeof renderReportPanel === 'function') renderReportPanel();   // 集計(キャスト別指名売上等)を即更新
   // 顧客タブを開いた時に最新が見えるよう、精算と同時に再集計
@@ -12313,7 +12463,9 @@ function castOptions(sel) {
    VIP席を出さないとリスト表からVIP席へ移動できない（2026-07-26 修正）。 */
 function tableOptions(sel) {
   let h = '<option value="">-</option>';
-  for (let i=1; i<=cfg.tableMax; i++) h += `<option value="${i}"${i==sel?' selected':''}>${i}</option>`;
+  // 卓の呼び名を付けた卓は呼び名で出す（値は番号のまま）
+  const tableText = i => (typeof posTableCustomName === 'function' && posTableCustomName(i)) || String(i);
+  for (let i=1; i<=cfg.tableMax; i++) h += `<option value="${i}"${i==sel?' selected':''}>${escHtml(tableText(i))}</option>`;
   const current = sel == null ? '' : String(sel);
   const vipNames = (cfg.vipEnabled && Array.isArray(cfg.vipSeats))
     ? cfg.vipSeats.map(s => s?.name).filter(Boolean) : [];
@@ -13077,7 +13229,7 @@ function doPrint() {
         <td>${row.isFirst ? _printHHMM(row.startMin) : '<span style="color:#999">│</span>'}</td>
         <td style="${hasExt?'color:#c00;font-weight:bold':''}">${(row.isFirst||hasExt) ? _printHHMM(row.endMin) : '<span style="color:#999">│</span>'}</td>
         <td style="white-space:pre-line">${desigHtml}</td>
-        <td>${row.tableNum||''}</td>
+        <td>${escHtml(String((typeof posTableCustomName === 'function' && posTableCustomName(row.tableNum)) || row.tableNum || ''))}</td>
         <td>${escHtml([row.rotations[0], row.rotations2?.[0]].filter(Boolean).join('/'))}</td>
         <td>${escHtml([row.rotations[1], row.rotations2?.[1]].filter(Boolean).join('/'))}</td>
         <td>${escHtml([row.rotations[2], row.rotations2?.[2]].filter(Boolean).join('/'))}</td>
@@ -13813,7 +13965,9 @@ function ttUpdateClockIn(castName, timeStr) {
 
 function calcStoreStatus() {
   // settled は isFirst 行にしか付かないため、gid で判定する
-  const settledGids  = new Set(state.rows.filter(r => r.isFirst && r.settled).map(r => r.gid));
+  // 会計済みでも客がまだ席にいる卓（posIsStaying）のキャストは在卓のまま数える
+  const staying = r => typeof posIsStaying === 'function' && posIsStaying(r);
+  const settledGids  = new Set(state.rows.filter(r => r.isFirst && r.settled && !staying(r)).map(r => r.gid));
   const unsettledRows = state.rows.filter(r => !settledGids.has(r.gid));
 
   // 詳細表示用：各行の「現在接客中キャスト」= ローテーション列の最後の非空エントリ
@@ -14159,15 +14313,107 @@ const POS_SHOWTIME_DRAG_TYPE = 'application/x-nightlist-showtime';
 
 function posMoney(n) { return (Number(n)||0).toLocaleString('ja-JP'); }
 function posFirstRows() { return state.rows.filter(r => r.isFirst && !r.settled).sort((a,b) => (a.gid||0) - (b.gid||0)); }
+/* 会計後も「退店」を押すまで卓に残す（cfg.posKeepTableAfterCheckout。2026-10-04）。
+   settled（お金をもらった）の意味は変えない。floorStay は「まだ席にいる」印で、
+   卓ビューとキャストの在卓判定だけが見る。売上・集計・給与は settled だけを見るので変わらない。
+   設定OFFなら印が残っていても従来どおり（精算＝卓から消える）。 */
+function posIsStaying(row) {
+  return !!(row && row.isFirst && row.settled && row.floorStay === true && cfg.posKeepTableAfterCheckout === true);
+}
+function posStayingRows() { return state.rows.filter(posIsStaying); }
+function posFloorRows() { return posFirstRows().concat(posStayingRows()).sort((a,b) => (a.gid||0) - (b.gid||0)); }
+/* 精算の確定時に呼ぶ。OFFの店では印を付けず、取消→再精算で残った古い印も消す。 */
+function posMarkFloorStay(row) {
+  if (!row) return;
+  if (cfg.posKeepTableAfterCheckout === true) row.floorStay = true;
+  else delete row.floorStay;
+}
+function posLeaveTable(gid) {
+  const row = state.rows.find(r => String(r.gid) === String(gid) && posIsStaying(r));
+  if (!row) return false;
+  pushUndo();
+  delete row.floorStay;
+  saveState();
+  renderPOSPanel();
+  if (typeof updateStoreStatusBadge === 'function') updateStoreStatusBadge();
+  showToast(posTableDisplay(posTableLabel(row.tableNum) || '-') + 'を退店にしました（取り消しは「元に戻す」）');
+  return true;
+}
+/* 同時に使う卓（2026-10-04）。卓は客ごと（行ごと）に持つので、同じ伝票の客が主の卓以外に座っていれば
+   その卓も「この伝票が使っている卓」として扱う。新規伝票で選んだ卓へ客を順に振り分けるほか、
+   リスト表の個別卓（_indivTable）で後から動かした分も同じ扱いになる。 */
+function posLinkedTableLabels(first) {
+  if (!first) return [];
+  const main = posTableLabel(first.tableNum);
+  const labels = [];
+  state.rows.forEach(r => {
+    if (r.isFirst || String(r.gid) !== String(first.gid)) return;
+    const label = posTableLabel(r.tableNum);
+    if (label && label !== main && !labels.includes(label)) labels.push(label);
+  });
+  return labels;
+}
+/* その卓を使っている未精算の伝票（先頭行）。主の卓でも、同時に使う卓でも数える。 */
+function posSlipsUsingTable(label, exceptGid) {
+  if (!label) return [];
+  return state.rows.filter(r => r.isFirst && !r.settled && String(r.gid) !== String(exceptGid)
+    && (posTableLabel(r.tableNum) === label || posLinkedTableLabels(r).includes(label)));
+}
+/* 客を卓へ順に振り分ける。主の卓から同じ人数ずつ、端数は前の卓へ（5名・3卓なら 2・2・1）。
+   主の卓以外に座る客は個別卓（_indivTable）にして、リスト表の卓欄にその卓を入れる。 */
+function _posSplitGuestsAcrossTables(groupRows, tableLabels) {
+  if (!Array.isArray(tableLabels) || tableLabels.length < 2) return;
+  const rows = groupRows.slice().sort((a, b) => (b.isFirst ? 1 : 0) - (a.isFirst ? 1 : 0)
+    || (Number(a.gidx) || 0) - (Number(b.gidx) || 0));
+  const base = Math.floor(rows.length / tableLabels.length);
+  const extra = rows.length % tableLabels.length;
+  let index = 0;
+  tableLabels.forEach((label, tableIndex) => {
+    const size = base + (tableIndex < extra ? 1 : 0);
+    for (let n = 0; n < size && index < rows.length; n++, index++) {
+      if (tableIndex === 0) continue;
+      rows[index].tableNum = String(label).replace(/^T-/, '');
+      rows[index]._indivTable = true;
+    }
+  });
+}
+/* 会計済カードのボタン: 伝票・領収書は精算済みの伝票をそのまま印刷する（集計の会計伝票一覧と同じ処理）。
+   取消は集計の「未精算に戻す」（posReportRestore）をそのまま呼ぶ。 */
+function _posStayingRow(gid) { return state.rows.find(r => String(r.gid) === String(gid) && posIsStaying(r)) || null; }
+function posStayPrintSlip(gid) {
+  const row = _posStayingRow(gid);
+  if (row) posPrintReceiptDirect(row);
+}
+function posStayPrintRyoshu(gid) {
+  const row = _posStayingRow(gid);
+  if (row) printReceipt(row.id);
+}
+/* 会計済みの客が残っている卓へ新しい伝票を入れたら、前の客は退店したものとして扱う（退店の押し忘れ対策）。 */
+function posReleaseStayAtTable(tableLabel, exceptGid) {
+  if (!tableLabel) return;
+  posStayingRows().forEach(row => {
+    if (String(row.gid) === String(exceptGid)) return;
+    if (posTableLabel(row.tableNum) === tableLabel || posLinkedTableLabels(row).includes(tableLabel)) delete row.floorStay;
+  });
+}
 function posOrders(row) { if (!Array.isArray(row.posOrders)) row.posOrders = []; return row.posOrders; }
 function posTableLabel(tableNum) {
   const value = tableNum == null ? '' : String(tableNum);
   return /^\d+$/.test(value) ? 'T-' + value : value;
 }
-/* 表示用: 「T-3」→「3卓」。VIP卓名・未設定「-」はそのまま。照合・保存はT-形式を維持 */
+/* 卓の呼び名（cfg.tableNames。番号→店での呼び方）。付けていなければ空文字。
+   保存・照合は番号のまま、表示だけを変える（2026-10-04）。「3」でも「T-3」でも引ける。 */
+function posTableCustomName(tableNum) {
+  const key = String(tableNum ?? '').replace(/^T-/, '');
+  const names = (typeof cfg === 'object' && cfg) ? cfg.tableNames : null;
+  if (!key || !names || typeof names !== 'object') return '';
+  return String(names[key] ?? '').trim();
+}
+/* 表示用: 「T-3」→ 呼び名があればそれ、無ければ「3卓」。VIP卓名・未設定「-」はそのまま。照合・保存はT-形式を維持 */
 function posTableDisplay(label) {
   const m = /^T-(\d+)$/.exec(String(label || ''));
-  return m ? m[1] + '卓' : String(label || '');
+  if (!m) return String(label || '');
+  return posTableCustomName(m[1]) || m[1] + '卓';
 }
 /* 移動先の卓に別の組（未精算）がいたら確認する。相席・卓分けの運用があるためブロックはしない。
    OK=そのまま移動 / キャンセル=移動しない を boolean で返す（2026-07-26 追加）。 */
@@ -14176,8 +14422,7 @@ function posConfirmTableOccupied(tableValue, selfGid, onApprove) {
   const next = String(tableValue ?? '').trim();
   if (!next) return true;   // 未設定（-）への変更は確認しない
   const label = posTableLabel(next);
-  const others = state.rows.filter(r => r.isFirst && !r.settled && r.gid !== selfGid
-    && posTableLabel(r.tableNum) === label);
+  const others = posSlipsUsingTable(label, selfGid);
   if (!others.length) return true;
   const names = others.map(r => 'No.' + slipNoLabel(r)).join('・');
   const approvalKey = String(selfGid) + '\n' + label;
@@ -14870,6 +15115,7 @@ function renderPOSPanel() {
   const root = document.getElementById('pos-content');
   if (!root) return;
   const firsts = posFirstRows();
+  const floorRows = posFloorRows();   // 卓ビュー用: 未精算＋会計済みでまだ席にいる卓
   const row = posSelectedRow();
   _renderSummaryPosActions();
   updateSummary();
@@ -14881,7 +15127,7 @@ function renderPOSPanel() {
   if (!firsts.length) {
     if (posBetaState.viewMode === 'slip') {
       root.innerHTML = '<div class="pos-empty-shell">'
-        + renderPOSSlipView([], null)
+        + renderPOSSlipView(floorRows, null)
         + '</div>';
       return;
     }
@@ -14893,7 +15139,7 @@ function renderPOSPanel() {
   /* ---- 伝票のみ表示モード（作成直後） ---- */
   if (posBetaState.viewMode === 'slip') {
     root.innerHTML = '<div class="pos-empty-shell">'
-      + renderPOSSlipView(firsts, row)
+      + renderPOSSlipView(floorRows, row)
       + '</div>';
     return;
   }
@@ -15401,7 +15647,7 @@ function _posOrderCastHistory(row) {
     + '<div class="pos-order-cast-history-list">' + history + '</div></div>';
 }
 
-function _posFloorCastChipData(row) {
+function _posFloorCastChipData(row, rowFilter) {
   const nominatedTypes = ['honshimei', 'douban', 'modori_honshimei'];
   const silverNominatedTypes = ['jounai', 'enchoshimei', 'modori_enchoshimei'];
   const chips = [];
@@ -15423,7 +15669,8 @@ function _posFloorCastChipData(row) {
     chipIndexes.set(cast, chips.length);
     chips.push({ cast, type, away: rank > 0 && options.away === true, help: options.help === true });
   };
-  state.rows.filter(r => String(r.gid) === String(row.gid)).forEach(groupRow => {
+  // rowFilter: 同時に使う卓があるとき、その卓に座っている客の分だけを出す（卓ビューのカード用）
+  state.rows.filter(r => String(r.gid) === String(row.gid) && (!rowFilter || rowFilter(r))).forEach(groupRow => {
     const floorCasts = _posCurrentFloorCasts(groupRow);
     const currentCasts = floorCasts.length ? floorCasts : [groupRow.mainCast].filter(Boolean);
     if (groupRow.mainCast && !_posDesignationStop(groupRow, groupRow.mainCast)) {
@@ -15447,10 +15694,10 @@ function _posFloorCastChipData(row) {
   return chips;
 }
 
-function _posFloorCastChips(row) {
+function _posFloorCastChips(row, rowFilter) {
   const nominatedTypes = ['honshimei', 'douban', 'modori_honshimei'];
   const silverNominatedTypes = ['jounai', 'enchoshimei', 'modori_enchoshimei'];
-  return _posFloorCastChipData(row).map(item => {
+  return _posFloorCastChipData(row, rowFilter).map(item => {
     const nominated = nominatedTypes.includes(item.type);
     const silverNominated = silverNominatedTypes.includes(item.type);
     const isDesignation = nominated || silverNominated;
@@ -15467,7 +15714,8 @@ function _posFloorTotal(row) {
 
 function _posCastFloorTables(castName) {
   const tables = [];
-  posFirstRows().forEach(first => {
+  // 会計済みでも客が席にいる間は、付いているキャストを在卓として数える（お見送りまで動かせない）
+  posFloorRows().forEach(first => {
     const isAssigned = state.rows.some(groupRow => {
       if (String(groupRow.gid) !== String(first.gid)) return false;
       if (groupRow.mainCast === castName) return true;
@@ -16000,10 +16248,15 @@ function _posOpenCastGuestPicker(groupRows, castName, showAmbiguousLabels = fals
   document.body.appendChild(overlay);
 }
 
-function _posAssignCastToFloor(gid, castName) {
+/* tableLabel: 同時に使う卓のカードへ付けたとき、その卓の値（T-10 など）。指定があれば、その卓に座っている客だけを
+   付ける相手にする（客が1人なら「どのお客様につけますか」を出さずにそのまま付ける。2026-10-04 オーナー指示）。
+   主の卓のカードからは指定なし＝今までどおり伝票の全員が相手。 */
+function _posAssignCastToFloor(gid, castName, tableLabel) {
   const first = state.rows.find(row => String(row.gid) === String(gid) && row.isFirst && !row.settled);
   if (!first || !castName) return false;
-  const groupRows = state.rows.filter(row => String(row.gid) === String(gid));
+  const slipRows = state.rows.filter(row => String(row.gid) === String(gid));
+  const tableRows = tableLabel ? slipRows.filter(row => posTableLabel(row.tableNum) === tableLabel) : [];
+  const groupRows = tableRows.length ? tableRows : slipRows;
   // 各行の最後の非空スロット（未使用なら指名キャスト）だけを「現在」とし、過去の重複は許容する。
   const sourceRow = groupRows.find(row => _posCurrentFloorCasts(row).includes(castName));
   if (sourceRow) {
@@ -16044,7 +16297,7 @@ function posHandleFloorCardClick(event, gid) {
     return;
   }
   if (posBetaState.assignCast) {
-    _posAssignCastToFloor(gid, posBetaState.assignCast);
+    _posAssignCastToFloor(gid, posBetaState.assignCast, event.currentTarget?.dataset?.linkTable || '');
     return;
   }
   posOpenSlipOrder(gid);
@@ -16094,7 +16347,7 @@ function posCastDrop(event, gid) {
     posAddShowtime(gid);
     return;
   }
-  _posAssignCastToFloor(gid, event.dataTransfer.getData('text/plain'));
+  _posAssignCastToFloor(gid, event.dataTransfer.getData('text/plain'), event.currentTarget?.dataset?.linkTable || '');
 }
 
 function _posFloorCard(row) {
@@ -16111,12 +16364,40 @@ function _posFloorCard(row) {
   const statusRow = (timerHtml || rangeHtml)
     ? '<span class="pos-floor-status-row">' + timerHtml + rangeHtml + '</span>'
     : '';
+  // 同時に使う卓があるとき: 主の卓のカードには「＋2卓 3卓」を出す。
+  // キャストは今までどおり伝票の全員を主の卓に出す（2026-10-04 オーナー「そっちの方が分かりやすい」）。
+  // 一緒に使っている卓のカードには、その卓に付いているキャストだけを出す。
+  const linkedTables = posLinkedTableLabels(row);
+  const linkTag = linkedTables.length
+    ? '<span class="pos-floor-link-tag">＋' + linkedTables.map(label => escHtml(posTableDisplay(label))).join(' ') + '</span>'
+    : '';
+  // 会計済みでまだ席にいる卓: 注文には入れず、残り時間と「退店」だけを出す
+  if (posIsStaying(row)) {
+    return '<div class="pos-floor-card is-paid status-' + status + '" data-gid="' + row.gid + '">'
+      + '<span class="pos-floor-card-top">'
+      + '<span class="pos-floor-tablewrap"><span class="pos-floor-table">' + escHtml(posTableDisplay(table)) + '</span>'
+      + '<span class="pos-floor-people">' + escHtml(String(_posCurrentGuests(row))) + '名</span></span>'
+      + linkTag
+      + '<span class="pos-floor-paid-badge">会計済</span>'
+      + '</span>'
+      + statusRow
+      + '<span class="pos-floor-casts">' + _posFloorCastChips(row) + '</span>'
+      + '<span class="pos-floor-total"><small>累計</small><b data-pos-floor-total-gid="' + row.gid + '">¥' + posMoney(_posFloorTotal(row)) + '</b></span>'
+      + '<span class="pos-floor-paid-actions" onclick="event.stopPropagation()">'
+      + '<button type="button" class="pos-floor-paid-btn" onclick="posReportRestore(' + row.gid + ')">取消</button>'
+      + '<button type="button" class="pos-floor-paid-btn" onclick="posStayPrintSlip(' + row.gid + ')">伝票</button>'
+      + '<button type="button" class="pos-floor-paid-btn" onclick="posStayPrintRyoshu(' + row.gid + ')">領収書</button>'
+      + '<button type="button" class="pos-floor-paid-btn leave" onclick="posLeaveTable(' + row.gid + ')">退店</button>'
+      + '</span>'
+      + '</div>';
+  }
   return '<button class="pos-floor-card status-' + status + '" data-gid="' + row.gid + '"'
     + ' onclick="posHandleFloorCardClick(event,' + row.gid + ')"'
     + ' ondragover="posCastDragOver(event)" ondragleave="posCastDragLeave(event)" ondrop="posCastDrop(event,' + row.gid + ')">'
     + '<span class="pos-floor-card-top">'
     + '<span class="pos-floor-tablewrap"><span class="pos-floor-table">' + escHtml(posTableDisplay(table)) + '</span>'
     + '<span class="pos-floor-people">' + escHtml(String(_posCurrentGuests(row))) + '名</span></span>'
+    + linkTag
     + (row.source ? '<span class="pos-floor-source">' + escHtml(row.source) + '</span>' : '')
     + '</span>'
     + statusRow
@@ -16124,6 +16405,51 @@ function _posFloorCard(row) {
     + (_posShowtimeEnabled() ? _posShowtimeCountHtml(row) : '')
     + '<span class="pos-floor-total"><small>累計</small><b data-pos-floor-total-gid="' + row.gid + '">¥' + posMoney(_posFloorTotal(row)) + '</b></span>'
     + '</button>';
+}
+
+/* 付け回しの順番（リスト表の席次 1st・2nd…と同じもの）を「なな→あさみ」の形で出す。客1人につき1行。
+   席次が空の客は指名キャストだけを出す。最後の1つ＝今付いているキャストを強調する。 */
+function _posFloorRotationLinesHtml(rows) {
+  return rows.map(groupRow => {
+    const first = Array.isArray(groupRow.rotations) ? groupRow.rotations : [];
+    const second = Array.isArray(groupRow.rotations2) ? groupRow.rotations2 : [];
+    const steps = [];
+    for (let i = 0; i < Math.max(first.length, second.length); i++) {
+      const names = [first[i], second[i]].map(value => String(value || '').trim()).filter(Boolean);
+      if (names.length) steps.push(names.join('・'));
+    }
+    if (!steps.length && groupRow.mainCast) steps.push(String(groupRow.mainCast));
+    if (!steps.length) return '';
+    return '<span class="pos-floor-rot">' + steps.map((step, index) =>
+      '<span class="pos-floor-rot-step' + (index === steps.length - 1 ? ' is-now' : '') + '">' + escHtml(step) + '</span>'
+    ).join('<i>→</i>') + '</span>';
+  }).join('');
+}
+
+/* 同じ伝票で一緒に使っている卓のカード。押すと主の卓と同じ伝票が開く。
+   残り時間・人数・金額は主の卓のカードにだけ出す。こちらは真ん中に「◯卓と同じ伝票」と、
+   その卓の付け回しの順番（リスト表の席次と連動）だけ（2026-10-04 オーナー指示）。色は主の卓の状態色に合わせる。 */
+function _posFloorLinkedCard(row, table) {
+  const status = _posFloorStatus(_posSlipTimerText(row));
+  const atThisTable = groupRow => posTableLabel(groupRow.tableNum) === table;
+  const staying = posIsStaying(row);
+  const inner = '<span class="pos-floor-card-top">'
+    + '<span class="pos-floor-tablewrap"><span class="pos-floor-table">' + escHtml(posTableDisplay(table)) + '</span></span>'
+    + (staying ? '<span class="pos-floor-paid-badge">会計済</span>' : '')
+    + '</span>'
+    + '<span class="pos-floor-link-center">' + escHtml(posTableDisplay(posTableLabel(row.tableNum) || '-')) + 'と同じ伝票</span>'
+    + '<span class="pos-floor-rots">' + _posFloorRotationLinesHtml(
+        state.rows.filter(r => String(r.gid) === String(row.gid) && atThisTable(r))
+          .sort((a, b) => (Number(a.gidx) || 0) - (Number(b.gidx) || 0))
+      ) + '</span>';
+  if (staying) {
+    return '<div class="pos-floor-card is-linked is-paid status-' + status + '" data-gid="' + row.gid + '">' + inner + '</div>';
+  }
+  return '<button class="pos-floor-card is-linked status-' + status + '" data-gid="' + row.gid + '"'
+    + ' data-link-table="' + escAttr(table) + '"'
+    + ' onclick="posHandleFloorCardClick(event,' + row.gid + ')"'
+    + ' ondragover="posCastDragOver(event)" ondragleave="posCastDragLeave(event)" ondrop="posCastDrop(event,' + row.gid + ')">'
+    + inner + '</button>';
 }
 
 function _posFloorEmptyCard(table, tableIndex) {
@@ -16141,28 +16467,35 @@ function renderPOSSlipView(firsts, selected) {
     + '<button class="' + (isPaper ? 'active' : '') + '" onclick="posSetSlipView(\'paper\')">伝票ビュー</button>'
     + '</div>';
   if (isPaper) {
+    // 伝票ビューは未精算の伝票だけ（会計済みで席に残る卓は卓ビューにだけ出す）
     return '<div class="pos-slip-view-shell"><div class="pos-slip-view-head">' + toggle + '</div>'
-      + renderPOSSlipSheetView(firsts, selected) + '</div>';
+      + renderPOSSlipSheetView(firsts.filter(row => !row.settled), selected) + '</div>';
   }
+  const paidLegend = cfg.posKeepTableAfterCheckout === true ? '<span class="status-paid"><i></i>会計済</span>' : '';
   const legend = '<div class="pos-floor-legend pos-floor-legend-default">'
     + '<span class="status-ok"><i></i>余裕</span>'
     + '<span class="status-warn"><i></i>10分前</span>'
     + '<span class="status-over"><i></i>超過</span>'
+    + paidLegend
     + '</div>'
     + '<div class="pos-floor-legend pos-floor-legend-champagne">'
     + '<span class="status-empty"><i></i>空席</span>'
     + '<span class="status-ok"><i></i>在卓</span>'
     + '<span class="status-warn"><i></i>10分前</span>'
     + '<span class="status-over"><i></i>超過</span>'
+    + paidLegend
     + '</div>';
   const matchedRows = new Set();
   const tableCards = _posNsmLists().table.map((table, tableIndex) => {
     const rows = firsts.filter(row => posTableLabel(row.tableNum) === table);
-    if (!rows.length) return _posFloorEmptyCard(table, tableIndex);
+    // 別の伝票が「同時に使う卓」として座っている卓は空きにしない
+    const linkedRows = firsts.filter(row => !rows.includes(row) && posLinkedTableLabels(row).includes(table));
+    if (!rows.length && !linkedRows.length) return _posFloorEmptyCard(table, tableIndex);
     rows.forEach(row => matchedRows.add(row));
-    return rows.map(_posFloorCard).join('');
+    return rows.map(row => _posFloorCard(row)).join('')
+      + linkedRows.map(row => _posFloorLinkedCard(row, table)).join('');
   }).join('');
-  const unmatchedCards = firsts.filter(row => !matchedRows.has(row)).map(_posFloorCard).join('');
+  const unmatchedCards = firsts.filter(row => !matchedRows.has(row)).map(row => _posFloorCard(row)).join('');
   const cards = unmatchedCards + tableCards
     + '<button class="pos-floor-card pos-floor-new" onclick="posHandleNewFloorClick(event)"><span>＋</span> 新規伝票</button>';
   return '<div class="pos-slip-view-shell" onclick="posCastRailBlankTap(event)">'
@@ -16711,6 +17044,49 @@ function _posMenuInitDnd(tbody) {
   });
 }
 
+/* メニュー編集のタブ（2026-10-04）。上のタブでカテゴリを選び、そのカテゴリの表だけを出す。
+   全カテゴリの入力欄は画面に残したまま隠すだけなので、保存は今までどおり全カテゴリをまとめて行う
+   （タブを切り替えても入力中の内容は消えない）。選んでいたタブは、設定画面を描き直しても覚えておく。 */
+let _posMenuActiveTab = '';
+function _posMenuEditorList() {
+  return [
+    ['shot',    shotLabel()],
+    ['bottle',  'ボトル'],
+    ['food',    'フード'],
+    ['bring',   '持込'],
+    ['discount','割引・割増'],
+    ['special', '特殊'],
+    ...resolvePosCatLayout(cfg).filter(cat => cat.key.startsWith('cust_')).map(cat => [cat.key, cat.label]),
+  ];
+}
+function _posMenuActiveKey(list) {
+  return list.some(([key]) => key === _posMenuActiveTab) ? _posMenuActiveTab : (list[0] ? list[0][0] : '');
+}
+function _posMenuTabHTML(key, label, active) {
+  return '<button type="button" class="pos-me-tab' + (active ? ' is-active' : '') + '" role="tab"'
+    + ' data-key="' + escAttr(key) + '" aria-selected="' + (active ? 'true' : 'false') + '"'
+    + ' onclick="posMenuSelectTab(this.dataset.key)">' + escHtml(label) + '</button>';
+}
+function _posMenuTabsHTML(list) {
+  const active = _posMenuActiveKey(list);
+  return list.map(([key, label]) => _posMenuTabHTML(key, label, key === active)).join('');
+}
+/* タブに対応する編集欄（と、その下の注意書き）に付ける印。描いた時点で選択中のものだけ見えるようにする */
+function _posMenuTabPanelClass(key, list) {
+  return key === _posMenuActiveKey(list) ? ' is-active' : '';
+}
+function posMenuSelectTab(key) {
+  _posMenuActiveTab = key;
+  document.querySelectorAll('#pos-menu-tabs .pos-me-tab').forEach(btn => {
+    const on = btn.dataset.key === key;
+    btn.classList.toggle('is-active', on);
+    btn.setAttribute('aria-selected', on ? 'true' : 'false');
+  });
+  document.querySelectorAll('#pos-menu-editors > [data-key], #pos-menu-editors > [data-for]').forEach(el => {
+    el.classList.toggle('is-active', (el.dataset.key || el.dataset.for) === key);
+  });
+}
+
 function _posMenuInitDndAll() {
   document.querySelectorAll('table[id^="cfg-posMenu-"] tbody').forEach(_posMenuInitDnd);
   const catBody = document.getElementById('cfg-pos-cat-layout');
@@ -16822,6 +17198,8 @@ function _posMenuEditorHTML(key, label, items, open = false) {
 function posCatSyncLabel(key, label) {
   const heading = document.querySelector(`.pos-menu-editor[data-key="${key}"] .pos-menu-editor-label`);
   if (heading) heading.textContent = label.trim() || key;
+  const tab = document.querySelector(`#pos-menu-tabs .pos-me-tab[data-key="${key}"]`);
+  if (tab) tab.textContent = label.trim() || key;
 }
 
 /* 既定カテゴリの名前をすべて元に戻す（店舗独自カテゴリには既定名がないので触らない）。保存で確定 */
@@ -16874,6 +17252,9 @@ async function posCatAdd() {
   editors.insertAdjacentHTML('beforeend', _posMenuEditorHTML(key, label, [], true));
   const menuBody = document.querySelector(`#cfg-posMenu-${key}-tbl tbody`);
   if (menuBody) _posMenuInitDnd(menuBody);
+  // 追加したカテゴリのタブを足して、そのまま開く
+  document.getElementById('pos-menu-tabs')?.insertAdjacentHTML('beforeend', _posMenuTabHTML(key, label, false));
+  posMenuSelectTab(key);
   _settingsMarkDirty();
 }
 
@@ -16881,11 +17262,17 @@ async function posCatDelete(key) {
   if (!(await appConfirm('このカテゴリを削除しますか？\n過去の伝票・日報の集計は残ります。商品リストは削除されます', { danger: true }))) return;
   document.querySelector(`#cfg-pos-cat-layout tr[data-key="${key}"]`)?.remove();
   document.querySelector(`.pos-menu-editor[data-key="${key}"]`)?.remove();
+  document.querySelector(`#pos-menu-tabs .pos-me-tab[data-key="${key}"]`)?.remove();
+  // 開いていたタブを消したら先頭のタブへ移る（何も表示されない状態にしない）
+  if (_posMenuActiveTab === key || !document.querySelector('#pos-menu-tabs .pos-me-tab.is-active')) {
+    const firstTab = document.querySelector('#pos-menu-tabs .pos-me-tab');
+    if (firstTab) posMenuSelectTab(firstTab.dataset.key);
+  }
   _settingsMarkDirty();
 }
 
 function posOpenNewSlipModal(tableIndex) {
-  _posNsmIdx = { source: 0, count: 0, table: 0, cast: 0, color: 0, firstRepeat: false, douban: false, startMin: getNowMin() };
+  _posNsmIdx = { source: 0, count: 0, table: 0, cast: 0, color: 0, firstRepeat: false, douban: false, startMin: getNowMin(), extraTables: [] };
   const tableList = _posNsmLists().table;
   if (Number.isInteger(tableIndex) && tableIndex >= 0 && tableIndex < tableList.length) {
     _posNsmIdx.table = tableIndex;
@@ -16921,6 +17308,8 @@ function _posNsmColorSpinner(colorObj) {
 
 function _renderPosNsm() {
   const old = document.getElementById('pos-nsm-overlay');
+  // 押すたびに描き直すので、本文をスクロールしていた位置を引き継ぐ（位置が戻ると、押した場所が指の下から逃げる）
+  const bodyScrollTop = old ? (old.querySelector('.pos-nsm-body')?.scrollTop || 0) : 0;
   if (old) old.remove();
   const L = _posNsmLists();
   const srcVal   = L.source[_posNsmIdx.source] || L.source[0];
@@ -16957,6 +17346,7 @@ function _renderPosNsm() {
           </label>
         </div>
         ${_posNsmIdx.douban ? _posNsmCastPicker(L.cast) : ''}
+        ${_posNsmExtraTablePicker(L, tableVal, countVal)}
       </div>
       <div class="pos-nsm-footer">
         <button class="pos-nsm-ok" onclick="posConfirmNewSlip()">作　成</button>
@@ -16964,6 +17354,8 @@ function _renderPosNsm() {
     </div>`;
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
   document.body.appendChild(overlay);
+  const body = overlay.querySelector('.pos-nsm-body');
+  if (body && bodyScrollTop) body.scrollTop = bodyScrollTop;
 }
 
 function posNsmStep(key, delta) {
@@ -16973,6 +17365,44 @@ function posNsmStep(key, delta) {
   if (key === 'source') _posNsmIdx.sourceBeforeDouban = undefined;
   if (!list) return;
   _posNsmIdx[key] = (_posNsmIdx[key] + delta + list.length) % list.length;
+  _renderPosNsm();
+}
+
+/* 同時に使う卓（2026-10-04）。主の卓のほかに使う卓を複数選ぶ。客は作成時に順に振り分ける。
+   どの卓にも1人は座るので、選べるのは「人数−1」卓まで。主の卓と同じ卓・一覧に無い卓は外す。 */
+function _posNsmExtraTables(L, mainTable, count) {
+  const picked = Array.isArray(_posNsmIdx.extraTables) ? _posNsmIdx.extraTables : [];
+  const max = Math.max(0, (Number(count) || 1) - 1);
+  return L.table.filter(label => label !== mainTable && picked.includes(label)).slice(0, max);
+}
+/* 人数や主の卓を変えても、ほかの行やボタンの位置が動かないようにする（忙しい店内で押す場所がずれると負担になる。
+   2026-10-04 オーナー指摘）。ボタンは常に全卓ぶん同じ並びで出し、選べない卓は押せない表示にするだけ。案内は1行に収める。 */
+function _posNsmExtraTablePicker(L, mainTable, count) {
+  const max = Math.max(0, (Number(count) || 1) - 1);
+  const picked = _posNsmExtraTables(L, mainTable, count);
+  const hint = max === 0
+    ? '2名以上で選べます'
+    : (picked.length
+      ? [mainTable, ...picked].map(posTableDisplay).join('・') + 'に振り分け'
+      : 'あと' + max + '卓まで選べます');
+  const buttons = '<div class="pos-nsm-castpick">' + L.table.map((label, index) => {
+    const isMain = label === mainTable;
+    const selected = !isMain && picked.includes(label);
+    const off = isMain || (!selected && picked.length >= max);
+    return '<button type="button" class="pos-nsm-castbtn pos-nsm-tablebtn' + (selected ? ' selected' : '') + (isMain ? ' is-main' : '') + '"'
+      + (off ? ' disabled' : '') + ' onclick="posNsmToggleExtraTable(' + index + ')">' + escHtml(posTableDisplay(label)) + '</button>';
+  }).join('') + '</div>';
+  return '<div class="pos-nsm-row pos-nsm-row-pick"><div class="pos-nsm-rowlabel">同時に使う卓</div>'
+    + '<div class="pos-nsm-extratables">' + buttons + '<div class="pos-nsm-extrahint">' + escHtml(hint) + '</div></div></div>';
+}
+function posNsmToggleExtraTable(index) {
+  const L = _posNsmLists();
+  const label = L.table[index];
+  if (!label) return;
+  const mainTable = L.table[_posNsmIdx.table];
+  const count = L.count[_posNsmIdx.count] || 1;
+  const picked = _posNsmExtraTables(L, mainTable, count);
+  _posNsmIdx.extraTables = picked.includes(label) ? picked.filter(item => item !== label) : [...picked, label];
   _renderPosNsm();
 }
 
@@ -17066,6 +17496,10 @@ function posConfirmNewSlip() {
     posBetaState.selectedGid = newest.gid;
     const grpRows = state.rows.filter(r => r.gid === newest.gid);
     grpRows.forEach(r => { r.tableNum = table.replace(/^T-/, ''); });
+    // 同時に使う卓: 客を各卓へ順に振り分ける（VIP席利用料は従来どおり主の卓だけで決まる＝二重に掛からない）
+    const slipTables = [table, ..._posNsmExtraTables(L, table, count)];
+    _posSplitGuestsAcrossTables(grpRows, slipTables);
+    slipTables.forEach(label => posReleaseStayAtTable(label, newest.gid));
     newest.source   = source;
     newest.mainType = isDouban ? 'douban' : 'free';
     newest.mainCast = cast;
@@ -18323,7 +18757,7 @@ function posOpenCheckoutPanel() {
   const advBd = _posAdvanceBreakdown(row);
   const due = _posDue(row);
   const dueCard = _posSplitCardFee(due);
-  const table = row.tableNum ? posTableLabel(row.tableNum) : '-';
+  const table = row.tableNum ? ((typeof posTableCustomName === 'function' && posTableCustomName(row.tableNum)) || posTableLabel(row.tableNum)) : '-';
   const advRows = _posAdvanceListHTML(row);
 
   // 前金が多いと縦に伸びて精算ボタンが画面外に出るため、本文だけスクロールさせ
@@ -18408,6 +18842,7 @@ function posExecCheckout(method, urikakePayment, cardAmounts) {
   _posAssignCardCharges(row, [...advCards, ...todayCards]);
   row.amountUrikake = bd.amountUrikake ? String(bd.amountUrikake) : '';
   row.settled = true;
+  if (typeof posMarkFloorStay === 'function') posMarkFloorStay(row);   // 会計後も卓に残す設定（29-pos-panel）
   // グループ全員を精算済みに
   state.rows.filter(r => r.gid === row.gid).forEach(r => { r.settled = true; });
   posBetaState.selectedGid = null;
@@ -18717,7 +19152,7 @@ function _posSplitRender() {
   const ov = document.getElementById('pos-split-overlay');
   if (!ov || !_posSplit) return;
   const row = posSelectedRow();
-  const table = (row && row.tableNum) ? posTableLabel(row.tableNum) : '-';
+  const table = (row && row.tableNum) ? ((typeof posTableCustomName === 'function' && posTableCustomName(row.tableNum)) || posTableLabel(row.tableNum)) : '-';
   const cash = _posSplit.cash || 0, card = _posSplit.card || 0;
   const remain = _posSplit.total - cash - (_posSplit.cardBasis || 0);
   const remainColor = remain === 0 ? '#38cc80' : (remain > 0 ? '#f5dfa0' : '#e5354d');
@@ -18782,6 +19217,7 @@ function posSplitApply() {
   // 「元に戻す」経由の再精算（分割）でも旧chargeを台帳に残さない（posExecCheckoutと同じ冪等化）
   urikakeRevokeByRowId(row.id);
   row.settled = true;
+  if (typeof posMarkFloorStay === 'function') posMarkFloorStay(row);   // 会計後も卓に残す設定（29-pos-panel）
   state.rows.filter(r => r.gid === row.gid).forEach(r => { r.settled = true; });
   posBetaState.selectedGid = null;
   posSplitClose();
@@ -18917,7 +19353,7 @@ function _posAdvanceRender() {
   const ov = document.getElementById('pos-advance-overlay');
   if (!ov || !_posAdvance) return;
   const row = posSelectedRow();
-  const table = row && row.tableNum ? posTableLabel(row.tableNum) : '-';
+  const table = row && row.tableNum ? ((typeof posTableCustomName === 'function' && posTableCustomName(row.tableNum)) || posTableLabel(row.tableNum)) : '-';
   const amount = _posAdvance.amount || 0;
   const fee = (_posAdvance.method === 'card' && !_posAdvance.feeCut) ? _advCardFee(amount) : 0;
   const key = (k, lbl, cls) => '<button class="pos-split-key' + (cls ? ' ' + cls : '') + '" onclick="posAdvanceKey(\'' + k + '\')">' + lbl + '</button>';
@@ -22983,7 +23419,7 @@ function posPrintReceipt() {
     return;
   }
   const b     = _posCalcTotal(row);
-  const table = row.tableNum ? posTableLabel(row.tableNum) : '-';
+  const table = row.tableNum ? (posTableCustomName(row.tableNum) || posTableLabel(row.tableNum)) : '-';
   const opts  = cfg.extOptions || [];
   const advance = (typeof _posAdvancePrincipal === 'function') ? _posAdvancePrincipal(row) : 0;
   const advBd = (typeof _posAdvanceBreakdown === 'function') ? _posAdvanceBreakdown(row) : { principal: advance, extraFee: 0 };
@@ -23256,7 +23692,7 @@ function _receiptTotalsHtml(row, block) {
     rows.push({ label:'売掛', amount:Number.isFinite(urikake) ? urikake : cashTotal });
   }
   if (!rows.length) return '';
-  const tnum = row.tableNum ? escHtml(posTableLabel(row.tableNum)) : '';
+  const tnum = row.tableNum ? escHtml(posTableCustomName(row.tableNum) || posTableLabel(row.tableNum)) : '';
   return '<table class="sum">' + rows.map((item, index) => '<tr>'
     + (index === 0 ? '<td class="lbl" rowspan="' + rows.length + '">' + (row.gcount || 1) + '名様' + (tnum ? '<br>' + tnum : '') + '</td>' : '')
     + '<td class="k">' + item.label + '</td><td class="v">¥' + item.amount.toLocaleString() + '</td></tr>').join('')
@@ -26076,6 +26512,14 @@ function renderSettingsPanel() {
           <input type="number" class="settings-input" id="cfg-tableMax" value="${cfg.tableMax}" min="1" max="50"> 卓
         </div>
         <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:8px">
+          <div class="settings-label">卓の呼び名<div class="settings-sub">店での呼び方（例: A1、カウンター、奥ボックス）を付けると、POS・リスト表・伝票の表示がその名前になります。空欄は「1卓」「2卓」のまま。卓番号の上限を変えたときは、保存すると欄の数が合います</div></div>
+          <div class="table-name-grid">${Array.from({ length: Math.max(1, Number(cfg.tableMax) || 1) }, (_, i) => `<label class="table-name-item"><span>${i + 1}</span><input type="text" class="settings-input" id="cfg-tableName-${i + 1}" value="${escAttr(posTableCustomName(i + 1))}" placeholder="${i + 1}卓" maxlength="8" oninput="_settingsMarkDirty()"></label>`).join('')}</div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">会計後も卓に残す<div class="settings-sub">ON: 精算しても卓ビューに「会計済」として残り、残り時間が進む。「退店」を押すと空きに戻る／OFF: 精算と同時に卓が空く</div></div>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px"><input type="checkbox" id="cfg-posKeepTableAfterCheckout" ${cfg.posKeepTableAfterCheckout === true ? 'checked' : ''}> 退店を押すまで残す</label>
+        </div>
+        <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:8px">
           <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:13px">
             <input type="checkbox" id="cfg-vipEnabled" ${cfg.vipEnabled ? 'checked' : ''} onchange="vipSeatsToggle(this.checked)"> VIP席を使う
           </label>
@@ -26170,18 +26614,12 @@ function renderSettingsPanel() {
               <option value="0" ${posSpecialRoundUnit() === 0 ? 'selected' : ''}>従来どおり（1円未満切り捨て）</option>
             </select>
           </div>
-          <div id="pos-menu-editors">
-            ${[
-              ['shot',    shotLabel()],
-              ['bottle',  'ボトル'],
-              ['food',    'フード'],
-              ['bring',   '持込'],
-              ['discount','割引・割増'],
-              ['special', '特殊'],
-              ...resolvePosCatLayout(cfg).filter(cat => cat.key.startsWith('cust_')).map(cat => [cat.key, cat.label]),
-            ].map(([key, label]) => _posMenuEditorHTML(key, label, posCategoryItems(key, null))
-              + (key === 'shot' ? '<div class="settings-sub" style="margin:-8px 0 12px 8px">バック（円/%）を入れた銘柄はSPになり、指D/D（計数グループ）の対象外になります。空欄の銘柄は指D/Dの本数で数えます</div>' : '')
-              + (key === 'bottle' ? '<div class="settings-sub" style="margin:-8px 0 12px 8px">指名・通常のバックとも空欄の銘柄は、キャストに付けた時に店標準SP（給与計算ルール）でバックを付けます。バックはすべて日計表のSPに入ります</div>' : '')).join('')}
+          <div id="pos-menu-tabs" class="pos-me-tabs" role="tablist" aria-label="メニューのカテゴリ">${_posMenuTabsHTML(_posMenuEditorList())}</div>
+          <div id="pos-menu-editors" class="pos-me-tabbed">
+            ${_posMenuEditorList().map(([key, label], _index, list) => _posMenuEditorHTML(key, label, posCategoryItems(key, null), true)
+                .replace('class="settings-row pos-menu-editor"', 'class="settings-row pos-menu-editor' + _posMenuTabPanelClass(key, list) + '"')
+              + (key === 'shot' ? '<div class="settings-sub pos-me-hint' + _posMenuTabPanelClass(key, list) + '" data-for="shot" style="margin:-8px 0 12px 8px">バック（円/%）を入れた銘柄はSPになり、指D/D（計数グループ）の対象外になります。空欄の銘柄は指D/Dの本数で数えます</div>' : '')
+              + (key === 'bottle' ? '<div class="settings-sub pos-me-hint' + _posMenuTabPanelClass(key, list) + '" data-for="bottle" style="margin:-8px 0 12px 8px">指名・通常のバックとも空欄の銘柄は、キャストに付けた時に店標準SP（給与計算ルール）でバックを付けます。バックはすべて日計表のSPに入ります</div>' : '')).join('')}
           </div>
           <div class="settings-row" style="padding-bottom:10px;margin-bottom:12px;align-items:flex-start;flex-direction:column;gap:8px">
             <button type="button" class="pos-me-add-btn pos-cat-add-btn" onclick="posCatAdd()">＋ カテゴリを追加</button>
@@ -27259,6 +27697,14 @@ async function applySettings() {
   const defStay            = parseInt(get('cfg-defStay')?.value)            || cfg.defStay;
   const dohanStay          = parseInt(get('cfg-dohanStay')?.value)          || 60;
   const tableMax           = parseInt(get('cfg-tableMax')?.value)           || cfg.tableMax;
+  // 卓の呼び名: 画面に欄がある番号だけ書き換える（欄の無い番号の名前は消さない）
+  const tableNames = { ...((cfg.tableNames && typeof cfg.tableNames === 'object') ? cfg.tableNames : {}) };
+  for (let n = 1; n <= 50; n++) {
+    const el = get('cfg-tableName-' + n);
+    if (!el) continue;
+    const name = String(el.value || '').trim().slice(0, 8);
+    if (name) tableNames[n] = name; else delete tableNames[n];
+  }
   const vipEnabled         = !!(get('cfg-vipEnabled')?.checked);
   const vipFeePerGuest = !!(get('cfg-vipFeePerGuest')?.checked);
   const vipFeePerExtension = !!(get('cfg-vipFeePerExtension')?.checked);
@@ -27396,6 +27842,7 @@ async function applySettings() {
   const cardFeeRound    = parseInt(get('cfg-cardFeeRound')?.value)    || cfg.cardFeeRound;
   const advanceFeeCredit = get('cfg-advanceFeeCredit') ? !!get('cfg-advanceFeeCredit').checked : (cfg.advanceFeeCredit !== false);
   const tillFloat       = Math.max(0, parseInt(get('cfg-tillFloat')?.value) || 0);
+  const posKeepTableAfterCheckout = get('cfg-posKeepTableAfterCheckout') ? !!get('cfg-posKeepTableAfterCheckout').checked : (cfg.posKeepTableAfterCheckout === true);
   const discountAfterTax = !!(get('cfg-discountAfterTax')?.checked);
   // 延長・課金の店ルール
   const extAutoShimeiFee    = !!(get('cfg-extAutoShimeiFee')?.checked);
@@ -27541,7 +27988,7 @@ async function applySettings() {
     timeStartH, timeEndH, bizDayBoundaryHour: bizHour, defStay, dohanStay,
     clockInFrom, clockInTo, clockInStep,
     clockOutFrom, clockOutTo, clockOutStep,
-    tableMax, vipEnabled, vipSeats, vipFeePerGuest, vipFeePerExtension, vipFeePerExtensionPerGuest,
+    tableMax, tableNames, vipEnabled, vipSeats, vipFeePerGuest, vipFeePerExtension, vipFeePerExtensionPerGuest,
     extOptions, sources, conditions, staffNames, hqOutLabels, specialInLabels, rankVip, rankRepeat,
     birthdayAlertDays,
     setPrice, earlySetEnabled, earlySetFromH, earlySetToH, earlySetPrice,
@@ -27551,6 +27998,7 @@ async function applySettings() {
     extFeeOnHonshimei, extFeeOnJounai, extFeeOnEnchoshimei, extPrices, extPosHidden, extNames,
     extAutoShimeiFee, extBasePerSeat, extFeePerSeat, doubanAsHonshimeiExt, modoriHonshimeiAgg, modoriEnchoshimeiAgg,
     taxRate, taxRound, discountAfterTax, cardFeeRate, cardFeeRound, advanceFeeCredit, tillFloat,
+    posKeepTableAfterCheckout,
     showCountdown, fullscreenOnBoot, monitorEnabled, ownerExportEnabled, monitorEndpoint, monitorWriteToken, monitorReadToken, monitorOpsToken,
     monitorShopId: cfg.monitorShopId || '',
     posMenu, posCatLayout, posCatLabels, posItemLabels, posCustomCats, posPrices, shimeiExtItems, drinkItems, shotLabel,
