@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.62">
+<meta name="app-version" content="1.1.63">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -9232,7 +9232,7 @@ const CFG_DEFAULTS = {
   monitorOpsToken: '',      // 店外モニター操作トークン（初回有効化時に生成）
   monitorShopId: '',        // オーナーダッシュボード用の不変店舗ID（初回送信時に生成。shopId と同じ値）
   shopId:        '',        // 店舗ID（不変）。起動時に無ければ作る。店外モニター・ダッシュボード・保存データの meta で同じ値を使う
-  ownerExportEnabled: false, // オーナーダッシュボードへ客名を含む売上・顧客データを送る（店の同意が要る。店外モニターON中だけ動く）
+  ownerExportEnabled: false, // オーナーダッシュボードへ客名を含む売上・顧客データと日計表（出退勤・給与）を送る（店の同意が要る。店外モニターON中だけ動く）
   posMenu:         {},      // POSカスタムメニュー { shot:[{name,amount},...], bottle:[...], ... }
   posCatLayout:    [],      // POSカテゴリの並び・表示 [{key,visible}]。空=既定順・全表示
   posCatLabels:    {},      // 既定POSカテゴリの表示名の上書き { set:'セット料金', ... }。未設定=既定名
@@ -17764,6 +17764,74 @@ function _ownerMainTypeLabel(type) {
   return MAIN_TYPES[type]?.label || type || '';
 }
 
+/* 日計表（出退勤・給与）。粗利（売上 − キャスト給与）を日別に出すための材料（2026-10-04 オーナー決定。
+   送信は cfg.ownerExportEnabled の同意に含める）。
+   - 締め済みの日: 日次締めで凍結した値（ctx.frozen）をそのまま使う。あとで時給や設定を変えても過去の数字は動かない。
+   - 未締めの日: その日の出退勤（ctx.tt）から、日計表と同じ計算（computePayrollTable）で出す。
+   - 退勤していないキャストの時間給・日給は未確定なので空欄にする（日計表のCSV保存と同じ扱い）。 */
+function _ownerPayrollPart(rows, day, dayLabel, ctx) {
+  const columns = [
+    { key:'day', label:'営業日' }, { key:'castName', label:'社交名' },
+    { key:'in', label:'出勤' }, { key:'out', label:'退勤' }, { key:'workMin', label:'勤務分' },
+    { key:'wage', label:'時給' }, { key:'hourlyPay', label:'時間給' },
+    { key:'sp', label:'SP' }, { key:'backTotal', label:'バック合計' },
+    { key:'lateFee', label:'遅刻' }, { key:'nibarai', label:'日払い' }, { key:'dailyPay', label:'日給' },
+    { key:'deductionTotal', label:'控除計' }, { key:'netPay', label:'差引支給' },
+    { key:'sales', label:'売上' }, { key:'kyuuritsu', label:'給率(%)' },
+  ];
+  const frozen = ctx.frozen && Number(ctx.frozen.closedAt) > 0 ? ctx.frozen : null;
+  const checkouts = ctx.tt?.checkouts || {};
+  let castRows = [];
+  if (frozen) {
+    castRows = Array.isArray(frozen.castRows) ? frozen.castRows : [];
+  } else if (typeof computePayrollTable === 'function') {
+    const settled = rows.filter(row => row?.isFirst && row?.settled);
+    try {
+      castRows = computePayrollTable(settled, { dayKey:day, tt:ctx.tt || {}, activeCasts:ctx.activeCasts || [] }) || [];
+    } catch (e) {
+      console.warn('[OwnerExport] payroll table failed:', e);
+      castRows = [];
+    }
+  }
+  const number = value => Math.trunc(Number(value) || 0);
+  let castPay = 0;
+  let castWorkMin = 0;
+  let castCount = 0;
+  let castOpenCount = 0;   // 出勤しているのに退勤が入っていない人数。1人でもいる日は給与が出そろっていない
+  const payrollRows = castRows.map(value => {
+    const row = value || {};
+    const name = String(row.castName || '');
+    const hasOut = frozen ? !!row.roundedOut : !!checkouts[name];
+    const worked = !!row.roundedIn;
+    if (worked) { castCount++; castWorkMin += number(row.workMinutes); }
+    if (worked && !hasOut) castOpenCount++;
+    if (hasOut) castPay += number(row.dailyPay);
+    return {
+      day: dayLabel,
+      castName: name,
+      in: row.roundedIn ? formatWorkTime(row.roundedIn) : '',
+      out: row.roundedOut ? formatCheckoutTime(row.roundedOut) : '',
+      workMin: number(row.workMinutes),
+      wage: number(row.wage),
+      hourlyPay: hasOut ? number(row.hourlyPay) : '',
+      sp: number(row.sp),
+      backTotal: number(row.backTotal),
+      lateFee: number(row.lateFee),
+      nibarai: number(row.nibarai),
+      dailyPay: hasOut ? number(row.dailyPay) : '',
+      deductionTotal: number(row.deductionTotal),
+      netPay: hasOut ? number(row.netPay) : '',
+      sales: number(row.sales),
+      // 売上0の子の給率は出さない（締めた日の凍結値は 0、未締めの日は空、と表記が揺れるのを揃える）
+      kyuuritsu: row.kyuuritsu == null || row.kyuuritsu === '' || number(row.sales) === 0 ? '' : Math.round(Number(row.kyuuritsu) * 10) / 10,
+    };
+  });
+  return {
+    part: { columns, rows:payrollRows },
+    summary: { castPay, castCount, castOpenCount, castWorkMin, payrollClosed: frozen ? 1 : 0 },
+  };
+}
+
 function buildOwnerDayDataset(inputRows, dayKey, ctx = {}) {
   const rows = Array.isArray(inputRows) ? inputRows : [];
   const day = String(dayKey || '').replace(/-/g, '');
@@ -17908,11 +17976,15 @@ function buildOwnerDayDataset(inputRows, dayKey, ctx = {}) {
     urikake: stats.urikakeSum,
     avg: settledGuests > 0 ? Math.round(stats.total / settledGuests) : 0,
   };
+  const payrollResult = _ownerPayrollPart(rows, day, dayLabel, ctx);
+  // キャスト給与（退勤済みの日給の合計）・出勤人数・勤務分・締め済みか。粗利＝売上−キャスト給与はダッシュボード側で出す。
+  Object.assign(summary, payrollResult.summary);
   const list = { columns, rows:listRows };
   const orders = { columns:orderColumns, rows:orderRows };
+  const payroll = payrollResult.part;
   return {
     v:1, kind:'day', shopId:ctx.shopId || '', shopName:ctx.shopName || '', day,
-    generatedAt:Date.now(), hash:ownerDatasetHash([summary, list, orders]), summary, list, orders,
+    generatedAt:Date.now(), hash:ownerDatasetHash([summary, list, orders, payroll]), summary, list, orders, payroll,
   };
 }
 
@@ -18031,8 +18103,18 @@ const OwnerExport = (() => {
     const ctx = context();
     const currentDay = String(getLoadedDayKey() || '').replace(/-/g, '');
     const currentRows = Array.isArray(state.rows) ? state.rows : [];
+    // 日計表の材料: 締め済みの日は日次締めの凍結値、未締めの日はその日の出退勤。
+    // 日次締めのデータが壊れて読めないときは、周期のたびに読み直さない（読み直すたびに警告と退避コピーが増える）。
+    const closeStore = (typeof loadDailyClose === 'function' && !Persist.failedReads.has('dailyclose') ? loadDailyClose() : null) || {};
+    const frozenOf = day => (typeof _dailyCloseNormalizeFrozen === 'function'
+      ? _dailyCloseNormalizeFrozen((closeStore[day] || {}).frozen) : null);
     if (currentRows.length && !skippedDays.has(currentDay)) {
-      const dataset = buildOwnerDayDataset(currentRows, currentDay, ctx);
+      const dataset = buildOwnerDayDataset(currentRows, currentDay, {
+        ...ctx,
+        tt: typeof loadTimetableState === 'function' ? loadTimetableState() : {},
+        activeCasts: Array.isArray(state.activeCasts) ? state.activeCasts : [],
+        frozen: frozenOf(currentDay),
+      });
       if (dataset.hash !== synced.days[currentDay]) return send({ kind:'day', day:currentDay, dataset });
     }
 
@@ -18053,7 +18135,15 @@ const OwnerExport = (() => {
     let calculated = 0;
     for (const backup of backups) {
       if (skippedDays.has(backup.day)) continue;
-      const savedAt = backup.source.savedAt ?? '';
+      const frozen = frozenOf(backup.day);
+      const dayCtx = {
+        ...ctx,
+        tt: backup.source.timetableSnap || {},
+        activeCasts: Array.isArray(backup.source.activeCasts) ? backup.source.activeCasts : [],
+        frozen,
+      };
+      // 保存し直し（savedAt）に加えて、日次締め・再集計・日払いの修正で給与が変わったときも作り直す。
+      const savedAt = String(backup.source.savedAt ?? '') + '|' + (frozen && frozen.closedAt > 0 ? ownerDatasetHash(frozen) : '');
       const cached = backupHashCache.get(backup.day);
       let dataset = null;
       let hash;
@@ -18061,13 +18151,13 @@ const OwnerExport = (() => {
         hash = cached.hash;
       } else {
         if (calculated >= 10) break;
-        dataset = buildOwnerDayDataset(backup.rows, backup.day, ctx);
+        dataset = buildOwnerDayDataset(backup.rows, backup.day, dayCtx);
         hash = dataset.hash;
         backupHashCache.set(backup.day, { savedAt, hash });
         calculated++;
       }
       if (hash !== synced.days[backup.day]) {
-        dataset ||= buildOwnerDayDataset(backup.rows, backup.day, ctx);
+        dataset ||= buildOwnerDayDataset(backup.rows, backup.day, dayCtx);
         return send({ kind:'day', day:backup.day, dataset });
       }
     }
@@ -26381,7 +26471,7 @@ function renderSettingsPanel() {
         </div>
         </div>
         <div class="settings-row">
-          <div class="settings-label">オーナーダッシュボードへ売上・顧客データも送る<div class="settings-sub">リスト表（客名・注文の明細を含む）と顧客一覧（メモ・誕生日・職業・勤務先などを含む）を運営者のサーバーへ送り、400日保存します。お店の同意を得てからONにしてください。店外モニターが有効な時だけ送ります</div></div>
+          <div class="settings-label">オーナーダッシュボードへ売上・顧客・給与データも送る<div class="settings-sub">リスト表（客名・注文の明細を含む）、顧客一覧（メモ・誕生日・職業・勤務先などを含む）、日計表（キャストの出勤・退勤・時給・バック・日給）を運営者のサーバーへ送り、400日保存します。お店の同意を得てからONにしてください。店外モニターが有効な時だけ送ります</div></div>
           <label style="display:flex;align-items:center;gap:6px;min-height:44px;cursor:pointer">
             <input type="checkbox" id="cfg-ownerExportEnabled" ${cfg.ownerExportEnabled === true ? 'checked' : ''}>
             <span>送る</span>
