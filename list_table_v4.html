@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.64">
+<meta name="app-version" content="1.1.65">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -6922,6 +6922,7 @@ function _baseMainType(t) {
    PC内保存のキー（Persist.KEYS）・USBのファイル名（UsbStore.FILES）・JSON書き出し・JSON読み込みの
    対象はすべてここから導く。以前は一覧が4か所に分かれていて食い違い、listWhite だけUSBのファイル名が
    無く「undefined」という名前のファイルに保存されていた（2026-10-02 SaaS下準備A1で一本化）。
+   - label:    設定画面に出す名前（保存データの大きさの一覧）
    - key:      PC内保存（localStorage）のキー
    - file:     USB保存のファイル名
    - legacyFiles: 旧版が書いていたファイル名。新しい名前のファイルが無いときだけ読む（書くのは file だけ）
@@ -6930,27 +6931,41 @@ function _baseMainType(t) {
    保存データを足すときは、ここに1行足すだけで4つの一覧すべてに入る。
 ================================================================ */
 const STORAGE_LEDGER = {
-  listState:   { key:'nightlist__state_v2',          file:'listState.json',     export:true,  import:'raw' },
-  backups:     { key:'nightlist__backups_v2',        file:'backups.json',       export:true,  import:'raw' },
-  customers:   { key:'nightlist__customers_v1',      file:'customers.json',     export:true,  import:'raw' },
-  bottles:     { key:'nightlist__bottles_v1',        file:'bottles.json',       export:true,  import:'raw' },   // ボトルキープは機能削除済み。既存データ保全のため残す
-  urikake:     { key:'nightlist__urikake_v1',        file:'urikake.json',       export:true,  import:'raw' },
-  dailyclose:  { key:'nightlist__dailyclose_v1',     file:'dailyclose.json',    export:true,  import:'raw' },
-  payslips:    { key:'nightlist__payslips_v1',       file:'payslips.json',      export:true,  import:'raw' },
-  settings:    { key:'nightlist__cfg_v1',            file:'settings.json',      export:true,  import:'raw' },
-  timetable:   { key:'nightlist__timetable_v1',      file:'timetable.json',     export:true,  import:'raw' },
-  devTime:     { key:'nightlist__dev_v1',            file:'devTime.json',       export:true,  import:false },   // デモ中の時刻上書き。起動のたびに破棄する
-  recovery:    { key:'nightlist__recovery_v1',       file:'recovery.json',      export:true,  import:false },   // 上書き・削除で失われた営業日スナップの退避先（データ復旧用）
-  slipCounter: { key:'nightlist__slip_counter_v1',   file:'slipCounter.json',   export:true,  import:'raw' },
-  deletedSlips:{ key:'nightlist__deleted_slips_v1',  file:'deletedSlips.json',  export:true,  import:'raw' },
-  theme:       { key:'nightlist_theme',              file:'theme.json',         export:true,  import:'theme' }, // テーマ選択（export/importに含めて店舗設定として持ち運べる）
-  themeSelection: { key:'nightlist__theme_selection_v1', file:'themeSelection.json', export:true, import:false }, // テーマを明示選択した印。読み込み時はテーマと一緒に立てる
-  listWhite:   { key:'nightlist__list_white_v1',     file:'listWhite.json',     legacyFiles:['undefined'], export:true, import:'raw' }, // リスト表の白背景（現場要望 2026-08-29）
-  displayMode: { key:'nightlist_display_mode',       file:'displayMode.json',   export:true,  import:false },   // 表示モード（desktop/tablet）
-  auth:        { key:'nightlist__auth_v1',           file:'auth.json',          export:false, import:false },   // ログインのパスワード情報（ハッシュ）
-  authRecovery:{ key:'nightlist__auth_recovery_v1',  file:'authRecovery.json',  export:false, import:false },   // ログインのリカバリーコード
-  meta:        { key:'nightlist__meta_v1',           file:'meta.json',          export:true,  import:false },   // 保存データの版番号・店舗ID（起動時に書き直す）
+  listState:   { label:'今日のリスト・キャスト名簿', key:'nightlist__state_v2',          file:'listState.json',     export:true,  import:'raw' },
+  backups:     { label:'過去の営業日', key:'nightlist__backups_v2',        file:'backups.json',       export:true,  import:'raw' },
+  customers:   { label:'顧客', key:'nightlist__customers_v1',      file:'customers.json',     export:true,  import:'raw' },
+  bottles:     { label:'ボトルキープ（旧機能）', key:'nightlist__bottles_v1',        file:'bottles.json',       export:true,  import:'raw' },   // ボトルキープは機能削除済み。既存データ保全のため残す
+  urikake:     { label:'売掛', key:'nightlist__urikake_v1',        file:'urikake.json',       export:true,  import:'raw' },
+  dailyclose:  { label:'日次締め', key:'nightlist__dailyclose_v1',     file:'dailyclose.json',    export:true,  import:'raw' },
+  payslips:    { label:'給与明細', key:'nightlist__payslips_v1',       file:'payslips.json',      export:true,  import:'raw' },
+  settings:    { label:'設定', key:'nightlist__cfg_v1',            file:'settings.json',      export:true,  import:'raw' },
+  timetable:   { label:'出退勤', key:'nightlist__timetable_v1',      file:'timetable.json',     export:true,  import:'raw' },
+  devTime:     { label:'デモ用の時刻', key:'nightlist__dev_v1',            file:'devTime.json',       export:true,  import:false },   // デモ中の時刻上書き。起動のたびに破棄する
+  recovery:    { label:'消えた営業日の控え', key:'nightlist__recovery_v1',       file:'recovery.json',      export:true,  import:false },   // 上書き・削除で失われた営業日スナップの退避先（データ復旧用）
+  slipCounter: { label:'伝票番号の続き', key:'nightlist__slip_counter_v1',   file:'slipCounter.json',   export:true,  import:'raw' },
+  deletedSlips:{ label:'削除した伝票', key:'nightlist__deleted_slips_v1',  file:'deletedSlips.json',  export:true,  import:'raw' },
+  theme:       { label:'テーマ', key:'nightlist_theme',              file:'theme.json',         export:true,  import:'theme' }, // テーマ選択（export/importに含めて店舗設定として持ち運べる）
+  themeSelection: { label:'テーマ選択の印', key:'nightlist__theme_selection_v1', file:'themeSelection.json', export:true, import:false }, // テーマを明示選択した印。読み込み時はテーマと一緒に立てる
+  listWhite:   { label:'リスト表の白背景', key:'nightlist__list_white_v1',     file:'listWhite.json',     legacyFiles:['undefined'], export:true, import:'raw' }, // リスト表の白背景（現場要望 2026-08-29）
+  displayMode: { label:'表示モード', key:'nightlist_display_mode',       file:'displayMode.json',   export:true,  import:false },   // 表示モード（desktop/tablet）
+  auth:        { label:'ログイン情報', key:'nightlist__auth_v1',           file:'auth.json',          export:false, import:false },   // ログインのパスワード情報（ハッシュ）
+  authRecovery:{ label:'リカバリーコード', key:'nightlist__auth_recovery_v1',  file:'authRecovery.json',  export:false, import:false },   // ログインのリカバリーコード
+  meta:        { label:'保存データの版番号', key:'nightlist__meta_v1',           file:'meta.json',          export:true,  import:false },   // 保存データの版番号・店舗ID（起動時に書き直す）
 };
+
+/* 変わらないID（32桁の16進）。店・客・キャストに付ける。名前を変えても同じ相手を指し続けるための印で、
+   保存データのキーは名前のまま（2026-10-04 SaaS下準備A5）。 */
+function newStableId() {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('');
+}
+
+/* 保存時刻。画面に出す文字列（従来どおり）と、並べ替え・同期に使える時刻（ISO 8601・UTC）を同じ瞬間から作る。
+   savedStamp('savedAt') → { savedAt:'2026/10/4 21:30:00', savedAtIso:'2026-10-04T12:30:00.000Z' }（2026-10-04 SaaS下準備A6） */
+function savedStamp(field, date = new Date()) {
+  return { [field]: date.toLocaleString('ja-JP'), [field + 'Iso']: date.toISOString() };
+}
 
 /* 保存データの形式の版。旧版のアプリが読めない形に変えたときだけ上げる。
    これより新しい版のデータを読んだら、壊さないよう保存を止める（2026-10-02 SaaS下準備A4）。 */
@@ -7357,8 +7372,8 @@ const UsbStore = {
     const archived = {
       ...listState,
       dayKey: listState.bizDayKey || getBizDayKey(),
-      savedAt: listState.savedAt || new Date().toLocaleString('ja-JP'),
-      archivedAt: new Date().toLocaleString('ja-JP'),
+      ...(listState.savedAt ? {} : savedStamp('savedAt')),
+      ...savedStamp('archivedAt'),
     };
     const recovery = [archived, ...targetRecovery, ...currentRecovery];
     while (recovery.length > 90) recovery.pop();
@@ -9508,13 +9523,7 @@ function saveCfg() {
 function ensureShopId() {
   if (cfg.shopId) return false;
   if (Persist.failedReads.has('settings') || Persist.writeBlockedReason) return false;
-  if (cfg.monitorShopId) {
-    cfg.shopId = cfg.monitorShopId;
-  } else {
-    const bytes = new Uint8Array(16);
-    crypto.getRandomValues(bytes);
-    cfg.shopId = Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('');
-  }
+  cfg.shopId = cfg.monitorShopId || newStableId();
   saveCfg();
   return true;
 }
@@ -10161,7 +10170,7 @@ function autoSave() {
     // 手動保存と同じく出退勤の記録も入れる。以前は入れていなかったため、2分ごとにその日のバックアップから
     // 出退勤が消え、その日を過去日として開くと時間給が0円になっていた（2026-09-28 総点検 B4）
     timetableSnap: loadTimetableState(),
-    savedAt: new Date().toLocaleString('ja-JP'),
+    ...savedStamp('savedAt'),
     guests, sales,
   };
   const backups = loadBackups();
@@ -10326,7 +10335,7 @@ function _archiveLostSnaps(oldArr, newArr) {
     const next = newByKey.get(old.dayKey);
     const nextRows = next ? (next.rows || []).length : -1;  // -1 = その日が消える
     if (nextRows < oldRows) {                           // 行数が減る（空・削除含む）→ 損失
-      lost.push({ ...old, archivedAt: new Date().toLocaleString('ja-JP') });
+      lost.push({ ...old, ...savedStamp('archivedAt') });
     }
   }
   if (!lost.length) return;
@@ -10356,7 +10365,7 @@ async function manualSave() {
     allCasts: state.allCasts, activeCasts: state.activeCasts,
     manualSort: state.manualSort,
     timetableSnap: loadTimetableState(),   // その日のタイムテーブル状態も保存
-    savedAt: new Date().toLocaleString('ja-JP'),
+    ...savedStamp('savedAt'),
     guests, sales,
   };
 
@@ -10419,7 +10428,7 @@ function saveBackupForKey(dayKey) {
     allCasts: state.allCasts, activeCasts: state.activeCasts,
     manualSort: state.manualSort,
     timetableSnap: loadTimetableState(),
-    savedAt: new Date().toLocaleString('ja-JP'),
+    ...savedStamp('savedAt'),
     guests, sales,
   };
   if (existing >= 0) {
@@ -10783,7 +10792,7 @@ async function restoreFromRecovery(idx) {
   const ok = await appConfirm(`${bizKeyToLabel(snap.dayKey)}（入客${guests}人）を復元しますか？\n\n` +
     `この日に今保存されているデータは、この控えで置き換わります。`, { danger: true });
   if (!ok) return;
-  const { archivedAt, ...clean } = snap;   // 退避メタは外して書き戻す
+  const { archivedAt, archivedAtIso, ...clean } = snap;   // 退避メタは外して書き戻す
   const backups  = loadBackups();
   const existing = backups.findIndex(b => b.dayKey === clean.dayKey);
   if (existing >= 0) backups[existing] = clean;
@@ -11655,6 +11664,7 @@ function addCast() {
   if (!name || state.allCasts.includes(name)) { inp.value=''; return; }
   // 名簿（マスタ）へ登録するだけ。出勤マークは「出勤キャスト」タブで行う。
   state.allCasts.push(name);
+  getCastProfile(name);   // 名簿に入れた時点でIDを付ける
   inp.value = '';
   renderCastPanel(); renderTable(); saveState();
   if (typeof renderCastMgmt === 'function') renderCastMgmt();
@@ -11715,7 +11725,21 @@ function ensureCastStores(){
 function getCastProfile(name){
   ensureCastStores();
   if (!state.castProfiles[name]) state.castProfiles[name] = {};
-  return state.castProfiles[name];
+  // 変わらないID（2026-10-04 SaaS下準備A5）。保存のキーと各画面の参照はキャスト名のまま
+  const profile = state.castProfiles[name];
+  if (typeof profile === 'object' && !profile.id) profile.id = newStableId();
+  return profile;
+}
+/* 名簿・退店リスト・単価データにいる全キャストにIDを付ける。付けた人数を返す（保存は呼び出し側）。 */
+function ensureCastIds(){
+  ensureCastStores();
+  const names = new Set([...(state.allCasts || []), ...state.retiredCasts, ...Object.keys(state.castProfiles)]);
+  let count = 0;
+  names.forEach(name => {
+    if (!name || state.castProfiles[name]?.id) return;
+    if (getCastProfile(name).id) count++;
+  });
+  return count;
 }
 function setCastPay(name, field, value){
   getCastProfile(name)[field] = (value === '' ? '' : (Number(value) || 0));
@@ -25388,7 +25412,7 @@ async function savePastDay() {
     ...(idx >= 0 ? backups[idx] : {}),
     ...pastState,
     dayKey: pastDayKey,
-    savedAt: new Date().toLocaleString('ja-JP'),
+    ...savedStamp('savedAt'),
     guests, sales,
   };
   if (idx >= 0) {
@@ -25515,7 +25539,7 @@ function createNewPastDay() {
     rotCols: 3, extCols: 5,
     allCasts:    state.allCasts,
     activeCasts: state.activeCasts,
-    savedAt: new Date().toLocaleString('ja-JP'),
+    ...savedStamp('savedAt'),
     guests: 0, sales: 0,
   };
   backups.unshift(snap);
@@ -26822,6 +26846,11 @@ function renderSettingsPanel() {
             <button type="button" class="btn" onclick="openImportDialog()">📥 読み込み</button>
           </div>
         </div>
+        <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:8px">
+          <div class="settings-label">📏 保存データの大きさ<div class="settings-sub">保存先にあるデータごとの大きさを調べます（見るだけで、データは変わりません）</div></div>
+          <div><button type="button" class="btn" onclick="settingsShowStorageSizes()">大きさを調べる</button></div>
+          <div id="storage-size-report" style="width:100%"></div>
+        </div>
         <div class="settings-row">
           <div class="settings-label">🔄 アプリ更新<div class="settings-sub">現在バージョン: ${escHtml(appVersion)}</div></div>
         </div>
@@ -27011,6 +27040,49 @@ function renderSettingsPanel() {
   // キャスト管理一覧: アコーディオン廃止（2026-08-20仕様B）につき常時描画。
   // 旧仕様はtoggleCastMgmt()が開閉時にだけ描画していたが、その関数ごと撤去したためここで描く。
   if (typeof renderCastMgmt === 'function') renderCastMgmt();
+}
+
+/* 保存データの大きさ（2026-10-04 SaaS下準備A7）。保存先に書いている文字列そのものの大きさ（UTF-8のバイト数）を数える。読むだけ。
+   過去の営業日は1つのファイルにまとめて丸ごと書き直しているので、1日あたりの大きさも出す。 */
+function storageSizeReport() {
+  const rows = Object.entries(STORAGE_LEDGER).map(([name, entry]) => {
+    const raw = UsbStore.readSync(name);
+    // 'null' は「消した」印（中身なし）なので一覧に出さない
+    return raw == null || raw === 'null' ? null : { name, label: entry.label, file: entry.file, bytes: new Blob([String(raw)]).size };
+  }).filter(Boolean).sort((a, b) => b.bytes - a.bytes);
+  let backupDays = 0;
+  try {
+    const backups = JSON.parse(UsbStore.readSync('backups') || 'null');
+    if (Array.isArray(backups)) backupDays = backups.length;
+  } catch (_) {}
+  const backupBytes = rows.find(row => row.name === 'backups')?.bytes || 0;
+  return {
+    rows,
+    totalBytes: rows.reduce((sum, row) => sum + row.bytes, 0),
+    backupDays,
+    bytesPerDay: backupDays ? Math.round(backupBytes / backupDays) : 0,
+  };
+}
+function formatBytes(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / 1024 / 1024).toFixed(2) + ' MB';
+}
+function storageSizeReportHtml(report) {
+  if (!report.rows.length) return '<div class="settings-sub">保存されているデータはまだありません。</div>';
+  const cell = 'padding:3px 10px;border-bottom:1px solid var(--bdr)';
+  const body = report.rows.map(row =>
+    `<tr><td style="${cell}">${escHtml(row.label)}<span style="color:var(--tx3);margin-left:6px">${escHtml(row.file)}</span></td>`
+    + `<td style="${cell};text-align:right;white-space:nowrap">${formatBytes(row.bytes)}</td></tr>`).join('');
+  const perDay = report.backupDays
+    ? `<div class="settings-sub" style="margin-top:6px">過去の営業日は ${report.backupDays} 日分で、1日あたり約 ${formatBytes(report.bytesPerDay)} です。</div>`
+    : '';
+  return `<table style="border-collapse:collapse;font-size:12px;color:var(--tx)">${body}`
+    + `<tr><td style="${cell};font-weight:700">合計</td><td style="${cell};text-align:right;font-weight:700;white-space:nowrap">${formatBytes(report.totalBytes)}</td></tr></table>${perDay}`;
+}
+function settingsShowStorageSizes() {
+  const box = document.getElementById('storage-size-report');
+  if (box) box.innerHTML = storageSizeReportHtml(storageSizeReport());
 }
 
 async function usbSettingsActivate() {
@@ -28798,7 +28870,7 @@ async function exportAllData() {
   const data = exportableData();
   const exportData = {
     version: '2.3',
-    exportedAt: new Date().toLocaleString('ja-JP'),
+    ...savedStamp('exportedAt'),
     shopId: cfg.shopId || '',
     data,
   };
@@ -28843,6 +28915,30 @@ function loadCustomers() {
 }
 function saveCustomers(data) {
   return Persist.write('customers', data);
+}
+
+/* 客に変わらないIDを付ける（2026-10-04 SaaS下準備A5）。保存のキーと各画面の参照は客名のまま。
+   名前を変えてもIDは同じ。統合したときは統合先のIDが残る。IDの無い客にだけ付け、付けた人数を返す。 */
+function ensureCustomerIds(customers) {
+  let count = 0;
+  Object.values(customers || {}).forEach(customer => {
+    if (!customer || typeof customer !== 'object' || customer.id) return;
+    customer.id = newStableId();
+    count++;
+  });
+  return count;
+}
+/* 起動時とJSON読み込みの後に、客とキャストへIDを付けて保存する。
+   キャストは今日のリストと同じデータに入っている。saveState() で保存すると営業日の印（bizDayKey）が今日に書き換わり、
+   締め忘れの確認を見送ったあと次の起動で確認が出なくなるので、保存済みのデータのキャスト単価だけを差し替えて書く。 */
+function ensureStableIds() {
+  if (Persist.writeBlockedReason) return;
+  if (ensureCastIds() && !Persist.failedReads.has('listState')) {
+    const stored = Persist.read('listState');
+    if (stored) Persist.write('listState', { ...stored, castProfiles: state.castProfiles });
+  }
+  const customers = loadCustomers();
+  if (ensureCustomerIds(customers)) saveCustomers(customers);
 }
 
 function computeStayMin(row) {
@@ -29141,7 +29237,9 @@ function syncCustomers() {
     });
 
     rebuilt[name] = {
-      name, visits, totalSpend,
+      name,
+      ...(existingFull[name]?.id ? { id: existingFull[name].id } : {}),
+      visits, totalSpend,
       avgSpend:       visits > 0 ? Math.round(totalSpend / visits) : 0,
       avgStayMin:     stayValues.length ? Math.round(stayValues.reduce((s, v) => s + v, 0) / stayValues.length) : 0,
       dates,
@@ -29172,6 +29270,7 @@ function syncCustomers() {
   });
 
   const merged = { ...existingFull, ...rebuilt };
+  ensureCustomerIds(merged);
   saveCustomers(fillMissingCustomerKana(merged).customers);
 }
 
@@ -30348,7 +30447,7 @@ function registerCustomerProfile(name, kana) {
   const data = loadCustomers();
   if (Object.prototype.hasOwnProperty.call(data, name)) return { error:'既存の顧客がいます。リストから選択してください。', duplicate:true };
   const candidates = customerKanaCandidates(name);
-  const profile = { name, name2:String(kana || '').trim() || (candidates.length === 1 ? candidates[0] : ''), visits:0 };
+  const profile = { name, id:newStableId(), name2:String(kana || '').trim() || (candidates.length === 1 ? candidates[0] : ''), visits:0 };
   if (!saveCustomers({ ...data, [name]:profile })) return { error:'顧客情報を保存できませんでした。もう一度お試しください。' };
   return { name };
 }
@@ -30487,6 +30586,7 @@ function reloadAfterImport() {
   migrateShimeiExtModel();
   ensureShopId();
   writeStorageMeta();
+  ensureStableIds();
 }
 
 function openImportDialog() {
@@ -30573,6 +30673,7 @@ function onImportFileSelected(input) {
         if (legacyBackups)  saveBackups(legacyBackups);
         if (legacyCust)     saveCustomers(legacyCust);
         if (legacySettings) { cfg = mergeCfgDefaults(legacySettings); saveCfg(); }
+        ensureStableIds();
       }
 
       undoStack = [];
@@ -30859,6 +30960,7 @@ async function __boot() {
   // 店舗IDの保存は設定の移し替えの後。先に保存すると、移し替え前の既定料金が入った設定が残りうる（2026-10-02 Fableレビュー）
   ensureShopId();
   writeStorageMeta();
+  try { ensureStableIds(); } catch (e) { console.error('[init] stable ids failed:', e); }
   renderTable();
   renderCastPanel();
   refreshHistoryBtns();
