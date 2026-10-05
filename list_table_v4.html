@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.65">
+<meta name="app-version" content="1.1.66">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -7910,7 +7910,49 @@ function isFullscreenOnBootEnabled() {
   return cfg.fullscreenOnBoot !== false;
 }
 
+/* ================================================================
+   起動画面のロゴ（2026-10-05）
+   マーク（白いNと金色の縦棒）は、公式ロゴ web/official-site/assets/nightlist-mark-transparent.png を図形でなぞったもの
+   （720×489 の座標。重ねて比べて輪郭が合うことを確認済み）。Nと縦棒を別の層にして、開くときに順に出す。
+   「NIGHTLIST」の文字は、公式ロゴ nightlist-logo-app.png から切り出した画像（字形を変えないため）。
+================================================================ */
+const NIGHTLIST_WORDMARK_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAggAAAAzCAYAAADy3vAkAAAZEElEQVR42u2df7QkVXHHP9Uz+5tfZkFRQRHcKCaYiMoRCUFMCCpGxWA8ITGQSFQQBBGNoEfBqAngj3AUQRSIETARxSCr4Yca3KBxFSEIggcCKAhrlh+ru8Due2+6K390Xba86Zk3v6d7Xtc5fd57M296uvveW/dbVd+qglpqqaWWWmqppZZaaqmlllpqqaWW+UTiF1Q1KXo9vC0i2bAvQlUFSPxLdg0j+b4hXrMUPM9MRLTqE8PNA7UDf192/34OlXq8uhzP/79ARjCWRd9VxjnTyzNp97+93J8/xzSsoVomPm+lYP+q59UgAKGbh18/5KleWA0DOVmf52iYgk/rJ9r9+inbujKAGMA6DizOpzO0g56RLj6nZQQJNq+Lrj+dFn0YGT3+Xktv9DjdhYi05hnHxO6p1lF9eBCeCTwBSMMDBzKgCTwgIncNW5mp6nLgmWFzsiMBtgB3lNEqVdUnAjsCc3atCbAYuEdENlRRMfjnrKq7AE8Cngc8F9gNWGnzYBbYAKwD7gN+BNwFrBORB6JNphKo3eZgYvNebS4uAjYOe/7F60dVk/AdNQCvpZbegWy8RlV1e2CZ28NmgUdEZHM3ny+b125sgCDSPRIrLVW9Hnh+m8+vB14qIj9W1cagCCycQ1UPBK60DTazTXcx8D/AASKyzivRMliAqvpR4GjgUdtIEmAFcIqInF6W6+3ifpoBcavqtsChwEuBAwwUdCst4CfAt4FvAFeE+TGMuTLisVwBfAZ4hoFSMSC0DHi7iKwZ9B7CfFDVg4HjTWGJ/VwBXCUiZwUFMUmQYNfwjwYIsyjUlDkQFWSRPS9xCjmeG3P2s2Wf9zqoCSyx84j9/iERuWGS68jNjwbwOmAnNz8wHfVl00+VB3aq+iRglY3PYnu5CdwsIuvLdI8hLO10zK7Aq2wN7w48DdjW5hTAZuAh4A7gbuAG4BoRmSuzjpq0NItcZqYENHI3pcATgX9S1f1soQ9LMjtfUBCLneJolvTZLbINZFn0+uKKIe+Wqu4IHGXHHpHbN+vCNRzG6rftOAa4UVXPBy4SkY0lB0wNYG/gWQXvPaXfcFwbb91vAi9vs+7Osg1JmLxn8c22UU9KLjElPunnoMB2wGk2drHcaZ40aRNeqYIuCJvjnwJn2JpvOJ18rAHopgG9iesu0yWpqj4POBE42ADcfLK/W293quolwGdF5L5JeTwdEF0OnEPusZ2xMVA3r4KnOoS7xOlgjf7X6+/M/e7PJW7eLgV+BhwuIo+Ga2q2QfvB1ZpEYCIFXgCcKiKnGLIeRnxqzi7e32xScMOlWld2pC40khhSrYpCQFXfAJwM7OnuK3UTyIeZNFKenlzqLcymbbh7A0eq6gdEZHWJQcIs8Cu7bz/vg4U/TNkUgeuWPa8NZXAxOvmleRB0COCoFwnr6ZGSrPEgj0ThTzG9tWWKDMaWbRRe5zfKZPQ4r/N2wLuAkxyQzdw+UkQiVzefGwb4TgWOUtX3iciFEwaiy4B9gGdP6DqeZmP9aCcPQtbBYgrA4d2qulZELjeQkA5pIUqHDaiMVqcUHGnZPQe2wHYCPgq8wSnmxM0LjTwISQeFLpG72KPZFwKX2wL8UIl5CR4MJQWvDXPeNKONtzmC7xnG80h6BAjJPGC6W12QDNlDOaxxSyLdVPr13qP+nYk20dTNgTLprlXARbaZ4nSUOKu7aF8RB+7UfXYX4AJV3d104sYJGTIKPOY86uPyngfQuyE2cDsBhE5KQ4BzVfUGEbl3CJZh1mYSJmO2XnqRThtmqT0Hqrq3LbA93Xg33CRtuZhykPvtmDXEvgLY1X5SYBFLZBF+UFV3Bk7owHYvg6U4cKbPAN9VJlk+RHAuA4CMMqx/mUd3MUWkdSkAQWXhC2WquhtwBXk4sOWAm7rQiHTppSIixr8X+L6IXDEhTkLmQvy96IpGGz2T9jCX1XT7nOdANfuY8AFZ7gx8RlUPGTH7WiqWIpqWHBzsC3yFPEMhjSZXQJJNcpfqD4HPAzcBv2Cre7xprqjtyTkLBwCvBJ5j78WIPnxmVUlTpsapCJNOr5eBg2CK+DJb41uiWGfq4tCZu58V5HHgZgE/5XpyglgziotmjrQ4544VwL0VA1QLMu19nNemqk3gbAcOmtE8a5AT6dcA3zGDJiXnET0X2I+cxLg00lEhLHoOcLV5ObMJGChKTqxsDmksez3PdnRBUpzPDeFDDQcD7xCRM2zwWiN4cFnJ3XKltyica2534GIDB7ELK4CFLcBngQtFZD6S2APkmSZXqep7yMl3xzoSXvAMNYHV5CSoqqXy6ZgAQrm0scgRfcyz9eREMY3qJhwtItf3C1bqfZuyekvHbdy8GniF8xx4cLCZPPPmYyLyYIfMh/2AN7E1tDprxs4VwPEiMjdB/fQIOUl0VxfeyZzR6cH1YscbOMJxRwLIexi4wIH6WffZNDrXHLlX+Bf2nKWTB0E6TBKNuAEZ8H5V/aaI/HCAUEO7UEKZN5GsCgDBFoUagLvIEHQaoe/w97eAdwZg4IrlFI1HUZWyr6vqlcBbgdPZmuFxFTk7dnMF08F0BLHsylaWpLeMKN16uscL2aRdWLBl46goC8OTkZQtLGbzJjNd9JZoDwrXtQU4QkQubaO3vI66DrhOVa8BPk5OxP0G8GcGDsZOpA5z3UIaF/b4fFYChxioyByH5y4ReeegtRCaXUySMCD3m6smHqDlwL9Y6uNDfT7gTgChrBZEVSybELv7ILBvgecgWPgXAm+1TbzZRTVFbVOlLBORT6jq94EvAzcDrxeRTSXOYpAOr2VjSC0u46TRHhVVOt/5NEeHOgX8DBZYiGHixXuszsEBEXE4bIYfF5FLVXUxMNdJxxh4SETk86p6O3AccJKl9k1cP5nulS7WRzDYd2iXUODOpV2cM5TKb82nrKRgI2yQp5QcBrzGhRtCqOGZwJkicoSqNvqwEtsBhLSCIYay1TpQVd0LeFvkmvNhhXOBY0JRmE6lSudZyKmqip1jrar+PvBQBeogdMrSkGm30ka4wUjZibt9eBC05LH6aZubYYN7Cbkb3D//sP+ca7pubr59x3RQZvpoLbDWkyBLAMxbPRZem2lTm0Ktxs1AHtuki8mgrhLVieT54kTs9xT4S1U90twkyZA8CLUMqNhscnyE3N2fRJZxg5yweIxbJOmgaN+AQiIid4nIr8qy+EpOUtSS1UEo8zOcNLu/cpySLoGdlBQgADw9upagT24xIyTrg4ib2FHlKpgj9bInPUyG3xCRu82TkLRxd3xEVVeFDWLKSYpSZhKabdCqqvuQl07WiI0u5Hmvb7HFMdRF4hZgFRZfJ/5LsoCY4gwYOpF5wjQ6Ze73aQFFWoHx2Yb2Bb2yfnWUHdMY2srGzU4NBLPzgPNd/iguVWQlcHbomFVha2gaNoAwtke5KpgSFRZ5v9VYb4zCwq/Y4hsX4NMpDTHE+ec6RfcmQ0wlW0iE3FFueL50+ZIFuteMfCyTXtj5rnHJCeSNeRIXXwyA4SDyBjetHjZLrYHA0L0HLVV9KnkqqrqxDvyR24CLA0+hXk9jewataQIITjE3OngQpgEgJAvAI6QlvqZ7CsIhCjwZeJEZIgm1TCzEEBRbIiKPkMetW1G6SSiidJqq7hPczHUa0cTAy17kebJZBBAEWC0iDwONOte8o6JvOo9Y30f4fFXSHIfMrdApiM3XAGGy8t0Cgqi60PYKC203QmizVmnjBQiPu6fNJf0fwPtcPQT/P8uBC61LYDfEq3allssc45MSK4wwHvsVuHqb5HnDl4cc43oZdOQgbBaRVERmXcyynyOkXz3Yro5EHVqrN9WSjqGW4PneDtxX0N1Qgd8CrlDVPW2tBm93c0hcuCp6t3RUOdnSRYGXzKyqM4EDycMKIWUuZDU8BzhdRN7YhRs7q6D1IRXIYd+/Dch6QES+02/WwhAWnZacm+Cf14Gq+gB5FsimgpapiVukoT35EraS9hJXjGoj8OIFkC5XA4QaIAyzBkKo8PrPwCn8ei2XYKAeCKxR1U8AXwJuCymDZghJRXTPsMYtHTdASOKiJzYwbwa+BzzRubIDSPhrVV0jIp9T1WaHHE+tLdmRxIZXFcSCQ9GrgciHU5zGFq+DY+1oB1rnSxHrdlFX/ZlmU7yB1iHQcsgngL8gD5umUffVFNgROI080+4aVb0auE5EbvbjZwWE0ikBCu1KBGQTAwg+jU1E7lbV44BLoiqLwX19pqr+QERu7VAsZ5oWn5Yo7WxZm/d+OgDw2B443iH3eHPNnEJNXeWzRWxt6nOhiNxS8uJJ7cpLS5eWlvaYb15vQHUOeu0VbV+ALRGRX6jq3wBfJffSpW6DbLjxWEFe0O81wC9V9QbgSvJ+MHeKyKwvJFenOfYGEJJu+QoGEpoi8kVVfRHwdofswgayE/ApVT0ISNvkxbfjIJQZuWtZPQf2fLfpsOAfjJjAvZz3GYbSB5E7yAucJCVSsDrERdcJRMg0WdpuLWdTHj7IFnB5aC3BPAsG6dWq+lrycMNK156+UQAUhLwU8UvteB/wXVX9EvA1EbnfN4Oqx6Y7MNBruc1QFOnd5C02fX2E4Po5AHivWYuNKXfhaQUq220e4LwbyUt7Zn0cs67Fb1XQtkQNyro5pMMxrdKa4s1yoXh3sjJ7FhxI+Do5v+rLrlWzRIZmw/F/gv7ZBvgj4DwDCh9W1SeH7Icpm59DIWcmg1o4rhPVLHkXv18WVKJrASep6kssP79Rl28duTzWgagySHGXNAojdDqKNs6qpPr56nJbDNxsbnM8Rt6qdZMBqE12PGbvh89vmfLNZZoBgi7gNEcpkccqZNHdJiKhN9Bltr6SKLzdisjE6lodPx04GfhPVX3VEKv/ThU/ptnjxtBp0JoicpOqvhf4pGOahk1hOfBpK/27KUp9TDqUMk0qtpi0JC7fmQ7X8vTQBrqPr1hOHv+bZovMX9/J5P0qltszlYKy1d5K8TVBGm5uh/TSvyL3tk1bFkM65Za2Vkw/TZ0HIeYkGH9gNbBaVZ9H3vb4tcCzbL0mbm5648Sv2T2Ay1T1GBE5ryK8qIkCBO0VIEShhk8BLwNeGfERUvKymGeKyJu69CJI7Y4cSNaTx+li2csyUaTPEMO/s5V0mETtvwN6Xwq80P1fmRn7ndo93ywitw+RI3IbJe7hURP2qFM2qQT3JfP8ARG5EbhRVf8B2Js87XF/YB9yHhxRJVlcOLwBnKOqt4vItRXkJGSj2jt7AQhZF/mq4c+jgd8BdnWbRgg1vFFVV4vIV61/dzpPCCSpmcD9ERVV9QfAnlF2CcCOqrqLiPy822ZKLpR0n6oe4uaOtCn6swhYY4s1i8axSotvhQHf5oDciZD6u82UAoSF2qk1qQHCxL0Jj+sgS6X/vh2nq+oq4A/J0yNf7IjRSRQCbwJnGJl+U4U8Cdm4OQiDurcbIvJz4Dh78KnboII34ZOq+tSQbuJer5IXoQqFfr5dAO4ycmbvHxcUwOoafFhlwDmrMDgTHbMi8mgBEJAKMt6z0EN+kEqK7jzpFG80dapmPX4TCau6dYaVWm7ae3eIyDnmTTgcuLUgeyqA/xcCh1awzouOat9Mhu3+DSREEbkcOMseftz1cVfg466gT1LBdqplJvSEa7jRpQB59z/Ay8wyznoJNYTQRIcjCT/7yIgp4/iOq5tjEnFIaqmlBgj9d5FtOX2U2GtfIA89fLEAJAQS459PSTG4kQGEYbh/w6bzbnI3c8OdNzR0ep2qHm0KcWnFN5PS9WKw5387eZMTKei6+XLg+bYQkj4Qe+ERCo/YeavC/NYSKM26E101+BU6ipK2tYzFs9AUkfUGAq53oMAboy9Q1Z267CFUZpKijrtZU9JjqCGxeNDbgIec9SoOvf29qu5Bzu5eXFcjG3qo51HgmjZV/BaRFw4ZJ3lGS7oZjrMOh9bNjhZE+iMLtfpeiQFDy5X8f3+bf1sC7FyhNTlSL3svIYakD/JIQ0RuIm+wEaM1gO2BC2xQHpuSEENZcvwDeed84OHo+YffX6mqx9lYNYdMlEy6Ldtd0vGUEXkQphkIyAJ0v9eZG9UEQTcB6wqqyTaA7erH1LuilgFqaJ8HXBGFGsImtT/wWZdbLxVXGEmJSuCKiKwj54IUtXZOyb04rwjoekjd15rm1ttcF/lhIbXMTupCSbWMIUurMQT3f0ZezKxIl+sUtasvL0CIOgseD/wsIocED8EzKA4xaG1FDb6YyAtX3WoArRUp9BXAv6rqYY7Y0/MCdJ9L7DzPtnHVgvBGVocYFpTFprXXpJYhdajF6h5ov5UP7TxLyDsQU9Bs7sEKrdV2XnYZN0DQAQpaNETkbuBE59LRLt10WudFD1ZMREQeJq9NMRO51MTVKL9EVd9jxJ6wAJshK6EDKEjMYxA+l6nqq4GvkWerxJO1KnFbHfMGkFaIGNWLoqpbJddgZ6hVYlX1KFXdMVTw7f00ouTNm3YoqGh6nxmyVckoGqnnLhmH5eNSHy8DPu3S7ua7jqzEMb5KZF24MM8aclJiI7LqElfY6IOq+i1VfZmqrhCRlrGA1acMBdDgWMItAxPPV9WLyUsT7x4tvsz9/XCtNOtY9pRsqI2Q0hutj34OqQFCMZ8pGCKqej7wGeAiVV0Z9pb5nl/wcJo+XA6cEOnroJ++KSIzFQLq7YB5Nu5eDNng46wCvIu8stUerhQzFQQIlWnb63plnKGqO5O35VZXUcx7dQ604zpVvZS8Q+cdIrIxvjdV3QZ4Nnm1xEPtc0sKSppmrirmx4CrbS6kNUCYeoAwDR6ETmTpmVAIq/YgjKwqbEhTPB840vTGwcA3VPXtInJtFFKNvaShwmKqqkuBzwF7uYZyvtLsV6JOxFX1IOioAEIyCgXmWnVuVNW3krugZZ6mNWVWLlIxN13IKjlRVTeSp/mETTrugibA79nxCLBOVf+bnNQj5HyRbYFVwNPIeQwUgAF1tc5T4O9E5LSKbQB1jLnEaVjj9BQU3E8D+FtVPdTWgxaE07LIQs2iMvI+7ftjInJ7t+XPFwB/SgBR1WVmWBzJ1sJvGfC7wJWq+jngXOAWEZlrc67FwL7AqcBLIuM06KhrgW/a99YevXEChKhV51WqehY5JyGtSPvfynoQXHZBZsrnVFW9BziDrc2cWlEP9dABbRsDAqu6KCQTA4PQPe1e4BjrvMYEFWA/ijFbCF1AazJi3yDnEDuGIdeQFzeTCT3LsgG5hoUQDgfebByqxZExswR4E/AGcq/nWuAnZthg7+9B7t38A+cZaLh1l9i5TxGRuQo2a2KczZpmItd++D0dYpW/BPiAWaj72OaUFChlrYBCjI+szCQfF4u7QFW/B3yYvPNmM3r2SZdeHIm4DBq1Vf034CQRudN1XtOSusF1DF6rNPoO/8xqqZ7CzYY0/wSYrR9zYZXKrwKHkYcVfOtmr3OWAQfZ0YlknEWeg6C73iEi/2Ve7rQ2VNt7C55grzft52L39zDz839Fzqyfdd+VRN+9rMTeheU2OE3ngpSyV4QM2Qa2Wd8qIq8BXg2sJq9bkBSEHLI2QEhdSMIv2lngauAwETnUwEGzxAvPxyD9vYyCJ9GKzh9+tqi+zLn5kkVzh4rzKELjufjQIR5lKSlddEzMoLHyyK8jr+fivZytiEeQRs0BxQEN/3rKVg9nauDgbOMvTIsXbGQchOvISx/P2JfMkqeDrBvWFztm/Q2qehJwlBtoce0377XrKKPcZ8djbtItBf63Qm1SE+ud8DVV/TrwAuC1htRXkYcXugVom4BbyEmNXwJ+GOoqGCBslTw1VduAhuaQv2tRdH6NmzVVNNWxXU+VxIFmqXBBuW1tLYzSYFk04fuMx29xxL+YJEjYBJygqtcCJ5N7npsOAEhU/VTbdJH1Y3gT8C4RuTo0rqtgszSJPJM4sFTtmFOIRVsu66IoNx/bvGbKFLOOrnm7yJJuisiGKlYm89a9EXr2Ap4F7Gk/dzCPTgBwjwL3AD8lzxu+FbjZj1MVYnluPF8M7BIVkhJgjYisH3QOuu95CrCfi4MGYPljEbmphPyMXu7xcHJOSxpZep8XkQ1Vuzc3ZiuAs20teJIckfcw3qCygs0q7nKauhDusSLyo9B9cJxphMYPez05eXnOzc1lwHtE5FLXx2BShMXEDJulwJ+YV2FfthY86kZmgbXAxcAXjDRfOc6BG7PdyBtPrYz+Za2IvGjQNSftqlW1K1IxqhulllIwhtu1OjVAtNh5S2aK5oSrbqZ16+Japmh9LLX5nxWQCIv6jsShgziMRRQHT0Vk84TvcRF5iDl1IKYBbBCRmTJtjO7v3YEDzKDZzUD+SgPdGbk3fD1wP3Abefbcj8Kzrvr+Y2N2ELCTATsxUHebiHxnalirRcCk7BtMFa+5z2ZLWQcw8DhRqOILrV1zqaG6HYMlVPRW1YGyy0GPJa3BYvcei/pJ9O71jNbXDh4gGN+tyOCp52VdR7yWUQChaQJDtdTS7xoYRSnhMngRC8CrltnrGTw17a4z/t9p0l3telIMw+CoAUIttdRSSy1TC+ZqQ6aWWmqppZZaaqlliPJ/5VRrT9R0RLMAAAAASUVORK5CYII=';
+
+function nightlistLogoHtml() {
+  const layer = (name, body) => '<svg class="nl-layer nl-' + name + '" viewBox="0 0 720 489" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">' + body + '</svg>';
+  return '<div class="nl-logo" role="img" aria-label="NIGHTLIST">'
+    + '<div class="nl-mark">'
+    + layer('bar', '<defs><linearGradient id="nl-gold" x1="0" y1="0" x2="0.5" y2="1"><stop offset="0" stop-color="#efc682"/><stop offset="1" stop-color="#b38a44"/></linearGradient></defs>'
+      + '<polygon fill="url(#nl-gold)" points="373,27 470,27 470,396 373,288"/>')
+    + layer('n', '<polygon fill="#fff" points="27,32 112,32 476,436 476,378 692,378 692,461 375,461 124,168 124,461 27,461"/>')
+    + '</div>'
+    + '<img class="nl-word" src="' + NIGHTLIST_WORDMARK_PNG + '" alt="">'
+    + '</div>';
+}
+
+/* 起動画面の見た目と、開くときの動き（約1秒）。金の縦棒が上から降り、Nが左から現れ、文字とボタンの枠が続く。
+   動きは飾りなので、待たせない: 画面に触れるかキーを押せばすぐ止まり、ボタンは最初から押せる。
+   「視差効果を減らす」設定の端末では動かさない。フォルダの選び直しなどで描き直したときは繰り返さない。 */
+const USB_BOOT_GATE_CSS = `
+  #usb-boot-gate .nl-gate{display:flex;flex-direction:column;align-items:center;width:min(520px,92vw)}
+  #usb-boot-gate .nl-logo{display:flex;flex-direction:column;align-items:center;margin-bottom:clamp(18px,5vh,40px)}
+  #usb-boot-gate .nl-mark{position:relative;width:clamp(120px,24vh,200px);aspect-ratio:720/489}
+  #usb-boot-gate .nl-layer{position:absolute;inset:0;width:100%;height:100%;display:block}
+  #usb-boot-gate .nl-word{display:block;width:clamp(170px,34vh,280px);height:auto;margin-top:clamp(12px,3vh,22px)}
+  #usb-boot-gate .nl-panel{width:100%}
+  #usb-boot-gate.nl-intro .nl-bar{animation:nl-drop .48s cubic-bezier(.2,.7,.2,1) both}
+  #usb-boot-gate.nl-intro .nl-n{animation:nl-wipe .6s cubic-bezier(.3,.6,.2,1) .16s both}
+  #usb-boot-gate.nl-intro .nl-word{animation:nl-rise .44s ease-out .52s both}
+  #usb-boot-gate.nl-intro .nl-panel{animation:nl-rise .44s ease-out .56s both}
+  @keyframes nl-drop{from{clip-path:inset(0 0 100% 0)}to{clip-path:inset(0)}}
+  @keyframes nl-wipe{from{clip-path:inset(0 100% 0 0)}to{clip-path:inset(0)}}
+  @keyframes nl-rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+  @media (prefers-reduced-motion:reduce){#usb-boot-gate.nl-intro *{animation:none!important}}
+`;
+
 const UsbBootGate = {
+  _introPlayed: false,
+
   show() {
     return new Promise(resolve => {
       this._render(resolve);
@@ -7929,9 +7971,16 @@ const UsbBootGate = {
     ].join(';');
     const hasDirHandle = !!UsbStore._dirHandle;
     const folder = UsbStore.getDirName() || '保存先フォルダ';
-    overlay.innerHTML = hasDirHandle ? `
-      <div style="width:min(520px,92vw);padding:28px;border:1px solid rgba(216,184,108,0.35);border-radius:14px;background:#13161c;box-shadow:0 24px 80px rgba(0,0,0,0.65);text-align:center">
-        <div style="font-size:13px;letter-spacing:.18em;color:#d8b86c;margin-bottom:8px">NightListDX</div>
+    // 開くときの動きは最初の1回だけ。触れるかキーを押したらすぐ止める
+    if (!this._introPlayed) {
+      this._introPlayed = true;
+      overlay.classList.add('nl-intro');
+      const stopIntro = () => overlay.classList.remove('nl-intro');
+      overlay.addEventListener('pointerdown', stopIntro, { once: true });
+      overlay.addEventListener('keydown', stopIntro, { once: true });
+    }
+    const panel = hasDirHandle ? `
+      <div class="nl-panel" style="padding:28px;border:1px solid rgba(216,184,108,0.35);border-radius:14px;background:#13161c;box-shadow:0 24px 80px rgba(0,0,0,0.65);text-align:center">
         <div style="font-size:22px;font-weight:800;margin-bottom:8px">USB保存モード</div>
         <div style="font-size:12px;color:#a7b0c0;margin-bottom:22px">保存先: <b style="color:#f1f4f9">${escHtml(folder)}</b></div>
         <button id="usb-boot-start" type="button" style="width:100%;padding:16px 18px;border-radius:10px;border:1px solid #d8b86c;background:#d8b86c;color:#17120a;font-size:20px;font-weight:900;cursor:pointer">▶ 営業開始</button>
@@ -7941,14 +7990,14 @@ const UsbBootGate = {
         </div>
       </div>
     ` : `
-      <div style="width:min(520px,92vw);padding:28px;border:1px solid rgba(216,184,108,0.35);border-radius:14px;background:#13161c;box-shadow:0 24px 80px rgba(0,0,0,0.65);text-align:center">
-        <div style="font-size:13px;letter-spacing:.18em;color:#d8b86c;margin-bottom:8px">NightListDX</div>
+      <div class="nl-panel" style="padding:28px;border:1px solid rgba(216,184,108,0.35);border-radius:14px;background:#13161c;box-shadow:0 24px 80px rgba(0,0,0,0.65);text-align:center">
         <div style="font-size:22px;font-weight:800;margin-bottom:8px">保存先フォルダの選択</div>
         <div style="font-size:12px;color:#a7b0c0;margin-bottom:22px">NightListDXはUSBメモリ内にデータを保存します。保存先フォルダ（新規・既存どちらでも可）を選んでください</div>
         <button id="usb-boot-select" type="button" style="width:100%;padding:16px 18px;border-radius:10px;border:1px solid #d8b86c;background:#d8b86c;color:#17120a;font-size:20px;font-weight:900;cursor:pointer">📁 USBフォルダを選択して開始</button>
         <div id="usb-boot-error" style="display:none;margin-top:14px;color:#ff8c8c;font-size:12px;line-height:1.6"></div>
       </div>
     `;
+    overlay.innerHTML = '<style>' + USB_BOOT_GATE_CSS + '</style><div class="nl-gate">' + nightlistLogoHtml() + panel + '</div>';
     document.body.appendChild(overlay);
     const err = overlay.querySelector('#usb-boot-error');
     if (!hasDirHandle) {
