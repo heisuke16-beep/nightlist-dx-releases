@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.66">
+<meta name="app-version" content="1.1.67">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -1733,6 +1733,80 @@ body[data-tab-slide="prev"] > div:not(.hidden)[id$="-panel"] { animation: tab-sl
 /* ================================================================
    POS 精算パネル
 ================================================================ */
+/* お客様に見せる画面（レシートプリンターを使わない店。2026-10-04）
+   読むのは卓のお客様。暗い店内で数秒しか見ない前提で、主役は払う金額。
+   決まり: 色は地・文字・補助・線・金の5つだけ（金は見出しの線と「現金／カード」など払う側の印に限る）。
+   金額は太いゴシックで桁をそろえる。題だけ明朝。区切りは余白を先に使い、線は見出し下の1本と明細の境だけ。 */
+html.cs-open { overflow: hidden; scrollbar-gutter: auto; }
+.cs-screen {
+  --cs-bg: #101114; --cs-ink: #f1ede4; --cs-sub: #a8a59c; --cs-line: #34363d; --cs-accent: #e8a33d;
+  --cs-serif: "Yu Mincho", "YuMincho", "Hiragino Mincho ProN", "Noto Serif JP", "Noto Serif CJK JP", serif;
+  position: fixed; inset: 0; z-index: 10000; display: flex; flex-direction: column;
+  background: var(--cs-bg); color: var(--cs-ink); font-family: var(--font);
+}
+html[data-theme="champagne"] .cs-screen { --cs-bg: #fbf5e9; --cs-ink: #2a1f19; --cs-sub: #6b5946; --cs-line: #dccfb4; --cs-accent: #8a6420; }
+.cs-main { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: clamp(22px, 4.5vh, 44px) clamp(28px, 5vw, 72px) 0; }
+.cs-yen { font-style: normal; font-size: .52em; font-weight: 600; margin-right: .14em; color: var(--cs-sub); }
+.cs-head { flex-shrink: 0; display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; padding-bottom: clamp(12px, 2.4vh, 22px); border-bottom: 2px solid var(--cs-accent); }
+.cs-shop { font-size: 14px; letter-spacing: .28em; color: var(--cs-sub); margin-bottom: 8px; }
+.cs-title { font-family: var(--cs-serif); font-size: clamp(28px, 5vh, 42px); font-weight: 600; letter-spacing: .18em; line-height: 1.1; margin: 0; color: var(--cs-ink); }
+.cs-head-table { text-align: right; line-height: 1.25; }
+.cs-head-table strong { display: block; font-size: clamp(24px, 4.4vh, 36px); font-weight: 700; letter-spacing: .04em; }
+.cs-head-table span { font-size: 16px; letter-spacing: .1em; color: var(--cs-sub); }
+/* お会計: 左に明細、右に払う金額 */
+.cs-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); column-gap: clamp(28px, 4vw, 60px); padding: clamp(14px, 3vh, 30px) 0; }
+.cs-body.cs-total-only { grid-template-columns: minmax(0, 760px); justify-content: center; }
+.cs-items { min-height: 0; overflow-y: auto; padding-right: clamp(20px, 3vw, 44px); border-right: 1px solid var(--cs-line); }
+.cs-items table { width: 100%; border-collapse: collapse; font-size: clamp(16px, 2.6vh, 21px); }
+.cs-items th { font-size: 13px; font-weight: 400; letter-spacing: .2em; color: var(--cs-sub); text-align: left; padding: 0 0 10px; }
+.cs-items td { padding: clamp(6px, 1.2vh, 11px) 0; border-top: 1px solid var(--cs-line); color: var(--cs-ink); line-height: 1.3; }
+.cs-items .q { width: 3.2em; text-align: center; }
+.cs-items td.q { color: var(--cs-sub); }
+.cs-items .a { width: 6.5em; text-align: right; font-variant-numeric: tabular-nums; }
+/* 退席の行は印刷用の色が直に付いているので、画面の色に置き換える */
+.cs-items td[style] { color: var(--cs-sub) !important; border-top: 1px dashed var(--cs-line) !important; }
+.cs-pay { min-width: 0; display: flex; flex-direction: column; justify-content: center; }
+.cs-breakdown-row { display: flex; justify-content: space-between; align-items: baseline; padding: 5px 0; font-size: clamp(17px, 2.9vh, 23px); color: var(--cs-sub); }
+.cs-breakdown-row b { font-weight: 600; color: var(--cs-ink); font-variant-numeric: tabular-nums; }
+.cs-breakdown-row + .cs-amount { margin-top: clamp(12px, 2.6vh, 24px); }
+.cs-amount { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; padding: clamp(10px, 2.4vh, 22px) 0; border-top: 1px solid var(--cs-line); }
+.cs-amount-label { font-size: clamp(19px, 3.2vh, 26px); font-weight: 700; letter-spacing: .16em; color: var(--cs-accent); white-space: nowrap; }
+.cs-amount-value { font-size: clamp(48px, 10.5vh, 88px); font-weight: 800; line-height: 1; letter-spacing: -.01em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cs-amount-value.cs-long { font-size: clamp(40px, 8.4vh, 70px); }
+.cs-total-only .cs-amount-value { font-size: clamp(56px, 13.5vh, 116px); }
+.cs-total-only .cs-amount-value.cs-long { font-size: clamp(46px, 10.8vh, 92px); }
+.cs-total-only .cs-breakdown-row { font-size: clamp(19px, 3.4vh, 28px); }
+.cs-meta { flex-shrink: 0; padding-bottom: 6px; font-size: 13px; letter-spacing: .12em; color: var(--cs-sub); text-align: right; }
+/* 延長料金のご案内 */
+.cs-guide { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; justify-content: center; gap: clamp(14px, 3.4vh, 34px); padding: clamp(14px, 3vh, 30px) 0; }
+.cs-current { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px clamp(24px, 4vw, 56px); }
+.cs-current-title { width: 100%; font-size: 15px; letter-spacing: .2em; color: var(--cs-sub); }
+.cs-current-item { display: flex; align-items: baseline; gap: 14px; font-size: clamp(17px, 2.8vh, 22px); color: var(--cs-sub); }
+.cs-current-item b { font-size: clamp(26px, 4.6vh, 38px); font-weight: 700; color: var(--cs-ink); font-variant-numeric: tabular-nums; }
+.cs-current-item.minor b { font-size: clamp(20px, 3.2vh, 26px); font-weight: 600; }
+.cs-section-title { font-family: var(--cs-serif); font-size: clamp(19px, 3.2vh, 26px); font-weight: 600; letter-spacing: .16em; margin: 0; color: var(--cs-ink); }
+.cs-options { display: grid; grid-template-columns: repeat(var(--cs-n, 3), minmax(0, 1fr)); }
+.cs-option { min-width: 0; padding: 4px clamp(14px, 2.6vw, 36px); border-left: 1px solid var(--cs-line); }
+.cs-option:first-child { border-left: 0; padding-left: 0; }
+.cs-option-min { font-family: var(--cs-serif); font-size: clamp(32px, 6.4vh, 52px); font-weight: 600; line-height: 1; color: var(--cs-accent); margin-bottom: clamp(8px, 2vh, 18px); }
+.cs-option-min small, .cs-compare td:first-child small { font-size: .45em; margin-left: .15em; letter-spacing: .1em; }
+.cs-option-amt { display: flex; flex-direction: column; gap: 2px; padding: clamp(6px, 1.5vh, 13px) 0; }
+.cs-option-amt span { font-size: 15px; letter-spacing: .18em; color: var(--cs-sub); }
+.cs-option-amt b { font-size: clamp(28px, 6vh, 48px); font-weight: 800; line-height: 1.1; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cs-compare-target { font-size: clamp(16px, 2.6vh, 20px); color: var(--cs-sub); }
+.cs-compare { width: 100%; border-collapse: collapse; }
+.cs-compare th { font-size: 15px; font-weight: 400; letter-spacing: .14em; color: var(--cs-sub); text-align: left; padding: 0 0 10px clamp(14px, 2.6vw, 36px); }
+.cs-compare th:first-child { padding-left: 0; }
+.cs-compare td { padding: clamp(8px, 2vh, 18px) 0 clamp(8px, 2vh, 18px) clamp(14px, 2.6vw, 36px); border-top: 1px solid var(--cs-line); vertical-align: middle; }
+.cs-compare td:first-child { padding-left: 0; font-family: var(--cs-serif); font-size: clamp(26px, 5vh, 40px); font-weight: 600; color: var(--cs-accent); white-space: nowrap; }
+.cs-compare-pair { display: flex; gap: clamp(16px, 2.6vw, 36px); }
+.cs-compare-pair span { font-size: clamp(22px, 4.4vh, 36px); font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cs-compare-pair small { display: block; font-size: 13px; font-weight: 400; letter-spacing: .16em; color: var(--cs-sub); margin-bottom: 2px; }
+.cs-note { margin: 0; font-size: 14px; color: var(--cs-sub); }
+/* スタッフが押すボタン。お客様の目を引かないよう控えめにし、押せることは枠で示す */
+.cs-bar { flex-shrink: 0; display: flex; justify-content: flex-end; gap: 10px; padding: 8px clamp(28px, 5vw, 72px) 12px; }
+.cs-bar-btn { min-height: 46px; padding: 0 18px; font: inherit; font-size: 14px; color: var(--cs-sub); background: transparent; border: 1px solid var(--cs-line); border-radius: 6px; cursor: pointer; }
+.cs-bar-btn:focus-visible { outline: 2px solid var(--cs-accent); outline-offset: 2px; }
 .pos-co-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.78); z-index: 9900; display: flex; align-items: center; justify-content: center; }
 /* 2026-09-19 全モーダル監査: 内容が増えてもボタンが画面外に出ないよう、共通の器を画面高94%に収め、
    header/footer は固定・本文（pos-co-body / pay-bd-body / pos-nsm-body / pos-cast-picker-body）だけをスクロールさせる。
@@ -6951,6 +7025,7 @@ const STORAGE_LEDGER = {
   auth:        { label:'ログイン情報', key:'nightlist__auth_v1',           file:'auth.json',          export:false, import:false },   // ログインのパスワード情報（ハッシュ）
   authRecovery:{ label:'リカバリーコード', key:'nightlist__auth_recovery_v1',  file:'authRecovery.json',  export:false, import:false },   // ログインのリカバリーコード
   meta:        { label:'保存データの版番号', key:'nightlist__meta_v1',           file:'meta.json',          export:true,  import:false },   // 保存データの版番号・店舗ID（起動時に書き直す）
+  monitorKey:  { label:'店外モニターの鍵', key:'nightlist__monitor_key_v1',    file:'monitorKey.json',    export:false, import:false },   // 店ごとの送信鍵。この端末だけに置き、JSON書き出しに入れない（写しを読んだ別の端末が同じ店として送れないように。2026-10-04）
 };
 
 /* 変わらないID（32桁の16進）。店・客・キャストに付ける。名前を変えても同じ相手を指し続けるための印で、
@@ -7443,6 +7518,11 @@ const UsbStore = {
     if (!_demoWriteAllowed(name)) return;   // デモモード中は設定以外の保存を凍結（cacheのみ更新し、ディスクへは書かない）
     this._dirty.add(name);
     this._scheduleFlush();
+  },
+
+  /* そのデータが保存先（USB）まで書けているか。USB保存でないとき（PC内保存）は書いた時点で保存済み */
+  isPersisted(name) {
+    return !this.active || !this._dirty.has(name);
   },
 
   /* 書込みは1本ずつ順番に行う。重なると、古い値の書込みが後から終わって新しい値を上書きしうる（B6） */
@@ -9436,6 +9516,8 @@ const CFG_DEFAULTS = {
   advanceFeeCredit: true,   // 前金カード分割の切り上げ超過手数料をお会計に充当する（false=充当せず元本だけ引く。2026-09-19 ギャルサークル要望）
   tillFloat:       60000,   // レジ常備金（超過分を本社へ振込）
   posKeepTableAfterCheckout: false, // true=精算しても「退店」を押すまで卓ビューに残す（会計済の卓と残り時間が見える。2026-10-04）
+  receiptPrinterOff: false, // true=レシートプリンターを使わない。会計伝票・延長の案内・領収書を印刷せず画面に出す（2026-10-04 店の端末で使う想定）
+  screenSlipTotalOnly: false, // 画面に出す会計伝票の最初の見せ方。true=合計だけ／false=明細も（画面のボタンでその場でも切り替えられる）
   showCountdown:   true,    // 残り時間カウントダウン表示
   fullscreenOnBoot: true,   // 営業開始時にフルスクリーンにする
   monitorEnabled: false,    // 店外モニターへの送信ON/OFF
@@ -16459,7 +16541,7 @@ function _posFloorCard(row) {
       + '<span class="pos-floor-paid-actions" onclick="event.stopPropagation()">'
       + '<button type="button" class="pos-floor-paid-btn" onclick="posReportRestore(' + row.gid + ')">取消</button>'
       + '<button type="button" class="pos-floor-paid-btn" onclick="posStayPrintSlip(' + row.gid + ')">伝票</button>'
-      + '<button type="button" class="pos-floor-paid-btn" onclick="posStayPrintRyoshu(' + row.gid + ')">領収書</button>'
+      + (receiptPrinterOff() ? '' : '<button type="button" class="pos-floor-paid-btn" onclick="posStayPrintRyoshu(' + row.gid + ')">領収書</button>')
       + '<button type="button" class="pos-floor-paid-btn leave" onclick="posLeaveTable(' + row.gid + ')">退店</button>'
       + '</span>'
       + '</div>';
@@ -17955,6 +18037,57 @@ function monitorGenerateReadToken() {
   return Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('');
 }
 
+/* ================================================================
+   店ごとの送信鍵（2026-10-04。設計: .company/dev/specs/2026-10-04-nightlistdx-店ごとの送信鍵.md）
+   店舗IDごとに256ビットの鍵を1回だけ作り、/push と /data に付ける。サーバーは鍵が合う店の送信だけを受け付ける。
+   鍵は設定とは別の保存データ（monitorKey）に置き、JSON書き出しには入れない。画面には指紋（鍵の SHA-256 の先頭8桁）だけを出す。
+================================================================ */
+/* 鍵の保存データ。読み込みに失敗しているあいだは読み直さない（読むたびに壊れたデータの退避コピーが増えるため） */
+function monitorShopKeyStore() {
+  return Persist.failedReads.has('monitorKey') ? null : Persist.read('monitorKey');
+}
+
+function monitorShopKeyRead(shopId) {
+  if (!shopId) return '';
+  const key = monitorShopKeyStore()?.keys?.[shopId];
+  return /^[0-9a-f]{64}$/.test(key || '') ? key : '';
+}
+
+/* 送信に付ける鍵。保存先まで書けていないあいだは空を返す（書けないまま開き直すと別の鍵になるので、まだ送らない） */
+function monitorShopKeyForSend(shopId) {
+  const key = monitorShopKeyRead(shopId);
+  return key && UsbStore.isPersisted('monitorKey') ? key : '';
+}
+
+/* 無ければ作って保存する。保存できないとき（保存停止中・読み込み失敗）は作らずに空文字を返す。
+   保存できていない鍵で送ると、開き直したあと別の鍵になり、サーバーの登録と合わなくなるため。 */
+function monitorShopKeyEnsure(shopId) {
+  if (!shopId) return '';
+  const store = monitorShopKeyStore();
+  const existing = store?.keys?.[shopId];
+  if (/^[0-9a-f]{64}$/.test(existing || '')) return existing;
+  if (Persist.writeBlockedReason || Persist.failedReads.has('monitorKey')) return '';
+  const key = newStableId() + newStableId();
+  const saved = Persist.write('monitorKey', { keys: { ...(store?.keys || {}), [shopId]: key } });
+  return saved ? key : '';
+}
+
+/* 運営者の画面の表示と見比べるための印。鍵そのものではない */
+async function monitorShopKeyFingerprint(shopId = cfg.monitorShopId || cfg.shopId) {
+  const key = monitorShopKeyRead(shopId);
+  if (!key || typeof crypto === 'undefined' || !crypto.subtle) return '';
+  const bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(key)));
+  return Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('').slice(0, 8);
+}
+
+/* サーバーが送信を受け付けなかった理由（設定画面に出す） */
+function monitorPushErrorText(status, code) {
+  if (status === 409) return '閲覧用のIDが他の店で使われているため送れません。QRを再発行してください。';
+  if (status === 401 && code === 'enroll_required') return 'この店はまだ登録されていません。運営者から登録コードを受け取り、送信キーの欄に入れてください。';
+  if (status === 401) return 'この店の鍵がサーバーの登録と合わないため送れません。運営者に連絡してください。';
+  return '';
+}
+
 function monitorBaseEndpoint(endpoint = cfg.monitorEndpoint) {
   return String(endpoint || '').trim().replace(/\/+$/, '');
 }
@@ -18105,15 +18238,20 @@ const RemoteMonitor = (() => {
   let intervalTimer = null;
   let sending = false;
   let pushCount = 0;
+  let lastError = '';   // サーバーが受け付けなかった理由。受け付けられたら空に戻す
 
   function canSend() {
-    return !!(cfg.monitorEnabled && cfg.monitorEndpoint && cfg.monitorWriteToken && cfg.monitorReadToken)
+    // 送信キー（今までの共通の鍵、または登録コード）か、登録済みの店の鍵のどちらかがあれば送れる
+    return !!(cfg.monitorEnabled && cfg.monitorEndpoint && cfg.monitorReadToken
+        && (cfg.monitorWriteToken || monitorShopKeyRead(cfg.monitorShopId)))
       && _devNowMin === null && !_demoMode;
   }
 
   async function sendNow(applyCommands = true) {
     if (!canSend() || sending) return false;
     if (!cfg.monitorShopId) {
+      // 設定を保存できない間は店舗IDを作らない（保存されない仮のIDで送らない）
+      if (Persist.failedReads.has('settings') || Persist.writeBlockedReason) return false;
       cfg.monitorShopId = cfg.shopId || monitorGenerateReadToken();   // 店舗IDがあれば同じ値を使う
       saveCfg();
     }
@@ -18123,6 +18261,10 @@ const RemoteMonitor = (() => {
     const wantHave = pushCount % 120 === 0;
     pushCount++;
     try {
+      // 鍵が無ければ作る。作ったばかりのときは保存先に書けるのを待ち、書けなければ鍵なしで送る（今までどおり）
+      monitorShopKeyEnsure(cfg.monitorShopId);
+      if (!UsbStore.isPersisted('monitorKey')) { try { await UsbStore.flush(['monitorKey']); } catch (_) {} }
+      const shopKey = monitorShopKeyForSend(cfg.monitorShopId);
       const response = await fetch(monitorBaseEndpoint() + '/push', {
         method: 'POST',
         body: JSON.stringify({
@@ -18130,12 +18272,19 @@ const RemoteMonitor = (() => {
           readToken: cfg.monitorReadToken,
           opsToken: cfg.monitorOpsToken,
           shopId: cfg.monitorShopId,
+          ...(shopKey ? { shopKey } : {}),
           wantHave,
           snap: buildMonitorSnapshot(),
         }),
         headers: { 'Content-Type':'text/plain' },
       });
-      if (!response.ok) throw new Error('HTTP ' + response.status);
+      if (!response.ok) {
+        let code = '';
+        try { code = (await response.json())?.error || ''; } catch (_) {}
+        lastError = monitorPushErrorText(response.status, code);
+        throw new Error('HTTP ' + response.status);
+      }
+      lastError = '';
       sent = true;
       if (typeof response.json === 'function') {
         let payload = null;
@@ -18199,7 +18348,7 @@ const RemoteMonitor = (() => {
     }
   }
 
-  return { start, stop, sendNow, canSend, renderQr };
+  return { start, stop, sendNow, canSend, renderQr, lastError: () => lastError };
 })();
 
 function monitorToggleConnRows(btn) {
@@ -18588,6 +18737,7 @@ const OwnerExport = (() => {
           writeToken:cfg.monitorWriteToken,
           readToken:cfg.monitorReadToken,
           shopId:cfg.monitorShopId,
+          ...(monitorShopKeyForSend(cfg.monitorShopId) ? { shopKey:monitorShopKeyForSend(cfg.monitorShopId) } : {}),
           kind:candidate.kind,
           ...(candidate.kind === 'day' ? { day:candidate.day } : {}),
           hash:candidate.dataset.hash,
@@ -23533,9 +23683,9 @@ function posPrintReceipt() {
     + '<div class="pos-ext-divider">延長した場合の試算</div>'
     + extRows
     + '<div class="pos-co-actions" style="margin-top:16px">'
-    + '<button class="pos-co-btn cash" onclick="document.getElementById(\'pos-ext-overlay\').remove();posPrintExtTrial()">🖨️ このまま印刷</button>'
-    + '<button class="pos-co-btn" style="background:#2680e8;color:#fff" onclick="document.getElementById(\'pos-ext-overlay\').remove();posPrintReceiptDirect()">🧾 伝票を印刷</button>'
-    + '<button class="pos-co-btn" style="background:#2a7a4a;color:#fff" onclick="document.getElementById(\'pos-ext-overlay\').remove();printReceipt(\'' + String(row.id).replace(/'/g, "\\'") + '\')">🧾 領収書を発行</button>'
+    + '<button class="pos-co-btn cash" onclick="document.getElementById(\'pos-ext-overlay\').remove();posPrintExtTrial()">' + printOrShowLabel('🖨️ このまま印刷', '案内を画面に出す') + '</button>'
+    + '<button class="pos-co-btn" style="background:#2680e8;color:#fff" onclick="document.getElementById(\'pos-ext-overlay\').remove();posPrintReceiptDirect()">' + printOrShowLabel('🧾 伝票を印刷', 'お会計を画面に出す') + '</button>'
+    + (receiptPrinterOff() ? '' : '<button class="pos-co-btn" style="background:#2a7a4a;color:#fff" onclick="document.getElementById(\'pos-ext-overlay\').remove();printReceipt(\'' + String(row.id).replace(/'/g, "\\'") + '\')">🧾 領収書を発行</button>')   // プリンターを使わない店は領収書を手書きにする
     + '<button class="pos-co-btn cancel" onclick="document.getElementById(\'pos-ext-overlay\').remove()">閉じる</button>'
     + '</div>'
     + '</div></div></div>';
@@ -23652,13 +23802,19 @@ function _receiptHeaderHtml(type, block) {
   return '';
 }
 
-function _receiptMetaHtml(row, block, inHead) {
+/* 伝票No.と日付（印刷と、お客様に見せる画面の両方で使う） */
+function _receiptMetaParts(row, block) {
   const parts = [];
   if (block.showNo) parts.push('No.' + slipNoLabel(row));
   if (block.showDate) {
     const bizKey = getLoadedDayKey();
     parts.push(+bizKey.slice(0, 4) + '/' + +bizKey.slice(4, 6) + '/' + +bizKey.slice(6, 8));
   }
+  return parts;
+}
+
+function _receiptMetaHtml(row, block, inHead) {
+  const parts = _receiptMetaParts(row, block);
   if (!parts.length) return '';
   return '<div class="meta' + (inHead ? '' : ' r-blk-meta') + '">' + parts.join('<br>') + '</div>';
 }
@@ -23746,8 +23902,10 @@ function _receiptItemsHtml(row, block) {
   return '<table class="items"><thead><tr><th style="text-align:left">品目</th><th class="q">数</th><th class="a">金額</th></tr></thead><tbody>' + lines + '</tbody></table>';
 }
 
-function _receiptTotalsHtml(row, block) {
-  if (!block.showSubtotal && !block.showTax) return '';
+/* 会計伝票の合計欄の行。pay=true はお客様が払う金額（現金・カード・売掛）、それ以外は内訳（合計・税サ）。
+   印刷と、お客様に見せる画面の両方がこの行を使う（金額の出し方を1か所にする）。 */
+function _receiptTotalsRows(row, block) {
+  if (!block.showSubtotal && !block.showTax) return [];
   const b = _posCalcTotal(row);
   const tax = b.cash - b.subtotal;
   const isSplit = row.settled && row.amountMethod === 'both';
@@ -23758,12 +23916,17 @@ function _receiptTotalsHtml(row, block) {
   if (block.showTax) rows.push({ label:'税サ', amount:tax });
   let payment = 'both';
   if (block.paymentRows === 'auto' && row.settled) payment = row.amountMethod || 'cash';
-  if (payment === 'cash' || payment === 'both') rows.push({ label:'現金' + (isSplit ? '(分割)' : ''), amount:cashTotal });
-  if (payment === 'card' || payment === 'both') rows.push({ label:'カード' + (isSplit ? '(分割)' : ''), amount:cardFinal });
+  if (payment === 'cash' || payment === 'both') rows.push({ label:'現金' + (isSplit ? '(分割)' : ''), amount:cashTotal, pay:true });
+  if (payment === 'card' || payment === 'both') rows.push({ label:'カード' + (isSplit ? '(分割)' : ''), amount:cardFinal, pay:true });
   if (payment === 'urikake') {
     const urikake = Object.prototype.hasOwnProperty.call(row, 'amountUrikake') ? Number(row.amountUrikake) : NaN;
-    rows.push({ label:'売掛', amount:Number.isFinite(urikake) ? urikake : cashTotal });
+    rows.push({ label:'売掛', amount:Number.isFinite(urikake) ? urikake : cashTotal, pay:true });
   }
+  return rows;
+}
+
+function _receiptTotalsHtml(row, block) {
+  const rows = _receiptTotalsRows(row, block);
   if (!rows.length) return '';
   const tnum = row.tableNum ? escHtml(posTableCustomName(row.tableNum) || posTableLabel(row.tableNum)) : '';
   return '<table class="sum">' + rows.map((item, index) => '<tr>'
@@ -23817,8 +23980,8 @@ function _receiptDocBodyHtml(row, blocks) {
   return html;
 }
 
-function _extTrialTableHtml(row, block, comparison) {
-  if (comparison?.casts?.length) return _extComparisonTableHtml(row, block, comparison);
+/* 延長の案内の金額（比較なし）。印刷と、お客様に見せる画面の両方がこれを使う。 */
+function _extTrialModel(row, block) {
   const b = _posCalcTotal(row);
   const cardFeePct = cfg.cardFeeRate || 0;
   const cardFeeRound = cfg.cardFeeRound || 100;
@@ -23826,16 +23989,24 @@ function _extTrialTableHtml(row, block, comparison) {
   const advBd = (typeof _posAdvanceBreakdown === 'function') ? _posAdvanceBreakdown(row) : { principal: advance, extraFee: 0 };
   const curCash = advance ? Math.max(0, b.cash - advance) : (parseInt(row.amountCash) || b.cash);
   const curCard = advance ? ceilAddRate(curCash, cardFeePct, cardFeeRound) : (parseInt(row.amountCard) || ceilAddRate(curCash, cardFeePct, cardFeeRound));
-  const showCard = block.showCard !== false;
-  let rows = '';
-  (Array.isArray(row.extTrialOptions) ? row.extTrialOptions : (cfg.extOptions || [])).forEach((min, i) => {
+  const options = (Array.isArray(row.extTrialOptions) ? row.extTrialOptions : (cfg.extOptions || [])).map(min => {
     const trial = _posExtTrial(row, min);
-    const extCash = advance ? trial.dueCash : curCash + (trial.cash - b.cash);
-    const extCard = advance ? trial.dueCard : ceilAddRate(extCash, cardFeePct, cardFeeRound);
+    const cash = advance ? trial.dueCash : curCash + (trial.cash - b.cash);
+    const card = advance ? trial.dueCard : ceilAddRate(cash, cardFeePct, cardFeeRound);
+    return { min, cash, card };
+  });
+  return { advance, advBd, curCash, curCard, showCard: block.showCard !== false, options };
+}
+
+function _extTrialTableHtml(row, block, comparison) {
+  if (comparison?.casts?.length) return _extComparisonTableHtml(row, block, comparison);
+  const { advance, advBd, curCash, curCard, showCard, options } = _extTrialModel(row, block);
+  let rows = '';
+  options.forEach((option, i) => {
     rows += '<tr class="' + (i > 0 ? 'sep' : '') + '">'
-      + '<td class="time">⏱ ' + min + '分</td>'
-      + '<td class="amt">¥' + extCash.toLocaleString() + '</td>'
-      + (showCard ? '<td class="amt">¥' + extCard.toLocaleString() + '</td>' : '') + '</tr>';
+      + '<td class="time">⏱ ' + option.min + '分</td>'
+      + '<td class="amt">¥' + option.cash.toLocaleString() + '</td>'
+      + (showCard ? '<td class="amt">¥' + option.card.toLocaleString() + '</td>' : '') + '</tr>';
   });
   return '<div class="cur"><span class="lbl">現在の金額（現金）</span><span class="lead"></span><span class="amt">¥' + curCash.toLocaleString() + '</span></div>'
     + (showCard ? '<div class="cur"><span class="lbl">現在の金額（カード）</span><span class="lead"></span><span class="amt">¥' + curCard.toLocaleString() + '</span></div>' : '')
@@ -23893,6 +24064,7 @@ function _receiptSampleRow() {
 function posPrintReceiptDirect(row) {
   row = row || posSelectedRow();
   if (!row) { showToast('伝票を選択してください'); return; }
+  if (receiptPrinterOff()) { customerSlipOpen(row); return; }
 
   const w = window.open('', '_blank', 'width=320,height=760');
   if (!w) { showToast('ポップアップがブロックされました'); return; }
@@ -23948,6 +24120,8 @@ function posPrintExtTrial(row, comparison) {
     showToast('卓の状態が変わりました。比較対象を選び直してください');
     return;
   }
+
+  if (receiptPrinterOff()) { customerExtGuideOpen(row, comparison); return; }
 
   const w = window.open('', '_blank', 'width=320,height=820');
   if (!w) { showToast('ポップアップがブロックされました'); return; }
@@ -24564,13 +24738,18 @@ function _extComparisonAmounts(sourceRow, casts) {
     rows: options.map(min => ({ min, free:amount(_posExtTrial(row, min)), nominated:amount(_posExtTrial(row, min, casts)) })) };
 }
 
+/* この卓に指名が付いているか（比較表の見出しを「指名追加なし／フリー継続」のどちらにするか） */
+function _extComparisonHasDesignation(row) {
+  const departed = new Set(_posDepartedCasts(row));
+  return _posTableDesignations(_extComparisonRow(row)).some(d => !departed.has(d.cast))
+    || (state.rows || []).some(r => String(r.gid) === String(row.gid) && r.mainType && r.mainType !== 'free' && !r.settled);
+}
+
 function _extComparisonTableHtml(row, block, comparison) {
   const amounts = _extComparisonAmounts(row, comparison.casts);
   const showCard = block.showCard !== false;
   const yen = value => '¥' + value.toLocaleString();
-  const departed = new Set(_posDepartedCasts(row));
-  const hasDesignation = _posTableDesignations(_extComparisonRow(row)).some(d => !departed.has(d.cast))
-    || (state.rows || []).some(r => String(r.gid) === String(row.gid) && r.mainType && r.mainType !== 'free' && !r.settled);
+  const hasDesignation = _extComparisonHasDesignation(row);
   const cell = amount => '<span class="extcmp-cash">' + (showCard ? '<small>現金</small>' : '') + yen(amount.cash) + '</span>'
     + (showCard ? '<span class="extcmp-card"><small>カード</small>' + yen(amount.card) + '</span>' : '');
   // 同じHTML/CSSをモーダル・設定プレビュー・印刷で使う。既存表には作用しない。
@@ -24630,9 +24809,9 @@ function _posOpenExtComparison(row) {
     + (cfg.extFeePerSeat ? '<br>店舗設定：指名1人につき在席' + _posExtSeats(row) + '名分の延長指名料。' : '')
     + '</div><div data-preview></div><div data-hint role="status" style="padding:8px 0;font-size:12px;color:var(--tx2)"></div>'
     + '<div class="pos-co-actions" style="margin-top:12px;position:sticky;bottom:0;padding:8px 0;background:var(--bg)">'
-    + '<button type="button" class="pos-co-btn cash" data-action="print">🖨️ 案内を印刷</button>'
-    + '<button type="button" class="pos-co-btn card" data-action="bill">🧾 伝票を印刷</button>'
-    + '<button type="button" class="pos-co-btn" style="background:#2a7a4a" data-action="receipt">🧾 領収書を発行</button>'
+    + '<button type="button" class="pos-co-btn cash" data-action="print">' + printOrShowLabel('🖨️ 案内を印刷', '案内を画面に出す') + '</button>'
+    + '<button type="button" class="pos-co-btn card" data-action="bill">' + printOrShowLabel('🧾 伝票を印刷', 'お会計を画面に出す') + '</button>'
+    + (receiptPrinterOff() ? '' : '<button type="button" class="pos-co-btn" style="background:#2a7a4a" data-action="receipt">🧾 領収書を発行</button>')
     + '<button type="button" class="pos-co-btn cancel" data-action="close">閉じる</button>'
     + '</div></div></div>';
   const close = () => { overlay.remove(); if (previousFocus?.isConnected) previousFocus.focus(); };
@@ -24680,6 +24859,173 @@ function _posOpenExtComparison(row) {
   document.body.appendChild(overlay);
   update();
   overlay.querySelector('[data-compare]').focus();
+}
+/* ================================================================
+   お客様に見せる画面（レシートプリンターを使わない店）
+   会計伝票と延長の案内を、印刷する代わりにタブレットの画面いっぱいへ出す（2026-10-04）。
+   読むのは卓のお客様。暗い店内で数秒しか見ない前提なので、主役は「払う金額」。
+   普段の画面には他の卓やキャストの情報が出ているため、全体を覆ってその卓の分だけを見せる。
+   金額と明細は印刷と同じ関数から取る（_receiptTotalsRows・_receiptDetailRows・_extTrialModel ほか）。
+   見た目の決まりは 00-shell-head.html の .cs-* に置く。
+================================================================ */
+function receiptPrinterOff() { return cfg.receiptPrinterOff === true; }
+
+/* ボタンの文言。プリンターを使わない店では「印刷」を「画面に出す」側の言い方にする */
+function printOrShowLabel(printLabel, showLabel) {
+  return receiptPrinterOff() ? showLabel : printLabel;
+}
+
+let _screenSheet = null;   // { render, totalOnly, canToggle }
+
+/* render(totalOnly) は画面の中身（HTML）を返す。toggle=true なら「合計だけ／明細も」を切り替えられる。 */
+function screenSheetOpen({ title, render, toggle = false, totalOnly = false }) {
+  screenSheetClose();
+  _screenSheet = { render, totalOnly: toggle && totalOnly, canToggle: toggle };
+  document.body.insertAdjacentHTML('beforeend',
+    '<div class="cs-screen" id="screen-sheet-overlay" role="dialog" aria-modal="true" aria-label="' + escAttr(title) + '">'
+    + '<div class="cs-main" id="screen-sheet-main"></div>'
+    + '<div class="cs-bar">'
+    + (toggle ? '<button type="button" class="cs-bar-btn" id="screen-sheet-toggle" onclick="screenSheetToggleTotalOnly()"></button>' : '')
+    + '<button type="button" class="cs-bar-btn" onclick="screenSheetClose()">閉じる</button>'
+    + '</div></div>');
+  document.documentElement.classList.add('cs-open');   // 後ろの画面のスクロールバーを出さない・動かさない
+  _screenSheetRender();
+}
+
+function screenSheetClose() {
+  document.getElementById('screen-sheet-overlay')?.remove();
+  document.documentElement.classList.remove('cs-open');
+  _screenSheet = null;
+}
+
+function screenSheetToggleTotalOnly() {
+  if (!_screenSheet || !_screenSheet.canToggle) return;
+  _screenSheet.totalOnly = !_screenSheet.totalOnly;
+  _screenSheetRender();
+}
+
+function _screenSheetRender() {
+  const main = document.getElementById('screen-sheet-main');
+  if (!main || !_screenSheet) return;
+  main.innerHTML = _screenSheet.render(_screenSheet.totalOnly);
+  const toggle = document.getElementById('screen-sheet-toggle');
+  if (toggle) toggle.textContent = _screenSheet.totalOnly ? '明細も見せる' : '合計だけにする';
+}
+
+/* 金額。¥ は数字より小さく出す（数字を先に読ませる） */
+function _csYen(amount) {
+  const value = Number(amount) || 0;
+  return (value < 0 ? '−' : '') + '<i class="cs-yen">¥</i>' + Math.abs(value).toLocaleString();
+}
+
+/* 見出し: 店名・題・卓・人数 */
+function _customerScreenHeadHtml(title, row) {
+  const table = row.tableNum ? posTableDisplay(posTableLabel(row.tableNum)) : '';
+  return '<header class="cs-head">'
+    + '<div>' + (cfg.shopName ? '<div class="cs-shop">' + escHtml(cfg.shopName) + '</div>' : '')
+    + '<h1 class="cs-title">' + escHtml(title) + '</h1></div>'
+    + '<div class="cs-head-table">' + (table ? '<strong>' + escHtml(table) + '</strong>' : '')
+    + '<span>' + (row.gcount || 1) + '名様</span></div>'
+    + '</header>';
+}
+
+/* ---------------- お会計 ---------------- */
+
+/* 明細の行。出し方（明細／カテゴリ別／出さない）は、店が決めた会計伝票のレイアウトに合わせる。空行は入れない。 */
+function _customerSlipItemRows(row) {
+  const block = _receiptBlocks().find(item => item.type === 'items');
+  if (!block || block.mode === 'none') return '';
+  return block.mode === 'category' ? _receiptCategoryRows(row) : _receiptDetailRows(row, 0, block.showSetTime);
+}
+
+function customerSlipHtml(row, totalOnly) {
+  const blocks = _receiptBlocks();
+  const defaults = _receiptNormalizeBlock({ type: 'totals' });
+  // 合計欄を伝票から外している店でも、見せる画面には払う金額を必ず出す
+  let totals = _receiptTotalsRows(row, blocks.find(item => item.type === 'totals') || defaults);
+  if (!totals.length) totals = _receiptTotalsRows(row, defaults);
+  const itemRows = _customerSlipItemRows(row);
+  const showItems = !totalOnly && !!itemRows;
+  const metaBlock = blocks.find(item => item.type === 'meta');
+  const meta = metaBlock ? _receiptMetaParts(row, metaBlock) : [];
+  return _customerScreenHeadHtml('お会計', row)
+    + '<div class="cs-body' + (showItems ? '' : ' cs-total-only') + '">'
+    + (showItems
+      ? '<section class="cs-items"><table><thead><tr><th>品目</th><th class="q">数</th><th class="a">金額</th></tr></thead>'
+        + '<tbody>' + itemRows + '</tbody></table></section>'
+      : '')
+    + '<section class="cs-pay">'
+    + totals.filter(item => !item.pay).map(item =>
+      '<div class="cs-breakdown-row"><span>' + escHtml(item.label) + '</span><b>' + _csYen(item.amount) + '</b></div>').join('')
+    + totals.filter(item => item.pay).map(item =>
+      '<div class="cs-amount"><span class="cs-amount-label">' + escHtml(item.label) + '</span>'
+      // 100万円以上は桁が増えて欄からはみ出すので、少し小さくする
+      + '<span class="cs-amount-value' + (Math.abs(item.amount) >= 1000000 ? ' cs-long' : '') + '">' + _csYen(item.amount) + '</span></div>').join('')
+    + '</section></div>'
+    + (meta.length ? '<div class="cs-meta">' + meta.map(escHtml).join('　') + '</div>' : '');
+}
+
+function customerSlipOpen(row) {
+  screenSheetOpen({ title: 'お会計', toggle: !!_customerSlipItemRows(row), totalOnly: cfg.screenSlipTotalOnly === true,
+    render: totalOnly => customerSlipHtml(row, totalOnly) });
+}
+
+/* ---------------- 延長料金のご案内 ---------------- */
+
+function _customerExtCurrentHtml({ advance, cash, card, showCard, principal, extraFee }) {
+  return '<section class="cs-current">'
+    + '<div class="cs-current-title">' + (advance ? '現在の残金' : '現在の金額') + '</div>'
+    + '<div class="cs-current-item"><span>現金</span><b>' + _csYen(cash) + '</b></div>'
+    + (showCard ? '<div class="cs-current-item"><span>カード</span><b>' + _csYen(card) + '</b></div>' : '')
+    + (advance ? '<div class="cs-current-item minor"><span>前金受領済み</span><b>' + _csYen(principal) + '</b></div>' : '')
+    + (extraFee ? '<div class="cs-current-item minor"><span>分割手数料の充当</span><b>' + _csYen(extraFee) + '</b></div>' : '')
+    + '</section>';
+}
+
+function _customerExtOptionsHtml(row, block) {
+  const model = _extTrialModel(row, block);
+  return _customerExtCurrentHtml({ advance: model.advance, cash: model.curCash, card: model.curCard, showCard: model.showCard,
+      principal: model.advBd.principal, extraFee: model.advBd.extraFee })
+    + '<h2 class="cs-section-title">' + (model.advance ? '延長された場合の残金' : '延長された場合の合計金額') + '</h2>'
+    + '<div class="cs-options" style="--cs-n:' + Math.max(1, model.options.length) + '">'
+    + model.options.map(option =>
+      '<article class="cs-option"><div class="cs-option-min">' + escHtml(String(option.min)) + '<small>分</small></div>'
+      + '<div class="cs-option-amt"><span>現金</span><b>' + _csYen(option.cash) + '</b></div>'
+      + (model.showCard ? '<div class="cs-option-amt"><span>カード</span><b>' + _csYen(option.card) + '</b></div>' : '')
+      + '</article>').join('')
+    + '</div>';
+}
+
+/* フリー継続と延長指名の比較（延長比較を使う店） */
+function _customerExtComparisonHtml(row, block, comparison) {
+  const amounts = _extComparisonAmounts(row, comparison.casts);
+  const showCard = block.showCard !== false;
+  const pair = amount => '<div class="cs-compare-pair"><span><small>現金</small>' + _csYen(amount.cash) + '</span>'
+    + (showCard ? '<span><small>カード</small>' + _csYen(amount.card) + '</span>' : '') + '</div>';
+  return _customerExtCurrentHtml({ advance: amounts.advance, cash: amounts.currentCash, card: amounts.currentCard, showCard,
+      principal: amounts.advancePrincipal, extraFee: amounts.advanceExtraFee })
+    + '<h2 class="cs-section-title">' + (amounts.advance ? '延長後の残金' : '延長後の合計金額') + '</h2>'
+    + '<div class="cs-compare-target">延長指名：' + comparison.labels.map(escHtml).join('／') + '</div>'
+    + '<table class="cs-compare"><thead><tr><th>延長</th><th>' + (_extComparisonHasDesignation(row) ? '指名追加なし' : 'フリー継続')
+    + '</th><th>延長指名</th></tr></thead><tbody>'
+    + amounts.rows.map(item => '<tr><td>' + escHtml(String(item.min)) + '<small>分</small></td><td>' + pair(item.free)
+      + '</td><td>' + pair(item.nominated) + '</td></tr>').join('')
+    + '</tbody></table>'
+    + '<p class="cs-note">卓全体の' + (amounts.advance ? '残金' : '合計') + 'です。追加注文で金額は変わります。</p>';
+}
+
+function customerExtGuideHtml(row, comparison) {
+  const blocks = _extTrialBlocks();
+  const title = blocks.find(item => item.type === 'title')?.text || '延長料金のご案内';
+  const tableBlock = blocks.find(item => item.type === 'extTable') || _receiptNormalizeBlock({ type: 'extTable' });
+  return _customerScreenHeadHtml(title, row)
+    + '<div class="cs-guide">'
+    + (comparison?.casts?.length ? _customerExtComparisonHtml(row, tableBlock, comparison) : _customerExtOptionsHtml(row, tableBlock))
+    + '</div>';
+}
+
+function customerExtGuideOpen(row, comparison) {
+  screenSheetOpen({ title: '延長料金のご案内', render: () => customerExtGuideHtml(row, comparison) });
 }
 /* ================================================================
    PAST LIST PANEL
@@ -26269,6 +26615,26 @@ function renderSettingsPanel() {
   `;
   const slipNext = computeNextSlipNo(loadSlipCounter().prevDaysMax, state.rows);
   const recoverySet = !!(typeof AuthStore !== 'undefined' && AuthStore.readRecovery()?.hash);
+  const receiptPrinterSection = `
+    <div class="settings-section" data-setcat="slip">
+      <div class="settings-section-header"><span class="settings-section-title">🖨️ レシートプリンター</span></div>
+      <div class="settings-section-body">
+        <div class="settings-row">
+          <div class="settings-label">レシートプリンターを使わない<div class="settings-sub">ONにすると、会計伝票と延長の案内を印刷せず、お客様に見せる画面として出します。領収書は手書きにする店向けで、領収書のボタンは出なくなります。プリンターの故障や紙切れのときの代わりにも使えます</div></div>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" id="cfg-receiptPrinterOff" ${cfg.receiptPrinterOff ? 'checked' : ''}>
+            <span>使わない</span>
+          </label>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">お客様に見せるお会計<div class="settings-sub">最初に見せる内容です。出したあと、画面の下のボタンでも切り替えられます</div></div>
+          <select class="settings-input" id="cfg-screenSlipTotalOnly" style="width:200px">
+            <option value="0" ${cfg.screenSlipTotalOnly ? '' : 'selected'}>明細も見せる</option>
+            <option value="1" ${cfg.screenSlipTotalOnly ? 'selected' : ''}>合計だけ見せる</option>
+          </select>
+        </div>
+      </div>
+    </div>`;
   const slipNumberSection = `
     <div class="settings-section" data-setcat="slip">
       <div class="settings-section-header"><span class="settings-section-title">🧾 伝票番号</span></div>
@@ -26837,6 +27203,7 @@ function renderSettingsPanel() {
       </div>
     </div>
 
+    ${receiptPrinterSection}
     ${slipNumberSection}
 
     ${_receiptSettingsSectionHTML()}
@@ -26982,7 +27349,7 @@ function renderSettingsPanel() {
           <input type="url" class="settings-input" id="cfg-monitorEndpoint" value="${escAttr(cfg.monitorEndpoint || '')}" placeholder="https://xxx.workers.dev" style="width:min(100%,520px)">
         </div>
         <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:6px">
-          <div class="settings-label" style="width:100%">送信トークン</div>
+          <div class="settings-label" style="width:100%">送信キー<div class="settings-sub">運営者から受け取った登録コード（または今までの送信キー）</div></div>
           <input type="password" class="settings-input" id="cfg-monitorWriteToken" value="${escAttr(cfg.monitorWriteToken || '')}" autocomplete="off" style="width:min(100%,520px)">
         </div>
         </div>
@@ -26995,8 +27362,13 @@ function renderSettingsPanel() {
         </div>
         <div class="settings-row">
           <div class="settings-label">店舗ID（オーナーダッシュボード用）<div class="settings-sub">運営者に伝えると、ダッシュボードでこの店舗を見られるようになります</div></div>
-          <code id="monitor-shop-id" style="user-select:all">${escHtml(cfg.monitorShopId || '（初回送信時に自動発行）')}</code>
+          <code id="monitor-shop-id" style="user-select:all">${escHtml(cfg.shopId || cfg.monitorShopId || '（初回送信時に自動発行）')}</code>
         </div>
+        <div class="settings-row">
+          <div class="settings-label">この店の鍵<div class="settings-sub">送信のたびにサーバーが照合する、この端末だけの鍵です。運営者の画面に出る「指紋」と同じなら、この端末が登録されています</div></div>
+          <code id="monitor-key-fingerprint">${monitorShopKeyRead(cfg.monitorShopId) ? '指紋 …' : '（初回送信時に自動で作成）'}</code>
+        </div>
+        ${RemoteMonitor.lastError() ? `<div class="settings-row"><div class="settings-label" style="color:var(--red)">⚠ ${escHtml(RemoteMonitor.lastError())}</div></div>` : ''}
         <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:8px">
           <div class="settings-label" style="width:100%">閲覧用QRコード</div>
           <div class="monitor-qr-wrap" id="monitor-settings-qr"></div>
@@ -27085,6 +27457,7 @@ function renderSettingsPanel() {
   if (typeof RemoteMonitor !== 'undefined') {
     RemoteMonitor.renderQr('monitor-settings-qr', 220);
     RemoteMonitor.renderQr('monitor-settings-ops-qr', 220, { opsToken:cfg.monitorOpsToken });
+    settingsRenderMonitorKeyFingerprint();
   }
   // キャスト管理一覧: アコーディオン廃止（2026-08-20仕様B）につき常時描画。
   // 旧仕様はtoggleCastMgmt()が開閉時にだけ描画していたが、その関数ごと撤去したためここで描く。
@@ -27132,6 +27505,15 @@ function storageSizeReportHtml(report) {
 function settingsShowStorageSizes() {
   const box = document.getElementById('storage-size-report');
   if (box) box.innerHTML = storageSizeReportHtml(storageSizeReport());
+}
+
+/* 店の鍵の指紋を設定画面に出す（計算が非同期なので、描いたあとで差し込む） */
+function settingsRenderMonitorKeyFingerprint() {
+  const element = document.getElementById('monitor-key-fingerprint');
+  if (!element || !monitorShopKeyRead(cfg.monitorShopId)) return;
+  monitorShopKeyFingerprint(cfg.monitorShopId).then(fingerprint => {
+    if (fingerprint && element.isConnected !== false) element.textContent = '指紋 ' + fingerprint;
+  }).catch(() => {});
 }
 
 async function usbSettingsActivate() {
@@ -27975,6 +28357,8 @@ async function applySettings() {
   const modoriEnchoshimeiAggValue = get('cfg-modoriEnchoshimeiAgg')?.value;
   const modoriEnchoshimeiAgg = ['enchoshimei40','jounai','none'].includes(modoriEnchoshimeiAggValue) ? modoriEnchoshimeiAggValue : 'enchoshimei40';
   const showCountdown   = !!(get('cfg-showCountdown')?.checked);
+  const receiptPrinterOff = !!(get('cfg-receiptPrinterOff')?.checked);
+  const screenSlipTotalOnly = get('cfg-screenSlipTotalOnly')?.value === '1';
   const fullscreenOnBoot = !!(get('cfg-fullscreenOnBoot')?.checked);
   const monitorEnabled = !!(get('cfg-monitorEnabled')?.checked);
   const ownerExportEnabled = get('cfg-ownerExportEnabled') ? !!get('cfg-ownerExportEnabled').checked : cfg.ownerExportEnabled === true;
@@ -28120,6 +28504,7 @@ async function applySettings() {
     extAutoShimeiFee, extBasePerSeat, extFeePerSeat, doubanAsHonshimeiExt, modoriHonshimeiAgg, modoriEnchoshimeiAgg,
     taxRate, taxRound, discountAfterTax, cardFeeRate, cardFeeRound, advanceFeeCredit, tillFloat,
     posKeepTableAfterCheckout,
+    receiptPrinterOff, screenSlipTotalOnly,
     showCountdown, fullscreenOnBoot, monitorEnabled, ownerExportEnabled, monitorEndpoint, monitorWriteToken, monitorReadToken, monitorOpsToken,
     monitorShopId: cfg.monitorShopId || '',
     posMenu, posCatLayout, posCatLabels, posItemLabels, posCustomCats, posPrices, shimeiExtItems, drinkItems, shotLabel,
