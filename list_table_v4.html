@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.70">
+<meta name="app-version" content="1.1.71">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -9675,6 +9675,7 @@ const CFG_DEFAULTS = {
   receiptStoreTel:   '',
   receiptInvoiceNo:  '',
   receiptNote:       'ご飲食代として',
+  receiptNoteCard:   '',   // 領収書の発行で「カード決済」を押したときの但し書き。空なら 但し書き＋(カード決済)（2026-10-11）
   // --- 給与計算ルール（店ごとに可変） ---
   payrollClockInRoundMin:        30,    // 出勤時刻の丸め単位（分・切り上げ）
   payrollClockOutRoundMin:       30,    // 退勤時刻の丸め単位（分）
@@ -26955,6 +26956,13 @@ function renderSettingsPanel() {
           <div class="settings-label">但し書き（初期値）</div>
           <input type="text" class="settings-input" id="cfg-receiptNote" value="${escAttr(cfg.receiptNote ?? 'ご飲食代として')}" style="width:240px">
         </div>
+        <div class="settings-row" style="align-items:flex-start">
+          <div class="settings-label" style="padding-top:12px">但し書き（カード決済）</div>
+          <div style="display:flex;flex-direction:column;gap:2px;flex:1 1 240px;min-width:0">
+            <input type="text" class="settings-input" id="cfg-receiptNoteCard" value="${escAttr(cfg.receiptNoteCard ?? '')}" placeholder="${escAttr((cfg.receiptNote || 'ご飲食代として') + '(カード決済)')}" style="width:240px;max-width:100%">
+            <div class="settings-sub">領収書の発行で「カード決済」を押したときの但し書きです。空欄なら、但し書きの後ろに「(カード決済)」を付けます</div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -28707,6 +28715,7 @@ async function applySettings() {
   const receiptStoreTel   = _rcpt('cfg-receiptStoreTel',   'receiptStoreTel');
   const receiptInvoiceNo  = _rcpt('cfg-receiptInvoiceNo',  'receiptInvoiceNo');
   const receiptNote       = _rcpt('cfg-receiptNote',       'receiptNote');
+  const receiptNoteCard   = _rcpt('cfg-receiptNoteCard',   'receiptNoteCard');
   const receiptDraft = _receiptDraftBlocks(_receiptLayoutDraft);
   const receiptDefault = _receiptDraftBlocks(_receiptDefaultLayout());
   const receiptLayout = JSON.stringify(receiptDraft) === JSON.stringify(receiptDefault) ? null : receiptDraft;
@@ -28745,7 +28754,7 @@ async function applySettings() {
     monitorShopId: cfg.monitorShopId || '',
     posMenu, posCatLayout, posCatLabels, posItemLabels, posCustomCats, posPrices, shimeiExtItems, drinkItems, shotLabel,
     specialRateRound: get('cfg-specialRateRound') ? (get('cfg-specialRateRound').value === '0' ? 0 : 100) : posSpecialRoundUnit(),
-    receiptStoreName1, receiptStoreAddr, receiptStoreTel, receiptInvoiceNo, receiptNote,
+    receiptStoreName1, receiptStoreAddr, receiptStoreTel, receiptInvoiceNo, receiptNote, receiptNoteCard,
     receiptLayout, extTrialLayout, ryoshuOpts, receiptScale, extTrialScale, ryoshuScale,
     extTrialCompareEnabled: document.getElementById('cfg-extTrialCompareEnabled')?.checked ?? (cfg.extTrialCompareEnabled === true),
     payrollClockInRoundMin, payrollClockOutRoundMin, payrollClockOutRoundThreshold,
@@ -33862,19 +33871,35 @@ function _ryoshuOpts(source) {
   return opts;
 }
 
-function _receiptCardPaymentOn(amountValue, noteValue, rate, round) {
+/* 設定「但し書き（カード決済のとき）」。空欄なら今までどおり、但し書きの後ろに (カード決済) を付ける（2026-10-11 オーナー依頼） */
+function _receiptCardNoteText() {
+  return String((typeof cfg !== 'undefined' && cfg && cfg.receiptNoteCard) || '').trim();
+}
+
+/* cardNote を渡すと、但し書きをその文言に置き換える。渡さなければ今の但し書きの後ろに (カード決済) を付ける */
+function _receiptCardPaymentOn(amountValue, noteValue, rate, round, cardNote) {
   const originalAmount = String(amountValue ?? '');
   const baseAmount = Math.max(0, Number(originalAmount) || 0);
   const note = String(noteValue ?? '');
+  const custom = String(cardNote ?? '').trim();
   return {
     originalAmount,
+    originalNote: note,
     amount: ceilAddRate(baseAmount, rate || 0, round || 100),
-    note: note.endsWith(_RECEIPT_CARD_SUFFIX) ? note : note + _RECEIPT_CARD_SUFFIX,
+    note: custom || (note.endsWith(_RECEIPT_CARD_SUFFIX) ? note : note + _RECEIPT_CARD_SUFFIX),
   };
 }
 
-function _receiptCardPaymentOff(originalAmount, noteValue) {
+/* 置き換えた文言のままなら押す前の但し書きへ戻す。押したあとに手で直していたら、その文言を残す */
+function _receiptCardPaymentOff(originalAmount, noteValue, cardNote, originalNote) {
   const note = String(noteValue ?? '');
+  const custom = String(cardNote ?? '').trim();
+  if (custom) {
+    return {
+      amount: String(originalAmount ?? ''),
+      note: note === custom && originalNote != null ? String(originalNote) : note,
+    };
+  }
   return {
     amount: String(originalAmount ?? ''),
     note: note.endsWith(_RECEIPT_CARD_SUFFIX)
@@ -33890,10 +33915,13 @@ function _receiptToggleCardPayment() {
   if (!button || !amountEl || !noteEl) return;
 
   if (button.dataset.active === '1') {
-    const result = _receiptCardPaymentOff(amountEl.dataset.receiptOriginalAmount, noteEl.value);
+    const result = _receiptCardPaymentOff(amountEl.dataset.receiptOriginalAmount, noteEl.value,
+      noteEl.dataset.receiptCardNote, noteEl.dataset.receiptOriginalNote);
     amountEl.value = result.amount;
     noteEl.value = result.note;
     delete amountEl.dataset.receiptOriginalAmount;
+    delete noteEl.dataset.receiptCardNote;
+    delete noteEl.dataset.receiptOriginalNote;
     button.dataset.active = '0';
     button.style.background = 'var(--sur3)';
     button.style.borderColor = 'var(--bdr2)';
@@ -33901,13 +33929,17 @@ function _receiptToggleCardPayment() {
     return;
   }
 
+  const cardNote = _receiptCardNoteText();
   const result = _receiptCardPaymentOn(
     amountEl.value,
     noteEl.value,
     cfg.cardFeeRate || 0,
     cfg.cardFeeRound || 100,
+    cardNote,
   );
   amountEl.dataset.receiptOriginalAmount = result.originalAmount;
+  // 設定した文言に置き換えたときだけ、戻すための元の但し書きを覚えておく
+  if (cardNote) { noteEl.dataset.receiptCardNote = cardNote; noteEl.dataset.receiptOriginalNote = result.originalNote; }
   amountEl.value = result.amount;
   noteEl.value = result.note;
   button.dataset.active = '1';
