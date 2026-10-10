@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.69">
+<meta name="app-version" content="1.1.70">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -11697,6 +11697,7 @@ function updateExtension(id, ci, value) {
     row.extSeats[ci] = min
       ? ((row.gcount || 1) >= 2 ? Math.max(1, (typeof _posExtSeats === 'function' ? _posExtSeats(row) : (row.gcount || 1))) : 1)
       : null;
+    if (Array.isArray(row.extRecordOnly)) row.extRecordOnly[ci] = false; // リスト表から直接入れた延長は、先頭行の分も実際の席として出す
     state.rows.filter(r => r.gid === row.gid && !r.isFirst).forEach(r => {
       r.extensions[ci] = value;
       r.endMin = calcEndMin(r, state.rows);
@@ -13038,13 +13039,15 @@ function renderTable() {
     rotCells += row.isFirst ? `<td rowspan="${span}" style="min-width:46px"></td>` : '';
 
     const departedExt = _posGuestIsDeparted(row, state.rows)
-      ? Math.min(_posGuestDepartureColumn(row), visExt - 1) : -1;
+      ? Math.min(_posGuestDepartureColumn(row, state.rows), visExt - 1) : -1;
     let extCells = '';
     for (let ci=0; ci<visExt; ci++) {
-      const v = row.extensions[ci]||'';
+      // 先頭行のお客様が退席したあとの延長は、会計用の記録として先頭行に残るだけ。欄には出さず、入力もさせない
+      const recordOnly = _posExtIsRecordOnly(row, ci, state.rows);
+      const v = recordOnly ? '' : (row.extensions[ci]||'');
       extCells += `<td class="ext-cell${ci===0?' gline':''}" id="ext_${row.id}_${ci}">${
         v ? `<span class="ext-badge" onclick="clearExt('${row.id}',${ci})" title="解除">${v}</span>`
-          : ci === departedExt ? '' : extSelectHtml(row.id, ci, v)
+          : (ci === departedExt || recordOnly) ? '' : extSelectHtml(row.id, ci, v)
       }${ci === departedExt ? _posGuestDepartureMark() : ''}</td>`;
     }
     extCells += row.isFirst ? `<td rowspan="${span}" style="min-width:46px"></td>` : '';
@@ -13389,7 +13392,7 @@ function doPrint() {
     rows.forEach(row => {
       const tr     = document.createElement('tr');
       tr.style.height = rowH;
-      const hasExt = row.extensions.some(v => v && v !== '');
+      const hasExt = row.extensions.some((v, i) => v && v !== '' && !_posExtIsRecordOnly(row, i, allRows));
       if (hasExt) tr.className = 'ext-row';
 
       const gOrd2     = groupOrderMap2[row.gid];
@@ -13417,7 +13420,8 @@ function doPrint() {
         desigHtml += (desigHtml ? '\n' : '') + sub;
       });
 
-      const extVals = [...row.extensions.slice(0,8)];
+      // 先頭行に残した会計用の記録（お客様が退席したあとの延長）は紙にも出さない
+      const extVals = row.extensions.slice(0,8).map((v, i) => _posExtIsRecordOnly(row, i, allRows) ? '' : v);
       while (extVals.length < 8) extVals.push('');
       const extCells = extVals.map(v =>
         v ? `<td style="color:#c00;font-weight:bold">${v}</td>` : `<td></td>`
@@ -14882,9 +14886,21 @@ function _posGuestIsDeparted(row, rows = state.rows) {
     return candidates.length === 1 && candidates[0].id === row.id;
   });
 }
-function _posGuestDepartureColumn(row) {
+/* 先頭行の延長欄のうち「会計用の記録だけ」のもの（リスト表・印刷には出さない）。
+   退席したお客様の行には延長を入れず、残っているお客様の行に課金席数ぶんだけ入れる（2026-10-11 オーナー指示）。
+   ただし延長の回数と席数は先頭行の extensions / extSeats が正本（_posExtRounds）なので、先頭行のお客様が退席していても
+   先頭行には同じ分数を残し、その列を extRecordOnly[列] = true にしておく。料金・終了時刻・伝票は今までどおり先頭行から計算する。 */
+function _posExtIsRecordOnly(row, ci, rows = state.rows) {
+  return !!(row && row.isFirst && parseInt(row.extensions?.[ci]) && Array.isArray(row.extRecordOnly)
+    && row.extRecordOnly[ci] === true && _posGuestIsDeparted(row, rows));
+}
+/* リスト表・印刷に出す延長欄の値（会計用の記録だけの列は空にする） */
+function _posVisibleExtension(row, ci, rows = state.rows) {
+  return _posExtIsRecordOnly(row, ci, rows) ? '' : (row.extensions?.[ci] || '');
+}
+function _posGuestDepartureColumn(row, rows = state.rows) {
   let next = 0;
-  (row.extensions || []).forEach((value, i) => { if (value !== '' && value != null) next = i + 1; });
+  (row.extensions || []).forEach((value, i) => { if (value !== '' && value != null && !_posExtIsRecordOnly(row, i, rows)) next = i + 1; });
   return next;
 }
 function _posGuestDepartureMark() {
@@ -18737,8 +18753,9 @@ function buildOwnerDayDataset(inputRows, dayKey, ctx = {}) {
   const methodLabels = { cash:'現金', card:'カード', both:'併用', urikake:'売掛' };
   const listRows = rows.map((rowValue, index) => {
     const row = rowValue || {};
+    // 先頭行に残した会計用の記録（お客様が退席したあとの延長）は、リスト表と同じく出さない
     const extensions = (Array.isArray(row.extensions) ? row.extensions : [])
-      .filter(value => String(value || '').trim() !== '');
+      .filter((value, i) => String(value || '').trim() !== '' && !_posExtIsRecordOnly(row, i, rows));
     const isFirst = !!row.isFirst;
     const out = {
       day: dayLabel,
@@ -22073,7 +22090,7 @@ function _reportReadonlyListHtml(src) {
     const rotText = i => [r.rotations?.[i],r.rotations2?.[i]].filter(Boolean).map(_reportReadonlyText).join('・');
     // 11th以降は上の段の下に改行して出す（リストの2段表示と同じ並び）
     const rot = Array.from({length:rotTier},(_,i)=>[rotText(i), i + ROT_COLS_PER_TIER < rotCols ? rotText(i + ROT_COLS_PER_TIER) : ''].filter(Boolean).join('<br>'));
-    const ext = Array.from({length:extCols},(_,i)=>_reportReadonlyText(r.extensions?.[i]));
+    const ext = Array.from({length:extCols},(_,i)=>_reportReadonlyText(_posVisibleExtension(r, i, rows)));
     const noteSource = parent || r;
     const notes = [noteSource.guestName, noteSource.source, r.condition].filter(v => v != null && v !== '').map(_reportReadonlyText).join(' / ');
     const method = r.amountMethod || 'cash';
@@ -23658,6 +23675,7 @@ async function posOrderEditDeleteExt(extIdx, opts) {
   const targets = (row.gcount || 1) >= 2 ? grp : [row];
   targets.forEach(r => { if (Array.isArray(r.extensions) && r.extensions[extIdx] != null) r.extensions[extIdx] = ''; });
   if (Array.isArray(row.extSeats)) row.extSeats[extIdx] = null;   // このラウンドの課金席数記録もクリア
+  if (Array.isArray(row.extRecordOnly)) row.extRecordOnly[extIdx] = false;
   // 終了時刻を延長削除ぶん戻す（calcEndMin = 開始+セット+延長合計）
   if (typeof calcEndMin === 'function') {
     const newEnd = calcEndMin(row);
@@ -24602,6 +24620,7 @@ async function posAddItem(name, amount, category, spShares) {
   }
   // 延長をリスト表の延長欄へ自動反映。
   // 多人数卓(2名以上)は「今アクティブな席（=基本席数−帰宅人数）」にだけ振り分ける。
+  // 入れる先は、まだ退席していないお客様の行（2026-10-11 オーナー指示: 帰ったお客様の行に延長が付いていた）。
   // 帰宅後に入れた延長は減った席数ぶんしか入らない＝既存の延長は変えず、次の延長から席数が減る。
   // このラウンドの課金席数を先頭行 row.extSeats[slot] に記録し、精算・表示はそれを使う。
   if (category === 'extension') {
@@ -24609,7 +24628,7 @@ async function posAddItem(name, amount, category, spShares) {
     const min = m ? m[1] : '';
     if (min) {
       const grp = state.rows.filter(r => r.gid === row.gid).sort((a, b) => (a.gidx || 0) - (b.gidx || 0));
-      // 退席後の課金席数（退席キャストぶん減る）。延長はその席数ぶんだけ前方の席に振り分ける。
+      // 退席後の課金席数（退席キャストぶん減る）。延長はその席数ぶんだけ、残っているお客様の行に前から振り分ける。
       const activeSeats = (typeof _posExtSeats === 'function') ? _posExtSeats(row) : (row.gcount || 1);
       // ラウンド列index＝先頭行の次の空き。各アクティブ席の同じ列に入れて席数を揃える。
       if (!Array.isArray(row.extensions)) row.extensions = [];
@@ -24618,7 +24637,20 @@ async function posAddItem(name, amount, category, spShares) {
       if (!Array.isArray(row.extSeats)) row.extSeats = [];
       while (row.extSeats.length <= slot) row.extSeats.push(null);
       row.extSeats[slot] = (row.gcount || 1) >= 2 ? Math.max(1, activeSeats) : 1;
-      const targets = (row.gcount || 1) >= 2 ? grp.slice(0, Math.max(1, activeSeats)) : [row];
+      // 退席したお客様の行には入れない。お客様を選ばずに人数だけ減らした記録は誰が帰ったか分からないので、残っている行の前から数える。
+      const seatCount = Math.max(1, activeSeats);
+      let targets = [row];
+      let recordOnly = false;
+      if ((row.gcount || 1) >= 2) {
+        const present = grp.filter(r => typeof _posGuestIsDeparted !== 'function' || !_posGuestIsDeparted(r));
+        targets = present.slice(0, seatCount);
+        if (targets.length < seatCount) grp.filter(r => !targets.includes(r)).slice(0, seatCount - targets.length).forEach(r => targets.push(r));
+        // 延長の回数と席数は先頭行が正本。先頭行のお客様が退席していても、先頭行には記録として残す（リスト表・印刷には出さない）。
+        if (!targets.includes(row)) { targets.push(row); recordOnly = true; }
+      }
+      if (!Array.isArray(row.extRecordOnly)) row.extRecordOnly = [];
+      while (row.extRecordOnly.length <= slot) row.extRecordOnly.push(false);
+      row.extRecordOnly[slot] = recordOnly;
       targets.forEach(r => {
         if (!Array.isArray(r.extensions)) r.extensions = [];
         while (r.extensions.length <= slot) r.extensions.push('');
@@ -25529,13 +25561,14 @@ function renderPastTable() {
     rotCells += row.isFirst ? `<td rowspan="${span}" style="min-width:46px"></td>` : '';
 
     const departedExt = _posGuestIsDeparted(row, ps.rows)
-      ? Math.min(_posGuestDepartureColumn(row), visExt - 1) : -1;
+      ? Math.min(_posGuestDepartureColumn(row, ps.rows), visExt - 1) : -1;
     let extCells = '';
     for (let ci = 0; ci < visExt; ci++) {
-      const v = row.extensions[ci] || '';
+      const recordOnly = _posExtIsRecordOnly(row, ci, ps.rows); // 先頭行に残した会計用の記録は出さない
+      const v = recordOnly ? '' : (row.extensions[ci] || '');
       extCells += `<td class="ext-cell${ci===0?' gline':''}">${
         v ? `<span class="ext-badge" onclick="pastClearExt('${row.id}',${ci})" title="解除">${v}</span>`
-          : ci === departedExt ? '' : pExtSel(row.id, ci, v)
+          : (ci === departedExt || recordOnly) ? '' : pExtSel(row.id, ci, v)
       }${ci === departedExt ? _posGuestDepartureMark() : ''}</td>`;
     }
     extCells += row.isFirst ? `<td rowspan="${span}" style="min-width:46px"></td>` : '';
