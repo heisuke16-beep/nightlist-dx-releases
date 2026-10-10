@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.68">
+<meta name="app-version" content="1.1.69">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -11073,6 +11073,7 @@ function ROW_DEFAULTS() {
     mainCast: '', mainType: 'free',
     subCasts: [],
     departedGuestRows: [], // 先頭行: [{cast,rowId}]。退席の表示先を行IDで保持（料金はdepartedCastsを使用）
+    departedFreeRows: [], // 先頭行: 指名なしで退席したお客様の行ID。departedCasts の空文字と同じ順（行を選ばない記録は null か欠け）
     designationStops: [], // 先頭行: [{cast, stoppedAt, resumedAt}]。料金/席次を消さず現在の指名だけ解除
     tableNum: '',
     rotations: [],
@@ -14243,7 +14244,10 @@ function calcStoreStatus() {
   // 会計済みでも客がまだ席にいる卓（posIsStaying）のキャストは在卓のまま数える
   const staying = r => typeof posIsStaying === 'function' && posIsStaying(r);
   const settledGids  = new Set(state.rows.filter(r => r.isFirst && r.settled && !staying(r)).map(r => r.gid));
-  const unsettledRows = state.rows.filter(r => !settledGids.has(r.gid));
+  // 退席したお客様の行は数えない。卓の人数と同じく、帰った客に付いていたキャストは在卓から外して待機に戻す（2026-10-11）。
+  // 対象は、指名のお客様の退席と、指名なしの退席で「帰ったお客様」を選んだもの。お客様を選ばずに人数だけ減らした古い記録は外せない。
+  const departed = r => typeof _posGuestIsDeparted === 'function' && _posGuestIsDeparted(r);
+  const unsettledRows = state.rows.filter(r => !settledGids.has(r.gid) && !departed(r));
 
   // 詳細表示用：各行の「現在接客中キャスト」= ローテーション列の最後の非空エントリ
   // ロテが未入力の場合はmainCastにフォールバック
@@ -14838,8 +14842,39 @@ function _posGuestDepartureCandidates(first, cast, rows = state.rows) {
     (r.mainCast === cast && types.includes(r.mainType))
     || (r.subCasts || []).some(s => s.cast === cast && types.includes(s.type))));
 }
+/* 指名なしで退席したお客様の行ID（選んだ順）。先頭行 departedFreeRows は、departedCasts の空文字（＝指名なしの退席）と同じ順に並ぶ。
+   行を選ばずに人数だけ減らした記録（v1.1.68以前・伝票設定の人数変更）は null か欠けで、どの行にも対応しない。
+   料金は departedCasts だけで決まる。ここは「どの客が帰ったか」の表示・在卓の数え方にだけ使う（2026-10-11）。 */
+function _posFreeDepartedRowIds(first) {
+  const freeCount = (first?.departedCasts || []).filter(cast => !cast).length;
+  return (Array.isArray(first?.departedFreeRows) ? first.departedFreeRows : []).slice(0, freeCount).filter(id => id != null);
+}
+/* 指名なしの退席を取り消したら、行の対応も後ろから外す（−は最後に退席にした1名を戻す） */
+function _posSyncFreeDepartedRows(first) {
+  if (!Array.isArray(first.departedFreeRows)) return;
+  const freeCount = (first.departedCasts || []).filter(cast => !cast).length;
+  if (first.departedFreeRows.length > freeCount) first.departedFreeRows.length = freeCount;
+}
+/* departedCasts の di 番目（指名なしの退席）を消す前に呼ぶ。同じ順の行の対応を1つ外す */
+function _posRemoveFreeDepartedAt(first, di) {
+  if (!Array.isArray(first.departedFreeRows) || first.departedCasts?.[di]) return;
+  const order = first.departedCasts.slice(0, di).filter(cast => !cast).length;
+  if (order < first.departedFreeRows.length) first.departedFreeRows.splice(order, 1);
+}
+/* 指名なしの退席で選べるお客様＝この伝票の、まだ退席にしていない行 */
+function _posFreeDepartureCandidates(first) {
+  return state.rows.filter(r => r.gid === first.gid && !_posGuestIsDeparted(r));
+}
+/* 「客2 名前／いま付いているキャスト」。退席の画面でお客様を見分けるための表示 */
+function _posGuestLabel(first, r) {
+  const number = state.rows.filter(x => x.gid === first.gid).findIndex(x => x.id === r.id) + 1;
+  const floor = _posCurrentFloorCasts(r);
+  const names = floor.length ? floor : [r.mainCast].filter(Boolean);
+  return '客' + number + (r.guestName ? ' ' + r.guestName : '') + '／' + (names.length ? names.join('・') : 'キャストなし');
+}
 function _posGuestIsDeparted(row, rows = state.rows) {
   const first = rows.find(r => r.gid === row.gid && r.isFirst) || row;
+  if (_posFreeDepartedRowIds(first).includes(row.id)) return true;
   return (first.departedCasts || []).filter(Boolean).some(cast => {
     const saved = (first.departedGuestRows || []).find(d => d.cast === cast);
     if (saved) return saved.rowId === row.id;
@@ -15945,7 +15980,8 @@ function _posFloorCastChipData(row, rowFilter) {
     chips.push({ cast, type, away: rank > 0 && options.away === true, help: options.help === true });
   };
   // rowFilter: 同時に使う卓があるとき、その卓に座っている客の分だけを出す（卓ビューのカード用）
-  state.rows.filter(r => String(r.gid) === String(row.gid) && (!rowFilter || rowFilter(r))).forEach(groupRow => {
+  // 退席したお客様の行は出さない（帰った客に付いていたキャストは、もうこの卓にいない。2026-10-11）
+  state.rows.filter(r => String(r.gid) === String(row.gid) && (!rowFilter || rowFilter(r)) && !_posGuestIsDeparted(r)).forEach(groupRow => {
     const floorCasts = _posCurrentFloorCasts(groupRow);
     const currentCasts = floorCasts.length ? floorCasts : [groupRow.mainCast].filter(Boolean);
     if (groupRow.mainCast && !_posDesignationStop(groupRow, groupRow.mainCast)) {
@@ -15993,6 +16029,7 @@ function _posCastFloorTables(castName) {
   posFloorRows().forEach(first => {
     const isAssigned = state.rows.some(groupRow => {
       if (String(groupRow.gid) !== String(first.gid)) return false;
+      if (_posGuestIsDeparted(groupRow)) return false; // 退席したお客様の行は在卓に数えない
       if (groupRow.mainCast === castName) return true;
       if (Array.isArray(groupRow.subCasts) && groupRow.subCasts.some(sub => sub && sub.cast === castName)) return true;
       // 付け回し席次: 最後の非空スロットの1人目・2人目＝今この卓についている
@@ -16011,6 +16048,7 @@ function _posCastDesignationTables(castName) {
   posFirstRows().forEach(first => {
     const isNominated = state.rows.some(groupRow => {
       if (String(groupRow.gid) !== String(first.gid)) return false;
+      if (_posGuestIsDeparted(groupRow)) return false; // 退席したお客様の卓は、指名かぶりの相手に数えない
       if (_posDesignationStop(groupRow, castName)) return false;
       if (groupRow.mainCast === castName && nominationTypes.includes(groupRow.mainType)) return true;
       return Array.isArray(groupRow.subCasts)
@@ -16849,6 +16887,45 @@ function _posConfirmDepartedGuest(gid, cast, rowId) {
   }
   posToggleDeparted(cast, rowId);
 }
+/* 指名なしのお客様の退席: 帰ったお客様の行を選ぶ（2026-10-11 オーナー指示）。
+   選んだお客様に付いていたキャストは在卓から外れ、行の延長欄に❌が出る。料金は今までどおり（課金人数 −1。指名料は続く）。 */
+function posDepartFreeGuest() {
+  const row = posSelectedRow(); if (!row) return;
+  const first = state.rows.find(r => r.gid === row.gid && r.isFirst) || row;
+  if (first.settled) return;
+  const departed = Array.isArray(first.departedCasts) ? first.departedCasts : [];
+  if (departed.length >= Math.max(0, (Number(row.gcount) || 1) - 1)) { showToast('これ以上は退席にできません（最低1席）'); return; }
+  const candidates = _posFreeDepartureCandidates(first);
+  // 選べる行が無い（人数と行数が合わない古いデータ）ときは、今までどおり人数だけ減らす
+  if (!candidates.length) { posAdjustDepartedFree(1); return; }
+  const buttons = candidates.map(r => {
+    const call = '_posConfirmFreeDeparted(' + [first.gid, r.id].map(v => JSON.stringify(v)).join(',') + ')';
+    return '<button type="button" class="pos-drink-cast-btn" style="width:100%;min-height:48px;margin-top:8px" onclick="' + escAttr(call) + '">' + escHtml(_posGuestLabel(first, r)) + '</button>';
+  }).join('');
+  document.getElementById('pos-departed-guest-overlay')?.remove();
+  document.body.insertAdjacentHTML('beforeend', '<div class="pos-co-overlay" id="pos-departed-guest-overlay"><div class="pos-drink-pick" style="max-width:500px;width:94%"><div class="pos-drink-pick-head"><span>帰ったお客様を選択</span><button type="button" class="pos-drink-pick-close" onclick="document.getElementById(\'pos-departed-guest-overlay\').remove()">×</button></div><div style="padding:18px">指名なしの退席として記録します（課金人数 −1。指名料は続きます）。選んだお客様に付いていたキャストは在卓から外れ、行の延長欄に❌が出ます。' + buttons + '</div></div></div>');
+}
+function _posConfirmFreeDeparted(gid, rowId) {
+  const first = state.rows.find(r => r.gid === gid && r.isFirst);
+  const target = first && state.rows.find(r => r.gid === gid && r.id === rowId);
+  const departed = first && Array.isArray(first.departedCasts) ? first.departedCasts : [];
+  if (!first || first.settled || String(posBetaState.selectedGid) !== String(gid) || !target || _posGuestIsDeparted(target)
+    || departed.length >= Math.max(0, (Number(first.gcount) || 1) - 1)) {
+    document.getElementById('pos-departed-guest-overlay')?.remove();
+    showToast('伝票の状態が変わりました。人数の調整を開き直してください');
+    return;
+  }
+  pushUndo();
+  const freeBefore = departed.filter(cast => !cast).length;
+  const freeRows = Array.isArray(first.departedFreeRows) ? first.departedFreeRows.slice(0, freeBefore) : [];
+  while (freeRows.length < freeBefore) freeRows.push(null); // 行を選ばずに減らした分は空のまま、順番をそろえる
+  freeRows.push(rowId);
+  departed.push('');
+  first.departedCasts = departed;
+  first.departedFreeRows = freeRows;
+  document.getElementById('pos-departed-guest-overlay')?.remove();
+  saveState(); renderTable(); renderPOSPanel(); posOpenDepartedModal();
+}
 function _departedAdjustFree(departedCasts, delta, gcount) {
   const next = Array.isArray(departedCasts) ? departedCasts.slice() : [];
   if (delta > 0) {
@@ -16881,14 +16958,18 @@ function posOpenDepartedModal() {
       '課金人数 −1／' + escHtml(d.cast) + 'の延長指名料も停止');
   }).join('');
   const freeDep = departed.filter(d => !d).length;
+  const freeGuests = _posFreeDepartedRowIds(first)
+    .map(id => state.rows.find(r => r.gid === first.gid && r.id === id)).filter(Boolean)
+    .map(r => _posGuestLabel(first, r));
   const freeBtn = '<div class="pos-drink-cast-btn special" style="width:100%;height:auto;padding:14px 16px">'
     + '<div style="display:grid;grid-template-columns:52px 1fr 52px;align-items:center;gap:10px">'
     + '<button type="button" onclick="posAdjustDepartedFree(-1)" aria-label="指名なし退席を1名減らす"'
     + ' style="height:46px;border-radius:8px;border:1px solid var(--bdr2);background:var(--sur3);color:var(--tx);font-size:24px;font-weight:800;cursor:pointer">−</button>'
     + '<span style="font-size:16px;font-weight:800;text-align:center">指名なしのお客様の退席 ' + freeDep + '名</span>'
-    + '<button type="button" onclick="posAdjustDepartedFree(1)" aria-label="指名なし退席を1名増やす"'
+    + '<button type="button" onclick="posDepartFreeGuest()" aria-label="指名なしで帰ったお客様を選ぶ"'
     + ' style="height:46px;border-radius:8px;border:1px solid var(--bdr2);background:var(--sur3);color:var(--tx);font-size:24px;font-weight:800;cursor:pointer">＋</button>'
-    + '</div><div style="margin-top:8px;font-size:12.5px;color:var(--tx3);font-weight:400;text-align:center">課金人数 −1 のみ（指名料は継続）</div></div>';
+    + '</div><div style="margin-top:8px;font-size:12.5px;color:var(--tx3);font-weight:400;text-align:center;line-height:1.6">課金人数 −1 のみ（指名料は継続）。＋で帰ったお客様を選びます'
+    + (freeGuests.length ? '<br><span style="color:var(--tx2)">退席中：' + escHtml(freeGuests.join('、')) + '</span>' : '') + '</div></div>';
   const html = '<div class="pos-co-overlay" id="pos-departed-overlay" onclick="if(event.target===this)posDepartedClose()">'
     + '<div class="pos-drink-pick" style="max-width:500px;width:94%">'
     + '<div class="pos-drink-pick-head"><span>👥 人数の調整</span>'
@@ -16899,7 +16980,7 @@ function posOpenDepartedModal() {
     + '<div style="margin-top:16px;padding:13px 16px;background:var(--sur3);border-radius:8px;font-size:13.5px;font-weight:700;line-height:1.5">'
     + '入店 ' + (row.gcount || 1) + '名 → 次の延長から <span style="color:var(--gold2)">' + _posExtSeats(row) + '名分</span>で課金'
     + (departed.length ? '（退席 ' + departed.length + '名）' : '') + '</div>'
-    + '<div style="margin-top:12px;color:var(--tx3);font-size:12px;line-height:1.7">指名料を取り続ける場合は「指名なしのお客様」を＋で追加。−で退席を取り消せます</div>'
+    + '<div style="margin-top:12px;color:var(--tx3);font-size:12px;line-height:1.7">指名料を取り続ける場合は「指名なしのお客様」を＋で追加。−で最後に退席にした1名を取り消せます</div>'
     + '<button type="button" class="pos-drink-cast-btn special" onclick="posAddGuest()"'
     + ' style="width:100%;height:auto;margin-top:18px;padding:16px 20px;font-size:16px;font-weight:800">➕ 来客追加（+1名）</button>'
     + '<div style="margin-top:8px;color:var(--tx3);font-size:12px;line-height:1.6">セット料金は自動で追加されません。オーダーから追加してください</div>'
@@ -16917,6 +16998,7 @@ function posAdjustDepartedFree(delta) {
   const next = _departedAdjustFree(before, delta, row.gcount || 1);
   if (delta > 0 && next.length === before.length) showToast('これ以上は退席にできません（最低1席）');
   first.departedCasts = next;
+  _posSyncFreeDepartedRows(first);
   saveState(); renderTable(); renderPOSPanel(); posOpenDepartedModal();
 }
 function posAddGuest() {
@@ -23556,6 +23638,7 @@ async function posOrderEditRemoveDeparted(di) {
   const c = first.departedCasts[di];
   if (!(await appConfirm(`退席${c ? '「' + c + '」' : '（フリー）'}を取り消しますか？`))) return;
   pushUndo();
+  _posRemoveFreeDepartedAt(first, di); // 指名なしの退席なら、選んだお客様の行の対応も外す
   first.departedCasts.splice(di, 1);
   saveState(); renderTable(); renderPOSPanel(); _posOeRerender();
 }
