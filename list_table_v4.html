@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.71">
+<meta name="app-version" content="1.1.72">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -24041,6 +24041,29 @@ function _receiptMetaHtml(row, block, inHead) {
   return '<div class="meta' + (inHead ? '' : ' r-blk-meta') + '">' + parts.join('<br>') + '</div>';
 }
 
+/* 会計伝票に出すとき、同じ商品（カテゴリ・名称・単価・税込の印が同じ）を1行にまとめて数と金額を足す（2026-10-11 オーナー指示）。
+   延長指名料の自動加算は、延長の回ごとに別の注文として持つ（延長を消したとき、その回の分だけ消すため）ので、
+   そのまま出すと「延指40:○○ 1」が何行も並ぶ。注文そのものはまとめない。まとめるのは紙とお客様に見せる画面の見せ方だけで、
+   POSの伝票では今までどおり1件ずつ消せる。並びは、その商品が最初に出てきた位置。返り値は [{ order, qty, amount }]。 */
+function _receiptMergedOrderLines(orders, orderPricing) {
+  const lines = [];
+  const index = new Map();
+  orders.forEach(o => {
+    const qty = Number(o.qty) || 1;
+    const key = JSON.stringify([o.category || '', o.name || '', posOrderUnitAmount(o, orderPricing), !!o.taxIncluded,
+      o.category === 'special' ? posSpecialMode(o) : '']);
+    const at = index.get(key);
+    if (at === undefined) {
+      index.set(key, lines.length);
+      lines.push({ order:o, qty, amount:posOrderLineAmount(o, orderPricing) });
+    } else {
+      lines[at].qty += qty;
+      lines[at].amount += posOrderLineAmount(o, orderPricing);
+    }
+  });
+  return lines;
+}
+
 function _receiptDetailRows(row, minRows, showSetTime = true) {
   const orders = posOrders(row);
   const orderPricing = posOrderPricing(row, 0);
@@ -24048,13 +24071,15 @@ function _receiptDetailRows(row, minRows, showSetTime = true) {
   const setOrders   = orders.filter(o => o.category === 'set');
   // 客に渡る伝票なので、金額0円・繰延専用の空場内明細は出さない（延長行の合算後金額に含まれるため）
   const otherOrders = orders.filter(o => o.category !== 'set' && o.category !== 'jonai_empty');
-  const orderTr = o => {
+  // merged: 同じ商品をまとめた行（数と金額はまとめた合計）。SETは時間が違うので1件ずつ出す
+  const orderTr = (o, merged) => {
     let label = escHtml(o.name);
     if (showSetTime && o.category === 'set' && typeof o.startMin === 'number' && typeof o.endMin === 'number')
       label += ':' + minToHHMM(o.startMin) + '-' + minToHHMM(o.endMin);
     if (o.taxIncluded) label += '(込)';
-    const q = Number(o.qty) || 1;
-    return '<tr><td>' + label + '</td><td class="q">' + q + '</td><td class="a">' + posOrderLineAmount(o, orderPricing).toLocaleString() + '</td></tr>';
+    const q = merged ? merged.qty : (Number(o.qty) || 1);
+    const amount = merged ? merged.amount : posOrderLineAmount(o, orderPricing);
+    return '<tr><td>' + label + '</td><td class="q">' + q + '</td><td class="a">' + amount.toLocaleString() + '</td></tr>';
   };
   // 表示順: ①SET（最上段）→ ②指名・延長など脳みそ側ライン → ③その他オーダー（ドリンク・延指）
   setOrders.forEach(o => itemRows.push(orderTr(o)));
@@ -24064,7 +24089,7 @@ function _receiptDetailRows(row, minRows, showSetTime = true) {
     const lineTotal = (Number(item.amount) || 0) * q + (Number(item.extra) || 0);
     itemRows.push('<tr><td>' + escHtml(item.label) + '</td><td class="q">' + q + '</td><td class="a">' + lineTotal.toLocaleString() + '</td></tr>');
   });
-  otherOrders.forEach(o => itemRows.push(orderTr(o)));
+  _receiptMergedOrderLines(otherOrders, orderPricing).forEach(line => itemRows.push(orderTr(line.order, line)));
   // 退席ラインは一番下に離して表示（明細と分ける）。空行で間を空けてから最下部に出す。
   const depLines = (typeof _posDepartedLines === 'function') ? _posDepartedLines(row) : [];
   // 伝票見た目: 最低行数まで空行で埋める。注文が超えれば行は自動で増える
