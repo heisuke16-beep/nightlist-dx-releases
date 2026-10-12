@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.72">
+<meta name="app-version" content="1.1.73">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -11784,9 +11784,11 @@ function cancelSettle(id) {
     return;
   }
   pushUndo();
-  // 精算状態のみ解除し、金額は保持（再精算できるように）
+  // 精算状態を解除する。リスト表に手入力した金額は保持（再精算できるように）。
+  // POSで精算した伝票は、精算が書いた金額を精算前へ戻す（31 posRestorePreSettle）。
   row.settled = false;
   row.settledAt = 0;
+  if (typeof posRestorePreSettle === 'function') posRestorePreSettle(state.rows.find(r => r.gid === row.gid && r.isFirst) || row);
   renderTable(); saveState();
   if (typeof renderReportPanel === 'function') renderReportPanel();   // 集計を即更新
   // 取消も顧客集計から除外する必要があるため再集計
@@ -19276,6 +19278,7 @@ function posExecCheckout(method, urikakePayment, cardAmounts) {
     return;
   }
   pushUndo();
+  _posKeepPreSettle(row);   // 取消で精算前へ戻すための控え
   row.amountMethod = bd.amountMethod;
   row.amountCash = bd.amountCash ? String(bd.amountCash) : '';
   // カードは切った回数ぶん別々に記録する（前金カード→今回のカード）。合算すると枚数が1になる
@@ -19653,6 +19656,7 @@ function posSplitApply() {
   const totalCash = adv.cash + cash;
   const totalCard = adv.card + card;
   pushUndo();
+  _posKeepPreSettle(row);   // 取消で精算前へ戻すための控え
   row.amountMethod = (totalCash > 0 && totalCard > 0) ? 'both' : (totalCard > 0 ? 'card' : 'cash');
   row.amountCash = totalCash ? String(totalCash) : '';
   _posAssignCardCharges(row, [..._posAdvanceCardCharges(row), card]);
@@ -19697,6 +19701,45 @@ function _posAdvanceCardCharges(row) {
     .filter(a => a.method === 'card')
     .map(a => (Number(a.amount) || 0) + (Number(a.fee) || 0))
     .filter(v => v > 0);
+}
+
+/* POSの精算は確定額を先頭行の amountMethod / amountCash / amountCard / cardEntries / amountUrikake へ書く。
+   書く直前に元の値を row.preSettle へ控え、取消（posRestorePreSettle）で精算前へ戻す。
+   「精算だけ押して日計表の本指名バックを確かめ、取消して営業を続ける」実務で、取消後に延長の案内
+   （35 の _extTrialModel ほか＝amountCash があればそれを優先）が精算時の金額で止まらないようにする（2026-10-13）。
+   精算済みの行を取消さずに精算し直すときは、最初の控え（＝本当の精算前）を残す。 */
+function _posKeepPreSettle(row) {
+  if (!row || (row.settled && row.preSettle)) return;
+  row.preSettle = {
+    amountMethod: row.amountMethod || 'cash',
+    amountCash: row.amountCash || '',
+    amountCard: row.amountCard || '',
+    amountUrikake: row.amountUrikake || '',
+    cardEntries: JSON.parse(JSON.stringify(Array.isArray(row.cardEntries) ? row.cardEntries : [])),
+  };
+}
+/* 精算の取消で先頭行に対して呼ぶ（リスト表・過去のリスト・集計と会計済カードの取消で共通）。
+   控えがあれば精算前の金額へ戻す。控えの無い古い伝票は、POSの伝票（posManaged）なら金額を空へ戻す
+   （POSは精算のたびに金額を計算し直して書くので、残っていても古い額でしかない）。
+   リスト表だけで使っている伝票（posManaged なし）は、手入力した金額をそのまま残す。 */
+function posRestorePreSettle(row) {
+  if (!row) return;
+  const keep = row.preSettle;
+  if (keep && typeof keep === 'object') {
+    row.amountMethod = keep.amountMethod || 'cash';
+    row.amountCash = keep.amountCash || '';
+    row.amountCard = keep.amountCard || '';
+    row.amountUrikake = keep.amountUrikake || '';
+    row.cardEntries = Array.isArray(keep.cardEntries) ? keep.cardEntries : [];
+  } else if (row.posManaged === true) {
+    row.amountMethod = 'cash';
+    row.amountCash = '';
+    row.amountCard = '';
+    row.amountUrikake = '';
+    row.cardEntries = [];
+  }
+  delete row.preSettle;
+  delete row.floorStay;   // 未精算に戻った伝票に「会計後も卓に残す」の印を残さない
 }
 
 /* カードの各切り額を 1枚目=amountCard・2枚目以降=cardEntries として記録する。 */
@@ -22205,10 +22248,13 @@ async function posReportRestore(gid) {
   }
   pushUndo();
   state.rows.filter(r => r.gid === gid).forEach(r => { r.settled = false; r.settledAt = 0; });
+  // 精算が書いた金額を精算前へ戻す（延長の案内が精算時の金額で止まらないように。31 posRestorePreSettle）
+  if (typeof posRestorePreSettle === 'function') posRestorePreSettle(row);
   saveState();
   renderTable();
   renderPOSPanel();
   renderReportPanel();
+  if (typeof syncCustomers === 'function') syncCustomers();   // 取消した来店を顧客の集計から外す（リスト表の取消と同じ）
   showToast(`No.${slipNoLabel(row)} を復元しました`);
 }
 
@@ -25947,6 +25993,7 @@ function pastCancelSettle(id) {
   }
   r.settled = false;
   r.settledAt = 0;
+  if (typeof posRestorePreSettle === 'function') posRestorePreSettle(pastState.rows.find(x => x.gid === r.gid && x.isFirst) || r);
   renderPastTable();
 }
 function pastAddRotCol() {
