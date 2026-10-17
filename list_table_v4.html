@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.74">
+<meta name="app-version" content="1.1.75">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -20525,6 +20525,17 @@ function _payrollTouketsuMark(row) {
     : '';
 }
 
+/* 日払いを控除に含めた控除計・差引支給（日計表・控除票・CSV・日給内訳で共通の表示用）。
+   計算結果の deductionTotal / netPay は日払い前のまま（給与明細が期間の終わりに「日払い済み額」として1回だけ引くため） */
+function _payrollWithAdvance(r) {
+  const nibarai = Number(r && r.nibarai) || 0;
+  return {
+    nibarai,
+    deductionTotal:(Number(r && r.deductionTotal) || 0) + nibarai,
+    netPay:(Number(r && r.netPay) || 0) - nibarai,
+  };
+}
+
 function _payrollTd(content, className, groupStart) {
   const classes = [className || '', groupStart ? 'pay-group-start' : ''].filter(Boolean).join(' ');
   return '<td' + (classes ? ' class="' + classes + '"' : '') + '>' + content + '</td>';
@@ -20554,7 +20565,6 @@ function _payrollTableColumns(countCols, deductionItems, showPoints) {
     { id:'sp', group:'pay', label:'SP', cell:(x, start) => _payrollTd(x.plain ? (x.r.sp ? _payYen(x.r.sp) : '') : '<input type="number" class="pay-in" value="' + (x.r.sp || '') + '" placeholder="0" onchange="payrollSetSP(\'' + x.cj + '\', this.value)">', '', start), total:(x, start) => _payrollTd('', '', start) },
     { id:'backTotal', group:'pay', label:'バック合計', cell:(x, start) => _payrollTd(_payYen(x.r.backTotal), 'pay-total', start), total:(x, start) => _payrollTd(_payYen(x.tot.back), 'pay-total', start) },
     { id:'late', group:'pay', label:'遅刻', cell:(x, start) => _payrollTd(x.r.lateFee ? '-' + _payYen(x.r.lateFee) : '—', 'pay-amt' + (x.r.lateFee ? '' : ' pay-muted'), start), total:(x, start) => _payrollTd(x.tot.late ? '-' + _payYen(x.tot.late) : '—', 'pay-amt', start) },
-    { id:'nibarai', group:'pay', label:'日払い', cell:(x, start) => _payrollTd(x.plain ? (x.r.nibarai ? _payYen(x.r.nibarai) : '') : '<input type="number" class="pay-in" value="' + (x.r.nibarai || '') + '" placeholder="0" onchange="payrollSetNibarai(\'' + x.cj + '\', this.value)">', '', start), total:(x, start) => _payrollTd(_payYen(x.tot.nibarai), 'pay-amt', start) },
     { id:'dailyPay', group:'pay', label:'日給', cell:(x, start) => _payrollTd(x.hasOut ? _payYen(x.r.dailyPay) : '（時給未確定）', 'pay-daily' + (x.hasOut ? '' : ' pay-muted'), start), total:(x, start) => _payrollTd(_payYen(x.tot.daily), 'pay-daily', start) },
     ...deductionItems.map((item, index) => ({
       id:'deductions', group:'pay', label:item.label || '', optionLabel:deductionOptionLabel,
@@ -20571,9 +20581,11 @@ function _payrollTableColumns(countCols, deductionItems, showPoints) {
       },
       total:(x, start) => _payrollTd('', '', start),
     })),
+    // 日払いは控除の並び（控除計の直前）に置き、控除計・差引支給に含める（日給内訳のレシートと同じ）
+    { id:'nibarai', group:'pay', label:'日払い', cell:(x, start) => _payrollTd(x.plain ? (x.r.nibarai ? _payYen(x.r.nibarai) : '') : '<input type="number" class="pay-in" value="' + (x.r.nibarai || '') + '" placeholder="0" onchange="payrollSetNibarai(\'' + x.cj + '\', this.value)">', '', start), total:(x, start) => _payrollTd(_payYen(x.tot.nibarai), 'pay-amt', start) },
     ...(deductionItems.length ? [
-      { id:'deductions', group:'pay', label:'控除計', optionLabel:deductionOptionLabel, cell:(x, start) => _payrollTd(x.hasOut ? _payYen(x.r.deductionTotal) : '—', 'pay-total' + (x.hasOut ? '' : ' pay-muted'), start), total:(x, start) => _payrollTd(_payYen(x.tot.deduction), 'pay-total', start) },
-      { id:'deductions', group:'pay', label:'差引支給', optionLabel:deductionOptionLabel, cell:(x, start) => _payrollTd(x.hasOut ? _payYen(x.r.netPay) : '（時給未確定）', 'pay-net' + (x.hasOut ? '' : ' pay-muted'), start), total:(x, start) => _payrollTd(_payYen(x.tot.net), 'pay-net', start) },
+      { id:'deductions', group:'pay', label:'控除計', optionLabel:deductionOptionLabel, cell:(x, start) => _payrollTd(x.hasOut ? _payYen(_payrollWithAdvance(x.r).deductionTotal) : '—', 'pay-total' + (x.hasOut ? '' : ' pay-muted'), start), total:(x, start) => _payrollTd(_payYen(x.tot.deduction), 'pay-total', start) },
+      { id:'deductions', group:'pay', label:'差引支給', optionLabel:deductionOptionLabel, cell:(x, start) => _payrollTd(x.hasOut ? _payYen(_payrollWithAdvance(x.r).netPay) : '（時給未確定）', 'pay-net' + (x.hasOut ? '' : ' pay-muted'), start), total:(x, start) => _payrollTd(_payYen(x.tot.net), 'pay-net', start) },
     ] : []),
     { id:'rate', group:'pay', label:'給率', cell:(x, start) => _payrollTd(x.r.kyuuritsu == null ? '—' : x.r.kyuuritsu.toFixed(1) + '%', 'pay-rate' + (x.r.kyuuritsu == null ? ' pay-muted' : ''), start), total:(x, start) => _payrollTd('', '', start) },
   ];
@@ -21603,9 +21615,7 @@ function _payrollBreakdownData(r, src, countCols) {
   src = src || {};
   countCols = countCols || _payrollCountCols([r], {});
   const workMinutes = Math.max(0, Number(r.workMinutes) || 0);
-  // 日払いは内訳（画面・レシート）でだけ控除に含める。計算結果の netPay は日払い前のまま
-  // （給与明細が期間の終わりに「日払い済み額」として1回だけ引くため）
-  const nibarai = Number(r.nibarai) || 0;
+  const withAdvance = _payrollWithAdvance(r);
   return {
     castName:String(r.castName || ''),
     dayLabel:(typeof bizKeyToLabel === 'function') ? bizKeyToLabel(src.dayKey || '') : String(src.dayKey || ''),
@@ -21631,9 +21641,9 @@ function _payrollBreakdownData(r, src, countCols) {
       label:String(item.label || ''),
       value:item.mode === 'boolean' ? _payrollDeductionMark(item)
         : (item.mode === 'flagFixed' ? (item.checked === true ? '○ ' + _payYen(item.amount) : '×') : _payYen(item.amount)),
-    })).concat([{ label:'日払い', value:_payYen(nibarai) }]),
-    deductionTotal:(Number(r.deductionTotal) || 0) + nibarai,
-    netPay:(Number(r.netPay) || 0) - nibarai,
+    })).concat([{ label:'日払い', value:_payYen(withAdvance.nibarai) }]),
+    deductionTotal:withAdvance.deductionTotal,
+    netPay:withAdvance.netPay,
     rateLabel:Number(r.sales) > 0 && r.kyuuritsu != null
       ? `${Number(r.kyuuritsu).toFixed(1)}%（売上 ${_payYen(r.sales)}）` : '—',
   };
@@ -21756,9 +21766,10 @@ function _payrollTableInnerHtml(src, model, opts = { plain:false }) {
     tot.late += r.lateFee || 0;
     tot.nibarai += r.nibarai || 0;
     if (hasOut) {
+      const withAdvance = _payrollWithAdvance(r);
       tot.daily += r.dailyPay || 0;
-      tot.deduction += r.deductionTotal || 0;
-      tot.net += r.netPay || 0;
+      tot.deduction += withAdvance.deductionTotal;
+      tot.net += withAdvance.netPay;
     }
 
     const ctx = { r, cj, hasOut, manualDeductions, autoCounts, manCounts, tot, plain:opts.plain === true };
@@ -21797,10 +21808,10 @@ function _deductionSheetInnerHtml(src, opts = { plain:false }) {
     return '<div class="agg-side-empty" style="padding:24px;text-align:center">出勤キャストがいません</div>';
   }
   const checkouts = (src.tt && src.tt.checkouts) || {};
-  const tot = { display:0, deduction:0, net:0 };
+  const tot = { display:0, nibarai:0, deduction:0, net:0 };
   const head = '<thead><tr><th class="pay-name">社交名</th><th>' + displayColumn.label + '</th>'
     + deductionItems.map(item => '<th>' + escHtml(item.label || '') + '</th>').join('')
-    + '<th>控除計</th><th>差引支給</th></tr></thead>';
+    + '<th>日払い</th><th>控除計</th><th>差引支給</th></tr></thead>';
   const body = rows.map(r => {
     const c = r.castName;
     const cj = escHtml(c).replace(/'/g, "\\'");
@@ -21809,10 +21820,12 @@ function _deductionSheetInnerHtml(src, opts = { plain:false }) {
       ? getPayrollManual(src.dayKey, c).deductions : {};
     const displayReady = !displayColumn.requiresCheckout || hasOut;
     const displayValue = displayColumn.value(r);
+    const withAdvance = _payrollWithAdvance(r);
     if (displayReady) tot.display += displayValue;
+    tot.nibarai += withAdvance.nibarai;
     if (hasOut) {
-      tot.deduction += r.deductionTotal || 0;
-      tot.net += r.netPay || 0;
+      tot.deduction += withAdvance.deductionTotal;
+      tot.net += withAdvance.netPay;
     }
     const cells = deductionItems.map((item, index) => {
       const cell = _deductionCellValue(item, (r.deductions || [])[index], manualDeductions);
@@ -21826,16 +21839,18 @@ function _deductionSheetInnerHtml(src, opts = { plain:false }) {
       return '<td>' + _deductionCellInputHtml(cell, cj, item.key) + '</td>';
     }).join('');
     const hasRecordedFlag = (r.deductions || []).some(item => isPayrollDeductionFlagMode(item.mode) && item.checked === true);
-    return '<tr' + (!hasOut || ((Number(r.deductionTotal) || 0) === 0 && !hasRecordedFlag) ? ' class="ded-zero"' : '') + '>'
+    return '<tr' + (!hasOut || (withAdvance.deductionTotal === 0 && !hasRecordedFlag) ? ' class="ded-zero"' : '') + '>'
       + '<td class="pay-name">' + escHtml(c) + _payrollTouketsuMark(r) + '</td>'
       + '<td class="pay-daily' + (displayReady ? '' : ' pay-muted') + '">' + (displayReady ? _payYen(displayValue) : '（時給未確定）') + '</td>'
       + cells
-      + '<td class="pay-total' + (hasOut ? '' : ' pay-muted') + '">' + (hasOut ? _payYen(r.deductionTotal) : '—') + '</td>'
-      + '<td class="pay-net' + (hasOut ? '' : ' pay-muted') + '">' + (hasOut ? _payYen(r.netPay) : '（時給未確定）') + '</td>'
+      + '<td>' + (withAdvance.nibarai ? _payYen(withAdvance.nibarai) : '') + '</td>'
+      + '<td class="pay-total' + (hasOut ? '' : ' pay-muted') + '">' + (hasOut ? _payYen(withAdvance.deductionTotal) : '—') + '</td>'
+      + '<td class="pay-net' + (hasOut ? '' : ' pay-muted') + '">' + (hasOut ? _payYen(withAdvance.netPay) : '（時給未確定）') + '</td>'
       + '</tr>';
   }).join('');
   const totalRow = '<tr class="pay-totalrow"><td class="pay-name">合計</td><td>' + _payYen(tot.display) + '</td>'
     + deductionItems.map(() => '<td></td>').join('')
+    + '<td>' + _payYen(tot.nibarai) + '</td>'
     + '<td class="pay-total">' + _payYen(tot.deduction) + '</td>'
     + '<td class="pay-net">' + _payYen(tot.net) + '</td></tr>';
   const table = '<table class="payroll-table deduction-sheet">' + head + '<tbody>' + body + totalRow + '</tbody></table>';
@@ -22004,7 +22019,7 @@ function exportPayrollCSV() {
       hasOut ? r.dailyPay : '',
     ];
     out.push([...baseRow, ...(r.deductions || []).map(item => item.mode === 'boolean' ? _payrollDeductionMark(item) : item.amount),
-      ...(deductionItems.length ? [r.deductionTotal, hasOut ? r.netPay : ''] : []),
+      ...(deductionItems.length ? [_payrollWithAdvance(r).deductionTotal, hasOut ? _payrollWithAdvance(r).netPay : ''] : []),
       r.kyuuritsu == null ? '' : r.kyuuritsu.toFixed(1)]);
   });
   const csv = out.map(r => r.map(v => '"' + String(v).replace(/"/g,'""') + '"').join(',')).join('\r\n');
