@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.75">
+<meta name="app-version" content="1.1.76">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -20541,7 +20541,6 @@ function _payrollTd(content, className, groupStart) {
   return '<td' + (classes ? ' class="' + classes + '"' : '') + '>' + content + '</td>';
 }
 function _payrollTableColumns(countCols, deductionItems, showPoints) {
-  const deductionOptionLabel = deductionItems.map(item => item.label || '').concat(['控除計', '差引支給']).join('・');
   const cols = [
     { id:'clockin', group:'work', label:'出勤', cell:(x, start) => _payrollTd(x.plain ? formatWorkTime(x.r.roundedIn || x.r.inHHMM) : _payrollClockSelectHtml(x.r.inHHMM, roundClockIn, "payrollSetClockIn('" + x.cj + "', this.value)"), '', start), total:(x, start) => _payrollTd('', '', start) },
     { id:'clockout', group:'work', label:'退勤', cell:(x, start) => _payrollTd(x.plain ? formatCheckoutTime(x.r.roundedOut || x.r.outHHMM) : _payrollClockSelectHtml(x.r.outHHMM, roundClockOut, "payrollSetClockOut('" + x.cj + "', this.value)", cfg.clockOutFrom, cfg.clockOutTo), '', start), total:(x, start) => _payrollTd('', '', start) },
@@ -20566,8 +20565,9 @@ function _payrollTableColumns(countCols, deductionItems, showPoints) {
     { id:'backTotal', group:'pay', label:'バック合計', cell:(x, start) => _payrollTd(_payYen(x.r.backTotal), 'pay-total', start), total:(x, start) => _payrollTd(_payYen(x.tot.back), 'pay-total', start) },
     { id:'late', group:'pay', label:'遅刻', cell:(x, start) => _payrollTd(x.r.lateFee ? '-' + _payYen(x.r.lateFee) : '—', 'pay-amt' + (x.r.lateFee ? '' : ' pay-muted'), start), total:(x, start) => _payrollTd(x.tot.late ? '-' + _payYen(x.tot.late) : '—', 'pay-amt', start) },
     { id:'dailyPay', group:'pay', label:'日給', cell:(x, start) => _payrollTd(x.hasOut ? _payYen(x.r.dailyPay) : '（時給未確定）', 'pay-daily' + (x.hasOut ? '' : ' pay-muted'), start), total:(x, start) => _payrollTd(_payYen(x.tot.daily), 'pay-daily', start) },
+    // 控除は項目ごとに表示・非表示を選べる（2026-10-18 オーナー「罰金と送迎、制服を個別項目にして」）
     ...deductionItems.map((item, index) => ({
-      id:'deductions', group:'pay', label:item.label || '', optionLabel:deductionOptionLabel,
+      id:'ded:' + (item.key || index), legacyId:'deductions', group:'pay', label:item.label || '',
       cell:(x, start) => {
         const cell = _deductionCellValue(item, (x.r.deductions || [])[index], x.manualDeductions);
         if (cell.flag) {
@@ -20584,15 +20584,24 @@ function _payrollTableColumns(countCols, deductionItems, showPoints) {
     // 日払いは控除の並び（控除計の直前）に置き、控除計・差引支給に含める（日給内訳のレシートと同じ）
     { id:'nibarai', group:'pay', label:'日払い', cell:(x, start) => _payrollTd(x.plain ? (x.r.nibarai ? _payYen(x.r.nibarai) : '') : '<input type="number" class="pay-in" value="' + (x.r.nibarai || '') + '" placeholder="0" onchange="payrollSetNibarai(\'' + x.cj + '\', this.value)">', '', start), total:(x, start) => _payrollTd(_payYen(x.tot.nibarai), 'pay-amt', start) },
     ...(deductionItems.length ? [
-      { id:'deductions', group:'pay', label:'控除計', optionLabel:deductionOptionLabel, cell:(x, start) => _payrollTd(x.hasOut ? _payYen(_payrollWithAdvance(x.r).deductionTotal) : '—', 'pay-total' + (x.hasOut ? '' : ' pay-muted'), start), total:(x, start) => _payrollTd(_payYen(x.tot.deduction), 'pay-total', start) },
-      { id:'deductions', group:'pay', label:'差引支給', optionLabel:deductionOptionLabel, cell:(x, start) => _payrollTd(x.hasOut ? _payYen(_payrollWithAdvance(x.r).netPay) : '（時給未確定）', 'pay-net' + (x.hasOut ? '' : ' pay-muted'), start), total:(x, start) => _payrollTd(_payYen(x.tot.net), 'pay-net', start) },
+      { id:'deductionTotals', legacyId:'deductions', group:'pay', label:'控除計', optionLabel:'控除計・差引支給', cell:(x, start) => _payrollTd(x.hasOut ? _payYen(_payrollWithAdvance(x.r).deductionTotal) : '—', 'pay-total' + (x.hasOut ? '' : ' pay-muted'), start), total:(x, start) => _payrollTd(_payYen(x.tot.deduction), 'pay-total', start) },
+      { id:'deductionTotals', legacyId:'deductions', group:'pay', label:'差引支給', optionLabel:'控除計・差引支給', cell:(x, start) => _payrollTd(x.hasOut ? _payYen(_payrollWithAdvance(x.r).netPay) : '（時給未確定）', 'pay-net' + (x.hasOut ? '' : ' pay-muted'), start), total:(x, start) => _payrollTd(_payYen(x.tot.net), 'pay-net', start) },
     ] : []),
     { id:'rate', group:'pay', label:'給率', cell:(x, start) => _payrollTd(x.r.kyuuritsu == null ? '—' : x.r.kyuuritsu.toFixed(1) + '%', 'pay-rate' + (x.r.kyuuritsu == null ? ' pay-muted' : ''), start), total:(x, start) => _payrollTd('', '', start) },
   ];
   return cols;
 }
-function _payrollVisibleColumns(columns, hiddenCols) {
+/* 非表示の列ID。旧設定の 'deductions'（控除の列をまとめて非表示）は、控除の各項目と控除計・差引支給の列IDに置き換えて読む */
+function _payrollHiddenColSet(hiddenCols, columns) {
   const hidden = new Set(Array.isArray(hiddenCols) ? hiddenCols : []);
+  if (hidden.has('deductions')) {
+    hidden.delete('deductions');
+    columns.forEach(col => { if (col.legacyId === 'deductions') hidden.add(col.id); });
+  }
+  return hidden;
+}
+function _payrollVisibleColumns(columns, hiddenCols) {
+  const hidden = _payrollHiddenColSet(hiddenCols, columns);
   return columns.filter(col => !hidden.has(col.id));
 }
 function _payrollColumnGroups(columns) {
@@ -21943,7 +21952,7 @@ function _deductionSheetPrintTableHtml(src) {
 }
 
 function _payrollColumnPickerHtml(columns) {
-  const hidden = new Set((typeof cfg !== 'undefined' && Array.isArray(cfg.payrollHiddenCols)) ? cfg.payrollHiddenCols : []);
+  const hidden = _payrollHiddenColSet((typeof cfg !== 'undefined') ? cfg.payrollHiddenCols : [], columns);
   const seen = new Set();
   const options = columns.filter(col => {
     if (seen.has(col.id)) return false;
@@ -21974,7 +21983,8 @@ function togglePayrollColumnPicker(event) {
   if (picker) _setPayrollColumnPickerOpen(picker.hidden);
 }
 function setPayrollColumnVisible(colId, visible) {
-  const hidden = new Set(Array.isArray(cfg.payrollHiddenCols) ? cfg.payrollHiddenCols : []);
+  const deductionItems = Array.isArray(cfg.payrollDeductions) ? cfg.payrollDeductions : [];
+  const hidden = _payrollHiddenColSet(cfg.payrollHiddenCols, _payrollTableColumns([], deductionItems, false));
   if (visible) hidden.delete(colId); else hidden.add(colId);
   cfg.payrollHiddenCols = Array.from(hidden);
   saveCfg();
