@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.77">
+<meta name="app-version" content="1.1.78">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -9714,6 +9714,7 @@ const CFG_DEFAULTS = {
   payrollDeductions:             [],  // fixed/rate/manual=店舗計算、boolean=本部計算用○×記録
   payrollDeductionDisplayField:  'dailyPay', // 控除票の金額欄: dailyPay | nominatedSales
   payrollDeductionDisplayPrint:  true, // 控除票の先頭金額欄をA4印刷する（画面・計算には影響しない）
+  payrollDeductionNibaraiPrint:  false, // 控除票のA4印刷に日払いの列を出す（既定OFF＝今の店の紙はそのまま。画面・計算には影響しない）
   payrollHiddenCols:             [],     // 日計表で非表示にする列ID（空=全列表示）
   castListOrder:                 'clockIn', // 出勤キャスト・日計表の並び: clockIn=出勤順 | roster=名簿順（固定） | custom=手動（ドラッグ）
   castListCustomOrder:           [],     // 手動（ドラッグ）で決めたキャスト名の並び
@@ -9740,6 +9741,7 @@ function mergeCfgDefaults(saved) {
   merged.defaultTheme = merged.defaultTheme === 'champagne' ? 'champagne' : 'night';
   // 旧設定に印刷フラグが無い場合は、従来どおり先頭金額欄を印刷する。
   merged.payrollDeductionDisplayPrint = merged.payrollDeductionDisplayPrint !== false;
+  merged.payrollDeductionNibaraiPrint = merged.payrollDeductionNibaraiPrint === true;
   // 旧既定値の28:00だけを30:00へ引き上げ、既存端末にも新しい選択肢を反映する。
   if (Number(merged.clockOutTo) === 1680) merged.clockOutTo = CFG_DEFAULTS.clockOutTo;
   // 以前はオーナーダッシュボードへの送信が店外モニターと同じスイッチだった。今送っている店（アンベリール等）を
@@ -12373,16 +12375,17 @@ function _payslipPreviewHtml(data, period) {
       + ' / 判定売上 ' + _payslipYen(data.slideAdjustment.baseSales) + '</small></span><b>+' + _payslipYen(data.slideAdjustment.amount) + '</b></div>' : '')
     + '</div>'
     + (deductionRows ? '<h2>控除内訳</h2><table><tbody>' + deductionRows
-      + '<tr class="total"><td>控除計</td><td class="num">' + _payslipYen(data.deductionTotal) + '</td></tr></tbody></table>' : '')
+      + '<tr class="total"><td>控除計（日払い除く）</td><td class="num">' + _payslipYen(data.deductionTotal) + '</td></tr></tbody></table>' : '')
     + (periodDeductionRows ? '<h2>期間控除</h2><table><tbody>' + periodDeductionRows
       + '<tr class="total"><td>期間控除計</td><td class="num">' + _payslipYen(data.periodDeductions.total) + '</td></tr></tbody></table>' : '')
     + '<div class="payslip-legal">※控除は店舗設定の額・率による参考計算です（税務判断は行いません）</div>'
-    + '<div class="payslip-totals final"><div class="strong"><span>差引支給合計</span><b>' + _payslipYen(data.netPay) + '</b></div>'
+    // 給与明細の控除計・差引支給は日払い前（日払いは最後に「日払い済み額」で1回引く）。日計表・日給内訳は日払い込みなので言葉で分ける
+    + '<div class="payslip-totals final"><div class="strong"><span>差引支給合計（日払い前）</span><b>' + _payslipYen(data.netPay) + '</b></div>'
     + (data.slideAdjustment ? '<div><span>スライド/保証時給調整</span><b>+' + _payslipYen(data.slideAdjustment.amount) + '</b></div>' : '')
     + (data.periodDeductions?.total ? '<div><span>期間控除</span><b>−' + _payslipYen(data.periodDeductions.total) + '</b></div>' : '')
     + '<div><span>日払い済み額</span><b>−' + _payslipYen(data.nibaraiTotal) + '</b></div>'
     + '<div class="strong grand"><span>最終支給額</span><b>' + _payslipYen(data.finalPay) + '</b></div></div>'
-    + '<h2>日別内訳</h2><div class="payslip-table-scroll"><table class="daily"><thead><tr><th>日付</th><th>時間</th><th>時間給</th><th>バック</th><th>遅刻罰金</th><th>支給</th><th>控除</th><th>日払い</th><th>差引支給</th></tr></thead><tbody>'
+    + '<h2>日別内訳</h2><div class="payslip-table-scroll"><table class="daily"><thead><tr><th>日付</th><th>時間</th><th>時間給</th><th>バック</th><th>遅刻罰金</th><th>支給</th><th>控除</th><th>日払い</th><th>差引支給（日払い前）</th></tr></thead><tbody>'
     + dailyRows + '</tbody></table></div></section>';
 }
 
@@ -20517,7 +20520,7 @@ function _payrollCountGroups(cols) {
 function _payrollCountGroupStart(cols, index) {
   return index === 0 || _payrollCountGroup(cols[index][0]) !== _payrollCountGroup(cols[index - 1][0]);
 }
-const _PAYROLL_GROUP_LABELS = { work:'勤務', shimei:'指名内訳', drinkShimei:'指名ドリンク', drinkFree:'フリードリンク', drink:'ドリンク', pay:'給与', deduction:'控除' };
+const _PAYROLL_GROUP_LABELS = { work:'勤務', shimei:'指名内訳', drinkShimei:'指名ドリンク', drinkFree:'フリードリンク', drink:'ドリンク', pay:'給与（控除前）', deduction:'控除', net:'給与' };
 /* 当欠の行だと分かる印。金額が全部0円なのは休んだからで、集計漏れではないことを示す。 */
 function _payrollTouketsuMark(row) {
   return row && row.touketsu === true
@@ -20587,9 +20590,9 @@ function _payrollTableColumns(countCols, deductionItems, showPoints) {
     { id:'nibarai', group:'deduction', label:'日払い', cell:(x, start) => _payrollTd(x.plain ? (x.r.nibarai ? _payYen(x.r.nibarai) : '') : '<input type="number" class="pay-in" value="' + (x.r.nibarai || '') + '" placeholder="0" onchange="payrollSetNibarai(\'' + x.cj + '\', this.value)">', '', start), total:(x, start) => _payrollTd(_payYen(x.tot.nibarai), 'pay-amt', start) },
     ...(deductionItems.length ? [
       { id:'deductionTotal', legacyIds:['deductions', 'deductionTotals'], group:'deduction', label:'控除計', cell:(x, start) => _payrollTd(x.hasOut ? _payYen(_payrollWithAdvance(x.r).deductionTotal) : '—', 'pay-total' + (x.hasOut ? '' : ' pay-muted'), start), total:(x, start) => _payrollTd(_payYen(x.tot.deduction), 'pay-total', start) },
-      { id:'netPay', legacyIds:['deductions', 'deductionTotals'], group:'pay', label:'差引支給', cell:(x, start) => _payrollTd(x.hasOut ? _payYen(_payrollWithAdvance(x.r).netPay) : '（時給未確定）', 'pay-net' + (x.hasOut ? '' : ' pay-muted'), start), total:(x, start) => _payrollTd(_payYen(x.tot.net), 'pay-net', start) },
+      { id:'netPay', legacyIds:['deductions', 'deductionTotals'], group:'net', label:'差引支給', cell:(x, start) => _payrollTd(x.hasOut ? _payYen(_payrollWithAdvance(x.r).netPay) : '（時給未確定）', 'pay-net' + (x.hasOut ? '' : ' pay-muted'), start), total:(x, start) => _payrollTd(_payYen(x.tot.net), 'pay-net', start) },
     ] : []),
-    { id:'rate', group:'pay', label:'給率', cell:(x, start) => _payrollTd(x.r.kyuuritsu == null ? '—' : x.r.kyuuritsu.toFixed(1) + '%', 'pay-rate' + (x.r.kyuuritsu == null ? ' pay-muted' : ''), start), total:(x, start) => _payrollTd('', '', start) },
+    { id:'rate', group:'net', label:'給率', cell:(x, start) => _payrollTd(x.r.kyuuritsu == null ? '—' : x.r.kyuuritsu.toFixed(1) + '%', 'pay-rate' + (x.r.kyuuritsu == null ? ' pay-muted' : ''), start), total:(x, start) => _payrollTd('', '', start) },
   ];
   return cols;
 }
@@ -21907,15 +21910,20 @@ function _deductionSheetPrintTableHtml(src) {
   const deductionItems = (typeof cfg !== 'undefined' && Array.isArray(cfg.payrollDeductions)) ? cfg.payrollDeductions : [];
   // 旧設定に print が無い項目は従来どおり印刷する。画面・給与・CSVは全項目のままにして、ここだけを絞る。
   const printableItems = deductionItems.map((item, index) => ({ item, index })).filter(({ item }) => item.print !== false);
+  // 日払いの列は設定でONにした店だけ（既定OFF＝今の店の紙はそのまま）。画面の控除票は常に日払いを出す。
+  const nibaraiPrintable = typeof cfg !== 'undefined' && cfg.payrollDeductionNibaraiPrint === true;
   const checkouts = (src.tt && src.tt.checkouts) || {};
   let displayTotal = 0;
   let displayCount = 0;
+  let nibaraiTotal = 0;
+  let nibaraiCount = 0;
   const totals = printableItems.map(() => 0);
   const counts = printableItems.map(() => 0);
   const yen = value => _payYen(value);
   const displayYen = value => '¥' + (Number(value) || 0).toLocaleString();
   const head = '<thead><tr><th>No.</th><th>名前</th>' + (displayPrintable ? '<th>' + displayColumn.label + '</th>' : '')
     + printableItems.map(({ item }) => '<th>' + escHtml(item.label || '') + '</th>').join('')
+    + (nibaraiPrintable ? '<th>日払い</th>' : '')
     + '</tr></thead>';
   const bodyRows = rows.map(r => {
     const c = r.castName;
@@ -21935,21 +21943,28 @@ function _deductionSheetPrintTableHtml(src) {
       if (cell.value > 0) counts[printableIndex] += 1;
       return '<td class="amt">' + yen(cell.value) + '</td>';
     }).join('');
+    const nibarai = Number(r.nibarai) || 0;
+    nibaraiTotal += nibarai;
+    if (nibarai > 0) nibaraiCount += 1;
     const profile = state.castProfiles && state.castProfiles[c];
     const hasCastNo = profile && profile.no !== '' && profile.no != null && Number.isFinite(Number(profile.no));
     const castNo = hasCastNo ? String(profile.no) : '';
     return '<tr><td class="cno">' + escHtml(castNo) + '</td><td class="nm">' + escHtml(c) + '</td>'
-      + (displayPrintable ? '<td class="amt">' + (displayReady ? displayYen(displayValue) : '¥') + '</td>' : '') + cells + '</tr>';
+      + (displayPrintable ? '<td class="amt">' + (displayReady ? displayYen(displayValue) : '¥') + '</td>' : '') + cells
+      + (nibaraiPrintable ? '<td class="amt">' + yen(nibarai) + '</td>' : '') + '</tr>';
   });
   const rowCount = Math.max(25, rows.length);
   for (let rowIndex = rows.length; rowIndex < rowCount; rowIndex += 1) {
     bodyRows.push('<tr><td class="cno"></td><td class="nm"></td>' + (displayPrintable ? '<td class="amt">¥</td>' : '')
-      + printableItems.map(({ item }) => '<td class="amt">' + (isPayrollDeductionFlagMode(item.mode) ? '' : '¥') + '</td>').join('') + '</tr>');
+      + printableItems.map(({ item }) => '<td class="amt">' + (isPayrollDeductionFlagMode(item.mode) ? '' : '¥') + '</td>').join('')
+      + (nibaraiPrintable ? '<td class="amt">¥</td>' : '') + '</tr>');
   }
   const sumRow = '<tr class="sum"><td class="cno"></td><td class="nm">合計</td>' + (displayPrintable ? '<td class="amt">' + displayYen(displayTotal) + '</td>' : '')
-    + totals.map((value, index) => '<td class="amt">' + (isPayrollDeductionFlagMode(printableItems[index]?.item.mode) ? '—' : yen(value)) + '</td>').join('') + '</tr>';
+    + totals.map((value, index) => '<td class="amt">' + (isPayrollDeductionFlagMode(printableItems[index]?.item.mode) ? '—' : yen(value)) + '</td>').join('')
+    + (nibaraiPrintable ? '<td class="amt">' + yen(nibaraiTotal) + '</td>' : '') + '</tr>';
   const countRow = '<tr class="sum"><td class="cno"></td><td class="nm">人数</td>' + (displayPrintable ? '<td class="amt">' + displayCount + ' 人</td>' : '')
-    + counts.map(value => '<td class="amt">' + value + ' 人</td>').join('') + '</tr>';
+    + counts.map(value => '<td class="amt">' + value + ' 人</td>').join('')
+    + (nibaraiPrintable ? '<td class="amt">' + nibaraiCount + ' 人</td>' : '') + '</tr>';
   return '<table class="ded">' + head + '<tbody>' + bodyRows.join('') + sumRow + countRow + '</tbody></table>';
 }
 
@@ -21961,7 +21976,7 @@ function _payrollColumnPickerHtml(columns) {
     seen.add(col.id);
     return true;
   });
-  const groups = ['work', 'shimei', 'drinkShimei', 'drinkFree', 'drink', 'pay', 'deduction'].map(group => ({
+  const groups = ['work', 'shimei', 'drinkShimei', 'drinkFree', 'drink', 'pay', 'deduction', 'net'].map(group => ({
     key:group, label:_PAYROLL_GROUP_LABELS[group], options:options.filter(col => col.group === group),
   })).filter(group => group.options.length);
   return '<div id="payroll-column-picker" class="payroll-cols-picker" hidden onclick="event.stopPropagation()">'
@@ -28801,7 +28816,7 @@ async function applySettings() {
     payrollLateFineUnitMin, payrollLateFineAmt, payrollBottleSpRate, payrollSpMode, payrollSpFixed, defaultWage, payrollPeriod,
     payrollDouhanAddsHonshimei, payrollDouhanAddsHonenFirst, payrollSpInBackTotal,
     payrollSlideTable, payrollSlideSource, payrollPeriodDeductions, payrollRoundMode, payrollRoundUnit,
-    payrollDeductions, payrollDeductionDisplayField, payrollDeductionDisplayPrint, payrollMergeDrinks,
+    payrollDeductions, payrollDeductionDisplayField, payrollDeductionDisplayPrint, payrollDeductionNibaraiPrint, payrollMergeDrinks,
   } = _payrollSettingsSnapshot();
   const pointsEnabled = !!get('cfg-pointsEnabled')?.checked;
   const pointRules = feeMasterValues.pointRules;
@@ -28863,7 +28878,7 @@ async function applySettings() {
     payrollLateFineUnitMin, payrollLateFineAmt, payrollBottleSpRate, payrollSpMode, payrollSpFixed, defaultWage, payrollPeriod,
     payrollDouhanAddsHonshimei, payrollDouhanAddsHonenFirst, payrollSpInBackTotal,
     payrollSlideTable, payrollSlideSource, payrollPeriodDeductions, payrollRoundMode, payrollRoundUnit,
-    payrollDeductions, payrollDeductionDisplayField, payrollDeductionDisplayPrint, payrollMergeDrinks,
+    payrollDeductions, payrollDeductionDisplayField, payrollDeductionDisplayPrint, payrollDeductionNibaraiPrint, payrollMergeDrinks,
     payrollHiddenCols: Array.isArray(cfg.payrollHiddenCols) ? cfg.payrollHiddenCols : [],
     castListOrder: castListOrderMode(),
     castListCustomOrder: Array.isArray(cfg.castListCustomOrder) ? cfg.castListCustomOrder : [],
@@ -29087,11 +29102,13 @@ function _payrollDeductionSettingsModalHtml() {
   const items = Array.isArray(cfg.payrollDeductions) ? cfg.payrollDeductions : [];
   const displayField = normalizePayrollDeductionDisplayField(cfg.payrollDeductionDisplayField);
   const displayPrint = cfg.payrollDeductionDisplayPrint !== false;
+  const nibaraiPrint = cfg.payrollDeductionNibaraiPrint === true;
   return '<div id="payroll-deduction-settings-overlay" class="pos-co-overlay" onclick="if(event.target===this)payrollDeductionSettingsCloseModal()">'
     + '<div class="pos-co-panel pay-bd-panel" style="width:min(760px,96vw);max-width:760px">'
     + '<div class="pay-bd-head"><div><div class="pay-bd-title">控除項目設定</div><div class="pay-bd-date">金額計算または本部へ渡す○×記録を設定（設定 → 💴 給与計算ルール →「控除・記録」と同じ内容です）</div></div><button type="button" class="pay-bd-close" onclick="payrollDeductionSettingsCloseModal()" aria-label="閉じる">×</button></div>'
     + '<div class="pay-bd-body" style="max-height:72vh;overflow-y:auto">'
     + '<div class="pay-settings-row" style="margin-bottom:12px"><div><label for="payroll-deduction-display-field">控除票の金額欄</label><p>画面には常に表示。紙へ出すかは右で選べます。</p></div><div class="pay-settings-inputs"><select id="payroll-deduction-display-field" class="settings-input"><option value="dailyPay"' + (displayField === 'dailyPay' ? ' selected' : '') + '>日給</option><option value="nominatedSales"' + (displayField === 'nominatedSales' ? ' selected' : '') + '>本指名売上</option></select><label style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap"><input type="checkbox" id="payroll-deduction-display-print"' + (displayPrint ? ' checked' : '') + '>印刷</label></div></div>'
+    + '<div class="pay-settings-row" style="margin-bottom:12px"><div><label for="payroll-deduction-nibarai-print">控除票の日払い</label><p>画面には常に表示。紙にも出すときはチェックします。</p></div><div class="pay-settings-inputs"><label style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap"><input type="checkbox" id="payroll-deduction-nibarai-print"' + (nibaraiPrint ? ' checked' : '') + '>印刷</label></div></div>'
     + '<div style="overflow-x:auto"><table class="pos-me-table" id="payroll-deduction-settings-table" style="min-width:590px">'
     + '<thead><tr><th>名称</th><th style="width:170px">方式</th><th style="width:130px">値</th><th style="width:70px">印刷</th><th style="width:56px"></th></tr></thead><tbody>'
     + items.map(_payrollDeductionRowHTML).join('') + '</tbody></table></div>'
@@ -29120,6 +29137,7 @@ function payrollDeductionSettingsSave() {
     document.getElementById('payroll-deduction-display-field')?.value ?? cfg.payrollDeductionDisplayField
   );
   cfg.payrollDeductionDisplayPrint = document.getElementById('payroll-deduction-display-print')?.checked !== false;
+  cfg.payrollDeductionNibaraiPrint = document.getElementById('payroll-deduction-nibarai-print')?.checked === true;
   saveCfg();
   _payrollSettingsRefreshSummary();
   payrollDeductionSettingsCloseModal();
@@ -29378,7 +29396,7 @@ const PAYROLL_SETTINGS_KEYS = [
   'defaultWage', 'payrollClockInRoundMin', 'payrollClockOutRoundMin', 'payrollClockOutRoundThreshold',
   'payrollLateFineEnabled', 'payrollLateFineUnitMin', 'payrollLateFineAmt', 'payrollDouhanAddsHonshimei',
   'payrollDouhanAddsHonenFirst', 'payrollSpInBackTotal', 'payrollBottleSpRate', 'payrollSpMode', 'payrollSpFixed',
-  'payrollDeductions', 'payrollDeductionDisplayField', 'payrollDeductionDisplayPrint', 'payrollPeriodDeductions', 'payrollPeriod', 'payrollSlideSource',
+  'payrollDeductions', 'payrollDeductionDisplayField', 'payrollDeductionDisplayPrint', 'payrollDeductionNibaraiPrint', 'payrollPeriodDeductions', 'payrollPeriod', 'payrollSlideSource',
   'payrollSlideTable', 'payrollRoundMode', 'payrollRoundUnit',
   'payrollMergeDrinks',
 ];
@@ -29463,6 +29481,7 @@ function _payrollSettingsModalHtml() {
           <h3>日ごとの控除・○×記録</h3>
           <p class="pay-settings-note">日計表・控除票に表示。「○×記録」は本部への記録用で金額計算に含めません。「○×で固定額」は日計表で○にした日だけ、その金額を控除します。</p>
           <div class="pay-settings-row"><div><label for="cfg-payrollDeductionDisplayField">控除票の金額欄</label><p>画面には常に表示。紙へ出すかは右で選べます。</p></div><div class="pay-settings-inputs"><select id="cfg-payrollDeductionDisplayField" class="settings-input">${options([['dailyPay','日給'],['nominatedSales','本指名売上']],normalizePayrollDeductionDisplayField(cfg.payrollDeductionDisplayField))}</select><label style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap"><input type="checkbox" id="cfg-payrollDeductionDisplayPrint"${cfg.payrollDeductionDisplayPrint !== false ? ' checked' : ''}>印刷</label></div></div>
+          <div class="pay-settings-row"><div><label for="cfg-payrollDeductionNibaraiPrint">控除票の日払い</label><p>画面には常に表示。紙にも出すときはチェックします。</p></div><div class="pay-settings-inputs"><label style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap"><input type="checkbox" id="cfg-payrollDeductionNibaraiPrint"${cfg.payrollDeductionNibaraiPrint === true ? ' checked' : ''}>印刷</label></div></div>
           <div class="pay-settings-table-wrap"><table class="pos-me-table" id="cfg-payroll-deductions-table"><thead><tr><th>名称</th><th>方式</th><th>金額・率</th><th>印刷</th><th></th></tr></thead><tbody>${(cfg.payrollDeductions || []).map(_payrollDeductionRowHTML).join('')}</tbody></table></div>
           <div class="pay-settings-add"><button type="button" class="pos-me-add-btn" onclick="payrollDeductionAdd()">＋ 項目を追加</button>${PAYROLL_DEDUCTION_PRESETS.map(label => '<button type="button" class="btn" onclick="payrollDeductionAddPreset(\'' + escAttr(label) + '\')">＋ ' + label + '</button>').join('')}</div>
           <details class="pay-settings-details"><summary>日ごとの控除の計算</summary><p>固定額は1日ごと、率は日給に対して計算します。都度手入力は日計表・控除票で入力します。</p></details>
@@ -29571,6 +29590,7 @@ function _collectPayrollSettings(overlay) {
   result.payrollMergeDrinks = get('payrollMergeDrinks')?.checked === true;
   result.payrollDeductionDisplayField = normalizePayrollDeductionDisplayField(get('payrollDeductionDisplayField')?.value);
   result.payrollDeductionDisplayPrint = get('payrollDeductionDisplayPrint')?.checked !== false;
+  result.payrollDeductionNibaraiPrint = get('payrollDeductionNibaraiPrint')?.checked === true;
   ['payrollPeriod','payrollSlideSource','payrollRoundMode'].forEach(key => { result[key] = get(key).value; });
   result.payrollRoundUnit = Number(get('payrollRoundUnit').value);
   result.payrollSlideTable = Array.from(overlay.querySelectorAll('#cfg-payroll-slide-table tbody > tr')).map(tr => ({
