@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.78">
+<meta name="app-version" content="1.1.79">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -14630,13 +14630,16 @@ function posLeaveTable(gid) {
 }
 /* 同時に使う卓（2026-10-04）。卓は客ごと（行ごと）に持つので、同じ伝票の客が主の卓以外に座っていれば
    その卓も「この伝票が使っている卓」として扱う。新規伝票で選んだ卓へ客を順に振り分けるほか、
-   リスト表の個別卓（_indivTable）で後から動かした分も同じ扱いになる。 */
+   リスト表の個別卓（_indivTable）で後から動かした分も同じ扱いになる。
+   退席したお客様の卓は数えない（席バラで空いた卓に別のお客様を入れるため。2026-10-18 オーナー決定）。
+   同じ卓にまだ残っているお客様がいれば、その卓は残る。 */
 function posLinkedTableLabels(first) {
   if (!first) return [];
   const main = posTableLabel(first.tableNum);
   const labels = [];
   state.rows.forEach(r => {
     if (r.isFirst || String(r.gid) !== String(first.gid)) return;
+    if (_posGuestIsDeparted(r)) return;
     const label = posTableLabel(r.tableNum);
     if (label && label !== main && !labels.includes(label)) labels.push(label);
   });
@@ -18373,6 +18376,7 @@ function buildMonitorSnapshot() {
   });
   state.rows.forEach(row => {
     if (row._indivTable !== true || row.settled || !activeGids.has(row.gid)) return;
+    if (_posGuestIsDeparted(row)) return; // 退席したお客様の卓は空き（卓ビューと同じ）
     const label = _monitorTableLabel(row.tableNum);
     if (label) occupiedSet.add(label);
   });
