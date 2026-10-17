@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.79">
+<meta name="app-version" content="1.1.80">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -14633,9 +14633,22 @@ function posLeaveTable(gid) {
    リスト表の個別卓（_indivTable）で後から動かした分も同じ扱いになる。
    退席したお客様の卓は数えない（席バラで空いた卓に別のお客様を入れるため。2026-10-18 オーナー決定）。
    同じ卓にまだ残っているお客様がいれば、その卓は残る。 */
+/* 画面で伝票を出す卓（主の卓）。最初に選んだ卓（先頭行の卓）のお客様が全員帰り、ほかの卓にまだお客様が残っていれば、
+   伝票で先に並んでいるお客様の卓を主にする（2026-10-18 オーナー決定）。卓ビュー・伝票ビュー・注文画面・キャストの在卓表示・
+   店外モニターだけの表示で、先頭行の卓・VIP席利用料・リスト表・精算・会計伝票は最初の卓のまま。全員帰ったときも最初の卓。 */
+function posMainTableLabel(first) {
+  if (!first) return '';
+  const main = posTableLabel(first.tableNum);
+  const seatOf = r => { const label = posTableLabel(r.tableNum); return label && label !== '-' ? label : main; };
+  const remaining = state.rows
+    .filter(r => String(r.gid) === String(first.gid) && !_posGuestIsDeparted(r))
+    .sort((a, b) => (b.isFirst ? 1 : 0) - (a.isFirst ? 1 : 0) || (Number(a.gidx) || 0) - (Number(b.gidx) || 0));
+  if (!remaining.length || remaining.some(r => seatOf(r) === main)) return main;
+  return seatOf(remaining[0]);
+}
 function posLinkedTableLabels(first) {
   if (!first) return [];
-  const main = posTableLabel(first.tableNum);
+  const main = posMainTableLabel(first);
   const labels = [];
   state.rows.forEach(r => {
     if (r.isFirst || String(r.gid) !== String(first.gid)) return;
@@ -14649,7 +14662,7 @@ function posLinkedTableLabels(first) {
 function posSlipsUsingTable(label, exceptGid) {
   if (!label) return [];
   return state.rows.filter(r => r.isFirst && !r.settled && String(r.gid) !== String(exceptGid)
-    && (posTableLabel(r.tableNum) === label || posLinkedTableLabels(r).includes(label)));
+    && (posMainTableLabel(r) === label || posLinkedTableLabels(r).includes(label)));
 }
 /* 客を卓へ順に振り分ける。主の卓から同じ人数ずつ、端数は前の卓へ（5名・3卓なら 2・2・1）。
    主の卓以外に座る客は個別卓（_indivTable）にして、リスト表の卓欄にその卓を入れる。 */
@@ -14685,7 +14698,7 @@ function posReleaseStayAtTable(tableLabel, exceptGid) {
   if (!tableLabel) return;
   posStayingRows().forEach(row => {
     if (String(row.gid) === String(exceptGid)) return;
-    if (posTableLabel(row.tableNum) === tableLabel || posLinkedTableLabels(row).includes(tableLabel)) delete row.floorStay;
+    if (posMainTableLabel(row) === tableLabel || posLinkedTableLabels(row).includes(tableLabel)) delete row.floorStay;
   });
 }
 function posOrders(row) { if (!Array.isArray(row.posOrders)) row.posOrders = []; return row.posOrders; }
@@ -15722,7 +15735,7 @@ function _posSlipCard(r, isSelected, totalCount, mode, padRows) {
   const b = _posComputeTotals(seatBill.subtotal, orders, 0);
   const orderPricing = { subtotal:b.baseSubtotal, cash:b.baseCash };
   const people = _posCurrentGuests(r);
-  const table = r.tableNum ? posTableLabel(r.tableNum) : '-';
+  const table = r.tableNum ? (posMainTableLabel(r) || '-') : '-';
   const source = r.source || '';
 
   // 表示順を固定: ①SET（最上段）→ ②指名・延長など脳みそ側ライン → ③その他オーダー（ドリンク・延指）
@@ -15858,7 +15871,7 @@ function _posOrderSlipPanel(r) {
   const totals = _posComputeTotals(seatBill.subtotal, orders, 0);
   const orderPricing = { subtotal:totals.baseSubtotal, cash:totals.baseCash };
   const tax = totals.cash - totals.subtotal;
-  const table = r.tableNum ? posTableLabel(r.tableNum) : '-';
+  const table = r.tableNum ? (posMainTableLabel(r) || '-') : '-';
   const tableDisplay = posTableDisplay(table);
   const tableMatch = /^(\d+)卓$/.exec(tableDisplay);
   const tableHTML = tableMatch
@@ -16061,7 +16074,7 @@ function _posCastFloorTables(castName) {
       return _posCurrentFloorCasts(groupRow).includes(castName);
     });
     if (!isAssigned) return;
-    const table = posTableDisplay(posTableLabel(first.tableNum) || '-');
+    const table = posTableDisplay(posMainTableLabel(first) || '-');
     if (!tables.includes(table)) tables.push(table);
   });
   return tables;
@@ -16080,7 +16093,7 @@ function _posCastDesignationTables(castName) {
         && groupRow.subCasts.some(sub => sub && sub.cast === castName && nominationTypes.includes(sub.type));
     });
     if (!isNominated) return;
-    const table = posTableDisplay(posTableLabel(first.tableNum) || '-');
+    const table = posTableDisplay(posMainTableLabel(first) || '-');
     if (!tables.includes(table)) tables.push(table);
   });
   return tables.sort((a, b) => {
@@ -16272,7 +16285,7 @@ function _posOverlapHelpRelease(row) {
       const first = state.rows.find(groupRow => String(groupRow.gid) === String(otherRow.gid) && groupRow.isFirst) || otherRow;
       return {
         row: otherRow,
-        table: posTableDisplay(posTableLabel(first.tableNum) || '-'),
+        table: posTableDisplay(posMainTableLabel(first) || '-'),
       };
     });
   return { mainCast: row.mainCast, candidates };
@@ -16691,7 +16704,7 @@ function posCastDrop(event, gid) {
 function _posFloorCard(row) {
   const timer = _posSlipTimerText(row);
   const status = _posFloorStatus(timer);
-  const table = posTableLabel(row.tableNum) || '-';
+  const table = posMainTableLabel(row) || '-';
   const timerHtml = timer.text
     ? '<span class="pos-floor-timer status-' + status + '">' + _posFloorTimerHtml(timer) + '</span>'
     : '';
@@ -16775,7 +16788,7 @@ function _posFloorLinkedCard(row, table) {
     + '<span class="pos-floor-tablewrap"><span class="pos-floor-table">' + escHtml(posTableDisplay(table)) + '</span></span>'
     + (staying ? '<span class="pos-floor-paid-badge">会計済</span>' : '')
     + '</span>'
-    + '<span class="pos-floor-link-center">' + escHtml(posTableDisplay(posTableLabel(row.tableNum) || '-')) + 'と同じ伝票</span>'
+    + '<span class="pos-floor-link-center">' + escHtml(posTableDisplay(posMainTableLabel(row) || '-')) + 'と同じ伝票</span>'
     + '<span class="pos-floor-rots">' + _posFloorRotationLinesHtml(
         state.rows.filter(r => String(r.gid) === String(row.gid) && atThisTable(r))
           .sort((a, b) => (Number(a.gidx) || 0) - (Number(b.gidx) || 0))
@@ -16825,7 +16838,7 @@ function renderPOSSlipView(firsts, selected) {
     + '</div>';
   const matchedRows = new Set();
   const tableCards = _posNsmLists().table.map((table, tableIndex) => {
-    const rows = firsts.filter(row => posTableLabel(row.tableNum) === table);
+    const rows = firsts.filter(row => posMainTableLabel(row) === table);
     // 別の伝票が「同時に使う卓」として座っている卓は空きにしない
     const linkedRows = firsts.filter(row => !rows.includes(row) && posLinkedTableLabels(row).includes(table));
     if (!rows.length && !linkedRows.length) return _posFloorEmptyCard(table, tableIndex);
@@ -18371,8 +18384,8 @@ function buildMonitorSnapshot() {
   const activeGids = new Set(activeRows.map(row => row.gid));
   const occupiedSet = new Set();
   activeRows.forEach(row => {
-    const label = _monitorTableLabel(row.tableNum);
-    if (label) occupiedSet.add(label);
+    const label = posMainTableLabel(row); // 主の卓のお客様が全員帰ったら、残っている卓（卓ビューと同じ）
+    if (label && label !== '-') occupiedSet.add(label);
   });
   state.rows.forEach(row => {
     if (row._indivTable !== true || row.settled || !activeGids.has(row.gid)) return;
@@ -18389,7 +18402,7 @@ function buildMonitorSnapshot() {
       .map(value => parseInt(value))
       .filter(value => value > 0);
     return {
-      table: posTableLabel(row.tableNum),
+      table: posMainTableLabel(row),
       size: _posExtSeats(row), // 卓の現在人数。入店記録gcount・全客の履歴は保持する。
       startMin: row.startMin,
       endMin,
