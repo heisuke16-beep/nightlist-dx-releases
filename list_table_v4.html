@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.73">
+<meta name="app-version" content="1.1.74">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -21603,6 +21603,9 @@ function _payrollBreakdownData(r, src, countCols) {
   src = src || {};
   countCols = countCols || _payrollCountCols([r], {});
   const workMinutes = Math.max(0, Number(r.workMinutes) || 0);
+  // 日払いは内訳（画面・レシート）でだけ控除に含める。計算結果の netPay は日払い前のまま
+  // （給与明細が期間の終わりに「日払い済み額」として1回だけ引くため）
+  const nibarai = Number(r.nibarai) || 0;
   return {
     castName:String(r.castName || ''),
     dayLabel:(typeof bizKeyToLabel === 'function') ? bizKeyToLabel(src.dayKey || '') : String(src.dayKey || ''),
@@ -21628,9 +21631,9 @@ function _payrollBreakdownData(r, src, countCols) {
       label:String(item.label || ''),
       value:item.mode === 'boolean' ? _payrollDeductionMark(item)
         : (item.mode === 'flagFixed' ? (item.checked === true ? '○ ' + _payYen(item.amount) : '×') : _payYen(item.amount)),
-    })),
-    deductionTotal:Number(r.deductionTotal) || 0,
-    netPay:Number(r.netPay) || 0,
+    })).concat([{ label:'日払い', value:_payYen(nibarai) }]),
+    deductionTotal:(Number(r.deductionTotal) || 0) + nibarai,
+    netPay:(Number(r.netPay) || 0) - nibarai,
     rateLabel:Number(r.sales) > 0 && r.kyuuritsu != null
       ? `${Number(r.kyuuritsu).toFixed(1)}%（売上 ${_payYen(r.sales)}）` : '—',
   };
