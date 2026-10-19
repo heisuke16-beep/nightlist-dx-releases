@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.80">
+<meta name="app-version" content="1.1.81">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -15844,8 +15844,8 @@ function _posSlipRemainSec(row) {
   if (typeof row.endMin !== 'number') return null;
   const hasSet = Array.isArray(row.posOrders) && row.posOrders.some(o => o.category === 'set');
   if (row.posManaged && !hasSet) return null;
-  const waitSec = Math.floor((row.posTotalWaitMs || 0) / 1000);
-  return row.endMin * 60 - _posNowSec() + waitSec;
+  // 止めていた分は再開時に終了時刻へ足し込み済み（posToggleWait）。ここで足すと二重加算になる。
+  return row.endMin * 60 - _posNowSec();
 }
 
 function renderPOSSlipSheetView(firsts, selected) {
