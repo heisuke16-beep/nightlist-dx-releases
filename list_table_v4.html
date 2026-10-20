@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.82">
+<meta name="app-version" content="1.1.83">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -15048,11 +15048,13 @@ function _posAutoExtShimeiFeeSync(row, min) {
    defer の刻印は既存データ互換のため残すが、上乗せ額の計算には使わない。
    状態は一切持たず posOrders から都度導出するため、延長の入力経路（POS / リスト表直接編集）を
    問わず自動で追従する（オーナー確定事項: 以降の延長すべてに毎回上乗せ）。
-   _posExtBaseTotal・_posSeatLineItems・_posExtTrial の3者が本関数を共通の窓口として使う。 */
-function _emptyJonaiForRound(row, idx, seats) {
+   _posExtBaseTotal・_posSeatLineItems・_posExtTrial の3者が本関数を共通の窓口として使う。
+   roundNo は延長の何回目か（0始まり）。明細の fromRound（押した時点の延長回数）より前の延長には乗せない
+   ＝押した時点の会計は変えない（2026-10-21 オーナー決定）。fromRound の無い既存明細は全延長に乗る（過去分は不変）。 */
+function _emptyJonaiForRound(row, idx, seats, roundNo) {
   if (!row || idx < 0) return 0;
   const qty = posOrders(row)
-    .filter(o => o.category === 'jonai_empty')
+    .filter(o => o.category === 'jonai_empty' && (Number(o.fromRound) || 0) <= roundNo)
     .reduce((sum, o) => sum + (Number(o.qty) || 1), 0);
   const fee = _posExtFeeForType('jounai', idx);
   const mul = cfg.extFeePerSeat ? Math.max(1, seats || 1) : 1;
@@ -15073,13 +15075,13 @@ function _posExtBaseTotal(row) {
         ? row.extensions.map(v => ({ min: parseInt(v), seats: 1 })).filter(g => g.min)
         : []);
   let sum = 0;
-  rounds.forEach(g => {
+  rounds.forEach((g, roundNo) => {
     const idx = (cfg.extOptions || []).indexOf(g.min);
     if (idx >= 0 && cfg.extPrices && cfg.extPrices[idx]) {
       const seats = (cfg.extBasePerSeat === false) ? 1 : Math.max(1, g.seats || 1);
       sum += cfg.extPrices[idx] * seats;
     }
-    sum += _emptyJonaiForRound(row, idx, g.seats);
+    sum += _emptyJonaiForRound(row, idx, g.seats, roundNo);
   });
   return sum;
 }
@@ -15212,12 +15214,12 @@ function _posSeatLineItems(row) {
   // 空場内の上乗せ：ラウンドの分数に対応する場内延長指名料を使い、設定に応じて課金席数を掛ける。
   // 同じ分数へ集約する行ではラウンド数ぶんを extra（qty×amount とは別枠の加算額）へ乗せる。
   const _baseAgg = {};   // min → { min, qty, extra }
-  _rounds.forEach(g => {
+  _rounds.forEach((g, roundNo) => {
     const idx = (cfg.extOptions || []).indexOf(g.min);
     const seats = (cfg.extBasePerSeat === false) ? 1 : Math.max(1, g.seats || 1);
     const agg = (_baseAgg[g.min] = _baseAgg[g.min] || { min: g.min, qty: 0, extra: 0 });
     agg.qty += seats;
-    agg.extra += _emptyJonaiForRound(row, idx, g.seats);
+    agg.extra += _emptyJonaiForRound(row, idx, g.seats, roundNo);
   });
   Object.values(_baseAgg).sort((a, b) => a.min - b.min).forEach(g => {
     const idx = (cfg.extOptions || []).indexOf(g.min);
@@ -23902,7 +23904,9 @@ function _posExtTrial(row, extMin, trialCasts = []) {
   const extPriceTotal = extPrice * (cfg.extBasePerSeat !== false ? seatCount : 1);
   // 空場内の上乗せ：今回の分数に対応する場内延長指名料を使う（既存ラウンドぶんは calcBill(row).subtotal に込み）。
   // _posExtBaseTotal・_posSeatLineItems と同じ _emptyJonaiForRound を使い、試算と実額を一致させる。
-  const emptyJonaiExtra = (typeof _emptyJonaiForRound === 'function') ? _emptyJonaiForRound(row, idx, seatCount) : 0;
+  // 今回の延長は何回目か＝既存ラウンド数（押した後の延長だけに乗る判定を実精算と揃える）。
+  const nextRoundNo = (typeof _posExtRounds === 'function') ? _posExtRounds(row).length : 0;
+  const emptyJonaiExtra = (typeof _emptyJonaiForRound === 'function') ? _emptyJonaiForRound(row, idx, seatCount, nextRoundNo) : 0;
   const t = _posComputeTotals(calcBill(row).subtotal, posOrders(row), extPriceTotal + enchoshimeiExtra + emptyJonaiExtra);
   const advance = (typeof _posAdvancePrincipal === 'function') ? _posAdvancePrincipal(row) : 0;
   const dueCash = Math.max(0, t.cash - advance);
@@ -24696,6 +24700,8 @@ async function posAddItem(name, amount, category, spShares) {
   // （延長への繰延上乗せの源泉。既存流儀どおり、後で jonaiFee を変更しても過去分は不変）。
   const isEmptyJonai = category === 'jonai_empty';
   const deferVal = isEmptyJonai ? (Number(cfg.jonaiFee) || 0) : undefined;
+  // 押した時点の延長回数。これより後の延長だけに上乗せし、押した時点の会計は変えない（2026-10-21 オーナー決定）。
+  const fromRoundVal = isEmptyJonai ? _posExtRounds(first).length : 0;
   // 延長(extension)はオーダー明細を作らない。延長は row.extensions を単一ソースとして
   // calcBill・_posSeatLineItems・リスト表・endMin が計上するため、オーダー明細も足すと
   // 延長料が二重計上（伝票に延長が2行・金額も倍）になる。延長は下の extensions 反映のみ行う。
@@ -24710,7 +24716,8 @@ async function posAddItem(name, amount, category, spShares) {
       (backFreeYen === undefined || (Number(o.backFree) || 0) === backFreeYen) &&
       (Number(o.pt) || 0) === pointValue && !o.taxIncluded &&
       (!isSpecial || (posSpecialMode(o) === specialMode && posSpecialValue(o) === specialValue)) &&
-      (Number(o.defer) || 0) === (Number(deferVal) || 0));
+      (Number(o.defer) || 0) === (Number(deferVal) || 0) &&
+      (Number(o.fromRound) || 0) === fromRoundVal);
     if (existing) {
       existing.qty = (Number(existing.qty) || 1) + 1;
       if (spShares) {
@@ -24728,6 +24735,7 @@ async function posAddItem(name, amount, category, spShares) {
       if (pointValue) order.pt = pointValue;
       if (isSpecial) { order.specialMode = specialMode; order.specialValue = specialValue; }
       if (isEmptyJonai) order.defer = deferVal;
+      if (isEmptyJonai && fromRoundVal) order.fromRound = fromRoundVal;
       orders.push(order);
     }
   }
