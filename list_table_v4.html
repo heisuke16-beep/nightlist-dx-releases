@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.81">
+<meta name="app-version" content="1.1.82">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -32723,8 +32723,10 @@ function isPayrollDeductionFlagMode(mode) {
   return mode === 'boolean' || mode === 'flagFixed';
 }
 
-/* 店舗定義の控除を日給から計算する純関数。 */
-function calcPayrollDeductions(dailyPay, items, overrides, flags) {
+/* 店舗定義の控除を日給から計算する純関数。
+   当欠（touketsu=true）は出勤していないので、固定額（雑費・厚生費など）を自動では引かない。
+   手入力した金額はそのまま使う（2026-10-20 オーナー指示）。 */
+function calcPayrollDeductions(dailyPay, items, overrides, flags, touketsu) {
   const basePay = Math.max(0, Number(dailyPay) || 0);
   const manual = overrides && typeof overrides === 'object' ? overrides : {};
   const recorded = flags && typeof flags === 'object' ? flags : {};
@@ -32738,7 +32740,7 @@ function calcPayrollDeductions(dailyPay, items, overrides, flags) {
       return { key, label, mode, amount, auto:amount, checked };
     }
     const value = Number(item?.value) || 0;
-    const auto = mode === 'fixed' ? value
+    const auto = mode === 'fixed' ? (touketsu === true ? 0 : value)
       : (mode === 'rate' ? Math.round(basePay * value / 100) : 0);
     const amount = Object.prototype.hasOwnProperty.call(manual, key)
       ? (Number(manual[key]) || 0) : auto;
@@ -32882,7 +32884,7 @@ function computePayrollForCast(castName, prodByCast, opts) {
   /* --- 控除・差引支給 --- */
   const deductionItems = (typeof cfg !== 'undefined' && cfg && Array.isArray(cfg.payrollDeductions))
     ? cfg.payrollDeductions : [];
-  const deductionResult = calcPayrollDeductions(dailyPay, deductionItems, manualRec.deductions, manualRec.deductionFlags);
+  const deductionResult = calcPayrollDeductions(dailyPay, deductionItems, manualRec.deductions, manualRec.deductionFlags, touketsu);
   const deductionTotal = deductionResult.total;
   const netPay = dailyPay - deductionTotal;
 
