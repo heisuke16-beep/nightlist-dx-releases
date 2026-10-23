@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.83">
+<meta name="app-version" content="1.1.84">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -9694,7 +9694,9 @@ const CFG_DEFAULTS = {
   },
   rankingShowAmountToCast: true,
   // --- 給与明細の締め期間 ---
-  payrollPeriod:                 'month', // 'month'(1日〜末日) | 'half'(1〜15日 / 16日〜末日)
+  payrollPeriod:                 'month', // 'month'(月払い。初期値は1日〜末日) | 'half'(半月払い。初期値は1〜15日 / 16日〜末日)
+  payrollCloseDay:               0,       // 月払いの締め日（2026-10-23）。0=末日（初期値＝従来の1日〜末日）、1〜28=その日。25なら前月26日〜今月25日
+  payrollHalfCloseDays:          [15, 0], // 半月払いの2つの締め日 [a, b]（2026-10-23）。a=1〜27、b=a+1〜28 か 0(末日)。[15, 0]＝従来の1〜15日 / 16日〜末日
   // --- 個人給率の計算方式（2026-08-20新設・給率多指標化） ---
   castPayrollRatioMode:          'personal', // 'personal'(個人小計基準・既定) | 'honshimei'(本指名小計基準)
   // --- スライド時給（期間の帰属売上合計で時給を判定。空=機能オフ） ---
@@ -9709,6 +9711,17 @@ const CFG_DEFAULTS = {
   payrollDouhanAddsHonshimei:    true,  // 同伴を本指名の本数に+1（本指バックも付く）
   payrollDouhanAddsHonenFirst:   true,  // 同伴を本指名延長の先頭項目（本延20等）の本数に+1
   payrollSpInBackTotal:          true,  // SP（手入力＋ボトル折半）をバック合計（＝日給）に含める。false=参考表示のみ
+  // --- 伝票の小計に率を掛けるバック（2026-10-23 ヴェルベ対応・初期値は従来の本数×単価） ---
+  payrollHonshimeiBackMode:          'count', // 'count'=本数×単価 | 'percent'=伝票の対象額×率
+  payrollHonshimeiBackRate:          10,      // 通常の率（%）
+  payrollHonshimeiBackHighRate:      15,      // 高い率（%）
+  payrollHonshimeiBackHighThreshold: 50000,   // この額以上の小計（引く前）で高い率。0=常に通常の率
+  payrollDouhanBackMode:             'count', // 'count'=本数×単価 | 'percent'=伝票の対象額×率
+  payrollDouhanBackRate:             20,      // 同伴の率（%）
+  // --- オリジナルバック（店が作る手入力のバック項目。空=従来どおり） [{key:'cb_N', label}] ---
+  payrollCustomBacks:                [],
+  // --- 折半バック（メニューで「折半」にした品の（販売価格−仕入れ値）×率%。0=使わない） ---
+  payrollMarginBackRate:             0,
   // --- 控除項目（店舗定義。空=控除機能オフ＝日計表の表示は従来どおり） ---
   // key はラベル変更後も不変。mode: fixed=固定額 / rate=日給×率% / manual=都度手入力
   payrollDeductions:             [],  // fixed/rate/manual=店舗計算、boolean=本部計算用○×記録
@@ -9734,6 +9747,23 @@ function normalizePayrollDeductionDisplayField(value) {
   return value === 'nominatedSales' ? 'nominatedSales' : 'dailyPay';
 }
 
+/* 給与明細の締め日（2026-10-23）。範囲外・型違いは初期値（月払い=末日、半月払い=15日と末日）に戻す。
+   月払い: 0=末日、1〜28。半月払い: [a, b]＝a は1〜27、b は a+1〜28 か 0(末日) */
+function normalizePayrollCloseDay(value) {
+  const n = Number(value);
+  return Number.isInteger(n) && n >= 0 && n <= 28 ? n : 0;
+}
+function isValidPayrollHalfCloseDays(value) {
+  if (!Array.isArray(value) || value.length !== 2) return false;
+  const a = Number(value[0]);
+  const b = Number(value[1]);
+  return Number.isInteger(a) && a >= 1 && a <= 27
+    && Number.isInteger(b) && (b === 0 || (b >= a + 1 && b <= 28));
+}
+function normalizePayrollHalfCloseDays(value) {
+  return isValidPayrollHalfCloseDays(value) ? [Number(value[0]), Number(value[1])] : [15, 0];
+}
+
 function mergeCfgDefaults(saved) {
   const merged = { ...CFG_DEFAULTS, ...(saved || {}) };
   merged.businessType = normalizeBusinessType(merged.businessType);
@@ -9742,6 +9772,9 @@ function mergeCfgDefaults(saved) {
   // 旧設定に印刷フラグが無い場合は、従来どおり先頭金額欄を印刷する。
   merged.payrollDeductionDisplayPrint = merged.payrollDeductionDisplayPrint !== false;
   merged.payrollDeductionNibaraiPrint = merged.payrollDeductionNibaraiPrint === true;
+  // 締め日が壊れていても給与明細が開けなくならないよう、読み込み時に初期値へ戻す（2026-10-23）
+  merged.payrollCloseDay = normalizePayrollCloseDay(merged.payrollCloseDay);
+  merged.payrollHalfCloseDays = normalizePayrollHalfCloseDays(merged.payrollHalfCloseDays);
   // 旧既定値の28:00だけを30:00へ引き上げ、既存端末にも新しい選択肢を反映する。
   if (Number(merged.clockOutTo) === 1680) merged.clockOutTo = CFG_DEFAULTS.clockOutTo;
   // 以前はオーナーダッシュボードへの送信が店外モニターと同じスイッチだった。今送っている店（アンベリール等）を
@@ -11964,6 +11997,8 @@ function castPayFields() {
     ...shimeiExtGroup('enshi').map(item => [item.key, item.label, '円/本']),
     ['jonai',     '場内',   '円/本'],
     ['douhan',    '同伴',   '円/本'],
+    // オリジナルバック（店が作る手入力の項目）。空欄なら店標準（料金マスター）の単価
+    ...payrollCustomBackItems().map(item => [item.key, item.label || item.key, '円/本']),
     ...(payrollDrinksMerged() ? payrollDrinkPairs().map(pair => [pair.key, 'ドリンク(' + pair.label + ')', '円/本']) : [
       ...drinkItemList().flatMap(item => {
         const keys = drinkBackKeys(item);
@@ -12293,6 +12328,11 @@ function renderCastMgmt(){
 ================================================================ */
 let _payslipAnchorKey = '';
 let _payslipSelectedCast = '';
+// 「月（半月）ごと｜1日ごと」の切り替え（2026-10-23）。モーダルを開いている間だけ覚える（保存しない）。
+// 1日ごとの日・キャストは月の選択と別に持ち、月ごとへ戻すと今までの表示のまま。
+let _payslipMode = 'period';
+let _payslipDayKey = '';
+let _payslipDaySelectedCast = '';
 
 function _payslipEsc(value) {
   return String(value == null ? '' : value)
@@ -12320,6 +12360,10 @@ function _payslipBackLabel(key) {
     return key === keys.shimei || key === keys.free;
   });
   if (drink) return (key.endsWith('_shimeiD') ? '指D(' : 'D(') + drink.label + ')';
+  const customLabel = payrollCustomBackLabel(key);
+  if (customLabel != null) return customLabel;
+  // 伝票の小計×率で払う店は「×単価」の意味を持たないので、率バックと分かる表記にする
+  if ((key === '本指' || key === '同伴') && payrollPercentBackMode(key) === 'percent') return (key === '本指' ? '本指名' : '同伴') + '（小計×率）';
   return shimeiExtItem(key)?.label || ({ 本指:'本指名', 本延:'本延', en20:'20延', en40:'40延', 場内:'場内', 同伴:'同伴', 指D:'指D(' + shotLabel() + ')', D:'D(' + shotLabel() + ')' })[key] || key;
 }
 
@@ -12399,13 +12443,18 @@ function _payslipStyles(printMode) {
     + '.payslip-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:10px 0}.payslip-summary>div,.payslip-totals>div{display:flex;justify-content:space-between;gap:12px;padding:7px 9px;border:1px solid ' + (printMode ? '#999' : 'var(--bdr)') + '}.payslip-summary span,.payslip-totals span{font-size:11px;opacity:.78}.payslip-summary b,.payslip-totals b{white-space:nowrap}'
     + '.payslip-page h2{font-size:13px;margin:12px 0 4px}.payslip-page table{width:100%;border-collapse:collapse;font-size:11px}.payslip-page th,.payslip-page td{border:1px solid ' + (printMode ? '#777' : 'var(--bdr)') + ';padding:4px 6px}.payslip-page th{background:' + (printMode ? '#eee' : 'var(--sur2)') + '}.payslip-page .num{text-align:right}.payslip-page tr.total{font-weight:700}'
     + '.payslip-page small{display:block;font-size:9px;font-weight:400;opacity:.72;margin-top:2px}.payslip-totals{margin-top:8px}.payslip-totals .strong{font-size:14px;font-weight:700}.payslip-totals.final .grand{font-size:17px;border-width:2px}.payslip-legal{font-size:10px;margin:5px 0 9px}.payslip-table-scroll{overflow-x:auto}.payslip-page table.daily{font-size:9px;white-space:nowrap}'
-    + (printMode ? '.payslip-page{break-after:page;page-break-after:always}.payslip-page:last-child{break-after:auto;page-break-after:auto}' : '@media(max-width:700px){.payslip-summary{grid-template-columns:1fr 1fr}}')
+    + (printMode ? '.payslip-page{break-after:page;page-break-after:always}.payslip-page:last-child{break-after:auto;page-break-after:auto}' : '@media(max-width:700px){.payslip-summary{grid-template-columns:1fr 1fr}}'
+      + '.payslip-mode-switch{display:inline-flex}.payslip-mode-switch .btn{border-radius:0;margin:0}.payslip-mode-switch .btn:first-child{border-radius:8px 0 0 8px}.payslip-mode-switch .btn:last-child{border-radius:0 8px 8px 0;margin-left:-1px}'
+      + '.payslip-day-notes{padding:10px 18px 0}.payslip-day-notes .payslip-warning{margin:0 0 6px}.payslip-day-note{font-size:12px;color:var(--tx3)}')
     + '</style>';
 }
 
 function openPayslipModal() {
   _payslipAnchorKey = getBizDayKey();
   _payslipSelectedCast = '';
+  _payslipMode = 'period';
+  _payslipDayKey = getBizDayKey();
+  _payslipDaySelectedCast = '';
   document.getElementById('payslip-overlay')?.remove();
   document.body.insertAdjacentHTML('beforeend', '<div class="pos-co-overlay" id="payslip-overlay" onclick="if(event.target===this)this.remove()">'
     + '<div class="pos-co-panel" style="width:min(1050px,97vw);max-height:94vh;display:flex;flex-direction:column">'
@@ -12414,8 +12463,20 @@ function openPayslipModal() {
   renderPayslipModal();
 }
 
+function payslipSetMode(mode) {
+  _payslipMode = mode === 'day' ? 'day' : 'period';
+  renderPayslipModal();
+}
+
 function payslipMovePeriod(direction) {
-  const period = payslipPeriods(_payslipAnchorKey, cfg.payrollPeriod);
+  if (_payslipMode === 'day') {
+    const day = payslipDayPeriod(_payslipDayKey);
+    if (!day) return;
+    _payslipDayKey = direction < 0 ? day.prevKey : day.nextKey;
+    renderPayslipModal();
+    return;
+  }
+  const period = payslipPeriods(_payslipAnchorKey, cfg.payrollPeriod, cfg);
   if (!period) return;
   _payslipAnchorKey = direction < 0 ? period.prevKey : period.nextKey;
   _payslipSelectedCast = '';
@@ -12423,8 +12484,76 @@ function payslipMovePeriod(direction) {
 }
 
 function payslipSelectCast(value) {
-  _payslipSelectedCast = value;
+  if (_payslipMode === 'day') _payslipDaySelectedCast = value;
+  else _payslipSelectedCast = value;
   renderPayslipModal();
+}
+
+function _payslipModeSwitchHtml() {
+  const button = (mode, label) => '<button type="button" class="btn' + (_payslipMode === mode ? ' primary' : '') + '" aria-pressed="' + (_payslipMode === mode ? 'true' : 'false')
+    + '" onclick="payslipSetMode(\'' + mode + '\')">' + label + '</button>';
+  return '<div class="payslip-mode-switch" role="group" aria-label="明細の単位">'
+    + button('period', cfg.payrollPeriod === 'half' ? '半月ごと' : '月ごと') + button('day', '1日ごと') + '</div>';
+}
+
+/* 1日ごとの中身の出どころ。日締め済みの日は凍結データ（月の明細と同じ作り）、
+   締めていない日は日計表と同じライブの計算（_payrollTableModel の行）を、凍結データと同じ形に直して使う。
+   締めごとの控除・スライド時給は計算しない（computePayslip だけ。computePayslipFinal は通さない） */
+function _payslipDayContext(dayKey) {
+  const store = loadDailyClose();
+  const record = store[dayKey];
+  const closed = !!(record && record.frozen && Number(record.frozen.closedAt) > 0);
+  if (closed) return { closed, store, names: payslipCastNames(store, dayKey, dayKey), pending: [] };
+  const model = _payrollTableModel(_reportDaySource(dayKey));
+  const checkouts = (model.src && model.src.tt && model.src.tt.checkouts) || {};
+  return {
+    closed,
+    store: { [dayKey]: { frozen: { closedAt: 1, castRows: _dailyCloseNormalizeCastRows(model.rows) } } },
+    names: model.rows.map(row => String(row.castName || '')).filter(Boolean),
+    pending: model.rows.filter(row => !checkouts[row.castName] && row.touketsu !== true).map(row => row.castName),
+  };
+}
+
+function _renderPayslipDayModal(box) {
+  const period = payslipDayPeriod(_payslipDayKey);
+  if (!period) return;
+  const ctx = _payslipDayContext(period.from);
+  if (!ctx.names.includes(_payslipDaySelectedCast)) _payslipDaySelectedCast = ctx.names[0] || '';
+  const name = _payslipDaySelectedCast;
+  const data = name ? computePayslip(ctx.store, name, period.from, period.to) : null;
+  const options = ctx.names.map(item => '<option value="' + _payslipEsc(item) + '"' + (item === name ? ' selected' : '') + '>' + _payslipEsc(item) + '</option>').join('');
+  const notes = (ctx.closed ? '' : '<div class="payslip-warning">営業中（未締め）の計算です。日締めの後に金額が変わることがあります</div>')
+    + (name && ctx.pending.includes(name) ? '<div class="payslip-warning">※退勤未入力のため時間給は0円で計算しています</div>' : '')
+    + '<div class="payslip-day-note">締めごとの控除・スライド時給は月（半月）の明細で計算します</div>';
+  box.innerHTML = _payslipStyles(false)
+    + '<div style="padding:14px 18px 0;display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap">'
+    + _payslipModeSwitchHtml()
+    + '<button class="btn" onclick="payslipMovePeriod(-1)">◂ 前日</button><b style="min-width:150px;text-align:center">' + _payslipEsc(period.label) + '</b><button class="btn" onclick="payslipMovePeriod(1)">翌日 ▸</button>'
+    + '<select class="settings-input" style="min-width:160px" onchange="payslipSelectCast(this.value)"' + (ctx.names.length ? '' : ' disabled') + '>' + options + '</select></div>'
+    + '<div class="payslip-day-notes">' + notes + '</div>'
+    + (data ? _payslipPreviewHtml(data, period) : '<div style="padding:28px;text-align:center;color:var(--tx3)">この日の日計表に出勤キャストがいません</div>')
+    + '<div style="position:sticky;bottom:0;padding:12px 18px;background:var(--sur2);display:flex;gap:10px;justify-content:flex-end;border-top:1px solid var(--bdr)">'
+    + '<button class="btn" onclick="payslipPrintReceipt()"' + (data ? '' : ' disabled') + '>🖨 レシート</button>'
+    + '<button class="btn" onclick="payslipPrint(false)"' + (data ? '' : ' disabled') + '>🖨️ 印刷（A4）</button>'
+    + '<button class="btn primary" onclick="payslipPrint(true)"' + (ctx.names.length ? '' : ' disabled') + '>🖨️ 全員印刷</button></div>';
+}
+
+/* 1日ごとの「🖨 レシート」: 締めていない日は日計表の行から、日締め済みの日は締めた時の行（凍結データ）から出す。
+   締め済みの日は画面・A4と同じ金額にするため（締めた後に設定や入力が変わっても締めた金額で出す） */
+function payslipPrintReceipt() {
+  if (_payslipMode !== 'day' || !_payslipDaySelectedCast) return false;
+  const period = payslipDayPeriod(_payslipDayKey);
+  if (!period) return false;
+  const record = loadDailyClose()[period.from];
+  const frozenRows = record && record.frozen && Number(record.frozen.closedAt) > 0 && Array.isArray(record.frozen.castRows) ? record.frozen.castRows : null;
+  if (frozenRows) {
+    const frozen = frozenRows.find(row => row && row.castName === _payslipDaySelectedCast);
+    if (!frozen) { if (typeof showToast === 'function') showToast('印刷する日給内訳が見つかりません'); return false; }
+    // 締めた行に退勤の生値は残らないので、退勤（丸め後）があれば「退勤未入力」の注記を出さない
+    const row = Object.assign({}, frozen, { outHHMM: frozen.roundedOut || '' });
+    return _payrollPrintReceiptRow(row, { dayKey: period.from }, _payrollCountCols([row], {}));
+  }
+  return _payrollPrintReceipt(_payslipDaySelectedCast, _reportDaySource(period.from));
 }
 
 function _payslipDisplayData(store, payslipsStore, castName, period) {
@@ -12439,7 +12568,7 @@ function _payslipDisplayData(store, payslipsStore, castName, period) {
 
 function payslipConfirm() {
   if (!_payslipSelectedCast) return;
-  const period = payslipPeriods(_payslipAnchorKey, cfg.payrollPeriod);
+  const period = payslipPeriods(_payslipAnchorKey, cfg.payrollPeriod, cfg);
   if (!period) return;
   const store = loadDailyClose();
   const payslipsStore = loadPayslips();
@@ -12458,7 +12587,7 @@ function payslipConfirm() {
 
 async function payslipUnconfirm() {
   if (!_payslipSelectedCast || !(await appConfirm('この給与明細の確定を解除しますか？', { danger: true }))) return;
-  const period = payslipPeriods(_payslipAnchorKey, cfg.payrollPeriod);
+  const period = payslipPeriods(_payslipAnchorKey, cfg.payrollPeriod, cfg);
   if (!period) return;
   const payslipsStore = loadPayslips();
   delete payslipsStore[_payslipStoreKey(period.from, period.to, _payslipSelectedCast)];
@@ -12471,7 +12600,8 @@ async function payslipUnconfirm() {
 function renderPayslipModal() {
   const box = document.getElementById('payslip-modal-body');
   if (!box) return;
-  const period = payslipPeriods(_payslipAnchorKey, cfg.payrollPeriod);
+  if (_payslipMode === 'day') { _renderPayslipDayModal(box); return; }
+  const period = payslipPeriods(_payslipAnchorKey, cfg.payrollPeriod, cfg);
   if (!period) return;
   const store = loadDailyClose();
   const payslipsStore = loadPayslips();
@@ -12488,6 +12618,7 @@ function renderPayslipModal() {
   const options = names.map(name => '<option value="' + _payslipEsc(name) + '"' + (name === _payslipSelectedCast ? ' selected' : '') + '>' + _payslipEsc(name) + '</option>').join('');
   box.innerHTML = _payslipStyles(false)
     + '<div style="padding:14px 18px 0;display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap">'
+    + _payslipModeSwitchHtml()
     + '<button class="btn" onclick="payslipMovePeriod(-1)">◀ 前期間</button><b style="min-width:150px;text-align:center">' + _payslipEsc(period.label) + '</b><button class="btn" onclick="payslipMovePeriod(1)">次期間 ▶</button>'
     + '<select class="settings-input" style="min-width:160px" onchange="payslipSelectCast(this.value)"' + (names.length ? '' : ' disabled') + '>' + options + '</select></div>'
     + confirmedLabel
@@ -12501,14 +12632,28 @@ function renderPayslipModal() {
     + '<button class="btn primary" onclick="payslipPrint(true)"' + (names.length ? '' : ' disabled') + '>🖨️ 全員印刷</button></div>';
 }
 
-function payslipPrint(allCasts) {
-  const period = payslipPeriods(_payslipAnchorKey, cfg.payrollPeriod);
-  if (!period) return;
+/* 1日ごとの A4 印刷のページ（今の給与明細と同じ形で1日分）。「全員印刷」はその日の全員分 */
+function _payslipDayPrintPages(allCasts) {
+  const period = payslipDayPeriod(_payslipDayKey);
+  if (!period) return '';
+  const ctx = _payslipDayContext(period.from);
+  const names = allCasts ? ctx.names : [_payslipDaySelectedCast].filter(name => name && ctx.names.includes(name));
+  return names.map(name => _payslipPreviewHtml(computePayslip(ctx.store, name, period.from, period.to), period)).join('');
+}
+
+/* 月（半月）ごとの印刷のページ（今までどおり。確定済みは確定時のスナップショット） */
+function _payslipPeriodPrintPages(allCasts) {
+  const period = payslipPeriods(_payslipAnchorKey, cfg.payrollPeriod, cfg);
+  if (!period) return '';
   const store = loadDailyClose();
   const payslipsStore = loadPayslips();
   const names = allCasts ? payslipCastNames(store, period.from, period.to) : [_payslipSelectedCast].filter(Boolean);
-  if (!names.length) return;
-  const pages = names.map(name => _payslipPreviewHtml(_payslipDisplayData(store, payslipsStore, name, period).data, period)).join('');
+  return names.map(name => _payslipPreviewHtml(_payslipDisplayData(store, payslipsStore, name, period).data, period)).join('');
+}
+
+function payslipPrint(allCasts) {
+  const pages = _payslipMode === 'day' ? _payslipDayPrintPages(allCasts) : _payslipPeriodPrintPages(allCasts);
+  if (!pages) return;
   const w = window.open('', '_blank', 'width=920,height=1240');
   if (!w) { if (typeof showToast === 'function') showToast('ポップアップがブロックされました'); return; }
   w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>給与明細</title>' + _payslipStyles(true)
@@ -16897,6 +17042,10 @@ function _posCategoryDrinkPick(category) {
   return !!(custom && custom.drinkPick);
 }
 
+/* 仕入れ値と「折半」の入力を出すカテゴリ（ボトルと店舗独自のカテゴリ。2026-10-23 ヴェルベ対応） */
+function posMenuUsesMarginBack(category) {
+  return category === 'bottle' || /^cust_\d+$/.test(String(category || ''));
+}
 function posMenuUsesSplitBack(category, settings) {
   if (POS_DRINK_CATS.includes(category)) return true;
   const src = settings || cfg;
@@ -17179,6 +17328,15 @@ function posMenuBackYen(back, amount) {
   return 0;
 }
 
+/* 折半バック: メニューで「折半」にした品の1本あたりのバック ＝ round((販売価格 − 仕入れ値) × payrollMarginBackRate / 100)。
+   仕入れ値が空欄・未入力なら0円として計算する（＝販売価格の折半）。率が0、または折半の品でなければ null（従来のバック決定に任せる）。 */
+function posMarginBackYen(item, amount) {
+  const rate = Number(typeof cfg !== 'undefined' && cfg ? cfg.payrollMarginBackRate : 0) || 0;
+  if (!(rate > 0) || !item || item.marginBack !== true) return null;
+  const cost = Number(item.cost) || 0;
+  return Math.max(0, Math.round(((Number(amount) || 0) - cost) * rate / 100));
+}
+
 function posCategoryItems(category, row) {
   const casts = posActiveCastList();
   const castItems = (prefix, amount, cat) => casts.map(name => ({ name: prefix ? prefix + ':' + name : name, amount, category: cat || category }));
@@ -17388,6 +17546,7 @@ function posMenuAddItem(key) {
     <td><input type="number" class="pos-me-price-input" value="" step="${_posMenuStep}" placeholder="金額"></td>
     <td>${_backUnitInputHtml('pos-me-back-input', '', splitBack ? '空欄=通常' : '空欄=なし', '指名バック')}</td>
     ${splitBack ? '<td>' + _backUnitInputHtml('pos-me-back-free-input', '', '空欄=同額', '通常バック') + '</td>' : ''}
+    ${posMenuUsesMarginBack(key) ? '<td>' + _posMenuMarginCellHtml({}) + '</td>' : ''}
     <td><input type="number" class="pos-me-pt-input" value="" step="0.5" placeholder="0"></td>
     <td><button type="button" class="pos-me-del" onclick="posMenuDelItem(this)">削除</button></td>`;
   tbody.appendChild(tr);
@@ -17538,6 +17697,14 @@ function backUnitSelect(button) {
   backUnitValueChanged(input);
 }
 
+/* 仕入れ値（円・任意）と「折半」チェックの入力欄（ボトル・店舗独自カテゴリのメニュー行） */
+function _posMenuMarginCellHtml(item) {
+  const cost = item && item.cost != null && item.cost !== '' && Number.isFinite(Number(item.cost)) ? Number(item.cost) : '';
+  return '<div style="display:flex;align-items:center;gap:4px">'
+    + '<input type="number" class="pos-me-cost-input" value="' + cost + '" min="0" step="' + _posMenuStep + '" placeholder="仕入れ値" aria-label="仕入れ値" style="width:72px">'
+    + '<label style="display:inline-flex;align-items:center;gap:2px;font-size:11px;white-space:nowrap"><input type="checkbox" class="pos-me-margin-input"' + (item && item.marginBack === true ? ' checked' : '') + '>折半</label></div>';
+}
+
 function _posMenuEditorHTML(key, label, items, open = false) {
   if (key === 'special') {
     const rows = (items || []).map(item => {
@@ -17566,15 +17733,18 @@ function _posMenuEditorHTML(key, label, items, open = false) {
     </div>`;
   }
   const splitBack = posMenuUsesSplitBack(key);
+  const marginBack = posMenuUsesMarginBack(key);
+  const marginCol = marginBack ? '<col style="width:118px">' : '';
   const columns = splitBack
-    ? '<colgroup><col style="width:28px"><col><col style="width:96px"><col style="width:88px"><col style="width:88px"><col style="width:64px"><col style="width:44px"></colgroup>'
-    : '<colgroup><col style="width:28px"><col><col style="width:96px"><col style="width:96px"><col style="width:64px"><col style="width:44px"></colgroup>';
+    ? '<colgroup><col style="width:28px"><col><col style="width:96px"><col style="width:88px"><col style="width:88px">' + marginCol + '<col style="width:64px"><col style="width:44px"></colgroup>'
+    : '<colgroup><col style="width:28px"><col><col style="width:96px"><col style="width:96px">' + marginCol + '<col style="width:64px"><col style="width:44px"></colgroup>';
   const rows = (items || []).map(item => `<tr draggable="true">
     <td class="pos-me-drag" title="ドラッグして並び替え">⠿</td>
     <td><input type="text" class="pos-me-name-input" value="${escAttr(item.name)}" placeholder="メニュー名"></td>
     <td><input type="number" class="pos-me-price-input" value="${Number(item.amount) || 0}" step="${_posMenuStep}" placeholder="金額"></td>
     <td>${_backUnitInputHtml('pos-me-back-input', item.back, splitBack ? '空欄=通常' : '空欄=なし', splitBack ? '指名バック' : 'バック')}</td>
     ${splitBack ? '<td>' + _backUnitInputHtml('pos-me-back-free-input', item.backFree, '空欄=同額', '通常バック') + '</td>' : ''}
+    ${marginBack ? '<td>' + _posMenuMarginCellHtml(item) + '</td>' : ''}
     <td><input type="number" class="pos-me-pt-input" value="${Number.isFinite(Number(item.pt)) && Number(item.pt) !== 0 ? Number(item.pt) : ''}" step="0.5" placeholder="0"></td>
     <td><button type="button" class="pos-me-del" onclick="posMenuDelItem(this)">削除</button></td>
   </tr>`).join('');
@@ -17584,7 +17754,7 @@ function _posMenuEditorHTML(key, label, items, open = false) {
       <summary><span class="settings-label pos-menu-editor-label" style="font-weight:700">${escHtml(label)}</span></summary>
       <table class="pos-me-table" id="cfg-posMenu-${escAttr(key)}-tbl">
         ${columns}
-        <thead><tr><th></th><th>メニュー名</th><th>金額（円）</th>${splitBack ? '<th title="空欄なら通常バックと同額が適用されます。0は0円です">指名バック</th><th title="空欄なら指名バックと同額が適用されます">通常バック</th>' : '<th>バック</th>'}<th>pt</th><th></th></tr></thead>
+        <thead><tr><th></th><th>メニュー名</th><th>金額（円）</th>${splitBack ? '<th title="空欄なら通常バックと同額が適用されます。0は0円です">指名バック</th><th title="空欄なら指名バックと同額が適用されます">通常バック</th>' : '<th>バック</th>'}${marginBack ? '<th title="（販売価格−仕入れ値）×折半バックの率をキャストへバックします（率は 給与計算ルール → バック・SP）">仕入れ値・折半</th>' : ''}<th>pt</th><th></th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
       <button type="button" class="pos-me-add-btn" onclick="posMenuAddItem('${key}')">＋ 追加</button>
@@ -20206,10 +20376,11 @@ function _reportClosedTodaySnap() {
   const todayKey = getLoadedDayKey();
   return loadBackups().find(snap => snap.dayKey === todayKey) || null;
 }
-/* 選択中営業日の { rows, tt, activeCasts } を返す。過去日はバックアップのスナップから（ライブ状態は壊さない）。 */
-function _reportDaySource() {
+/* 選択中営業日の { rows, tt, activeCasts } を返す。過去日はバックアップのスナップから（ライブ状態は壊さない）。
+   dayKey を渡すとその営業日（設定の給与明細「1日ごと」が使う）。省略時は集計で選んでいる営業日。 */
+function _reportDaySource(dayKey) {
   const todayKey = getLoadedDayKey();
-  const key = reportSelectedDay;
+  const key = dayKey === undefined ? reportSelectedDay : dayKey;
   if (!key || key === todayKey) {
     const tt = (typeof loadTimetableState === 'function') ? loadTimetableState() : {};
     const snap = _reportClosedTodaySnap();
@@ -20327,6 +20498,8 @@ function _reportPeriodSwitchHtml() {
     + '.payroll-table td.pay-rate{color:var(--tx2);font-weight:600}'
     + '.pay-bd-btn{display:inline-block;margin-left:4px;font-size:11px;padding:0 6px;border-radius:10px;border:1px solid var(--bdr2);background:var(--sur2);color:var(--tx2)}'
     + '.pay-bd-panel{padding:0;overflow:hidden}'
+    + '.pay-ds-panel{width:min(640px,calc(100vw - 32px))}.pay-ds-table{width:100%;border-collapse:collapse;font-size:13px}.pay-ds-table th{padding:6px 8px;border-bottom:1px solid var(--bdr2);color:var(--tx3);font-size:11px;font-weight:700;text-align:left;white-space:nowrap}.pay-ds-table td{padding:7px 8px;border-bottom:1px solid var(--bdr);vertical-align:middle}.pay-ds-name{padding:6px 2px;border:0;background:none;color:var(--tx);font:inherit;font-weight:800;text-align:left;text-decoration:underline dotted;text-underline-offset:3px;cursor:pointer}.pay-ds-time{font-family:var(--mono);color:var(--tx2);white-space:nowrap}.pay-ds-net{font:800 14px var(--mono);color:var(--green);text-align:right;white-space:nowrap}.pay-ds-net small{display:block;margin-top:2px;font-size:11px;font-weight:400;color:var(--tx3);white-space:normal}.pay-ds-pending{color:#b56b00}.pay-ds-act{width:1%;text-align:right}.pay-ds-print{display:inline-flex;align-items:center;gap:5px;min-height:40px;padding:0 13px;border:1px solid #26977e;border-radius:8px;background:#167a65;color:#fff;font:inherit;font-size:13px;font-weight:800;white-space:nowrap;cursor:pointer}.pay-ds-print:focus-visible,.pay-ds-name:focus-visible{outline:2px solid var(--gold);outline-offset:2px}.pay-ds-empty{padding:24px;text-align:center;color:var(--tx3)}.pay-ds-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}'
+    + '.pay-dsp-panel{width:min(380px,calc(100vw - 32px))}.pay-dsp-body{padding:12px 16px;background:var(--sur2);display:flex;justify-content:center}.pay-dsp-frame{display:block;width:300px;max-width:100%;height:min(62vh,640px);border:1px solid var(--bdr2);border-radius:4px;background:#fff;box-shadow:0 2px 10px rgba(0,0,0,.25)}.pay-dsp-actions{display:flex;justify-content:flex-end;gap:10px;padding:12px 16px;border-top:1px solid var(--bdr)}.pay-dsp-back{min-height:40px;padding:0 16px;border:1px solid var(--bdr2);border-radius:8px;background:var(--sur);color:var(--tx);font:inherit;font-size:13px;font-weight:700;cursor:pointer}.pay-dsp-back:focus-visible{outline:2px solid var(--gold);outline-offset:2px}'
     + '.pay-bd-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;background:var(--sur2);border-bottom:1px solid var(--bdr2)}'
     + '.pay-bd-title{font-size:16px;font-weight:800;color:var(--tx)}.pay-bd-date{margin-top:2px;font-size:12px;color:var(--tx2)}'
     + '.pay-bd-close{display:flex;align-items:center;justify-content:center;flex:0 0 36px;width:36px;height:36px;padding:0;border:1px solid var(--bdr2);border-radius:8px;background:var(--sur);color:var(--tx);font-size:22px;cursor:pointer}'
@@ -20516,18 +20689,21 @@ function _payrollCountCols(rows, stampedLabels) {
       const label = stampedLabels?.[match[1]] || drinkItemLabel(match[1]);
       return [key, (match[2] === 'shimeiD' ? '指D(' : 'D(') + label + ')'];
     }
+    const customLabel = payrollCustomBackLabel(key);
+    if (customLabel != null) return [key, customLabel];
     return [key, labels[key] || stampedLabels?.[key] || shimeiExtLabel(key)];
   });
 }
 function _payrollCountGroup(key) {
   if (payrollMergedDrinkKey(key)) return 'drink';
+  if (payrollCustomBackLabel(key) != null) return 'custom';
   const match = /^(.*)_(shimeiD|freeD)$/.exec(key);
   if (key === '指D' || (match && match[2] === 'shimeiD' && isDrinkItemKey(match[1]))) return 'drinkShimei';
   if (key === 'D' || (match && match[2] === 'freeD' && isDrinkItemKey(match[1]))) return 'drinkFree';
   return 'shimei';
 }
 function _payrollCountGroups(cols) {
-  const labels = { shimei:'指名内訳', drinkShimei:'指名ドリンク', drinkFree:'フリードリンク', drink:'ドリンク' };
+  const labels = { shimei:'指名内訳', custom:'オリジナル', drinkShimei:'指名ドリンク', drinkFree:'フリードリンク', drink:'ドリンク' };
   return (cols || []).reduce((groups, col) => {
     const key = _payrollCountGroup(col[0]);
     const last = groups[groups.length - 1];
@@ -20539,7 +20715,7 @@ function _payrollCountGroups(cols) {
 function _payrollCountGroupStart(cols, index) {
   return index === 0 || _payrollCountGroup(cols[index][0]) !== _payrollCountGroup(cols[index - 1][0]);
 }
-const _PAYROLL_GROUP_LABELS = { work:'勤務', shimei:'指名内訳', drinkShimei:'指名ドリンク', drinkFree:'フリードリンク', drink:'ドリンク', pay:'給与（控除前）', deduction:'控除', net:'給与' };
+const _PAYROLL_GROUP_LABELS = { work:'勤務', shimei:'指名内訳', custom:'オリジナル', drinkShimei:'指名ドリンク', drinkFree:'フリードリンク', drink:'ドリンク', pay:'給与（控除前）', deduction:'控除', net:'給与' };
 /* 当欠の行だと分かる印。金額が全部0円なのは休んだからで、集計漏れではないことを示す。 */
 function _payrollTouketsuMark(row) {
   return row && row.touketsu === true
@@ -20758,6 +20934,59 @@ function _nominateGroupSettledMembers(settledRows, groupId) {
   return (settledRows || []).filter(r => r && r.isFirst && r.settled && String(r.nominateGroupId) === String(groupId));
 }
 
+/* 伝票の小計×率のバック（本指名・同伴。2026-10-23 ヴェルベ対応）で、その伝票の指名者の役割。
+   同じ伝票で本指名と同伴の両方なら同伴だけ（オーナー確認済み: 同伴の伝票に本指名の率は付かない）。
+   同伴＝douban の指名種別または dohan の注文。それ以外の指名者（本指名・出戻り本指名・nominate/honen の注文）は本指名。 */
+function _aggPercentRoleOf(rows, cast) {
+  const isDouban = (rows || []).some(r => (r.mainCast === cast && r.mainType === 'douban')
+    || (r.subCasts || []).some(sc => sc && sc.cast === cast && sc.type === 'douban')
+    || posOrders(r).some(o => /^dohan/.test(o.category || '') && _aggCastOf(o.name) === cast));
+  return isDouban ? 'douban' : 'honshimei';
+}
+/* 率バックの率（%）。本指名は分ける前の小計が閾値以上なら高い率（閾値0なら常に通常の率）、同伴は一律。 */
+function _aggPercentBackRate(role, subtotal) {
+  const num = (value, fallback) => {
+    const n = Number(value);
+    return (value === '' || value == null || !Number.isFinite(n)) ? fallback : n;
+  };
+  if (role === 'douban') return num(cfg?.payrollDouhanBackRate, 20);
+  const threshold = num(cfg?.payrollHonshimeiBackHighThreshold, 50000);
+  return threshold > 0 && subtotal >= threshold
+    ? num(cfg?.payrollHonshimeiBackHighRate, 15)
+    : num(cfg?.payrollHonshimeiBackRate, 10);
+}
+/* 伝票ごとの率バックを指名者へ分ける。対象額 base ＝ max(小計 − 指名者のドリンク代 − 折半の品の代金, 0)。
+   指名者が複数なら指名売上（nameGroups）と同じ重み（nominateShares・卓をまとめた組）で base を分ける。
+   1伝票分のバック ＝ round(分けた base × 率 / 100)。 */
+function _aggPercentBackByCast(settled, slipInfo, nominateGroupRows, shimeiNominateTypes) {
+  const result = {};
+  (settled || []).forEach(r => {
+    const info = slipInfo.get(r);
+    if (!info) return;
+    const groupRows = r.nominateGroupId ? nominateGroupRows[String(r.nominateGroupId)] : null;
+    const grouped = Array.isArray(groupRows) && groupRows.length >= 2;
+    const allocRows = grouped ? groupRows : [r];
+    const nomList = grouped
+      ? Array.from(allocRows.reduce((set, m) => { _aggNominatorsOf(m, shimeiNominateTypes).forEach(cast => set.add(cast)); return set; }, new Set()))
+      : Array.from(info.nominators);
+    if (!nomList.length) return;
+    const allocShares = grouped ? ((allocRows.find(m => m.nominateGroupShares) || {}).nominateGroupShares || null) : r.nominateShares;
+    const base = Math.max(info.subtotal - info.nomDrinkAmt - info.marginAmt, 0);
+    const shares = _nominateAllocatedShares(base, nomList, allocShares);
+    nomList.forEach((cast, idx) => {
+      const role = _aggPercentRoleOf(allocRows, cast);
+      const rate = _aggPercentBackRate(role, info.subtotal);
+      const share = shares[idx];
+      (result[cast] = result[cast] || []).push({
+        rowId: r.id, slipLabel: slipNoLabel(r), role,
+        subtotal: info.subtotal, nomDrinkAmt: info.nomDrinkAmt, marginAmt: info.marginAmt,
+        base, share, rate, amount: Math.round(share * rate / 100),
+      });
+    });
+  });
+  return result;
+}
+
 function computeReportAgg(settled) {
   const modoriAgg = ['honen','honshimei','none'].includes(cfg?.modoriHonshimeiAgg) ? cfg.modoriHonshimeiAgg : 'honen';
   const modoriEnchoshimeiAgg = ['enchoshimei40','jounai','none'].includes(cfg?.modoriEnchoshimeiAgg) ? cfg.modoriEnchoshimeiAgg : 'enchoshimei40';
@@ -20803,6 +21032,8 @@ function computeReportAgg(settled) {
   let cashCount=0, cardCount=0, urikakeCount=0, cashSum=0, cardSum=0, urikakeSum=0, guests=0;
   // 卓をまとめる（2026-09-30 ギャルサークル要望）: nominateGroupId が同じ精算済み伝票は、指名売上（nameGroups）だけ1組として配分する。
   // 会計・本数・個人小計・その他の集計は伝票ごとのまま（オーナー「本指名の売上の配分だけ」）。
+  // 伝票の小計×率のバック用に、伝票ごとの小計・指名者のドリンク代・折半の品の代金を控える（2026-10-23）
+  const percentSlipInfo = new Map();
   const nominateGroupRows = {};   // groupId -> [row...]（settled の順）
   settled.forEach(r => {
     if (!r || !r.nominateGroupId) return;
@@ -20831,6 +21062,15 @@ function computeReportAgg(settled) {
     subtotalSum += tableSubtotal;
     // この伝票の指名キャスト。後段のドリンク指D/D・商品バックの指名/通常判定にも使う（卓をまとめても伝票ごとのまま）
     const nominators = _aggNominatorsOf(r, SHIMEI_NOMINATE);
+    {
+      let nomDrinkAmt = 0, marginAmt = 0;
+      posOrders(r).forEach(o => {
+        const amt = posOrderLineAmount(o, orderPricing);
+        if (o.marginBack === true) marginAmt += amt;
+        if ((isDrinkItemKey(o.category) || o.category === 'shot') && nominators.has(_aggCastOf(o.name))) nomDrinkAmt += amt;
+      });
+      percentSlipInfo.set(r, { subtotal: tableSubtotal, nomDrinkAmt, marginAmt, nominators });
+    }
     // 卓をまとめた組は、精算済みが2枚以上のときだけ、組の先頭の伝票で組全体を配分する（先頭以外は指名売上に積まない）
     const groupRows = r.nominateGroupId ? nominateGroupRows[String(r.nominateGroupId)] : null;
     const grouped = Array.isArray(groupRows) && groupRows.length >= 2;
@@ -20979,12 +21219,13 @@ function computeReportAgg(settled) {
     });
   });
 
+  const percentBackByCast = _aggPercentBackByCast(settled, percentSlipInfo, nominateGroupRows, SHIMEI_NOMINATE);
   const total = cashSum + cardSum + urikakeSum;
   const nominatedSalesTotal = Object.keys(nameGroups).reduce((sum, cast) =>
     sum + (nominatedCasts[cast] ? (Number(nameGroups[cast]?.total) || 0) : 0), 0);
   return {
     prodByCast, prodBackByCast, prodPointsByCast, prodSalesByCast, nameGroups, nominatedCasts, byCategory, bySource, shimeiLabels,
-    personalSubtotalByCast, subtotalSum,
+    personalSubtotalByCast, subtotalSum, percentBackByCast,
     cashCount, cardCount, urikakeCount, cashSum, cardSum, urikakeSum,
     guests, total, nominatedSalesTotal, avg: guests ? Math.round(total/guests) : 0, count: settled.length
   };
@@ -21577,6 +21818,8 @@ function _rerenderPayrollTable() {
   if (host) host.innerHTML = _payrollTableInnerHtml(src);
   const deductionHost = document.getElementById('deduction-sheet-host');
   if (deductionHost) deductionHost.innerHTML = _deductionSheetInnerHtml(src);
+  // 日次締めの社交給料計・日払い・粗利益も日計表の値から出すので、一緒に描き直す（2026-10-23）
+  if (typeof _dailyCloseRerender === 'function') _dailyCloseRerender();
 }
 
 /* 日計表の出勤/退勤を30分刻みで編集 → 当日はライブttへ、過去日はその日のバックアップ
@@ -21649,6 +21892,11 @@ function _payrollBreakdownData(r, src, countCols) {
   countCols = countCols || _payrollCountCols([r], {});
   const workMinutes = Math.max(0, Number(r.workMinutes) || 0);
   const withAdvance = _payrollWithAdvance(r);
+  const deductionItems = (Array.isArray(r.deductions) ? r.deductions : []).map(item => ({
+    label:String(item.label || ''),
+    value:item.mode === 'boolean' ? _payrollDeductionMark(item)
+      : (item.mode === 'flagFixed' ? (item.checked === true ? '○ ' + _payYen(item.amount) : '×') : _payYen(item.amount)),
+  }));
   return {
     castName:String(r.castName || ''),
     dayLabel:(typeof bizKeyToLabel === 'function') ? bizKeyToLabel(src.dayKey || '') : String(src.dayKey || ''),
@@ -21656,13 +21904,26 @@ function _payrollBreakdownData(r, src, countCols) {
     clockOut:formatCheckoutTime(r.roundedOut) || '—',
     workLabel:`${Math.floor(workMinutes / 60)}時間${workMinutes % 60}分`,
     checkoutPending:!r.outHHMM,
+    touketsu:r.touketsu === true,
+    wage:Number(r.wage) || 0,
     hourlyPay:Number(r.hourlyPay) || 0,
-    backLines:countCols.filter(([key]) => Number(r.backCounts?.[key]) || 0).map(([key, label]) => ({
-      label:String(label || ''),
-      count:Number(r.backCounts?.[key]) || 0,
-      unit:Number(r.backUnits?.[key]) || 0,
-      amount:Number(r.backAmounts?.[key]) || 0,
-    })),
+    // 率バック（本指名・同伴を伝票の小計×率で払う店）は「本指名バック（小計×率）」と伝票ごとの内訳を出す。
+    // 本数が0でも率バックの金額があれば行を出す（count モードは金額＝本数×単価なので従来どおり）。
+    backLines:countCols.filter(([key]) => (Number(r.backCounts?.[key]) || 0) || (Number(r.backAmounts?.[key]) || 0)).map(([key, label]) => {
+      const percent = Array.isArray(r.percentBacks?.[key]) ? r.percentBacks[key] : null;
+      return {
+        label:percent ? _payrollPercentBackLabel(key, label) : String(label || ''),
+        count:Number(r.backCounts?.[key]) || 0,
+        unit:Number(r.backUnits?.[key]) || 0,
+        amount:Number(r.backAmounts?.[key]) || 0,
+        percent:percent ? percent.map(entry => ({
+          slipLabel:String(entry.slipLabel || ''),
+          base:Number(entry.share) || 0,
+          rate:Number(entry.rate) || 0,
+          amount:Number(entry.amount) || 0,
+        })) : null,
+      };
+    }),
     prodBack:Number(r.prodBack) || 0,
     sp:Number(r.sp) || 0,
     spExcluded:typeof cfg !== 'undefined' && cfg.payrollSpInBackTotal === false,
@@ -21670,11 +21931,9 @@ function _payrollBreakdownData(r, src, countCols) {
     lateFee:Number(r.lateFee) || 0,
     lateMinutes:Number(r.chikokuMin) || 0,
     dailyPay:Number(r.dailyPay) || 0,
-    deductions:(Array.isArray(r.deductions) ? r.deductions : []).map(item => ({
-      label:String(item.label || ''),
-      value:item.mode === 'boolean' ? _payrollDeductionMark(item)
-        : (item.mode === 'flagFixed' ? (item.checked === true ? '○ ' + _payYen(item.amount) : '×') : _payYen(item.amount)),
-    })).concat([{ label:'日払い', value:_payYen(withAdvance.nibarai) }]),
+    deductionItems,
+    deductions:deductionItems.concat([{ label:'日払い', value:_payYen(withAdvance.nibarai) }]),
+    nibarai:withAdvance.nibarai,
     deductionTotal:withAdvance.deductionTotal,
     netPay:withAdvance.netPay,
     rateLabel:Number(r.sales) > 0 && r.kyuuritsu != null
@@ -21682,10 +21941,22 @@ function _payrollBreakdownData(r, src, countCols) {
   };
 }
 
+/* 率バックの行の表記（日給内訳）。例: 本指名バック（小計×率） */
+function _payrollPercentBackLabel(key, label) {
+  return (key === '本指' ? '本指名' : (key === '同伴' ? '同伴' : String(label || key))) + 'バック（小計×率）';
+}
+/* 率バックの伝票ごとの内訳（No.・対象額・率・金額）。日給内訳の画面と印刷で共通 */
+function _payrollPercentBackDetailText(entry) {
+  return 'No.' + entry.slipLabel + ' ' + _payYen(entry.base) + '×' + entry.rate + '%＝' + _payYen(entry.amount);
+}
+function _payrollBreakdownBackLabel(item) {
+  return item.percent ? escHtml(item.label) : `${escHtml(item.label)} ${item.count}×${_payYen(item.unit)}`;
+}
 function _payrollBreakdownHtml(r, src, countCols) {
   const d = _payrollBreakdownData(r, src, countCols);
   if (!d) return '';
-  const backRows = d.backLines.map(item => `<div class="pay-bd-row"><span class="pay-bd-row-label">${escHtml(item.label)} ${item.count}×${_payYen(item.unit)}</span><span class="pay-bd-row-value">${_payYen(item.amount)}</span></div>`).join('');
+  const backRows = d.backLines.map(item => `<div class="pay-bd-row"><span class="pay-bd-row-label">${_payrollBreakdownBackLabel(item)}</span><span class="pay-bd-row-value">${_payYen(item.amount)}</span></div>`
+    + (item.percent || []).map(entry => `<div class="pay-bd-pct-detail" style="padding:0 0 4px 12px;color:var(--tx3);font-size:11px;font-variant-numeric:tabular-nums">${escHtml(_payrollPercentBackDetailText(entry))}</div>`).join('')).join('');
   const deductionRows = d.deductions.length
     ? d.deductions.map(item => `<div class="pay-bd-row"><span class="pay-bd-row-label">${escHtml(item.label)}</span><span class="pay-bd-row-value">${item.value}</span></div>`).join('')
     : '<div class="pay-bd-empty">控除・記録はありません</div>';
@@ -21712,26 +21983,54 @@ function _payrollBreakdownHtml(r, src, countCols) {
   </div>`;
 }
 
+/* 1日分の給与明細（80mm・白黒のレシート）。日給内訳の「レシート印刷」、日計表の「🧾 1日分の給与明細」、
+   設定の給与明細（1日ごと）の「🖨 レシート」で共通（2026-10-23 作り直し）。
+   キャストに渡す紙なので給率は印刷しない（画面の日給内訳には今までどおり出す）。金額は日計表と同じ計算のまま。 */
 function _payrollBreakdownPrintDocument(r, src, countCols) {
   const d = _payrollBreakdownData(r, src, countCols);
   if (!d) return '';
   const shopName = (typeof cfg !== 'undefined' && cfg.shopName) ? String(cfg.shopName) : '';
-  const backRows = d.backLines.map(item => `<div class="row"><span>${escHtml(item.label)} ${item.count}×${_payYen(item.unit)}</span><b>${_payYen(item.amount)}</b></div>`).join('');
-  const deductionRows = d.deductions.length
-    ? d.deductions.map(item => `<div class="row"><span>${escHtml(item.label)}</span><b>${item.value}</b></div>`).join('')
-    : '<div class="empty">控除・記録なし</div>';
-  return '<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>日給内訳 - ' + escHtml(d.castName) + '</title><style>'
+  // 当欠はその日もう出勤しないので、退勤が無くても金額は確定している（日計表の hasOut と同じ）
+  const pending = d.checkoutPending && !d.touketsu;
+  const row = (label, value, cls) => '<div class="row' + (cls ? ' ' + cls : '') + '"><span>' + label + '</span><b>' + value + '</b></div>';
+  const backLine = (label, count, amount) => '<tr><td class="nm">' + label + '</td><td class="ct">' + count + '</td><td class="am">' + amount + '</td></tr>';
+  const backRows = d.backLines.map(item => backLine(escHtml(item.label), (item.percent || !item.count) ? '' : item.count.toLocaleString('ja-JP') + '本', _payYen(item.amount))
+    + (item.percent || []).map(entry => '<tr class="pct"><td colspan="3">' + escHtml(_payrollPercentBackDetailText(entry)) + '</td></tr>').join('')).join('')
+    + (d.prodBack ? backLine('商品バック', '', _payYen(d.prodBack)) : '')
+    + (d.sp ? backLine('商品バック（SP）' + (d.spExcluded ? '<small>参考・日給に含みません</small>' : ''), '', _payYen(d.sp)) : '');
+  const deductionLines = d.deductionItems.concat(d.nibarai ? [{ label:'日払い', value:_payYen(d.nibarai) }] : []);
+  const deductionHtml = deductionLines.length
+    ? deductionLines.map(item => row(escHtml(item.label), item.value)).join('') + row('控除計', _payYen(d.deductionTotal), 'total')
+    : '<div class="none">控除なし</div>';
+  return '<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>給与明細 - ' + escHtml(d.castName) + '</title><style>'
     + '@page{size:80mm auto;margin:0}*{box-sizing:border-box;margin:0;padding:0}'
     + 'body{width:72mm;margin:0 auto;padding:3mm;font-family:"Hiragino Kaku Gothic ProN","Meiryo",sans-serif;color:#000;background:#fff;font-size:10pt;line-height:1.35;font-variant-numeric:tabular-nums}'
-    + '.shop{text-align:center;font-size:10pt;font-weight:800;margin-bottom:1mm}.title{text-align:center;font-size:16pt;font-weight:900;letter-spacing:.18em}.meta{text-align:center;margin-top:1mm;font-size:9pt}.rule{border:0;border-top:2px solid #000;margin:2.5mm 0}.section{margin-top:2.5mm}.section-title{padding-bottom:1mm;border-bottom:1px solid #000;font-size:9pt;font-weight:900}.row{display:flex;justify-content:space-between;gap:3mm;padding:1mm 0;border-bottom:1px dotted #888}.row span{min-width:0}.row b{text-align:right;white-space:nowrap}.row.total{margin-top:.5mm;border-top:1px solid #000;border-bottom:0;font-size:11pt;font-weight:900}.note{margin-top:1mm;font-size:8pt}.empty{padding:1.5mm 0;color:#444}.calc{margin-top:1mm;text-align:right;font-size:8.5pt}.grand{margin-top:3mm;padding:2.5mm 2mm;border:2px solid #000;text-align:center}.grand span{display:block;font-size:10pt;font-weight:800}.grand b{display:block;margin-top:.5mm;font-size:20pt;font-weight:900}.rate{display:flex;justify-content:space-between;gap:3mm;margin-top:2mm;padding-top:1.5mm;border-top:1px solid #000;font-size:9pt}.rate b{text-align:right}'
+    + '.head{text-align:center}.shop{font-size:10pt;font-weight:800;letter-spacing:.06em;margin-bottom:1mm}.title{font-size:17pt;font-weight:900;letter-spacing:.3em;padding-left:.3em}.tag{display:inline-block;margin-top:.8mm;padding:0 2.5mm;border:1px solid #000;border-radius:3mm;font-size:8pt;font-weight:800}'
+    + '.warn{margin-top:2mm;padding:1.2mm 1.5mm;border:1px dashed #000;font-size:8pt;font-weight:700}'
+    + '.who{margin-top:2.5mm;padding:1.8mm 0;border-top:2px solid #000;border-bottom:1px solid #000}.who .date{font-size:9pt}.who .name{margin-top:.5mm;font-size:15pt;font-weight:900;line-height:1.2;word-break:break-all}.who .name small{margin-left:1.5mm;font-size:9pt;font-weight:700}'
+    + '.sec{margin-top:3mm}.sec h2{display:flex;align-items:center;gap:1.5mm;margin-bottom:1mm;font-size:9pt;font-weight:900}.sec h2::after{content:"";flex:1;border-top:1px solid #000}'
+    + '.times{display:grid;grid-template-columns:1fr 1fr 1.3fr;gap:1.2mm}.times div{padding:1mm .5mm;border:1px solid #000;text-align:center}.times span{display:block;font-size:7.5pt}.times b{display:block;font-size:10.5pt;font-weight:900;white-space:nowrap}.late{margin-top:1mm;font-size:9pt;font-weight:700}'
+    + '.row{display:flex;justify-content:space-between;gap:2mm;padding:.8mm 0;border-bottom:1px dotted #777}.row span{min-width:0}.row b{text-align:right;white-space:nowrap}.row.total{border-top:1px solid #000;border-bottom:0;font-weight:900}'
+    + '.backs{width:100%;border-collapse:collapse}.backs td{padding:.8mm 0;border-bottom:1px dotted #777;vertical-align:top}.backs td.ct{width:11mm;padding-right:1.5mm;text-align:right;white-space:nowrap}.backs td.am{width:20mm;text-align:right;white-space:nowrap;font-weight:700}.backs td small{display:block;font-size:7pt}.backs tr.pct td{padding:0 0 .6mm 2mm;border-bottom:0;font-size:7.5pt}.backs td.empty{color:#333}'
+    + '.gross{display:flex;justify-content:space-between;align-items:baseline;margin-top:3mm;padding:1.5mm 0;border-top:2px solid #000;border-bottom:2px solid #000;font-weight:900}.gross b{font-size:13pt}.calc{margin-top:.6mm;text-align:right;font-size:7.5pt}'
+    + '.none{padding:.8mm 0;color:#333}'
+    + '.advance{margin-top:3mm;text-align:right;font-size:9pt;font-weight:700}.handover{margin-top:1mm;padding:2mm;border:2.5px solid #000;text-align:center}.handover.solo{margin-top:3mm}.handover span{display:block;font-size:10pt;font-weight:900;letter-spacing:.2em}.handover b{display:block;font-size:22pt;font-weight:900;line-height:1.15}.handover small{display:block;font-size:7.5pt}'
+    + '.sign{margin-top:4mm;font-size:9pt}.sign .blank{margin-top:2.5mm}.sign .line{display:flex;align-items:flex-end;gap:2mm;margin-top:3.5mm}.sign .line i{flex:1;height:7mm;border-bottom:1px solid #000}'
     + '@media print{body{padding:0 3mm}}</style></head><body>'
-    + (shopName ? '<div class="shop">' + escHtml(shopName) + '</div>' : '')
-    + '<div class="title">日給内訳</div><div class="meta">' + escHtml(d.castName) + '　' + escHtml(d.dayLabel) + '</div><hr class="rule">'
-    + '<section class="section"><div class="section-title">勤務</div><div class="row"><span>出勤 → 退勤</span><b>' + escHtml(d.clockIn) + ' → ' + escHtml(d.clockOut) + '</b></div><div class="row"><span>勤務時間</span><b>' + d.workLabel + '</b></div><div class="row total"><span>時間給</span><b>' + _payYen(d.hourlyPay) + '</b></div>' + (d.checkoutPending ? '<div class="note">※退勤未入力のため時間給は未確定</div>' : '') + '</section>'
-    + '<section class="section"><div class="section-title">バック内訳</div>' + (backRows || '<div class="empty">本数バックなし</div>') + (d.prodBack ? '<div class="row"><span>商品バック</span><b>' + _payYen(d.prodBack) + '</b></div>' : '') + '<div class="row"><span>SP' + (d.spExcluded ? '（参考）' : '') + '</span><b>' + _payYen(d.sp) + '</b></div><div class="row total"><span>バック合計</span><b>' + _payYen(d.backTotal) + '</b></div>' + (d.spExcluded ? '<div class="note">※SPは日給に含みません</div>' : '') + '</section>'
-    + '<section class="section"><div class="section-title">支給計算</div><div class="row"><span>遅刻' + (d.lateMinutes ? '（' + d.lateMinutes + '分）' : '') + '</span><b>−' + _payYen(d.lateFee) + '</b></div><div class="calc">時間給 ' + _payYen(d.hourlyPay) + ' ＋ バック ' + _payYen(d.backTotal) + ' − 遅刻 ' + _payYen(d.lateFee) + '</div><div class="row total"><span>日給</span><b>' + _payYen(d.dailyPay) + '</b></div></section>'
-    + '<section class="section"><div class="section-title">控除・記録</div>' + deductionRows + '<div class="row total"><span>控除計</span><b>' + _payYen(d.deductionTotal) + '</b></div></section>'
-    + '<div class="grand"><span>差引支給</span><b>' + _payYen(d.netPay) + '</b></div><div class="rate"><span>給率</span><b>' + escHtml(d.rateLabel) + '</b></div>'
+    + '<header class="head">' + (shopName ? '<div class="shop">' + escHtml(shopName) + '</div>' : '') + '<div class="title">給与明細</div><div class="tag">1日分</div></header>'
+    + (pending ? '<div class="warn">※退勤未入力のため時間給は0円で計算しています</div>' : '')
+    + '<div class="who"><div class="date">' + escHtml(d.dayLabel) + '</div><div class="name">' + escHtml(d.castName) + '<small>様</small></div></div>'
+    + '<section class="sec"><h2>勤務</h2><div class="times"><div><span>出勤</span><b>' + escHtml(d.clockIn) + '</b></div><div><span>退勤</span><b>' + escHtml(d.clockOut) + '</b></div><div><span>勤務時間</span><b>' + d.workLabel + '</b></div></div>'
+    + (d.lateMinutes ? '<div class="late">遅刻 ' + d.lateMinutes + '分</div>' : '') + '</section>'
+    + '<section class="sec"><h2>給与</h2>' + row('時給', _payYen(d.wage)) + row('時間給', _payYen(d.hourlyPay)) + '</section>'
+    + '<section class="sec"><h2>バック</h2><table class="backs"><tbody>' + (backRows || '<tr><td class="empty" colspan="3">バックなし</td></tr>') + '</tbody></table>'
+    + row('バック合計', _payYen(d.backTotal), 'total') + '</section>'
+    + (d.lateFee ? '<div class="sec">' + row('遅刻罰金', '−' + _payYen(d.lateFee)) + '</div>' : '')
+    + '<div class="gross"><span>支給合計</span><b>' + _payYen(d.dailyPay) + '</b></div><div class="calc">時間給 ＋ バック合計' + (d.lateFee ? ' − 遅刻罰金' : '') + '</div>'
+    + '<section class="sec"><h2>控除</h2>' + deductionHtml + '</section>'
+    + (d.nibarai ? '<div class="advance">本日の日払い済み ' + _payYen(d.nibarai) + '</div>' : '')
+    + '<div class="handover' + (d.nibarai ? '' : ' solo') + '"><span>お渡し額</span><b>' + _payYen(d.netPay) + '</b><small>差引支給（日払い後）</small></div>'
+    + '<section class="sign"><p>上記の金額を受け取りました。</p><div class="blank">　　年　　月　　日</div><div class="line"><span>サイン</span><i></i></div></section>'
     + '<div style="margin:10mm auto 0;width:.5mm;height:0;border-top:1px solid #000;print-color-adjust:exact;-webkit-print-color-adjust:exact"></div>'
     + '<script>window.onafterprint=()=>setTimeout(()=>window.close(),100);window.onload=()=>window.print()<\/script></body></html>';
 }
@@ -21742,14 +22041,94 @@ function payrollCloseBreakdown() {
   _payrollBreakdownActiveCast = '';
 }
 
-function payrollPrintBreakdown() {
-  const model = _payrollTableModel(_reportDaySource());
-  const row = model.rows.find(r => r.castName === _payrollBreakdownActiveCast);
-  if (!row) { if (typeof showToast === 'function') showToast('印刷する日給内訳が見つかりません'); return; }
+/* そのキャストの1日分のレシートを印刷する。src はその日の { dayKey, rows, tt }（日計表と同じライブの計算） */
+function _payrollPrintReceipt(castName, src) {
+  const model = _payrollTableModel(src || _reportDaySource());
+  const row = model.rows.find(r => r.castName === castName);
+  if (!row) { if (typeof showToast === 'function') showToast('印刷する日給内訳が見つかりません'); return false; }
+  return _payrollPrintReceiptRow(row, model.src, model.countCols);
+}
+function _payrollPrintReceiptRow(row, src, countCols) {
   const w = window.open('', '_blank', 'width=320,height=820');
-  if (!w) { if (typeof showToast === 'function') showToast('ポップアップがブロックされました'); return; }
-  w.document.write(_payrollBreakdownPrintDocument(row, model.src, model.countCols));
+  if (!w) { if (typeof showToast === 'function') showToast('ポップアップがブロックされました'); return false; }
+  w.document.write(_payrollBreakdownPrintDocument(row, src, countCols));
   w.document.close();
+  return true;
+}
+function payrollPrintBreakdown() {
+  _payrollPrintReceipt(_payrollBreakdownActiveCast, _reportDaySource());
+}
+
+/* 日計表「🧾 1日分の給与明細」: その日のキャストを日計表と同じ順で並べ、レシートをすぐ印刷する（2026-10-23）。
+   表示と印刷だけで、保存・削除は無い。社交名を押すと日給内訳のモーダルを開く。 */
+function _payrollDaySlipModalHtml(model) {
+  const src = (model && model.src) || {};
+  const rows = (model && model.rows) || [];
+  const checkouts = (src.tt && src.tt.checkouts) || {};
+  const dayLabel = (typeof bizKeyToLabel === 'function') ? bizKeyToLabel(src.dayKey || '') : String(src.dayKey || '');
+  const body = rows.length
+    ? '<table class="pay-ds-table"><thead><tr><th scope="col">社交名</th><th scope="col">出勤〜退勤</th><th scope="col">差引支給（日払い後）</th><th scope="col"><span class="pay-ds-sr">印刷</span></th></tr></thead><tbody>'
+      + rows.map(r => {
+        const name = String(r.castName || '');
+        const attr = escAttr(escHtml(name));
+        const hasOut = !!checkouts[name] || r.touketsu === true;
+        const time = (formatWorkTime(r.roundedIn) || '—') + '〜' + (formatCheckoutTime(r.roundedOut) || '—');
+        return '<tr data-cast="' + attr + '"' + (hasOut ? '' : ' class="is-pending"') + '>'
+          + '<td><button type="button" class="pay-ds-name" data-cast="' + attr + '" onclick="payrollShowBreakdown(this.dataset.cast)">' + escHtml(name) + _payrollTouketsuMark(r) + '</button></td>'
+          + '<td class="pay-ds-time">' + escHtml(time) + '</td>'
+          + '<td class="pay-ds-net">' + (hasOut ? _payYen(_payrollWithAdvance(r).netPay)
+            : '<span class="pay-ds-pending">退勤未入力</span><small>日計表で退勤を入れると時間給が入ります</small>') + '</td>'
+          + '<td class="pay-ds-act"><button type="button" class="pay-ds-print" data-cast="' + attr + '" onclick="payrollDaySlipPrint(this.dataset.cast)"><span aria-hidden="true">🖨</span> レシート</button></td>'
+          + '</tr>';
+      }).join('') + '</tbody></table>'
+    : '<div class="pay-ds-empty">出勤キャストがいません</div>';
+  return '<div id="payroll-dayslip-overlay" class="pos-co-overlay" onclick="if(event.target===this)payrollDaySlipCloseModal()">'
+    + '<div class="pos-co-panel pay-bd-panel pay-ds-panel" role="dialog" aria-modal="true" aria-labelledby="payroll-dayslip-title">'
+    + '<div class="pay-bd-head"><div><div id="payroll-dayslip-title" class="pay-bd-title">🧾 1日分の給与明細</div><div class="pay-bd-date">' + escHtml(dayLabel) + '　社交名を押すと日給内訳を開きます</div></div>'
+    + '<button type="button" class="pay-bd-close" onclick="payrollDaySlipCloseModal()" aria-label="閉じる">×</button></div>'
+    + '<div class="pay-bd-body">' + body + '</div></div></div>';
+}
+function payrollDaySlipOpenModal() {
+  payrollDaySlipCloseModal();
+  document.body.insertAdjacentHTML('beforeend', _payrollDaySlipModalHtml(_payrollTableModel(_reportDaySource())));
+}
+function payrollDaySlipCloseModal() {
+  document.getElementById('payroll-dayslip-overlay')?.remove();
+}
+/* 「🖨 レシート」: すぐ印刷せず、まずレシートの中身を別のモーダルで見せ、「印刷する」で印刷する（2026-10-23 オーナー指示）。
+   中身は印刷と同じ文書。iframe に入れ、スクリプトを外して sandbox でも止める（開いただけで印刷が始まらないように） */
+let _payrollDaySlipPreviewCast = '';
+function _payrollDaySlipPreviewHtml(castName, src) {
+  const model = _payrollTableModel(src || _reportDaySource());
+  const row = model.rows.find(r => r.castName === castName);
+  if (!row) return '';
+  const doc = _payrollBreakdownPrintDocument(row, model.src, model.countCols).replace(/<script>[\s\S]*?<\/script>/g, '');
+  const name = escHtml(String(castName || ''));
+  return '<div id="payroll-dayslip-preview-overlay" class="pos-co-overlay" onclick="if(event.target===this)payrollDaySlipPreviewClose()">'
+    + '<div class="pos-co-panel pay-bd-panel pay-dsp-panel" role="dialog" aria-modal="true" aria-labelledby="payroll-dayslip-preview-title">'
+    + '<div class="pay-bd-head"><div><div id="payroll-dayslip-preview-title" class="pay-bd-title">🧾 レシートの確認</div><div class="pay-bd-date">' + name + '　内容を確かめてから印刷してください</div></div>'
+    + '<button type="button" class="pay-bd-close" onclick="payrollDaySlipPreviewClose()" aria-label="閉じる">×</button></div>'
+    + '<div class="pay-dsp-body"><iframe class="pay-dsp-frame" title="' + name + 'のレシート" sandbox srcdoc="' + doc.replace(/&/g, '&amp;').replace(/"/g, '&quot;') + '"></iframe></div>'
+    + '<div class="pay-dsp-actions"><button type="button" class="pay-dsp-back" onclick="payrollDaySlipPreviewClose()">戻る</button>'
+    + '<button type="button" class="pay-ds-print pay-dsp-print" onclick="payrollDaySlipPreviewPrint()"><span aria-hidden="true">🖨</span> 印刷する</button></div>'
+    + '</div></div>';
+}
+function payrollDaySlipPrint(castName) {
+  const html = _payrollDaySlipPreviewHtml(castName, _reportDaySource());
+  if (!html) { if (typeof showToast === 'function') showToast('印刷する日給内訳が見つかりません'); return false; }
+  payrollDaySlipPreviewClose();
+  _payrollDaySlipPreviewCast = castName;
+  document.body.insertAdjacentHTML('beforeend', html);
+  return true;
+}
+function payrollDaySlipPreviewClose() {
+  document.getElementById('payroll-dayslip-preview-overlay')?.remove();
+}
+/* 確認のモーダルの「印刷する」。印刷の窓が開けたら確認を閉じ、一覧に戻る（ポップアップが止められたら確認を残す） */
+function payrollDaySlipPreviewPrint() {
+  const ok = _payrollPrintReceipt(_payrollDaySlipPreviewCast, _reportDaySource());
+  if (ok) payrollDaySlipPreviewClose();
+  return ok;
 }
 
 /* 内訳表示用: 深夜の内部表記（25:00 等）を 01:00 表記に戻す */
@@ -22088,6 +22467,7 @@ function _payrollSectionHtml(src) {
     + '<div class="agg-box-head">'
     + '<h3>日計表 <span class="payroll-note">※時給は表示されません（キャスト管理で管理）／社交名を固定して横にスクロールできます</span>' + deductionNote + '</h3>'
     + '<div class="agg-box-actions">'
+    + '<button type="button" id="report-payroll-dayslip" onclick="payrollDaySlipOpenModal()">🧾 1日分の給与明細</button>'
     + '<button type="button" id="report-payroll-rules" onclick="payrollRulesOpenModal()">💴 給与計算ルール</button>'
     + '<button onclick="printReport()">🖨 印刷</button>'
     + '<button onclick="exportPayrollCSV()">💾 CSV保存</button>'
@@ -22134,7 +22514,7 @@ function _reportDaySelectHtml() {
 
 function _reportNavHtml(period, hasDailyClose = true) {
   const labels = period === 'day'
-    ? [['report-overview','売上概要'],['report-nomination','指名売上'],['report-payroll','日計表'],['report-deduction','控除票'],['daily-close-host','日次締め'],['report-slips','会計伝票'],['report-day-list','その日のリスト']]
+    ? [['report-overview','売上概要'],['report-payroll','日計表'],['report-nomination','指名売上'],['report-deduction','控除票'],['daily-close-host','日次締め'],['report-slips','会計伝票'],['report-day-list','その日のリスト']]
     : [['report-range-overview','期間概要'],['report-range-days','日別一覧']];
   const items = labels.filter(([id]) => id !== 'daily-close-host' || hasDailyClose).map(([id,label]) => `<a href="#${id}" aria-label="${label}へ移動" onclick="_reportNavActivate(this,event)">${label}</a>`).join('');
   return `<nav class="report-nav" aria-label="集計内メニュー"><div class="report-nav-links">${items}</div><details class="report-data-tools"><summary>保存データ管理</summary><div class="report-data-actions"><button type="button" onclick="restoreBackup()"><span>♻️ 復元</span><small>保存した日を選んで戻す</small></button><button type="button" onclick="showRecoveryModal()"><span>🛟 データ復旧</span><small>消えた日・空の日を戻す</small></button><button type="button" onclick="showNewDayModal()"><span>＋ 新しい営業日</span><small>過去の日付の営業日を追加</small></button></div></details></nav>`;
@@ -22257,8 +22637,9 @@ function _renderReportDay() {
   const cardSortOpts = [['salesDesc','売上が高い順'],['salesAsc','売上が低い順'],['nameAsc','名前順'],['no','番号順']]
     .map(([v,l]) => `<option value="${v}"${reportCardSort===v?' selected':''}>${l}</option>`).join('');
 
-  const dash = `<section id="report-overview" class="report-anchor-section">${_aggKpiBarHtml(agg, src.dayKey, slipNoRange)}</section>`
-    + `<div id="report-nomination" class="agg-box">
+  const dash = `<section id="report-overview" class="report-anchor-section">${_aggKpiBarHtml(agg, src.dayKey, slipNoRange)}</section>`;
+  // キャスト別指名売上は日計表の下（日計表の印刷物と同じ並び。2026-10-23 オーナー指示）
+  const nominationBox = `<div id="report-nomination" class="agg-box">
         <div class="agg-box-head">
           <h3>キャスト別指名売上 <span class="payroll-note">※本指名・同伴で付いた卓の税込総計（場内・延長指名は除外）。出戻り本指は設定「出戻り本指の集計扱い」に従う</span></h3>
           <div class="agg-box-actions">
@@ -22280,6 +22661,7 @@ function _renderReportDay() {
     </h2>
     ${dash}
     ${_payrollSectionHtml(src)}
+    ${nominationBox}
     ${_deductionSheetSectionHtml(src)}
     ${_dailyCloseSectionHtml(src, agg, _payRows, isPast)}
     <div id="report-slips" class="pos-report-bar" style="margin-top:24px">
@@ -22975,7 +23357,7 @@ function _dailyCloseSectionHtml(src, agg, payrollRows, isPast) {
       @media(max-width:900px){.dc-list-grid{grid-template-columns:1fr}.dc-manual{grid-template-columns:1fr}.dc-results{grid-template-columns:repeat(2,minmax(0,1fr))}}
       @media print{.dc-add,.dc-delete,.dc-copy-btn{display:none}.dc-list-row input,.dc-manual input,.dc-note{border:none;background:transparent}}
     </style>
-    <div class="dc-head"><div><h3>${readOnly || frozen ? '🔒' : '🔓'} 日次締め</h3><div class="dc-status">${readOnly ? '🔒 過去日の確定値（読み取り専用）' : frozen ? `🔒 ロック中（確定 ${new Date(auto.closedAt).toLocaleString('ja-JP')}）` : '🔓 未確定 — 自動集計はライブ値。締めたらロックしてください'}</div></div></div>
+    <div class="dc-head"><div><h3>${readOnly || frozen ? '🔒' : '🔓'} 日次締め</h3><div class="dc-status">${readOnly ? '🔒 過去日の確定値（読み取り専用）' : frozen ? `🔒 ロック中（確定 ${new Date(auto.closedAt).toLocaleString('ja-JP')}）` : '🔓 未確定 — 自動集計はライブ値。締めたらロックしてください'}</div></div><div class="agg-box-actions dc-actions"><button type="button" onmousedown="event.preventDefault()" onclick="dailyClosePrint()">🖨 印刷</button><button type="button" onmousedown="event.preventDefault()" onclick="dailyCloseExportCSV()">💾 CSV保存</button></div></div>
     ${_dailyCloseAutoTable(auto, month)}
     <div class="dc-list-grid">
       ${_dailyCloseListHtml('staffPay', '社員日払い', record, month, readOnly, candidates.staffPay)}
@@ -22998,6 +23380,352 @@ function _dailyCloseSectionHtml(src, agg, payrollRows, isPast) {
     </div>
     ${transferWarning ? `<div class="dc-warning">⚠ 実際現金がレジ常備金 ${_dailyCloseYen(tillFloat)} を下回るため、振込現金は0円です。</div>` : ''}
   </div>`;
+}
+
+/* ================================================================
+   日次締めの印刷（A4横1枚の日報）とCSV保存（2026-10-23）
+   店長が本部・オーナーへ渡す／店に保管する用。表示・印刷・保存だけで、保存データは変えない。
+   値は画面の日次締め（_dailyCloseSectionHtml）と日計表（_payrollTableModel）と同じ計算から取る。
+================================================================ */
+// 入出金の一覧: [保存欄, 見出し, 名前・内容の欄, 合計の欄（dailyCloseCalc と当月累計で共通）]
+const DAILY_CLOSE_REPORT_LISTS = [
+  ['staffPay', '社員日払い', 'name', 'staffPayTotal'],
+  ['expenses', '雑費', 'label', 'expenseTotal'],
+  ['hqOut', '特別出金', 'label', 'hqOutTotal'],
+  ['specialIn', '特別入金', 'label', 'specialInTotal'],
+];
+
+/* 打ちかけの欄（実際現金・日払いなど）を確定させる。ボタンは mousedown でフォーカスを奪わないので、
+   ここで外して change を走らせ、保存されてから中身を作る（今打った値が紙とCSVに入る） */
+function _dailyCloseFlushInput() {
+  const el = (typeof document !== 'undefined') ? document.activeElement : null;
+  if (el && el !== document.body && typeof el.blur === 'function') el.blur();
+}
+
+/* 'YYYY/MM/DD HH:MM'（確定日時・印刷日時） */
+function _dailyCloseStamp(ms) {
+  const d = new Date(ms);
+  const p = n => String(n).padStart(2, '0');
+  return d.getFullYear() + '/' + p(d.getMonth() + 1) + '/' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+}
+
+/* 印刷とCSVの中身。集計で閲覧中の営業日。日次締めの記録が無い過去日は null（画面にも区画が出ない日） */
+function _dailyCloseReportModel(src) {
+  src = src || _reportDaySource();
+  const isPast = src.dayKey !== getLoadedDayKey();
+  const store = loadDailyClose();
+  const saved = store[src.dayKey];
+  if (isPast && !saved) return null;
+  const settled = (src.rows || []).filter(row => row.isFirst && row.settled);
+  const agg = computeReportAgg(settled);
+  const payroll = _payrollTableModel(src);
+  // ここから5行は _dailyCloseSectionHtml と同じ関数・同じ順（画面の日次締めと同じ値にするため）
+  const record = _dailyCloseNormalizeRecord(saved);
+  const auto = _dailyCloseEffectiveAuto(record, _dailyCloseLiveAuto(src, agg, payroll.rows), isPast);
+  const tillFloat = Math.max(0, _dailyCloseNum(cfg.tillFloat ?? 60000));
+  const calc = dailyCloseCalc(record, auto, tillFloat);
+  const month = dailyCloseMonthTotals(_dailyCloseStoreWithToday(store, src.dayKey, record, auto), src.dayKey, tillFloat);
+  // キャストの表は日計表の行のまま。控除計・差引支給は日払いを含めた日計表の表示値（_payrollWithAdvance）。
+  // 退勤が無い子は日給が決まらないので null（日計表の「時給未確定」）。合計も日計表と同じく退勤ありの子だけ足す
+  const checkouts = (src.tt && src.tt.checkouts) || {};
+  const castTotal = { sales:0, honshimei:0, douhan:0, jonai:0, backTotal:0, dailyPay:0, nibarai:0, deductionTotal:0, netPay:0, pending:0 };
+  const castRows = (payroll.rows || []).map(r => {
+    const hasOut = !!checkouts[r.castName] || r.touketsu === true;
+    const advance = _payrollWithAdvance(r);
+    const counts = r.backCounts || {};
+    const row = {
+      castName:String(r.castName || ''),
+      touketsu:r.touketsu === true,
+      clockIn:formatWorkTime(r.roundedIn || r.inHHMM) || '',
+      clockOut:formatCheckoutTime(r.roundedOut || r.outHHMM) || '',
+      workMinutes:Number(r.workMinutes) || 0,
+      sales:Number(r.sales) || 0,
+      honshimei:Number(counts['本指']) || 0,
+      douhan:Number(counts['同伴']) || 0,
+      jonai:Number(counts['場内']) || 0,
+      backTotal:Number(r.backTotal) || 0,
+      hasOut,
+      dailyPay:hasOut ? (Number(r.dailyPay) || 0) : null,
+      nibarai:advance.nibarai,
+      deductionTotal:hasOut ? advance.deductionTotal : null,
+      netPay:hasOut ? advance.netPay : null,
+    };
+    castTotal.sales += row.sales;
+    castTotal.honshimei += row.honshimei;
+    castTotal.douhan += row.douhan;
+    castTotal.jonai += row.jonai;
+    castTotal.backTotal += row.backTotal;
+    castTotal.nibarai += row.nibarai;
+    if (hasOut) {
+      castTotal.dailyPay += row.dailyPay;
+      castTotal.deductionTotal += row.deductionTotal;
+      castTotal.netPay += row.netPay;
+    } else castTotal.pending++;
+    return row;
+  });
+  return { src, isPast, record, auto, calc, month, tillFloat, agg, castRows, castTotal };
+}
+
+/* A4横・白黒の日報。上段に 売上／入出金／現金／損益 を4列、中段にキャストの表、下段に営業報告と確認欄。
+   キャストが多い日は表の行を詰め（11人〜・16人〜の2段階）、それでも溢れたら表の見出しを付けて2枚目へ続く */
+function _dailyClosePrintDocument(model, now = new Date()) {
+  const { src, record, auto, calc, month, tillFloat, agg, castRows, castTotal } = model;
+  const esc = _dailyCloseAttr;
+  const yen = _dailyCloseYen;
+  const yenOr = value => value === null ? '—' : yen(value);
+  const num = value => (Number(value) || 0).toLocaleString('ja-JP');
+  const kv = (label, value, cls = '') => '<div class="kv' + (cls ? ' ' + cls : '') + '"><span>' + label + '</span><b>' + value + '</b></div>';
+  const shopName = String(cfg.shopName || '').trim();
+  const status = auto.closedAt > 0 ? '確定 ' + _dailyCloseStamp(auto.closedAt) : (model.isPast ? '未確定' : '未確定（印刷時点の値）');
+
+  const salesBox = '<section class="box"><h2>売上</h2>'
+    + '<div class="hero"><span>総売上</span><b>' + yen(auto.totalSales) + '</b></div>'
+    + kv('現金', yen(auto.cashSales), 'sub') + kv('カード', yen(auto.cardSales), 'sub') + kv('売掛', yen(auto.urikakeSales), 'sub')
+    + kv('売掛金回収', yen(auto.urikakeRepayCash + auto.urikakeRepayCard), 'gap')
+    + kv('現金', yen(auto.urikakeRepayCash), 'sub') + kv('カード', yen(auto.urikakeRepayCard), 'sub')
+    + kv('売掛発生', yen(auto.urikakeSales), 'gap')
+    + kv('伝票（精算済み）', num(agg.count) + '枚')
+    + '<div class="trio"><div><span>総客数</span><b>' + num(agg.guests) + '人</b></div><div><span>組数</span><b>' + num(agg.count) + '組</b></div><div><span>客単価</span><b>' + yen(agg.avg) + '</b></div></div>'
+    + '</section>';
+
+  const ledgerRows = DAILY_CLOSE_REPORT_LISTS.map(([field, title, textProp, totalKey]) => {
+    const items = record[field].length
+      ? record[field].map(item => {
+          const text = String(item[textProp] || '').trim();
+          return '<tr class="item"><th>' + (text ? esc(text) : '—') + '</th><td>' + yen(item.amount) + '</td></tr>';
+        }).join('')
+      : '<tr class="item"><th>—</th><td></td></tr>';
+    return '<tr class="grp"><th>' + title + '</th><td>' + yen(calc[totalKey]) + '</td></tr>' + items;
+  }).join('');
+  const flowBox = '<section class="box"><h2>入出金</h2><table class="ledger"><tbody>' + ledgerRows
+    + '<tr class="grp"><th>日払／社交<small>キャストの日払いの合計</small></th><td>' + yen(auto.castNibaraiTotal) + '</td></tr>'
+    + '</tbody></table></section>';
+
+  // 計算上の現金の式は dailyCloseCalc と同じ並び
+  const formula = '常備金 ' + yen(tillFloat)
+    + ' ＋ 現金売上 ' + yen(auto.cashSales)
+    + ' ＋ 特別入金 ' + yen(calc.specialInTotal)
+    + ' ＋ 売掛回収（現金） ' + yen(auto.urikakeRepayCash)
+    + ' − 雑費 ' + yen(calc.expenseTotal)
+    + ' − 日払／社交 ' + yen(auto.castNibaraiTotal)
+    + ' − 社員日払い ' + yen(calc.staffPayTotal)
+    + ' − 特別出金 ' + yen(calc.hqOutTotal);
+  const diff = calc.cashDifference;
+  // 白黒でも分かるよう、誤差には「一致・過剰・不足」を添える（金額の書き方は画面と同じ）
+  const diffText = diff === null ? '—'
+    : (diff > 0 ? '+' : '') + yen(diff) + '<small>' + (diff === 0 ? '一致' : diff > 0 ? '過剰' : '不足') + '</small>';
+  const transferWarning = record.actualCash !== null && record.actualCash < tillFloat;
+  const cashBox = '<section class="box"><h2>現金</h2>'
+    + kv('計算上の現金', yen(calc.calculatedCash), 'em')
+    + '<div class="formula">＝ ' + formula + '</div>'
+    + kv('実際現金', yenOr(record.actualCash))
+    + kv('現金誤差', diffText, 'em')
+    + kv('振込現金', yenOr(calc.transferCash), 'em')
+    + (transferWarning ? '<div class="formula">実際現金が常備金 ' + yen(tillFloat) + ' を下回るため振込現金は0円</div>' : '')
+    + kv('領収書枚数', num(record.receiptCount) + '枚', 'gap')
+    + kv('出金伝票枚数', num(record.withdrawSlipCount) + '枚')
+    + kv('カード伝票枚数', num(auto.cardSlipCount) + '枚')
+    + '</section>';
+
+  const monthLabel = (Number(String(src.dayKey || '').slice(4, 6)) || '') + '月・' + month.days + '日分';
+  const plBox = '<section class="box"><h2>損益<small>当月累計 ' + monthLabel + '</small></h2>'
+    + '<table class="pl"><thead><tr><th></th><th>本日</th><th>当月累計</th></tr></thead><tbody>'
+    + '<tr><th>総売上</th><td>' + yen(auto.totalSales) + '</td><td>' + yen(month.totalSales) + '</td></tr>'
+    + '<tr><th>社交給料計</th><td>' + yen(auto.castPayTotal) + '</td><td>' + yen(month.castPayTotal) + '</td></tr>'
+    + '<tr class="em"><th>粗利益</th><td>' + yen(calc.grossProfit) + '</td><td>' + yen(month.grossProfit) + '</td></tr>'
+    + '<tr><th>振込現金</th><td>' + yenOr(calc.transferCash) + '</td><td>' + yen(month.transferCash) + '</td></tr>'
+    + '<tr class="em"><th>利益率</th><td>' + _dailyCloseRate(calc.profitRate) + '</td><td>' + _dailyCloseRate(month.profitRate) + '<small>平均</small></td></tr>'
+    + '</tbody></table>'
+    + '<div class="formula">粗利益 ＝ 総売上 − 雑費 − 社交給料計</div>'
+    + '</section>';
+
+  // キャストの表（金額の書き方は日計表の _payYen と同じ。本数は0なら空欄）
+  const count = value => value ? num(value) : '';
+  const castBody = castRows.length ? castRows.map(r => '<tr>'
+      + '<th class="nm">' + esc(r.castName) + (r.touketsu ? '<small>（当欠）</small>' : '') + '</th>'
+      + '<td class="g">' + (r.clockIn ? esc(r.clockIn) : '—') + '</td>'
+      + '<td>' + (r.clockOut ? esc(r.clockOut) : '—') + '</td>'
+      + '<td>' + _payWorkLabel(r.workMinutes) + '</td>'
+      + '<td class="g">' + _payYen(r.sales) + '</td>'
+      + '<td>' + count(r.honshimei) + '</td><td>' + count(r.douhan) + '</td><td>' + count(r.jonai) + '</td>'
+      + '<td class="g">' + _payYen(r.backTotal) + '</td>'
+      + (r.hasOut ? '<td>' + _payYen(r.dailyPay) + '</td>' : '<td class="muted">未確定</td>')
+      + '<td>' + _payYen(r.nibarai) + '</td>'
+      + (r.hasOut ? '<td>' + _payYen(r.deductionTotal) + '</td>' : '<td class="muted">—</td>')
+      + (r.hasOut ? '<td class="net">' + _payYen(r.netPay) + '</td>' : '<td class="muted">未確定</td>')
+      + '</tr>').join('')
+    : '<tr><td class="empty" colspan="13">出勤キャストがいません</td></tr>';
+  const castFoot = castRows.length ? '<tr class="total"><th class="nm">合計（' + castRows.length + '人）</th>'
+      + '<td class="g"></td><td></td><td></td>'
+      + '<td class="g">' + _payYen(castTotal.sales) + '</td>'
+      + '<td>' + count(castTotal.honshimei) + '</td><td>' + count(castTotal.douhan) + '</td><td>' + count(castTotal.jonai) + '</td>'
+      + '<td class="g">' + _payYen(castTotal.backTotal) + '</td>'
+      + '<td>' + _payYen(castTotal.dailyPay) + '</td>'
+      + '<td>' + _payYen(castTotal.nibarai) + '</td>'
+      + '<td>' + _payYen(castTotal.deductionTotal) + '</td>'
+      + '<td class="net">' + _payYen(castTotal.netPay) + '</td></tr>'
+    : '';
+  const castSection = '<section class="cast"><h2 class="sec">キャスト<small>日計表と同じ計算。控除計・差引支給は日払いを含む</small></h2>'
+    + '<table><thead>'
+    + '<tr class="grp"><th class="nm" rowspan="2">社交名</th><th class="g" colspan="3">勤務</th><th class="g" colspan="4">指名</th><th class="g" colspan="5">給与</th></tr>'
+    + '<tr><th class="g">出勤</th><th>退勤</th><th>勤務時間</th><th class="g">指名売上</th><th>本指名</th><th>同伴</th><th>場内</th>'
+    + '<th class="g">バック合計</th><th>日給</th><th>日払い</th><th>控除計</th><th>差引支給</th></tr>'
+    + '</thead><tbody>' + castBody + castFoot + '</tbody></table>'
+    + (castTotal.pending ? '<div class="note">未確定＝退勤が未入力で日給が決まっていないキャスト（日給・控除計・差引支給の合計に入れていません）</div>' : '')
+    + '</section>';
+
+  const foot = '<div class="foot">'
+    + '<section class="box report"><h2>営業報告</h2><div class="report-body">' + esc(record.note) + '</div></section>'
+    + '<div class="sign"><div class="stamps">'
+    + '<div class="stamp"><span>店長</span><i></i></div>'
+    + '<div class="stamp"><span>確認</span><i></i></div>'
+    + '</div><div class="printed">印刷 ' + _dailyCloseStamp(now.getTime()) + '</div></div>'
+    + '</div>';
+
+  const density = castRows.length > 15 ? 'tight' : castRows.length > 10 ? 'dense' : '';
+  const css = '@page{size:A4 landscape;margin:7mm 9mm}'
+    + '*{box-sizing:border-box}'
+    + 'body{font-family:"Hiragino Kaku Gothic ProN","Meiryo",sans-serif;color:#000;margin:0;font-size:8.5pt;line-height:1.35;font-variant-numeric:tabular-nums}'
+    + 'small{font-weight:400}'
+    + '.head{display:grid;grid-template-columns:1fr auto 1fr;align-items:end;gap:6mm;border-bottom:2pt solid #000;padding-bottom:1.5mm;margin-bottom:3mm}'
+    + '.head .shop{font-size:11pt;font-weight:700}'
+    + '.head h1{margin:0;font-size:17pt;line-height:1.1;letter-spacing:.6em;padding-left:.6em}'
+    + '.head .date{text-align:right}.head .date b{display:block;font-size:11pt}.head .date span{font-size:8pt}'
+    + '.grid{display:grid;grid-template-columns:1fr 1.05fr 1.1fr 1.15fr;gap:3mm}'
+    + '.box{border:.8pt solid #000;padding:1.6mm 2.4mm 2mm}'
+    + 'h2{margin:0 0 1.2mm;padding-bottom:.8mm;border-bottom:.8pt solid #000;font-size:9.5pt;letter-spacing:.25em}'
+    + 'h2 small{float:right;font-size:7pt;letter-spacing:0;padding-top:1.5pt}'
+    + '.kv{display:flex;justify-content:space-between;align-items:baseline;gap:3mm;padding:.35mm 0;border-bottom:.4pt dotted #888}'
+    + '.kv b{white-space:nowrap}.kv b small{font-size:7pt;margin-left:1.5mm}'
+    + '.kv.sub{padding-left:3.5mm;font-size:8pt}.kv.gap{margin-top:1.2mm}.kv.em b{font-size:10.5pt}'
+    + '.hero{display:flex;justify-content:space-between;align-items:baseline;padding-bottom:.8mm;border-bottom:.8pt solid #000}'
+    + '.hero b{font-size:17pt}'
+    + '.trio{display:grid;grid-template-columns:repeat(3,1fr);margin-top:1.6mm;border:.6pt solid #000}'
+    + '.trio div{padding:.6mm 1mm;text-align:center;border-left:.6pt solid #000}.trio div:first-child{border-left:none}'
+    + '.trio span{display:block;font-size:7pt}.trio b{font-size:9.5pt;white-space:nowrap}'
+    + 'table{width:100%;border-collapse:collapse}'
+    + '.ledger th,.ledger td{padding:.4mm 0;text-align:left;font-weight:400;vertical-align:top}'
+    + '.ledger td{text-align:right;white-space:nowrap;padding-left:2mm}'
+    + '.ledger tr.grp th,.ledger tr.grp td{font-weight:700;border-top:.6pt solid #000;padding-top:.7mm}'
+    + '.ledger tr.grp:first-child th,.ledger tr.grp:first-child td{border-top:none;padding-top:0}'
+    + '.ledger tr.item th,.ledger tr.item td{font-size:8pt}.ledger tr.item th{padding-left:3.5mm;word-break:break-all}'
+    + '.ledger small{display:block;font-size:6.5pt}'
+    + '.formula{font-size:7pt;line-height:1.35;padding:.3mm 0 .8mm 3.5mm}'
+    + '.pl th,.pl td{padding:.7mm 0;border-bottom:.4pt dotted #888;text-align:right;white-space:nowrap}'
+    + '.pl thead th{font-size:7pt;font-weight:400;border-bottom:.6pt solid #000}'
+    + '.pl tbody th{text-align:left;font-weight:400}'
+    + '.pl tr.em th,.pl tr.em td{font-weight:700;font-size:9.5pt}.pl td small{font-size:6.5pt;margin-left:1mm}'
+    + '.cast{margin-top:3mm}h2.sec{border-bottom:none;margin-bottom:.8mm}'
+    + '.cast th,.cast td{border:.5pt solid #000;padding:.35mm 1.4mm;line-height:1.25;text-align:right;white-space:nowrap}'
+    + '.cast thead th{font-size:7.5pt;text-align:center;background:#eee}'
+    + '.cast thead tr.grp th.g{font-size:7pt;letter-spacing:.3em;background:#ddd}'
+    + '.cast th.nm{text-align:left}.cast tbody th{font-weight:700}'
+    + '.cast .g{border-left:1.4pt solid #000}'
+    + '.cast tr.total th,.cast tr.total td{border-top:1.4pt solid #000;font-weight:700;background:#eee}'
+    + '.cast td.net{font-weight:700}.cast .muted{font-size:7pt;color:#444}'
+    + '.cast small{font-size:6.5pt;margin-left:1mm}.cast .empty{text-align:center;padding:4mm;color:#444}'
+    + 'body.dense .cast th,body.dense .cast td{padding:.15mm 1.2mm;font-size:8pt;line-height:1.2}'
+    + 'body.tight .cast th,body.tight .cast td{padding:0 1mm;font-size:7.5pt;line-height:1.1}'
+    + 'body.dense .stamp i,body.tight .stamp i{height:11mm}body.dense .report-body,body.tight .report-body{min-height:7mm}'
+    + 'thead{display:table-header-group}tr{break-inside:avoid}'
+    + '.note{font-size:7pt;margin-top:.8mm}'
+    + '.foot{display:grid;grid-template-columns:1fr auto;gap:3mm;margin-top:3mm;break-inside:avoid}'
+    + '.report-body{white-space:pre-wrap;word-break:break-all;min-height:11mm}'
+    + '.sign{display:flex;flex-direction:column;justify-content:space-between}'
+    + '.stamps{display:flex;gap:2mm}'
+    + '.stamp{width:22mm;border:.8pt solid #000}'
+    + '.stamp span{display:block;text-align:center;font-size:7.5pt;letter-spacing:.3em;padding:.4mm 0 .4mm .3em;border-bottom:.6pt solid #000}'
+    + '.stamp i{display:block;height:15mm}'
+    + '.printed{font-size:7pt;text-align:right;margin-top:1.5mm}';
+
+  return '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>日報_' + esc(src.dayKey) + '</title><style>' + css + '</style></head>'
+    + '<body' + (density ? ' class="' + density + '"' : '') + '>'
+    + '<header class="head"><div class="shop">' + esc(shopName) + '</div><h1>日報</h1>'
+    + '<div class="date"><b>' + esc(bizKeyToLabel(src.dayKey)) + '</b><span>' + status + '</span></div></header>'
+    + '<div class="grid">' + salesBox + flowBox + cashBox + plBox + '</div>'
+    + castSection
+    + foot
+    + '<script>window.onload=function(){window.print()}<\/script>'
+    + '</body></html>';
+}
+
+/* 🖨 印刷: 日計表の印刷（printReport）と同じく窓を開いて印刷する */
+function dailyClosePrint() {
+  _dailyCloseFlushInput();
+  const model = _dailyCloseReportModel();
+  if (!model) { showToast('この営業日の日次締めはありません'); return; }
+  const w = window.open('', '_blank', 'width=1240,height=900');
+  if (!w) { showToast('ポップアップがブロックされました'); return; }
+  w.document.write(_dailyClosePrintDocument(model));
+  w.document.close();
+}
+
+/* CSVの本文（BOMは保存時に付ける）。「区分,項目,金額,当月累計」の縦の表 → 空行 → キャストの表 → 空行 → 営業報告1行。
+   金額は数字のまま（¥・桁区切りなし）、無い値は空欄。日計表のCSVと同じく全部の欄を "" で囲む */
+function _dailyCloseCsvText(model) {
+  const { src, record, auto, calc, month, tillFloat, agg, castRows, castTotal } = model;
+  const blank = value => (value === null || value === undefined) ? '' : value;
+  const rate = value => value === null ? '' : (value * 100).toFixed(1);
+  // 先頭に店名・営業日・状態（ファイルを集めて見ても、どの店のいつの分か分かるように。判定担当の指摘 2026-10-23）
+  const rows = [
+    ['店名', String(cfg.shopName || '').trim()],
+    ['営業日', bizKeyToLabel(src.dayKey)],
+    ['状態', auto.closedAt > 0 ? '確定 ' + _dailyCloseStamp(auto.closedAt) : '未確定（保存時点の値）'],
+    [],
+    ['区分', '項目', '金額', '当月累計'],
+  ];
+  const add = (section, item, value, monthValue = '') => rows.push([section, item, blank(value), blank(monthValue)]);
+  add('売上', '総売上', auto.totalSales, month.totalSales);
+  add('売上', '現金', auto.cashSales);
+  add('売上', 'カード', auto.cardSales);
+  add('売上', '売掛', auto.urikakeSales);
+  add('売上', '売掛金回収', auto.urikakeRepayCash + auto.urikakeRepayCard, month.urikakeRepayCash + month.urikakeRepayCard);
+  add('売上', '売掛金回収（現金）', auto.urikakeRepayCash);
+  add('売上', '売掛金回収（カード）', auto.urikakeRepayCard);
+  add('売上', '売掛発生', auto.urikakeSales, month.urikakeSales);
+  add('売上', '伝票の枚数（精算済み）', agg.count);
+  add('売上', '総客数', agg.guests);
+  add('売上', '組数', agg.count);
+  add('売上', '客単価', agg.avg);
+  DAILY_CLOSE_REPORT_LISTS.forEach(([field, title, textProp, totalKey]) => {
+    record[field].forEach(item => add('入出金', title + '：' + (String(item[textProp] || '').trim() || '—'), item.amount));
+    add('入出金', title + ' 計', calc[totalKey], month[totalKey]);
+  });
+  add('入出金', '日払／社交', auto.castNibaraiTotal, month.castNibaraiTotal);
+  add('現金', '常備金', tillFloat);
+  add('現金', '計算上の現金', calc.calculatedCash);
+  add('現金', '実際現金', record.actualCash);
+  add('現金', '現金誤差', calc.cashDifference);
+  add('現金', '振込現金', calc.transferCash, month.transferCash);
+  add('現金', '領収書枚数', record.receiptCount);
+  add('現金', '出金伝票枚数', record.withdrawSlipCount);
+  add('現金', 'カード伝票枚数', auto.cardSlipCount, month.cardSlipCount);
+  add('損益', '社交給料計', auto.castPayTotal, month.castPayTotal);
+  add('損益', '粗利益', calc.grossProfit, month.grossProfit);
+  add('損益', '利益率(%)（当月は平均）', rate(calc.profitRate), rate(month.profitRate));
+  rows.push([]);
+  rows.push(['社交名', '出勤', '退勤', '勤務時間(分)', '指名売上', '本指名', '同伴', '場内', 'バック合計', '日給', '日払い', '控除計', '差引支給']);
+  castRows.forEach(r => rows.push([r.castName, r.clockIn, r.clockOut, r.workMinutes, r.sales, r.honshimei, r.douhan, r.jonai,
+    r.backTotal, blank(r.dailyPay), r.nibarai, blank(r.deductionTotal), blank(r.netPay)]));
+  rows.push(['合計（' + castRows.length + '人）', '', '', '', castTotal.sales, castTotal.honshimei, castTotal.douhan, castTotal.jonai,
+    castTotal.backTotal, castTotal.dailyPay, castTotal.nibarai, castTotal.deductionTotal, castTotal.netPay]);
+  rows.push([]);
+  rows.push(['営業報告', String(record.note || '').replace(/\r\n|\r|\n/g, ' ')]);
+  return rows.map(row => row.map(v => '"' + String(v).replace(/"/g, '""') + '"').join(',')).join('\r\n');
+}
+
+/* 💾 CSV保存: 日計表のCSV（exportPayrollCSV）と同じ保存の仕方。UTF-8 BOM付き */
+function dailyCloseExportCSV() {
+  _dailyCloseFlushInput();
+  const model = _dailyCloseReportModel();
+  if (!model) { showToast('この営業日の日次締めはありません'); return; }
+  const blob = new Blob(['﻿' + _dailyCloseCsvText(model)], { type:'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url; link.download = '日次締め_' + model.src.dayKey + '.csv';
+  document.body.appendChild(link); link.click(); link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  showToast('日次締めCSVを保存しました');
 }
 /* ================================================================
    BUSINESS ANALYTICS（経営分析）
@@ -24674,7 +25402,8 @@ async function posAddItem(name, amount, category, spShares) {
   const inputAmt = Number(amount) || 0;
   const orders = posOrders(row);
   const label = String(name).indexOf(':') >= 0 ? String(name).slice(0, String(name).indexOf(':')) : String(name);
-  const item = ((cfg.posMenu && cfg.posMenu[category]) || []).find(v => v.name === label);
+  // キャスト折半は品名に「（折半 A・B）」を付けて呼ばれるため、メニュー名を opts.menuName で受け取る（仕入れ値・折半の写しに使う）
+  const item = ((cfg.posMenu && cfg.posMenu[category]) || []).find(v => v.name === (opts?.menuName || label));
   const isSpecial = category === 'special';
   const specialMode = isSpecial ? posSpecialMode(item || { amount:inputAmt }) : undefined;
   const specialValue = isSpecial ? posSpecialValue(item || { amount:inputAmt }) : undefined;
@@ -24688,7 +25417,12 @@ async function posAddItem(name, amount, category, spShares) {
   // ショットは対象外。バックの無いショットは指D/Dの本数で払う店があり、v1.1.53で含めたら本数から外れた（2026-09-30 修正）
   const storeSpBack = personalBack == null && !spShares && !isSpecial && cast && state.allCasts.includes(cast)
     && category === 'bottle' && String(backValue ?? '').trim() === '' ? calcSpReference(amt) : null;
-  const castBack = personalBack != null ? personalBack : storeSpBack;
+  // 折半バック（メニューで「折半」にした品をキャストに付けた時）は個人SP・店SP・メニューのバック欄より優先する（2026-10-23）
+  const marginBackYen = !spShares && !isSpecial && cast && state.allCasts.includes(cast) ? posMarginBackYen(item, amt) : null;
+  const castBack = marginBackYen != null ? marginBackYen : (personalBack != null ? personalBack : storeSpBack);
+  // 仕入れ値・折半の印を注文へ写す（率バックの対象額から折半の品を引くため。後でメニューを変えても過去分は不変）
+  const costVal = item && item.cost != null && item.cost !== '' && Number.isFinite(Number(item.cost)) ? Number(item.cost) : undefined;
+  const marginFlag = !!(item && item.marginBack === true);
   const backYen = castBack != null ? castBack : ((!isSpecial && !spShares && item) ? posMenuBackYen(backValue, amt) : 0);
   const backFreeYen = castBack != null ? castBack : (!isSpecial && !spShares && item && Object.prototype.hasOwnProperty.call(item, 'backFree'))
     ? posMenuBackYen(item.backFree, amt)
@@ -24717,7 +25451,8 @@ async function posAddItem(name, amount, category, spShares) {
       (Number(o.pt) || 0) === pointValue && !o.taxIncluded &&
       (!isSpecial || (posSpecialMode(o) === specialMode && posSpecialValue(o) === specialValue)) &&
       (Number(o.defer) || 0) === (Number(deferVal) || 0) &&
-      (Number(o.fromRound) || 0) === fromRoundVal);
+      (Number(o.fromRound) || 0) === fromRoundVal &&
+      (o.cost === undefined ? undefined : Number(o.cost)) === costVal && (o.marginBack === true) === marginFlag);
     if (existing) {
       existing.qty = (Number(existing.qty) || 1) + 1;
       if (spShares) {
@@ -24736,6 +25471,8 @@ async function posAddItem(name, amount, category, spShares) {
       if (isSpecial) { order.specialMode = specialMode; order.specialValue = specialValue; }
       if (isEmptyJonai) order.defer = deferVal;
       if (isEmptyJonai && fromRoundVal) order.fromRound = fromRoundVal;
+      if (costVal !== undefined) order.cost = costVal;
+      if (marginFlag) order.marginBack = true;
       orders.push(order);
     }
   }
@@ -24910,6 +25647,7 @@ function posOpenCastSplit(name, amount, category) {
   posDrinkPickClose();
   const amt = Number(amount) || 0;
   _castSplitState = { name, amount: amt, category, backTotal: calcSpReference(amt), checked: new Set(), shares: {} };
+  _castSplitState.backTotal = _castSplitDefaultAllocation(_castSplitState).total;
   _renderCastSplitModal();
 }
 
@@ -24937,7 +25675,8 @@ function _renderCastSplitModal() {
   if (!s) return;
   const esc = v => escAttr(String(v));
   const ratePct = Math.round((_payrollCfg().spRate) * 100);
-  const personal = ['bottle','shot'].includes(s.category) && Array.from(s.checked).some(c => castSpBackConfig(c));
+  const margin = _castSplitMarginBack(s);
+  const personal = margin == null && ['bottle','shot'].includes(s.category) && Array.from(s.checked).some(c => castSpBackConfig(c));
   const casts = posActiveCastList();
   const rows = casts.map(c => {
     const checked = s.checked.has(c);
@@ -24958,7 +25697,7 @@ function _renderCastSplitModal() {
     + '<div class="pos-drink-pick-head"><span>' + escHtml(s.name) + ' — キャスト折半</span>'
     + '<button class="pos-drink-pick-close" onclick="posCastSplitClose()">×</button></div>'
     + '<div class="pos-cs-amount">販売金額（小計） <b>¥' + s.amount.toLocaleString() + '</b>'
-    + '<span class="pos-cs-back">バック（' + (personal ? '個別設定' : cfg.payrollSpMode === 'yen' ? '1本あたり固定額' : ratePct + '%') + '） <b>¥' + s.backTotal.toLocaleString() + '</b></span>'
+    + '<span class="pos-cs-back">バック（' + (margin != null ? '折半 ' + (Number(cfg.payrollMarginBackRate) || 0) + '%' : personal ? '個別設定' : cfg.payrollSpMode === 'yen' ? '1本あたり固定額' : ratePct + '%') + '） <b>¥' + s.backTotal.toLocaleString() + '</b></span>'
     + '<span class="pos-cs-remain" id="pos-cs-remain"></span></div>'
     + '<div class="pos-cs-list">' + (rows || '<div style="padding:8px;color:var(--tx3)">出勤中のキャストがいません</div>') + '</div>'
     + '<div class="pos-cs-hint">「均等折半」で人数割りの初期値が入ります。個別SPは小計・1本あたりの額を人数割りして適用します。金額は1人ずつ手修正できます（合計がバック額と一致したら確定）。</div>'
@@ -24981,8 +25720,20 @@ function posCastSplitToggle(cast) {
   _renderCastSplitModal();
 }
 
+/* キャスト折半の品が「折半」のメニュー（折半バック）なら、1本あたりのバック額。対象外は null */
+function _castSplitMarginBack(s) {
+  const item = ((cfg.posMenu && cfg.posMenu[s.category]) || []).find(v => v.name === s.name);
+  return posMarginBackYen(item, s.amount);
+}
+
 function _castSplitDefaultAllocation(s) {
   const casts = Array.from(s.checked);
+  // 折半バックの品は（販売価格−仕入れ値）×率を人数で分ける（個人SP・店SPより優先。端数は従来どおり先頭から1円ずつ）
+  const margin = _castSplitMarginBack(s);
+  if (margin != null) {
+    const base = casts.length ? Math.floor(margin / casts.length) : 0;
+    return { total:margin, shares:Object.fromEntries(casts.map((c,i) => [c, base + (i < margin - base * casts.length ? 1 : 0)])) };
+  }
   const personal = ['bottle','shot'].includes(s.category) && casts.some(c => castSpBackConfig(c));
   if (!personal || !casts.length) {
     const total = calcSpReference(s.amount);
@@ -25046,7 +25797,7 @@ async function posConfirmCastSplit() {
   // shares を確定値（整数円）に正規化
   casts.forEach(c => { s.shares[c] = Math.round(Number(s.shares[c]) || 0); });
   // 明細は満額1行（誰が折半したかは品名に付記。コロン禁止 → 集計対象外のまま）
-  await posAddItem(s.name + '（折半 ' + casts.join('・') + '）', s.amount, s.category, s.shares);
+  await posAddItem(s.name + '（折半 ' + casts.join('・') + '）', s.amount, s.category, s.shares, { menuName:s.name });
   const detail = casts.map(c => c + ' +¥' + s.shares[c].toLocaleString()).join(' / ');
   posCastSplitClose();
   // 日計表を開いていれば即反映
@@ -26486,6 +27237,10 @@ function collectFeeMasterValues(rows, base = {}) {
       result.castDefaults[keys.free] = numberOrZero(row.backFree);
       return;
     }
+    if (group === 'custom' && /^cb_\d+$/.test(key)) {
+      result.castDefaults[key] = numberOrZero(row.back);
+      return;
+    }
     if (group === 'shotGroup' && key === 'shot') {
       result.shotLabel = String(row.label || '').trim() || 'ショット';
       result.castDefaults.shimeiD = numberOrZero(row.backShimei);
@@ -26582,6 +27337,39 @@ function _feeMasterDrinkRowHTML(item) {
     <td><input type="number" class="settings-input fee-master-pt" value="${_feeMasterNumber(value.pt)}" step="0.5"></td>
     <td><button type="button" class="pos-me-del" onclick="drinkItemDelRow(this)">削除</button></td>
   </tr>`;
+}
+
+/* オリジナルバック（店が作る手入力の項目）の店標準単価。項目名の追加・変更は 給与計算ルール → バック・SP で行う */
+function _feeMasterCustomBackRowHTML(item, back) {
+  const note = '本数は日計表で手入力します。項目名は 給与計算ルール → バック・SP で変更';
+  return `<tr class="fee-master-row" data-group="custom" data-key="${escAttr(item.key)}">
+    <td>${escHtml(item.label || item.key)}（1本）<div style="font-size:10px;color:var(--tx3);line-height:1.4;margin-top:2px">${note}</div></td>
+    <td style="text-align:center;color:var(--tx3)">—</td>
+    <td><input type="number" class="settings-input fee-master-back" value="${_feeMasterNumber(back)}" min="0" step="100"></td>
+    <td style="text-align:center;color:var(--tx3)">—</td>
+    <td style="text-align:center;color:var(--tx3)">—</td>
+    <td></td>
+  </tr>`;
+}
+function _feeMasterCustomBackRowsHTML() {
+  const CD = state.castDefaults || {};
+  return payrollCustomBackItems().map(item => _feeMasterCustomBackRowHTML(item, CD[item.key])).join('');
+}
+/* 給与計算ルールでオリジナルバックを足し・消し・名前変更したときに、開いている料金マスターの行を作り直す。
+   入力中の単価は残す（保存前の下書きを消さない）。 */
+function payrollRefreshCustomBackMaster() {
+  const tbody = document.getElementById('cfg-custom-backs');
+  const head = document.getElementById('cfg-custom-backs-head');
+  if (!tbody || typeof tbody.querySelectorAll !== 'function') return;
+  const drafts = {};
+  Array.from(tbody.querySelectorAll('tr.fee-master-row')).forEach(tr => {
+    const value = tr.querySelector('.fee-master-back')?.value;
+    if (tr.dataset?.key && value != null) drafts[tr.dataset.key] = value;
+  });
+  const CD = state.castDefaults || {};
+  const items = payrollCustomBackItems();
+  tbody.innerHTML = items.map(item => _feeMasterCustomBackRowHTML(item, drafts[item.key] ?? CD[item.key])).join('');
+  if (head) head.hidden = !items.length;
 }
 
 function _feeMasterShotRowHTML(label, backShimei, backFree) {
@@ -27171,6 +27959,8 @@ function renderSettingsPanel() {
               <tbody id="cfg-shimei-enshi">${shimeiExtGroup('enshi').map(item => _shimeiExtSettingsRowHTML('enshi', item)).join('')}</tbody>
               <tbody>${_feeMasterGroupHeadHTML('ドリンク', 'drink')}</tbody>
               <tbody id="cfg-drink-items">${drinkItemList().map(item => _feeMasterDrinkRowHTML(item)).join('')}${_feeMasterShotRowHTML(shotLabel(), CD.shimeiD, CD.freeD)}</tbody>
+              <tbody id="cfg-custom-backs-head"${payrollCustomBackItems().length ? '' : ' hidden'}>${_feeMasterGroupHeadHTML('オリジナルバック')}</tbody>
+              <tbody id="cfg-custom-backs">${_feeMasterCustomBackRowsHTML()}</tbody>
             </table>
           </div>`;
         })()}
@@ -28816,6 +29606,13 @@ async function applySettings() {
       if (back) item.back = back;
       if (posMenuUsesSplitBack(key, { posCustomCats }) && backFree) item.backFree = backFree;
       if (pt) item.pt = pt;
+      // 仕入れ値・折半（ボトル・店舗独自カテゴリ。2026-10-23）。保存で項目を組み直すので、ここで残さないと消える
+      if (posMenuUsesMarginBack(key)) {
+        const costRaw = tr.querySelector('.pos-me-cost-input')?.value.trim();
+        const cost = costRaw === '' || costRaw == null ? NaN : Number(costRaw);
+        if (Number.isFinite(cost) && cost >= 0) item.cost = cost;
+        if (tr.querySelector('.pos-me-margin-input')?.checked) item.marginBack = true;
+      }
       return item;
     }).filter(Boolean);
     posMenu[key] = items;
@@ -28838,10 +29635,12 @@ async function applySettings() {
   // 給与は専用モーダルで保存済み。全体保存で不在の入力を既定値に戻さない。
   const {
     payrollClockInRoundMin, payrollClockOutRoundMin, payrollClockOutRoundThreshold,
-    payrollLateFineUnitMin, payrollLateFineAmt, payrollBottleSpRate, payrollSpMode, payrollSpFixed, defaultWage, payrollPeriod,
+    payrollLateFineUnitMin, payrollLateFineAmt, payrollBottleSpRate, payrollSpMode, payrollSpFixed, defaultWage, payrollPeriod, payrollCloseDay, payrollHalfCloseDays,
     payrollDouhanAddsHonshimei, payrollDouhanAddsHonenFirst, payrollSpInBackTotal,
     payrollSlideTable, payrollSlideSource, payrollPeriodDeductions, payrollRoundMode, payrollRoundUnit,
     payrollDeductions, payrollDeductionDisplayField, payrollDeductionDisplayPrint, payrollDeductionNibaraiPrint, payrollMergeDrinks,
+    payrollHonshimeiBackMode, payrollHonshimeiBackRate, payrollHonshimeiBackHighRate, payrollHonshimeiBackHighThreshold,
+    payrollDouhanBackMode, payrollDouhanBackRate, payrollCustomBacks, payrollMarginBackRate,
   } = _payrollSettingsSnapshot();
   const pointsEnabled = !!get('cfg-pointsEnabled')?.checked;
   const pointRules = feeMasterValues.pointRules;
@@ -28900,10 +29699,12 @@ async function applySettings() {
     receiptLayout, extTrialLayout, ryoshuOpts, receiptScale, extTrialScale, ryoshuScale,
     extTrialCompareEnabled: document.getElementById('cfg-extTrialCompareEnabled')?.checked ?? (cfg.extTrialCompareEnabled === true),
     payrollClockInRoundMin, payrollClockOutRoundMin, payrollClockOutRoundThreshold,
-    payrollLateFineUnitMin, payrollLateFineAmt, payrollBottleSpRate, payrollSpMode, payrollSpFixed, defaultWage, payrollPeriod,
+    payrollLateFineUnitMin, payrollLateFineAmt, payrollBottleSpRate, payrollSpMode, payrollSpFixed, defaultWage, payrollPeriod, payrollCloseDay, payrollHalfCloseDays,
     payrollDouhanAddsHonshimei, payrollDouhanAddsHonenFirst, payrollSpInBackTotal,
     payrollSlideTable, payrollSlideSource, payrollPeriodDeductions, payrollRoundMode, payrollRoundUnit,
     payrollDeductions, payrollDeductionDisplayField, payrollDeductionDisplayPrint, payrollDeductionNibaraiPrint, payrollMergeDrinks,
+    payrollHonshimeiBackMode, payrollHonshimeiBackRate, payrollHonshimeiBackHighRate, payrollHonshimeiBackHighThreshold,
+    payrollDouhanBackMode, payrollDouhanBackRate, payrollCustomBacks, payrollMarginBackRate,
     payrollHiddenCols: Array.isArray(cfg.payrollHiddenCols) ? cfg.payrollHiddenCols : [],
     castListOrder: castListOrderMode(),
     castListCustomOrder: Array.isArray(cfg.castListCustomOrder) ? cfg.castListCustomOrder : [],
@@ -29075,7 +29876,7 @@ function payrollBracketDel(btn) {
 
 function _payrollDeductionRowHTML(item) {
   const row = item || {};
-  const mode = ['fixed','rate','manual','boolean','flagFixed'].includes(row.mode) ? row.mode : 'manual';
+  const mode = ['fixed','attendFixed','rate','manual','boolean','flagFixed'].includes(row.mode) ? row.mode : 'manual';
   const disabled = mode === 'manual' || mode === 'boolean' ? ' disabled' : '';
   const unit = _payrollDeductionUnitLabel(mode);
   const step = mode === 'rate' ? '0.01' : '1';
@@ -29084,6 +29885,7 @@ function _payrollDeductionRowHTML(item) {
     <td><input type="text" class="settings-input payroll-deduction-label" value="${escAttr(row.label || '')}" placeholder="名称" style="width:100%;box-sizing:border-box"></td>
     <td><select class="settings-input payroll-deduction-mode" onchange="payrollDeductionModeChanged(this)" style="width:160px">
       <option value="fixed"${mode === 'fixed' ? ' selected' : ''}>固定額</option>
+      <option value="attendFixed"${mode === 'attendFixed' ? ' selected' : ''}>出勤日だけ定額</option>
       <option value="rate"${mode === 'rate' ? ' selected' : ''}>率%</option>
       <option value="manual"${mode === 'manual' ? ' selected' : ''}>都度手入力</option>
       <option value="boolean"${mode === 'boolean' ? ' selected' : ''}>○×記録（本部計算）</option>
@@ -29099,6 +29901,7 @@ function _payrollDeductionRowHTML(item) {
 function _payrollDeductionUnitLabel(mode) {
   if (mode === 'rate') return '%';
   if (mode === 'fixed') return '円';
+  if (mode === 'attendFixed') return '円（出勤日）';
   if (mode === 'flagFixed') return '円（○の日）';
   if (mode === 'boolean') return '○／×';
   return '—';
@@ -29421,14 +30224,29 @@ const PAYROLL_SETTINGS_KEYS = [
   'defaultWage', 'payrollClockInRoundMin', 'payrollClockOutRoundMin', 'payrollClockOutRoundThreshold',
   'payrollLateFineEnabled', 'payrollLateFineUnitMin', 'payrollLateFineAmt', 'payrollDouhanAddsHonshimei',
   'payrollDouhanAddsHonenFirst', 'payrollSpInBackTotal', 'payrollBottleSpRate', 'payrollSpMode', 'payrollSpFixed',
-  'payrollDeductions', 'payrollDeductionDisplayField', 'payrollDeductionDisplayPrint', 'payrollDeductionNibaraiPrint', 'payrollPeriodDeductions', 'payrollPeriod', 'payrollSlideSource',
+  'payrollDeductions', 'payrollDeductionDisplayField', 'payrollDeductionDisplayPrint', 'payrollDeductionNibaraiPrint', 'payrollPeriodDeductions', 'payrollPeriod', 'payrollCloseDay', 'payrollHalfCloseDays', 'payrollSlideSource',
   'payrollSlideTable', 'payrollRoundMode', 'payrollRoundUnit',
   'payrollMergeDrinks',
+  'payrollHonshimeiBackMode', 'payrollHonshimeiBackRate', 'payrollHonshimeiBackHighRate', 'payrollHonshimeiBackHighThreshold',
+  'payrollDouhanBackMode', 'payrollDouhanBackRate', 'payrollCustomBacks', 'payrollMarginBackRate',
 ];
 let _payrollSettingsReturnFocus = null;
 
 function _payrollSettingsSnapshot() {
   return Object.fromEntries(PAYROLL_SETTINGS_KEYS.map(key => [key, cfg[key]]));
+}
+
+/* 締め日の文言（2026-10-23）。0=末日。設定の要約と選択肢で使う */
+function _payrollCloseDayText(day) {
+  return Number(day) === 0 ? '末日' : Number(day) + '日';
+}
+
+function _payrollCloseSummaryText() {
+  if (cfg.payrollPeriod === 'half') {
+    const halves = normalizePayrollHalfCloseDays(cfg.payrollHalfCloseDays);
+    return '半月払い（' + _payrollCloseDayText(halves[0]) + '・' + _payrollCloseDayText(halves[1]) + '締め）';
+  }
+  return '月払い（' + _payrollCloseDayText(normalizePayrollCloseDay(cfg.payrollCloseDay)) + '締め）';
 }
 
 function _payrollSettingsSummaryHtml() {
@@ -29438,9 +30256,13 @@ function _payrollSettingsSummaryHtml() {
   if (cfg.payrollDouhanAddsHonenFirst !== false) extra.push('本指名延長');
   const summaries = {
     work: '標準時給 ' + yen(cfg.defaultWage) + ' / 出勤 ' + (cfg.payrollClockInRoundMin ?? 30) + '分・退勤 ' + (cfg.payrollClockOutRoundMin ?? 30) + '分単位' + (cfg.payrollLateFineEnabled === false ? ' / 遅刻罰金なし' : ''),
-    back: 'ドリンク：' + (payrollDrinksMerged() ? '統合' : '指名・フリー別') + ' / 同伴：' + (extra.join('＋') || '追加なし') + ' / SP：' + (cfg.payrollSpInBackTotal === false ? '参考のみ' : '日給に含む'),
+    back: 'ドリンク：' + (payrollDrinksMerged() ? '統合' : '指名・フリー別') + ' / 同伴：' + (extra.join('＋') || '追加なし') + ' / SP：' + (cfg.payrollSpInBackTotal === false ? '参考のみ' : '日給に含む')
+      + (cfg.payrollHonshimeiBackMode === 'percent' ? ' / 本指名：小計×' + (cfg.payrollHonshimeiBackRate ?? 10) + '%' + (Number(cfg.payrollHonshimeiBackHighThreshold ?? 50000) > 0 ? '（' + yen(cfg.payrollHonshimeiBackHighThreshold ?? 50000) + '以上は' + (cfg.payrollHonshimeiBackHighRate ?? 15) + '%）' : '') : '')
+      + (cfg.payrollDouhanBackMode === 'percent' ? ' / 同伴：小計×' + (cfg.payrollDouhanBackRate ?? 20) + '%' : '')
+      + (payrollCustomBackItems().length ? ' / オリジナル ' + payrollCustomBackItems().length + '項目' : '')
+      + (Number(cfg.payrollMarginBackRate) > 0 ? ' / 折半 ' + Number(cfg.payrollMarginBackRate) + '%' : ''),
     deductions: '控除票：' + (normalizePayrollDeductionDisplayField(cfg.payrollDeductionDisplayField) === 'nominatedSales' ? '本指名売上' : '日給') + ' / 日ごと ' + (cfg.payrollDeductions || []).length + '項目 / 締めごと ' + (cfg.payrollPeriodDeductions || []).length + '項目',
-    period: (cfg.payrollPeriod === 'half' ? '半月払い' : '月払い') + ' / スライド時給：' + ((cfg.payrollSlideTable || []).length ? (cfg.payrollSlideTable.length + '段階') : '未設定'),
+    period: _payrollCloseSummaryText() + ' / スライド時給：' + ((cfg.payrollSlideTable || []).length ? (cfg.payrollSlideTable.length + '段階') : '未設定'),
   };
   return '<div class="pay-settings-summary">' + PAYROLL_SETTINGS_GROUPS.map(([key, label]) =>
     '<button type="button" id="pay-settings-open-' + key + '" class="pay-settings-entry" onclick="payrollRulesOpenModal(\'' + key + '\')" aria-label="' + label + 'を編集">'
@@ -29493,6 +30315,7 @@ function _payrollSettingsModalHtml() {
           <p class="pay-settings-note">同伴バックに加えて支給する項目を選びます。</p>
           <label class="pay-settings-choice"><input type="checkbox" id="cfg-payrollDouhanAddsHonshimei"${checked('payrollDouhanAddsHonshimei')}><span>本指名 ＋1<small>本指名バックも加算</small></span></label>
           <label class="pay-settings-choice"><input type="checkbox" id="cfg-payrollDouhanAddsHonenFirst"${checked('payrollDouhanAddsHonenFirst')}><span>本指名延長 ＋1<small>延長項目の先頭（例：本延20）のバックを加算</small></span></label>
+          ${_payrollPercentBackSettingsHtml(num)}
           <h3>SP・ボトルバック</h3>
           <label class="pay-settings-choice"><input type="checkbox" id="cfg-payrollSpInBackTotal"${checked('payrollSpInBackTotal')}><span>SPを日給に含める<small>OFFなら参考表示のみ。手入力SP・キャスト折半・注文に付いたバック（ボトル・ショット、メニューのバック額）が対象。</small></span></label>
           <div class="pay-settings-row"><div><label for="cfg-payrollBottleSpRate">店標準SP（ボトル・ショット）</label><p>%は小計に対する割合、円は1本あたり。ボトルをキャストに付けた時（1人でも折半でも）と、ショットを折半した時のバックに使用。キャスト個別の設定、メニューのバック額があればそちらを優先。</p></div><div class="pay-settings-inputs" id="pay-sp-control" data-mode="${cfg.payrollSpMode === 'yen' ? 'yen' : 'percent'}">
@@ -29518,7 +30341,10 @@ function _payrollSettingsModalHtml() {
           </details>
         </section>
         <section id="pay-settings-group-period" role="tabpanel" aria-labelledby="pay-settings-tab-period" data-pay-group="period" hidden>
-          <div class="pay-settings-row"><label for="cfg-payrollPeriod">給与明細の締め期間</label><select id="cfg-payrollPeriod" class="settings-input">${options([['month','月払い'],['half','半月払い']],cfg.payrollPeriod || 'month')}</select></div>
+          <div class="pay-settings-row"><label for="cfg-payrollPeriod">給与明細の締め期間</label><select id="cfg-payrollPeriod" class="settings-input" onchange="payrollCloseModeChanged()">${options([['month','月払い'],['half','半月払い']],cfg.payrollPeriod || 'month')}</select></div>
+          <div class="pay-settings-row" id="pay-close-month-row"${cfg.payrollPeriod === 'half' ? ' hidden' : ''}><div><label for="cfg-payrollCloseDay">月払いの締め日</label><p>例：25日締めなら、前の月の26日〜今月25日を「今月分」として計算します。</p></div><div class="pay-settings-inputs"><select id="cfg-payrollCloseDay" class="settings-input">${options([[0,'末日'], ...Array.from({ length:28 }, (_, i) => [i + 1, (i + 1) + '日'])], normalizePayrollCloseDay(cfg.payrollCloseDay))}</select><span>締め</span></div></div>
+          <div class="pay-settings-row" id="pay-close-half-row"${cfg.payrollPeriod === 'half' ? '' : ' hidden'}><div><label for="cfg-payrollHalfCloseDay1">半月払いの締め日</label><p>1つ目と2つ目の締め日。例：10日と25日なら、前の月の26日〜10日と、11日〜25日の2回に分けます。2つ目は1つ目より後の日（または末日）にしてください。</p></div><div class="pay-settings-inputs"><select id="cfg-payrollHalfCloseDay1" class="settings-input" aria-label="半月払いの1つ目の締め日">${options(Array.from({ length:27 }, (_, i) => [i + 1, (i + 1) + '日']), normalizePayrollHalfCloseDays(cfg.payrollHalfCloseDays)[0])}</select><span>と</span><select id="cfg-payrollHalfCloseDay2" class="settings-input" aria-label="半月払いの2つ目の締め日">${options([[0,'末日'], ...Array.from({ length:27 }, (_, i) => [i + 2, (i + 2) + '日'])], normalizePayrollHalfCloseDays(cfg.payrollHalfCloseDays)[1])}</select><span>締め</span></div></div>
+          <p class="pay-settings-note">締め日を変えても、すでに確定した明細はそのまま残り、新しい締め期間で計算し直します。</p>
           <details class="pay-settings-details pay-settings-optional"${(cfg.payrollSlideTable || []).length ? ' open' : ''}><summary>売上に応じたスライド時給 <span>${(cfg.payrollSlideTable || []).length ? cfg.payrollSlideTable.length + '段階' : '未設定'}</span></summary>
             <p>キャスト管理で「スライド時給を適用」を選んだキャストが対象。表が空なら適用しません。</p>
             <div class="pay-settings-row"><label for="cfg-payrollSlideSource">判定に使う売上</label><select id="cfg-payrollSlideSource" class="settings-input">${options([['current','今期の売上 → 今期の時給'],['prev','前期の売上 → 今期の時給']],cfg.payrollSlideSource || 'current')}</select></div>
@@ -29534,6 +30360,100 @@ function _payrollSettingsModalHtml() {
       <div class="pay-settings-footer"><span>4つの分類をまとめて保存</span><button type="button" class="btn" onclick="payrollRulesCloseModal()">キャンセル</button><button type="button" class="btn primary" onclick="payrollSettingsSave()">保存して反映</button></div>
     </div>
   </div>`;
+}
+
+/* 「バック・SP」タブの追加の節（2026-10-23 ヴェルベ対応）: 本指名・同伴の率バック、オリジナルバック、折半バック */
+function _payrollPercentBackSettingsHtml(num) {
+  const radio = (key, value, label, note) => '<label class="pay-settings-choice"><input type="radio" name="pay-' + key + '" id="cfg-' + key + '-' + value + '" value="' + value + '"'
+    + ((cfg[key] === 'percent' ? 'percent' : 'count') === value ? ' checked' : '') + '><span>' + label + '<small>' + note + '</small></span></label>';
+  const countNote = '料金マスター・キャストの単価 × 本数（今までどおり）';
+  const percentNote = '（伝票の小計（税サ抜き）− 指名者のドリンク代 − 折半の品の代金）× 率。指名者が複数なら指名売上と同じ割合で分けます';
+  return '<h3>本指名バック</h3>'
+    + radio('payrollHonshimeiBackMode', 'count', '本数×単価', countNote)
+    + radio('payrollHonshimeiBackMode', 'percent', '伝票の小計×率', percentNote)
+    + '<div class="pay-settings-row"><div><label for="cfg-payrollHonshimeiBackRate">本指名の率</label><p>小計（引く前）が右の額以上の伝票は高い率。0円なら常に通常の率。</p></div><div class="pay-settings-inputs">'
+    + '<span>通常</span>' + num('payrollHonshimeiBackRate', '本指名の通常の率', 10, 0, 100, 0.1) + '<span>%</span>'
+    + '<label for="cfg-payrollHonshimeiBackHighRate">高い率</label>' + num('payrollHonshimeiBackHighRate', '本指名の高い率', 15, 0, 100, 0.1) + '<span>%</span>'
+    + '<label for="cfg-payrollHonshimeiBackHighThreshold">小計</label>' + num('payrollHonshimeiBackHighThreshold', '高い率になる小計', 50000, 0, null, 1000) + '<span>円以上</span></div></div>'
+    + '<h3>同伴バック</h3>'
+    + radio('payrollDouhanBackMode', 'count', '本数×単価', countNote)
+    + radio('payrollDouhanBackMode', 'percent', '伝票の小計×率', percentNote + '。同伴の伝票に本指名の率は付きません')
+    + '<div class="pay-settings-row"><div><label for="cfg-payrollDouhanBackRate">同伴の率</label><p>小計の額に関係なく一律です。</p></div><div class="pay-settings-inputs">'
+    + num('payrollDouhanBackRate', '同伴の率', 20, 0, 100, 0.1) + '<span>%</span></div></div>'
+    + '<p class="pay-settings-note">率で払うときは「同伴1件につき追加する本数」の本指名＋1をOFFにしてください。</p>'
+    + '<h3>オリジナルバック</h3>'
+    + '<p class="pay-settings-note">店が自分で作るバック項目です（例：外立ち）。日計表に本数を手入力する欄が出ます。単価は 料金マスター（店標準）とキャストのページ（個別）で入れます。</p>'
+    + '<div class="pay-settings-table-wrap"><table class="pos-me-table" id="cfg-payroll-custom-backs-table"><thead><tr><th>項目名</th><th></th></tr></thead><tbody>'
+    + payrollCustomBackItems().map(_payrollCustomBackRowHTML).join('') + '</tbody></table></div>'
+    + '<div class="pay-settings-add"><button type="button" class="pos-me-add-btn" onclick="payrollCustomBackAdd()">＋ オリジナルバックを追加</button></div>'
+    + '<h3>折半バック</h3>'
+    + '<div class="pay-settings-row"><div><label for="cfg-payrollMarginBackRate">折半の率</label><p>メニューで「折半」にした品に、（販売価格−仕入れ値）×率をバックします。仕入れ値を入れないと販売価格の折半になります。0%なら使いません。</p></div><div class="pay-settings-inputs">'
+    + num('payrollMarginBackRate', '折半バックの率', 0, 0, 100, 0.1) + '<span>%</span></div></div>';
+}
+
+function _payrollCustomBackRowHTML(item) {
+  const row = item || {};
+  return '<tr data-key="' + escAttr(row.key || '') + '">'
+    + '<td><input type="text" class="settings-input payroll-custom-back-label" value="' + escAttr(row.label || '') + '" placeholder="項目名（例：外立ち）" style="width:100%;box-sizing:border-box" oninput="_payrollDeductionEditorMarkDirty(this)"></td>'
+    + '<td><button type="button" class="pos-me-del" onclick="payrollCustomBackDel(this)">削除</button></td></tr>';
+}
+
+/* オリジナルバックの key（cb_N）の次の番号。作った後は key を変えず、消した項目の key も使い回さない
+   （本数・単価の保存データが残るため）。設定・画面の行・単価・手入力の本数・締めのデータに出た番号の最大+1。 */
+function _payrollCustomBackNextKeyFrom(sources) {
+  let max = 0;
+  const visit = key => {
+    const match = /^cb_(\d+)$/.exec(String(key || ''));
+    if (match) max = Math.max(max, Number(match[1]));
+  };
+  (Array.isArray(sources) ? sources : []).forEach(source => {
+    if (Array.isArray(source)) source.forEach(entry => visit(typeof entry === 'string' ? entry : entry?.key));
+    else if (source && typeof source === 'object') Object.keys(source).forEach(visit);
+  });
+  return 'cb_' + (max + 1);
+}
+
+function _payrollCustomBackUsedKeySources(domKeys) {
+  const sources = [cfg.payrollCustomBacks || [], domKeys || [], state.castDefaults || {}];
+  Object.values(state.castProfiles || {}).forEach(profile => sources.push(profile || {}));
+  Object.values(state.payrollManual || {}).forEach(day => Object.values(day || {}).forEach(rec => sources.push(rec?.counts || {})));
+  try {
+    const store = typeof loadDailyClose === 'function' ? loadDailyClose() : null;
+    Object.values(store || {}).forEach(record => (record?.frozen?.castRows || []).forEach(row => sources.push(row?.backCounts || {})));
+  } catch (e) { /* 締めのデータが読めなくても、ほかの保存データで番号を決める */ }
+  return sources;
+}
+
+function payrollCustomBackAdd() {
+  const tbody = document.querySelector('#cfg-payroll-custom-backs-table tbody');
+  if (!tbody) return;
+  const domKeys = Array.from(tbody.querySelectorAll('tr[data-key]')).map(tr => tr.dataset.key);
+  const key = _payrollCustomBackNextKeyFrom(_payrollCustomBackUsedKeySources(domKeys));
+  tbody.insertAdjacentHTML('beforeend', _payrollCustomBackRowHTML({ key, label:'' }));
+  tbody.querySelector('tr:last-child .payroll-custom-back-label')?.focus();
+  _payrollDeductionEditorMarkDirty(tbody);
+}
+
+async function payrollCustomBackDel(btn) {
+  const tr = btn && btn.closest ? btn.closest('tr') : null;
+  if (!tr) return;
+  const label = tr.querySelector('.payroll-custom-back-label')?.value.trim() || '';
+  const ok = await appConfirm('オリジナルバック「' + (label || '名前なし') + '」を削除しますか？\nこの項目の本数と単価は日計表に出なくなります（保存データは残ります）。', { danger: true });
+  if (!ok) return;
+  const table = tr.closest('table');
+  tr.remove();
+  _payrollDeductionEditorMarkDirty(table);
+}
+
+/* 画面の行からオリジナルバックの一覧を作る。表が無ければ（画面を出していなければ）今の設定のまま */
+function _collectPayrollCustomBacks(overlay) {
+  const table = overlay.querySelector('#cfg-payroll-custom-backs-table');
+  if (!table) return Array.isArray(cfg.payrollCustomBacks) ? cfg.payrollCustomBacks : [];
+  const seen = new Set();
+  return Array.from(table.querySelectorAll('tbody > tr')).map((tr, index) => ({
+    key: String(tr.dataset.key || ''),
+    label: tr.querySelector('.payroll-custom-back-label')?.value.trim() || ('オリジナル' + (index + 1)),
+  })).filter(item => /^cb_\d+$/.test(item.key) && !seen.has(item.key) && seen.add(item.key));
 }
 
 function payrollSettingsSelectGroup(group) {
@@ -29592,6 +30512,15 @@ function payrollSettingsKeydown(event) {
   }
 }
 
+/* 月払い／半月払いの選択に合わせて、締め日の欄を切り替える（2026-10-23） */
+function payrollCloseModeChanged() {
+  const half = document.getElementById('cfg-payrollPeriod')?.value === 'half';
+  const monthRow = document.getElementById('pay-close-month-row');
+  const halfRow = document.getElementById('pay-close-half-row');
+  if (monthRow) monthRow.hidden = half;
+  if (halfRow) halfRow.hidden = !half;
+}
+
 function payrollSpModeSelect(mode) {
   const control = document.getElementById('pay-sp-control');
   if (!control || !['percent', 'yen'].includes(mode)) return;
@@ -29612,11 +30541,28 @@ function _collectPayrollSettings(overlay) {
   result.payrollSpMode = overlay.querySelector('#pay-sp-control')?.dataset.mode === 'yen' ? 'yen' : 'percent';
   result.payrollSpFixed = Number(get('payrollSpFixed')?.value ?? cfg.payrollSpFixed) || 0;
   ['payrollLateFineEnabled','payrollDouhanAddsHonshimei','payrollDouhanAddsHonenFirst','payrollSpInBackTotal'].forEach(key => { result[key] = get(key).checked; });
+  // 率バック・折半バック（2026-10-23）。入力欄が無い画面では今の設定のまま
+  ['payrollHonshimeiBackMode','payrollDouhanBackMode'].forEach(key => {
+    const percent = get(key + '-percent');
+    result[key] = percent ? (percent.checked ? 'percent' : 'count') : (cfg[key] === 'percent' ? 'percent' : 'count');
+  });
+  ['payrollHonshimeiBackRate','payrollHonshimeiBackHighRate','payrollHonshimeiBackHighThreshold','payrollDouhanBackRate','payrollMarginBackRate'].forEach(key => {
+    const el = get(key);
+    if (!el) { result[key] = cfg[key]; return; }
+    const value = el.value === '' ? Number(el.dataset.fallback) : Number(el.value);
+    result[key] = Number.isFinite(value) ? Math.max(0, value) : (Number(el.dataset.fallback) || 0);
+  });
+  result.payrollCustomBacks = _collectPayrollCustomBacks(overlay);
   result.payrollMergeDrinks = get('payrollMergeDrinks')?.checked === true;
   result.payrollDeductionDisplayField = normalizePayrollDeductionDisplayField(get('payrollDeductionDisplayField')?.value);
   result.payrollDeductionDisplayPrint = get('payrollDeductionDisplayPrint')?.checked !== false;
   result.payrollDeductionNibaraiPrint = get('payrollDeductionNibaraiPrint')?.checked === true;
   ['payrollPeriod','payrollSlideSource','payrollRoundMode'].forEach(key => { result[key] = get(key).value; });
+  // 締め日（2026-10-23）。入力欄が無い画面では今の設定のまま。半月払いの2つの並びは payrollSettingsSave が保存前に確かめる
+  result.payrollCloseDay = normalizePayrollCloseDay(get('payrollCloseDay') ? get('payrollCloseDay').value : cfg.payrollCloseDay);
+  result.payrollHalfCloseDays = get('payrollHalfCloseDay1') && get('payrollHalfCloseDay2')
+    ? [Number(get('payrollHalfCloseDay1').value), Number(get('payrollHalfCloseDay2').value)]
+    : normalizePayrollHalfCloseDays(cfg.payrollHalfCloseDays);
   result.payrollRoundUnit = Number(get('payrollRoundUnit').value);
   result.payrollSlideTable = Array.from(overlay.querySelectorAll('#cfg-payroll-slide-table tbody > tr')).map(tr => ({
     minSales: Math.max(0, Number(tr.querySelector('.payroll-slide-min').value) || 0),
@@ -29662,6 +30608,10 @@ function payrollSettingsSave() {
     invalidInput = overlay.querySelector('#cfg-payrollClockOutRoundThreshold');
     message = '退勤の境目は、退勤の分単位以下にしてください。';
   }
+  if (next && next.payrollPeriod === 'half' && !isValidPayrollHalfCloseDays(next.payrollHalfCloseDays)) {
+    invalidInput = overlay.querySelector('#cfg-payrollHalfCloseDay2');
+    message = '半月払いの2つ目の締め日は、1つ目より後の日（または末日）にしてください。';
+  }
   if (invalidInput) {
     error.hidden = false;
     error.textContent = message;
@@ -29671,11 +30621,14 @@ function payrollSettingsSave() {
     invalidInput.focus();
     return;
   }
+  // 月払いのときの半月の欄が並び違いのままでも、壊れた値は保存せず初期値に戻す
+  next.payrollHalfCloseDays = normalizePayrollHalfCloseDays(next.payrollHalfCloseDays);
   Object.assign(cfg, next);
   if (next.payrollMergeDrinks) _savePayrollDrinkRates(drinkRates);
   saveCfg();
   _payrollSettingsRefreshSummary();
   payrollRefreshDrinkMaster();
+  if (typeof payrollRefreshCustomBackMaster === 'function') payrollRefreshCustomBackMaster();
   if (typeof renderCastMgmt === 'function') renderCastMgmt();
   if (document.getElementById('payroll-table-host') && typeof renderReportPanel === 'function') renderReportPanel();
   payrollRulesCloseModal();
@@ -32609,12 +33562,46 @@ function _ensurePayrollManual(dayKey) {
   return state.payrollManual[dayKey];
 }
 
+/* ================================================================
+   オリジナルバック（店が作る手入力のバック項目。2026-10-23 オーナー決定）
+   cfg.payrollCustomBacks = [{key:'cb_N', label}]。key は作った後は変えない（本数・単価の保存名になる）。
+   自動の本数は常に0で、日計表で本数を手入力する。単価は state.castDefaults[key]／castProfiles[name][key]。
+================================================================ */
+function payrollCustomBackItems(settings) {
+  const src = settings || ((typeof cfg !== 'undefined' && cfg) ? cfg : {});
+  const seen = new Set();
+  return (Array.isArray(src.payrollCustomBacks) ? src.payrollCustomBacks : []).map(item => ({
+    key: String(item?.key || ''),
+    label: String(item?.label || '').trim(),
+  })).filter(item => {
+    if (!/^cb_\d+$/.test(item.key) || seen.has(item.key)) return false;
+    seen.add(item.key);
+    return true;
+  });
+}
+function payrollCustomBackKeys() {
+  return payrollCustomBackItems().map(item => item.key);
+}
+/* 現在の項目の key なら表示名（空欄なら key）、そうでなければ null */
+function payrollCustomBackLabel(key) {
+  const item = payrollCustomBackItems().find(entry => entry.key === key);
+  return item ? (item.label || item.key) : null;
+}
+
+/* 本指名・同伴のバック方式。'percent'＝伝票の対象額×率／それ以外は本数×単価（既定） */
+function payrollPercentBackMode(key) {
+  const c = (typeof cfg !== 'undefined' && cfg) ? cfg : {};
+  if (key === '本指') return c.payrollHonshimeiBackMode === 'percent' ? 'percent' : 'count';
+  if (key === '同伴') return c.payrollDouhanBackMode === 'percent' ? 'percent' : 'count';
+  return 'count';
+}
+
 /* 手修正可能なバック本数列のキー（日計表の動的列と一致）。 */
 function payrollCountKeys(...sources) {
   const items = drinkItemList();
   const drinkShimei = items.map(item => drinkBackKeys(item).shimei);
   const drinkFree = items.map(item => drinkBackKeys(item).free);
-  const keys = ['本指', ...shimeiExtKeys(), '場内','同伴', ...drinkShimei, '指D', ...drinkFree, 'D'];
+  const keys = ['本指', ...shimeiExtKeys(), '場内','同伴', ...payrollCustomBackKeys(), ...drinkShimei, '指D', ...drinkFree, 'D'];
   const seen = new Set(keys);
   const added = [];
   sources.forEach(source => Object.keys(source || {}).forEach(key => {
@@ -32734,7 +33721,9 @@ function isPayrollDeductionFlagMode(mode) {
 /* 店舗定義の控除を日給から計算する純関数。
    当欠（touketsu=true）は出勤していないので、固定額（雑費・厚生費など）を自動では引かない。
    手入力した金額はそのまま使う（2026-10-20 オーナー指示）。 */
-function calcPayrollDeductions(dailyPay, items, overrides, flags, touketsu) {
+/* attendFixed（出勤日だけ定額）は、出勤時刻が入っている日（attended=true）にだけ value を引く。当欠は0。
+   attended を渡さない呼び出し（旧来）は出勤ありとして扱う。 */
+function calcPayrollDeductions(dailyPay, items, overrides, flags, touketsu, attended) {
   const basePay = Math.max(0, Number(dailyPay) || 0);
   const manual = overrides && typeof overrides === 'object' ? overrides : {};
   const recorded = flags && typeof flags === 'object' ? flags : {};
@@ -32749,6 +33738,7 @@ function calcPayrollDeductions(dailyPay, items, overrides, flags, touketsu) {
     }
     const value = Number(item?.value) || 0;
     const auto = mode === 'fixed' ? (touketsu === true ? 0 : value)
+      : mode === 'attendFixed' ? ((touketsu === true || attended === false) ? 0 : value)
       : (mode === 'rate' ? Math.round(basePay * value / 100) : 0);
     const amount = Object.prototype.hasOwnProperty.call(manual, key)
       ? (Number(manual[key]) || 0) : auto;
@@ -32855,6 +33845,17 @@ function computePayrollForCast(castName, prodByCast, opts) {
     backUnits[key] = pair ? _payrollDrinkUnit(profile, castDefaults, pair) : _castBackUnit(profile, castDefaults, field);
     backAmounts[key] = (Number(backCounts[key]) || 0) * backUnits[key];
   });
+  // 伝票の小計×率のバック（本指名・同伴。2026-10-23 新設）。金額は精算済み伝票ごとの率バックの合計。
+  // 本数（backCounts）は今までどおり数え、単価は ''（率なので単価が無い）。'count' の店はここを通らない。
+  const percentBacks = {};
+  const percentEntries = (opts.percentBackByCast && opts.percentBackByCast[castName]) || [];
+  [['本指', 'honshimei'], ['同伴', 'douban']].forEach(([key, role]) => {
+    if (payrollPercentBackMode(key) !== 'percent' || countKeys.indexOf(key) < 0) return;
+    const entries = percentEntries.filter(entry => entry && entry.role === role);
+    percentBacks[key] = entries.map(entry => ({ ...entry }));
+    backUnits[key] = '';
+    backAmounts[key] = entries.reduce((sum, entry) => sum + (Number(entry.amount) || 0), 0);
+  });
 
   /* --- SP / 日払い（手入力。manualRec は上で取得済み） ---
      SP ＝ 手入力 ＋ キャスト折半 ＋ 注文に付いたバック（ボトル・ショットやメニューのバック額）。
@@ -32892,7 +33893,7 @@ function computePayrollForCast(castName, prodByCast, opts) {
   /* --- 控除・差引支給 --- */
   const deductionItems = (typeof cfg !== 'undefined' && cfg && Array.isArray(cfg.payrollDeductions))
     ? cfg.payrollDeductions : [];
-  const deductionResult = calcPayrollDeductions(dailyPay, deductionItems, manualRec.deductions, manualRec.deductionFlags, touketsu);
+  const deductionResult = calcPayrollDeductions(dailyPay, deductionItems, manualRec.deductions, manualRec.deductionFlags, touketsu, !!inHHMM);
   const deductionTotal = deductionResult.total;
   const netPay = dailyPay - deductionTotal;
 
@@ -32931,7 +33932,7 @@ function computePayrollForCast(castName, prodByCast, opts) {
     inHHMM, outHHMM,
     roundedIn:  inHHMM  ? roundClockIn(inHHMM)   : '',
     roundedOut: outHHMM ? roundClockOut(outHHMM) : '',
-    backCounts, autoCounts, manualCounts, backAmounts, backUnits,
+    backCounts, autoCounts, manualCounts, backAmounts, backUnits, percentBacks,
     sp, prodBack, backTotal,
     pointsProd, pointsCount, pointsTotal,
     lateFee, chikokuMin,
@@ -32965,6 +33966,7 @@ function computePayrollTable(settled, opts) {
   const salesByCast = agg.prodSalesByCast || {};
   const nameGroups = agg.nameGroups || {};
   const personalSubtotalByCast = agg.personalSubtotalByCast || {};
+  const percentBackByCast = agg.percentBackByCast || {};
   const dayKey = opts.dayKey || (typeof getBizDayKey === 'function' ? getBizDayKey() : '');
   const tt = opts.tt || (typeof loadTimetableState === 'function' ? loadTimetableState() : {});
   const manual = (state.payrollManual && state.payrollManual[dayKey]) || {};
@@ -32997,7 +33999,7 @@ function computePayrollTable(settled, opts) {
   else if (typeof castsSortedByClockIn === 'function') casts = castsSortedByClockIn(casts, tt);
   else if (typeof castsSortedByNo === 'function') casts = castsSortedByNo(casts);
 
-  const baseOpts = Object.assign({}, opts, { dayKey, tt, manual, nameGroups, prodBackByCast, prodPointsByCast, salesByCast, personalSubtotalByCast, rows: settled });
+  const baseOpts = Object.assign({}, opts, { dayKey, tt, manual, nameGroups, prodBackByCast, prodPointsByCast, salesByCast, personalSubtotalByCast, percentBackByCast, rows: settled });
   return casts.map(name => ({
     ...computePayrollForCast(name, prodByCast, baseOpts),
     firstRepeatCount: firstRepeatByCast[name] || 0,
@@ -33161,7 +34163,35 @@ function _payslipPeriodDays(from, to) {
     ? Math.floor((last - first) / 86400000) + 1 : 0;
 }
 
-function payslipPeriods(anchorBizKey, period) {
+/* 給与明細の締め期間（締め日つき・2026-10-23）。その日を含む1期間の from/to と、期間の種類（part）を返す。
+   closeDay・halves は normalizePayrollCloseDay / normalizePayrollHalfCloseDays を通した値。
+   月払い: 0=末日（その月の1日〜末日）、N(1〜28)=「前の月のN+1日〜その月のN日」。N日より後の日は翌月のN日までの期間。
+   半月払い [a, b]: 「bの翌日(前の月)〜a日」と「a+1日〜b日」の2つ。b=0 は末日。bより後の日は翌月の前半（bの翌日〜翌月a日）。
+   「Nの翌日」は new Date(y, m, N + 1) と書く（Nは28以下なので、2月でも翌月1日にずれるだけで隙間も重なりも出ない） */
+function _payslipSpan(year, month, day, isHalf, closeDay, halves) {
+  if (!isHalf) {
+    if (closeDay === 0) {
+      return { part: 'month', from: new Date(year, month - 1, 1), to: new Date(year, month, 0) };
+    }
+    const endMonth = day <= closeDay ? month : month + 1;
+    return { part: 'month', from: new Date(year, endMonth - 2, closeDay + 1), to: new Date(year, endMonth - 1, closeDay) };
+  }
+  const a = halves[0];
+  const b = halves[1];
+  if (day <= a) {
+    return { part: 'first', from: b === 0 ? new Date(year, month - 1, 1) : new Date(year, month - 2, b + 1), to: new Date(year, month - 1, a) };
+  }
+  if (b === 0 || day <= b) {
+    return { part: 'second', from: new Date(year, month - 1, a + 1), to: b === 0 ? new Date(year, month, 0) : new Date(year, month - 1, b) };
+  }
+  return { part: 'first', from: new Date(year, month - 1, b + 1), to: new Date(year, month, a) };
+}
+
+/* closeCfg は cfg（payrollCloseDay・payrollHalfCloseDays を持つ）。省略すると初期値（月払い=末日、半月払い=15日と末日＝従来の動き）。
+   返す label は「2026年10月分」。初期値以外の締め日のときは日付の範囲を足して「2026年10月分（9/26〜10/25）」にする
+   （初期値の見出し・印刷は今までと同じ）。name は名前だけ、range は「9/26〜10/25」。
+   prevKey / nextKey は前・次の期間の初日（月をまたぐ・2月・28日締めでも隙間と重なりが出ない） */
+function payslipPeriods(anchorBizKey, period, closeCfg) {
   const key = String(anchorBizKey || '');
   const year = Number(key.slice(0, 4));
   const month = Number(key.slice(4, 6));
@@ -33174,36 +34204,54 @@ function payslipPeriods(anchorBizKey, period) {
   if (!valid) return null;
 
   const isHalf = period === 'half';
-  let fromDate;
-  let toDate;
-  let label;
-  if (!isHalf) {
-    fromDate = new Date(year, month - 1, 1);
-    toDate = new Date(year, month, 0);
-    label = year + '年' + month + '月分';
-  } else if (day <= 15) {
-    fromDate = new Date(year, month - 1, 1);
-    toDate = new Date(year, month - 1, 15);
-    label = year + '年' + month + '月前半分';
-  } else {
-    fromDate = new Date(year, month - 1, 16);
-    toDate = new Date(year, month, 0);
-    label = year + '年' + month + '月後半分';
-  }
+  const settings = closeCfg && typeof closeCfg === 'object' ? closeCfg : {};
+  const closeDay = normalizePayrollCloseDay(settings.payrollCloseDay);
+  const halves = normalizePayrollHalfCloseDays(settings.payrollHalfCloseDays);
+  const spanOf = date => _payslipSpan(date.getFullYear(), date.getMonth() + 1, date.getDate(), isHalf, closeDay, halves);
 
-  const prevDate = isHalf
-    ? (day <= 15 ? new Date(year, month - 2, 16) : new Date(year, month - 1, 1))
-    : new Date(year, month - 2, 1);
-  const nextDate = isHalf
-    ? (day <= 15 ? new Date(year, month - 1, 16) : new Date(year, month, 1))
-    : new Date(year, month, 1);
+  const span = spanOf(anchor);
+  const fromDate = span.from;
+  const toDate = span.to;
+  const prevSpan = spanOf(new Date(fromDate.getFullYear(), fromDate.getMonth(), fromDate.getDate() - 1));
+  const nextDate = new Date(toDate.getFullYear(), toDate.getMonth(), toDate.getDate() + 1);
+
+  // 名前は「締め日のある月（期間の終わりの月）」
+  const endYear = toDate.getFullYear();
+  const endMonth = toDate.getMonth() + 1;
+  const name = endYear + '年' + endMonth + '月' + (span.part === 'month' ? '分' : span.part === 'first' ? '前半分' : '後半分');
+  const range = (fromDate.getMonth() + 1) + '/' + fromDate.getDate() + '〜' + (toDate.getMonth() + 1) + '/' + toDate.getDate();
+  const isDefault = isHalf ? (halves[0] === 15 && halves[1] === 0) : closeDay === 0;
 
   return {
     from: _payslipDateKey(fromDate),
     to: _payslipDateKey(toDate),
-    label,
-    prevKey: _payslipDateKey(prevDate),
+    label: isDefault ? name : name + '（' + range + '）',
+    name,
+    range,
+    prevKey: _payslipDateKey(prevSpan.from),
     nextKey: _payslipDateKey(nextDate),
+  };
+}
+
+/* 給与明細「1日ごと」の期間（from=to=その営業日）。見出しは「2026年10月22日（木）分」、前日・翌日のキー付き（2026-10-23） */
+function payslipDayPeriod(dayKey) {
+  const key = String(dayKey || '');
+  const year = Number(key.slice(0, 4));
+  const month = Number(key.slice(4, 6));
+  const day = Number(key.slice(6, 8));
+  const date = new Date(year, month - 1, day);
+  const valid = /^\d{8}$/.test(key)
+    && date.getFullYear() === year
+    && date.getMonth() === month - 1
+    && date.getDate() === day;
+  if (!valid) return null;
+  const weekday = ['日', '月', '火', '水', '木', '金', '土'][date.getDay()];
+  return {
+    from: key,
+    to: key,
+    label: year + '年' + month + '月' + day + '日（' + weekday + '）分',
+    prevKey: _payslipDateKey(new Date(year, month - 1, day - 1)),
+    nextKey: _payslipDateKey(new Date(year, month - 1, day + 1)),
   };
 }
 
@@ -33435,8 +34483,9 @@ function computePayslipFinal(dailycloseStore, payslipsStore, castName, from, to,
   const settings = cfgLike && typeof cfgLike === 'object' ? cfgLike : {};
   const periodMode = settings.payrollPeriod === 'half' ? 'half' : 'month';
   const base = computePayslip(dailycloseStore, castName, from, to);
-  const period = payslipPeriods(from, periodMode);
-  const prevPeriod = period ? payslipPeriods(period.prevKey, periodMode) : null;
+  // 前の期間（スライド時給「前期の売上」・締め控除の繰越）も、店の締め日で決める（2026-10-23）
+  const period = payslipPeriods(from, periodMode, settings);
+  const prevPeriod = period ? payslipPeriods(period.prevKey, periodMode, settings) : null;
   const prevBase = prevPeriod
     ? computePayslip(dailycloseStore, castName, prevPeriod.from, prevPeriod.to)
     : { sales: 0 };
@@ -33653,7 +34702,7 @@ async function _castDetailDelete(name) {
 }
 
 function castDetailMovePeriod(direction) {
-  const period = payslipPeriods(_castDetailAnchorKey, cfg.payrollPeriod);
+  const period = payslipPeriods(_castDetailAnchorKey, cfg.payrollPeriod, cfg);
   if (!period) return;
   _castDetailAnchorKey = direction < 0 ? period.prevKey : period.nextKey;
   renderCastDetailModal();
@@ -33880,7 +34929,7 @@ function renderCastDetailModal() {
   const box = document.getElementById('cast-detail-body');
   if (!box || !_castDetailName) return;
   const name = _castDetailName;
-  const period = payslipPeriods(_castDetailAnchorKey, cfg.payrollPeriod);
+  const period = payslipPeriods(_castDetailAnchorKey, cfg.payrollPeriod, cfg);
   box.innerHTML = _castDetailStyles()
     + _castDetailProfileHtml(name)
     + (period ? _castDetailMonthlyHtml(name, period) : '<div style="padding:24px;text-align:center;color:var(--tx3)">期間を取得できませんでした</div>');
@@ -33930,7 +34979,7 @@ function _castDetailStyles() {
 function castMonthlyPrint() {
   const name = _castDetailName;
   if (!name) return;
-  const period = payslipPeriods(_castDetailAnchorKey, cfg.payrollPeriod);
+  const period = payslipPeriods(_castDetailAnchorKey, cfg.payrollPeriod, cfg);
   if (!period) return;
   const data = _castDetailMonthlyData(name, period);
   if (!data.rows.length) return;
