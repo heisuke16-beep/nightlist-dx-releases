@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.84">
+<meta name="app-version" content="1.1.86">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -1868,6 +1868,10 @@ html[data-theme="champagne"] .cs-screen { --cs-bg: #fbf5e9; --cs-ink: #2a1f19; -
 .pos-co-btn.urikake { background: #b04a5a; }
 .pos-co-btn.cancel { background: #555; }
 .pos-co-btn small { font-size: 11px; opacity: 0.8; margin-top: 2px; }
+/* アプリ内の確認・入力ダイアログ（appConfirm/appAlert/appPrompt）は、どの全画面の上で呼ばれても見えるよう最前面に出す。
+   以前は .pos-co-overlay の 9900 のままで、保存先フォルダのゲート（20000）の上で出した「新しく始める」の確認が
+   裏に隠れて押せず、新しい店の初回起動が止まった（2026-10-23 ヴェルベ端末）。他の全画面（最大 99999）より上にする */
+.pos-co-overlay.app-dialog-overlay { z-index: 100000; }
 .app-dialog-panel { width: min(520px, calc(100vw - 32px)); background: var(--sur); border-color: var(--bdr2); color: var(--tx); }
 .app-dialog-body { padding: 22px; }
 .app-dialog-message { color: var(--tx); font-size: 17px; font-weight: 700; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -21938,6 +21942,8 @@ function _payrollBreakdownData(r, src, countCols) {
     netPay:withAdvance.netPay,
     rateLabel:Number(r.sales) > 0 && r.kyuuritsu != null
       ? `${Number(r.kyuuritsu).toFixed(1)}%（売上 ${_payYen(r.sales)}）` : '—',
+    sales:Number(r.sales) || 0,
+    rateText:Number(r.sales) > 0 && r.kyuuritsu != null ? `${Number(r.kyuuritsu).toFixed(1)}%` : '—',
   };
 }
 
@@ -21985,7 +21991,7 @@ function _payrollBreakdownHtml(r, src, countCols) {
 
 /* 1日分の給与明細（80mm・白黒のレシート）。日給内訳の「レシート印刷」、日計表の「🧾 1日分の給与明細」、
    設定の給与明細（1日ごと）の「🖨 レシート」で共通（2026-10-23 作り直し）。
-   キャストに渡す紙なので給率は印刷しない（画面の日給内訳には今までどおり出す）。金額は日計表と同じ計算のまま。 */
+   売上と給率は支給合計の下に印刷する（2026-10-25 ギャルサークルの依頼で、作り直し前と同じく印字に戻した）。金額は日計表と同じ計算のまま。 */
 function _payrollBreakdownPrintDocument(r, src, countCols) {
   const d = _payrollBreakdownData(r, src, countCols);
   if (!d) return '';
@@ -22027,6 +22033,7 @@ function _payrollBreakdownPrintDocument(r, src, countCols) {
     + row('バック合計', _payYen(d.backTotal), 'total') + '</section>'
     + (d.lateFee ? '<div class="sec">' + row('遅刻罰金', '−' + _payYen(d.lateFee)) + '</div>' : '')
     + '<div class="gross"><span>支給合計</span><b>' + _payYen(d.dailyPay) + '</b></div><div class="calc">時間給 ＋ バック合計' + (d.lateFee ? ' − 遅刻罰金' : '') + '</div>'
+    + '<div class="sec">' + row('売上', _payYen(d.sales)) + row('給率', escHtml(d.rateText)) + '</div>'
     + '<section class="sec"><h2>控除</h2>' + deductionHtml + '</section>'
     + (d.nibarai ? '<div class="advance">本日の日払い済み ' + _payYen(d.nibarai) + '</div>' : '')
     + '<div class="handover' + (d.nibarai ? '' : ' solo') + '"><span>お渡し額</span><b>' + _payYen(d.netPay) + '</b><small>差引支給（日払い後）</small></div>'
