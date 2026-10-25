@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.88">
+<meta name="app-version" content="1.1.89">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -9653,6 +9653,8 @@ const CFG_DEFAULTS = {
   monitorOpsToken: '',      // 店外モニター操作トークン（初回有効化時に生成）
   monitorShopId: '',        // オーナーダッシュボード用の不変店舗ID（初回送信時に生成。shopId と同じ値）
   shopId:        '',        // 店舗ID（不変）。起動時に無ければ作る。店外モニター・ダッシュボード・保存データの meta で同じ値を使う
+  ownerCustomersHoldRows: 0, // クラウドの控えから戻した直後だけ入る。この数に端末の顧客が追いつくまで、ダッシュボード用の顧客一覧を送らない（0=保留なし。設定の控えには入れない）
+  ownerCustomersHoldUntil: 0, // 上の保留の期限（ミリ秒の時刻。戻した日から30日。0=期限なし。設定の控えには入れない）
   posMenu:         {},      // POSカスタムメニュー { shot:[{name,amount},...], bottle:[...], ... }
   posCatLayout:    [],      // POSカテゴリの並び・表示 [{key,visible}]。空=既定順・全表示
   posCatLabels:    {},      // 既定POSカテゴリの表示名の上書き { set:'セット料金', ... }。未設定=既定名
@@ -18827,7 +18829,11 @@ const RemoteMonitor = (() => {
     }
   }
 
-  return { start, stop, sendNow, canSend, renderQr, lastError: () => lastError };
+  // 送れなかった理由。サーバーが受け付けなかった理由が無いとき、設定・顧客の控えが大きすぎて送れていなければその案内を返す
+  const lastErrorText = () => lastError
+    || (typeof OwnerExport !== 'undefined' && OwnerExport.backupTooLarge()
+      ? '店の控え（設定または顧客）が大きすぎて送れていません。運営者に連絡してください。' : '');
+  return { start, stop, sendNow, canSend, renderQr, lastError: lastErrorText };
 })();
 
 function monitorToggleConnRows(btn) {
@@ -19138,7 +19144,7 @@ function buildOwnerCustomersDataset(customersMap, ctx = {}) {
     { key:'sources', label:'入店経路' }, { key:'memo', label:'メモ' },
     { key:'birthMonth', label:'誕生月' }, { key:'birthDay', label:'誕生日' },
     { key:'birthYear', label:'誕生年' }, { key:'ageBand', label:'年代' },
-    { key:'occupation', label:'職業' }, { key:'workplace', label:'勤務先' },
+    { key:'occupation', label:'職業' },
     { key:'referrer', label:'紹介者' }, { key:'holidays', label:'休日' },
   ];
   const source = customersMap && typeof customersMap === 'object' ? customersMap : {};
@@ -19171,7 +19177,6 @@ function buildOwnerCustomersDataset(customersMap, ctx = {}) {
       birthYear: customer.birthYear || '',
       ageBand: customer.ageBand || '',
       occupation: customer.occupation || '',
-      workplace: customer.workplace || '',
       referrer: customer.referrer || '',
       holidays: customer.holidays || '',
     };
@@ -19182,10 +19187,138 @@ function buildOwnerCustomersDataset(customersMap, ctx = {}) {
   };
 }
 
+/* 設定の控え（端末が壊れたときに、新しい端末へ登録コードで戻すためにクラウドへ送る。2026-10-25。
+   設計: .company/dev/specs/2026-10-25-nightlistdx-設定のクラウド控え.md）
+   入れるもの: 店の設定（cfg）・テーマ・白背景・キャスト名簿（時給・バック）。
+   伝票番号の続き（slipCounter.prevDaysMax）も入れる。戻すとき番号が小さくならないよう、大きい方を残すため。
+   入れないもの: 今日のリスト・過去の営業日・顧客（顧客は別の控え customerBackup）・売掛・日次締め・給与明細・ログイン情報・店の鍵・表示モード、
+   cfg の送信キー（monitorWriteToken。今までの全店共通の送信キー、または登録コード）と、顧客一覧の保留の数・期限（ownerCustomersHoldRows・ownerCustomersHoldUntil。この端末だけの印）。
+   ハッシュは data だけで取る（generatedAt を入れると、中身が同じでも毎回送り直すことになる）。 */
+function buildSettingsBackupDataset(ctx = {}) {
+  const settings = { ...cfg };
+  delete settings.monitorWriteToken;
+  delete settings.ownerCustomersHoldRows;
+  delete settings.ownerCustomersHoldUntil;
+  // 読めずに止めているデータは読み直さない（読むたびに壊れたデータの退避コピーが増えるため）
+  const stored = name => (Persist.failedReads.has(name) ? null : (Persist.read(name) ?? null));
+  const data = {
+    settings,
+    theme: stored('theme'),
+    themeSelection: stored('themeSelection'),
+    listWhite: stored('listWhite'),
+    casts: {
+      allCasts: state.allCasts,
+      castProfiles: state.castProfiles,
+      castDefaults: state.castDefaults,
+      retiredCasts: state.retiredCasts,
+    },
+    // 日をまたいで続く伝票番号。読めていないときは null（戻すときは書かない）
+    slipCounter: Persist.failedReads.has('slipCounter') ? null
+      : { prevDaysMax: Math.max(0, Math.trunc(Number(Persist.read('slipCounter')?.prevDaysMax)) || 0) },
+  };
+  return {
+    v:1, kind:'settings', shopId:ctx.shopId || '', shopName:ctx.shopName || '',
+    generatedAt:Date.now(), hash:ownerDatasetHash(data), data,
+  };
+}
+
+/* 顧客の控え（端末が壊れたとき、新しい端末の顧客を戻すためにクラウドへ送る。2026-10-25 オーナー決定。
+   設計: .company/dev/specs/2026-10-25-nightlistdx-設定のクラウド控え.md の「顧客の控え」）
+   入れる項目を決める形（許可リスト）: 顔と名前を見分けるための情報（id・name・name2・kanaAutoDone）と、指名・着席・来店の記録だけ。
+   決めた項目以外は、将来足される項目も含めて入れない。入れないもの: 電話番号（phone）・領収書の宛名（receiptName・receiptNames）・勤務先（workplace）・
+   職業・誕生日・年代・紹介者・休日・メモ、それ以外のすべて（_urikakeBalance など）
+   （オーナー 2026-10-25「仮にCloudflareがハッキング受けた時のリスク対策で電話番号と住所は送らない形に」「勤務先はダメかも」「要は現場が顔と名前判断できればいい」）。
+   入れ子の中身も絞る: 来店履歴の各回は日付・伝票番号・金額・滞在・卓・指名と着席のキャスト（とその種別）だけ（注文の明細は入れない）。
+   戻した顧客の土台（restoredBase）も、同じ範囲の項目だけで入れる（集計と日付の部分だけ。履歴は入れない）。
+   顧客が読めていないとき・0件のときは null（空でクラウドの控えを上書きしない）。ハッシュは顧客の中身だけで取る。 */
+const CUSTOMER_BACKUP_SCALARS = ['id', 'name', 'name2', 'kanaAutoDone', 'visits', 'totalSpend', 'avgSpend', 'avgStayMin', 'firstVisit', 'lastVisit'];
+const CUSTOMER_BACKUP_STRING_LISTS = ['rotHistory', 'dates', 'recentDates', 'tags', 'autoMergeSources'];
+const CUSTOMER_BACKUP_CAST_LISTS = ['shimeiHistory', 'attendedHistory'];   // [{ key?, cast, type }]
+// 来店履歴の各回は、日付・伝票番号・金額・滞在・卓・指名と着席のキャスト（とその種別）だけ。注文の明細（orders）・orderSummary・支払方法・人数・開始時刻は入れない
+const CUSTOMER_BACKUP_VISIT_FIELDS = ['bizKey', 'slipNo', 'amount', 'stayMin', 'tableNum', 'mainCast', 'mainType', 'attendedCasts'];
+// 戻した顧客の土台（restoredBase。39-customer-management.js）に入れる項目。顧客の控えにも入れる（中身も同じ入れる項目の範囲だけ）
+const CUSTOMER_BASE_SCALARS = ['visits', 'totalSpend', 'avgStayMin', 'firstVisit', 'lastVisit', 'sinceDay'];
+const CUSTOMER_BASE_STRING_LISTS = ['dates', 'recentDates', 'autoMergeSources'];
+const CUSTOMER_BACKUP_INTERVAL_MS = 600000;   // 顧客の控えを送る間隔の下限（顧客は精算のたびに変わるので、送る量が倍にならないように）
+
+function _customerBackupPick(value, allowed) {
+  const out = {};
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return out;
+  Object.keys(value).forEach(key => {
+    if (allowed.includes(key) && value[key] !== undefined) out[key] = value[key];
+  });
+  return out;
+}
+
+function _customerBackupVisit(visit) {
+  const entry = _customerBackupPick(visit, CUSTOMER_BACKUP_VISIT_FIELDS);
+  if (Array.isArray(entry.attendedCasts)) entry.attendedCasts = entry.attendedCasts.map(item => _customerBackupPick(item, ['cast', 'type']));
+  else delete entry.attendedCasts;
+  return entry;
+}
+
+/* source から、決めた項目だけを元の並び順のまま写す（入れ子の中も絞る） */
+function _customerBackupCopy(source, scalars, stringLists, withHistories = true) {
+  const out = {};
+  Object.keys(source).forEach(key => {
+    const value = source[key];
+    if (value === undefined) return;
+    if (scalars.includes(key)) {
+      if (value === null || ['string', 'number', 'boolean'].includes(typeof value)) out[key] = value;
+    } else if (stringLists.includes(key)) {
+      if (Array.isArray(value)) out[key] = value.filter(item => typeof item === 'string');
+    } else if (!withHistories) {
+      // 履歴（来店履歴・指名/着席の履歴）は写さない
+    } else if (CUSTOMER_BACKUP_CAST_LISTS.includes(key)) {
+      if (Array.isArray(value)) out[key] = value.map(item => _customerBackupPick(item, ['key', 'cast', 'type']));
+    } else if (key === 'visitHistory') {
+      if (Array.isArray(value)) out[key] = value.map(_customerBackupVisit);
+    }
+  });
+  return out;
+}
+
+function _customerBackupEntry(customer) {
+  const out = _customerBackupCopy(customer, CUSTOMER_BACKUP_SCALARS, CUSTOMER_BACKUP_STRING_LISTS);
+  // 戻した顧客の土台も入れる。ただし集計と日付の部分だけ（履歴は顧客の項目に新しい分が入っており、戻すときに土台は集計の項目から作り直すため、
+  // 土台の履歴まで入れると大きさが倍になる）
+  const base = customer.restoredBase;
+  if (base && typeof base === 'object' && !Array.isArray(base)) out.restoredBase = _customerBackupCopy(base, CUSTOMER_BASE_SCALARS, CUSTOMER_BASE_STRING_LISTS, false);
+  return out;
+}
+
+/* 戻すとき、顧客の控えから戻した集計と履歴を「土台」にする（sinceDay＝戻した時点の営業日）。送ってよい項目だけで作る */
+function customerRestoredBaseFrom(customer, sinceDay) {
+  const base = _customerBackupCopy(customer, ['visits', 'totalSpend', 'avgStayMin', 'firstVisit', 'lastVisit'], ['dates', 'recentDates', 'autoMergeSources']);
+  return { ...base, sinceDay };
+}
+
+function buildCustomerBackupDataset(ctx = {}) {
+  if (Persist.failedReads.has('customers')) return null;
+  const source = Persist.read('customers');
+  if (Persist.failedReads.has('customers')) return null;   // 読んだら壊れていた
+  if (!source || typeof source !== 'object' || Array.isArray(source)) return null;
+  const customers = {};
+  Object.entries(source).forEach(([key, value]) => {
+    if (value && typeof value === 'object' && !Array.isArray(value)) customers[key] = _customerBackupEntry(value);
+  });
+  const rows = Object.keys(customers).length;
+  if (!rows) return null;
+  return {
+    v:1, kind:'customerBackup', shopId:ctx.shopId || '', shopName:ctx.shopName || '',
+    generatedAt:Date.now(), hash:ownerDatasetHash(customers), rows, data:{ customers },
+  };
+}
+
 const OwnerExport = (() => {
-  let synced = { days:{}, customers:null };
+  let synced = { days:{}, customers:null, settings:null, customerBackup:null };
   let skippedDays = new Set();
   let skippedCustomers = false;
+  let skippedSettings = false;
+  let skippedCustomerBackup = false;
+  let oversized = { settings:false, customerBackup:false };        // 大きさの上限で送れなかった控え（設定の店外モニター欄に出す）
+  let pausedUntil = { settings:0, customerBackup:0 };              // 401 で断られた控えを、この時刻まで送らない
+  let lastCustomerBackupAt = 0;   // 顧客の控えを最後に送ろうとした時刻。起動して最初の1回は待たない
   let backupHashCache = new Map();
 
   function context() {
@@ -19197,11 +19330,19 @@ const OwnerExport = (() => {
 
   function setHave(value) {
     const days = value?.days && typeof value.days === 'object' ? { ...value.days } : {};
-    synced = { days, customers:typeof value?.customers === 'string' ? value.customers : null };
+    synced = {
+      days,
+      customers:typeof value?.customers === 'string' ? value.customers : null,
+      settings:typeof value?.settings === 'string' ? value.settings : null,
+      customerBackup:typeof value?.customerBackup === 'string' ? value.customerBackup : null,
+    };
   }
 
   function markSkipped(candidate, reason) {
+    const tooLarge = !/400/.test(reason);   // 400（古い Worker）は大きさの問題ではない
     if (candidate.kind === 'day') skippedDays.add(candidate.day);
+    else if (candidate.kind === 'settings') { skippedSettings = true; if (tooLarge) oversized.settings = true; }
+    else if (candidate.kind === 'customerBackup') { skippedCustomerBackup = true; if (tooLarge) oversized.customerBackup = true; }
     else skippedCustomers = true;
     console.warn('[OwnerExport] skipped oversized dataset:', reason, candidate.kind, candidate.day || '');
   }
@@ -19229,10 +19370,16 @@ const OwnerExport = (() => {
       });
       if (response.status === 200) {
         if (candidate.kind === 'day') synced.days[candidate.day] = candidate.dataset.hash;
+        else if (candidate.kind === 'settings') synced.settings = candidate.dataset.hash;
+        else if (candidate.kind === 'customerBackup') synced.customerBackup = candidate.dataset.hash;
         else synced.customers = candidate.dataset.hash;
         return true;
       }
       if (response.status === 413) markSkipped(candidate, 'HTTP 413');
+      // 古い Worker は控えの種類を知らず 400 を返す。毎周期、全文を送り直さない（reset か再起動まで待つ）
+      else if (response.status === 400 && (candidate.kind === 'settings' || candidate.kind === 'customerBackup')) markSkipped(candidate, 'HTTP 400');
+      // 401（鍵が合わない・未登録）で断られた控えは、1時間送らない（毎周期、全文を送り直さない）
+      else if (response.status === 401 && (candidate.kind === 'settings' || candidate.kind === 'customerBackup')) pausedUntil[candidate.kind] = Date.now() + 3600000;
     } catch (_) {
       // 次周期に再試行する。
     }
@@ -19243,6 +19390,21 @@ const OwnerExport = (() => {
     const ctx = context();
     const currentDay = String(getLoadedDayKey() || '').replace(/-/g, '');
     const currentRows = Array.isArray(state.rows) ? state.rows : [];
+    // 設定の控えを最初に確かめる（中身が前回送ったものと同じなら送らない）。
+    // 設定・キャスト名簿が読めずに既定値のままのときは送らない（クラウドにある正しい控えを上書きしないため）。
+    // 送信に失敗しても日別・顧客の送信を止めない（Worker が控えに未対応の版でも、今までの同期を続ける）。
+    if (!skippedSettings && Date.now() >= pausedUntil.settings && !Persist.failedReads.has('settings') && !Persist.failedReads.has('listState')) {
+      const dataset = buildSettingsBackupDataset(ctx);
+      if (dataset.hash !== synced.settings && await send({ kind:'settings', dataset })) return true;
+    }
+    // 顧客の控え: 中身が変わったときだけ、前回から10分以上あけて送る（読めていない・0件のときは作られない）。失敗しても先へ進む
+    if (!skippedCustomerBackup && Date.now() >= pausedUntil.customerBackup && Date.now() - lastCustomerBackupAt >= CUSTOMER_BACKUP_INTERVAL_MS) {
+      const dataset = buildCustomerBackupDataset(ctx);
+      if (dataset && dataset.hash !== synced.customerBackup) {
+        lastCustomerBackupAt = Date.now();
+        if (await send({ kind:'customerBackup', dataset })) return true;
+      }
+    }
     // 日計表の材料: 締め済みの日は日次締めの凍結値、未締めの日はその日の出退勤。
     // 日次締めのデータが壊れて読めないときは、周期のたびに読み直さない（読み直すたびに警告と退避コピーが増える）。
     const closeStore = (typeof loadDailyClose === 'function' && !Persist.failedReads.has('dailyclose') ? loadDailyClose() : null) || {};
@@ -19259,8 +19421,21 @@ const OwnerExport = (() => {
     }
 
     if (!skippedCustomers) {
-      const dataset = buildOwnerCustomersDataset(loadCustomers(), ctx);
-      if (dataset.hash !== synced.customers) return send({ kind:'customers', dataset });
+      const customers = loadCustomers();
+      // 設定の控えから戻した直後は、この端末の顧客がクラウドの顧客一覧の件数に追いつくまで送らない
+      // （空に近い顧客一覧でダッシュボードの顧客一覧を上書きしない）。追いついたら保留をやめて、以後は今までどおり送る
+      // 保留は最長30日（ownerCustomersHoldUntil）。期限が来たら件数が足りなくても解く
+      const hold = Math.max(0, Math.trunc(Number(cfg.ownerCustomersHoldRows)) || 0);
+      const holdUntil = Number(cfg.ownerCustomersHoldUntil) || 0;
+      if (hold > 0 && (Object.keys(customers).length >= hold || (holdUntil > 0 && Date.now() >= holdUntil))) {
+        cfg.ownerCustomersHoldRows = 0;
+        cfg.ownerCustomersHoldUntil = 0;
+        saveCfg();
+      }
+      if (!(Number(cfg.ownerCustomersHoldRows) > 0)) {
+        const dataset = buildOwnerCustomersDataset(customers, ctx);
+        if (dataset.hash !== synced.customers) return send({ kind:'customers', dataset });
+      }
     }
 
     const loadedBackups = loadBackups();
@@ -19305,14 +19480,253 @@ const OwnerExport = (() => {
   }
 
   function reset() {
-    synced = { days:{}, customers:null };
+    synced = { days:{}, customers:null, settings:null, customerBackup:null };
     skippedDays = new Set();
     skippedCustomers = false;
+    skippedSettings = false;
+    skippedCustomerBackup = false;
+    oversized = { settings:false, customerBackup:false };
+    pausedUntil = { settings:0, customerBackup:0 };
+    lastCustomerBackupAt = 0;
     backupHashCache = new Map();
   }
 
-  return { syncOne, setHave, reset };
+  /* 控え（設定または顧客）が大きさの上限で送れていないか。設定の店外モニター欄に出す */
+  function backupTooLarge() {
+    return (skippedSettings && oversized.settings) || (skippedCustomerBackup && oversized.customerBackup);
+  }
+
+  return { syncOne, setHave, reset, backupTooLarge };
 })();
+/* ================================================================
+   クラウドの控えから戻す（端末の入れ替え。2026-10-25）
+   設計: .company/dev/specs/2026-10-25-nightlistdx-設定のクラウド控え.md
+   運営者が作った「選んだ店の登録コード」で /restore から設定の控え（47f の buildSettingsBackupDataset）と
+   顧客の控え（buildCustomerBackupDataset）を受け取り、この端末の設定・メニュー・料金・キャスト名簿・テーマ・白背景・
+   伝票番号の続きを置き換える（顧客は、この端末に顧客がいないときだけ）。
+   今日のリスト・過去の営業日・売掛・日次締め・給与明細には触らない。
+   戻したあとの最初の /push で、この端末の新しい鍵がその店に登録され、コードが使い切られる（古い端末の鍵は、段階Bならそこで使えなくなる）。
+================================================================ */
+let _cloudRestoreBusy = false;
+
+/* 顧客の控えに入っていない項目の空の値（文字列は ''、配列は []、誕生日の数は 0）。戻した顧客にこれを補う */
+const CLOUD_RESTORE_CUSTOMER_EMPTY = [
+  ['phone', ''], ['receiptName', ''], ['receiptNames', []], ['workplace', ''], ['occupation', ''], ['ageBand', ''],
+  ['referrer', ''], ['holidays', ''], ['memo', ''], ['birthMonth', 0], ['birthDay', 0], ['birthYear', 0],
+];
+
+/* エンドポイントURLの検査。https:// で始まるもの（開発用に http://localhost・http://127.0.0.1 も可）。違えば空文字 */
+function cloudRestoreEndpoint(raw) {
+  const base = monitorBaseEndpoint(raw);
+  const ok = /^https:\/\/[^\s/]+(\/\S*)?$/i.test(base)
+    || /^http:\/\/(localhost|127\.0\.0\.1)(:\d{1,5})?(\/\S*)?$/i.test(base);
+  return ok ? base : '';
+}
+
+/* /restore が返さなかったときの案内（HTTP の状態と error の組で決める。古い Worker の 404 などは「つながらない」扱い） */
+function cloudRestoreErrorText(status, error) {
+  if (status === 401 && error === 'unknown_code') return '登録コードが違うか、期限（7日）が切れているか、使用済みです。運営者に作り直してもらってください。';
+  if (status === 400 && error === 'code_not_for_shop') return 'このコードは新しい店用です。運営者に『選んだ店の登録コード』を作ってもらってください。';
+  if (status === 400 && error === 'invalid_code') return '登録コードの形が違います（32文字の英数字）。';
+  if (status === 404 && error === 'no_backup') return 'この店の設定の控えが、まだクラウドにありません。';
+  return 'サーバーにつながりません。Wi-Fiとエンドポイントを確かめてください。';
+}
+
+/* この端末に、今日のリストの行・過去の営業日（中身のある日）・顧客のどれかがあるか。読めていないデータは「ある」とみなす */
+function cloudRestoreDeviceHasData() {
+  if (Array.isArray(state.rows) && state.rows.length > 0) return true;
+  const stored = name => {
+    if (Persist.failedReads.has(name)) return undefined;
+    const value = Persist.read(name);
+    return Persist.failedReads.has(name) ? undefined : value;
+  };
+  const backups = stored('backups');
+  const customers = stored('customers');
+  if (backups === undefined || customers === undefined) return true;
+  const hasRows = snap => (Array.isArray(snap?.rows) && snap.rows.length > 0)
+    || (Array.isArray(snap?.snapshot?.rows) && snap.snapshot.rows.length > 0);
+  if (Array.isArray(backups) && backups.some(hasRows)) return true;
+  return !!customers && typeof customers === 'object' && Object.keys(customers).length > 0;
+}
+
+async function restoreSettingsFromCloud() {
+  if (_cloudRestoreBusy) return false;   // 押し直しで二重に走らせない
+  _cloudRestoreBusy = true;
+  try { return await _cloudRestoreRun(); }
+  finally { _cloudRestoreBusy = false; }
+}
+
+async function _cloudRestoreRun() {
+  const isHex32 = value => typeof value === 'string' && /^[0-9a-f]{32}$/.test(value);
+  const isPlainObject = value => !!value && typeof value === 'object' && !Array.isArray(value);
+  const field = id => (typeof document !== 'undefined' ? document.getElementById(id)?.value : '') || '';
+
+  // 1. 入力の検査
+  const endpoint = cloudRestoreEndpoint(field('cloud-restore-endpoint'));
+  const code = String(field('cloud-restore-code')).trim().toLowerCase();
+  if (!endpoint) { await appAlert('エンドポイントURLは https:// で始まるものを入力してください。'); return false; }
+  if (!isHex32(code)) { await appAlert(cloudRestoreErrorText(400, 'invalid_code')); return false; }
+
+  // 2. 戻しても保存されない状態では始めない（デモ中は保存が凍結される）
+  if (_demoMode) {
+    await appAlert('デモモード中は戻せません（デモ中の変更は保存されないため）。デモモードを終了してから行ってください。');
+    return false;
+  }
+  if (Persist.writeBlockedReason) {
+    await appAlert(Persist.writeBlockedReason + '\n\nこの状態では戻した内容が保存されないため、戻さずに止めました。');
+    return false;
+  }
+  const unreadable = ['settings', 'listState'].filter(name => Persist.failedReads.has(name));
+  if (unreadable.length) {
+    await appAlert('この端末の' + unreadable.map(name => name === 'settings' ? '設定' : 'リスト・キャスト名簿').join('と')
+      + 'のデータが読み込めていないため、戻した内容を保存できません。先にJSONバックアップの読み込みなどで復旧してください。');
+    return false;
+  }
+
+  // 3. 控えを受け取る（ここまでは端末のデータを何も変えない）
+  let response;
+  try {
+    response = await fetch(endpoint + '/restore', {
+      method:'POST',
+      headers:{ 'Content-Type':'text/plain' },
+      body:JSON.stringify({ code }),
+    });
+  } catch (_) {
+    await appAlert(cloudRestoreErrorText(0, ''));
+    return false;
+  }
+  let data = null;
+  try { data = await response.json(); } catch (_) { data = null; }
+  if (response.status !== 200) {
+    await appAlert(cloudRestoreErrorText(response.status, data?.error || ''));
+    return false;
+  }
+
+  // 4. 控えの形を確かめる。控えの店舗IDが応答の店舗IDと違うものは戻さない
+  const dataset = data?.dataset;
+  const backup = dataset?.data;
+  const settings = backup?.settings;
+  if (!dataset || dataset.kind !== 'settings' || !isPlainObject(backup) || !isPlainObject(settings)
+      || !isHex32(data.shopId) || (dataset.shopId && dataset.shopId !== data.shopId) || (settings.shopId && settings.shopId !== data.shopId)) {
+    await appAlert('控えの形式が違うため戻せません。');
+    return false;
+  }
+
+  // 5. 別の店のデータが入っている端末には戻さない（顧客・過去の営業日が戻した店のものとして送られ、正しい店の鍵も置き換わるため）
+  const deviceShopId = cfg.shopId || cfg.monitorShopId || '';
+  if (deviceShopId && deviceShopId !== data.shopId && cloudRestoreDeviceHasData()) {
+    await appAlert('この端末には別の店（' + (String(cfg.shopName || '').trim() || '店名なし') + '）のデータが入っています。'
+      + '別の店の控えで戻すと、データが混ざります。新しい（空の）保存先を選んだ端末で戻してください。');
+    return false;
+  }
+
+  // 6. 確認
+  const shopName = String(dataset.shopName || data.shopName || settings.shopName || '').trim() || '店名なし';
+  const savedAt = _ownerLocalDateTime(data.updatedAt) || '日時不明';
+  const approved = await appConfirm(
+    '『' + shopName + '』の設定の控え（' + savedAt + ' 時点）で、この端末の設定・メニュー・料金・キャスト名簿・顧客（この端末に顧客がいないとき）を置き換えます。'
+    + '今日のリスト・過去の営業日はそのままです。続けますか？',
+    { danger:true }
+  );
+  if (!approved) return false;
+
+  // 7. 書き込む（JSON読み込みと同じ道: importAll → reloadAfterImport。古い控えの移し替えは loadCfg 以降の既存処理に任せる）
+  let restoredCustomers = 0;
+  try {
+    const current = Persist.read('listState');
+    if (Persist.failedReads.has('listState')) {
+      await appAlert('この端末のリスト・キャスト名簿のデータが読み込めていないため、戻した内容を保存できません。先にJSONバックアップの読み込みなどで復旧してください。');
+      return false;
+    }
+    // リスト（rows・出勤中・その他）はそのまま、キャスト名簿の4つだけを控えのものにする
+    const listState = { ...(isPlainObject(current) ? current : {}) };
+    const casts = isPlainObject(backup.casts) ? backup.casts : {};
+    if (Array.isArray(casts.allCasts)) listState.allCasts = casts.allCasts;
+    if (isPlainObject(casts.castProfiles)) listState.castProfiles = casts.castProfiles;
+    if (isPlainObject(casts.castDefaults)) listState.castDefaults = casts.castDefaults;
+    if (Array.isArray(casts.retiredCasts)) listState.retiredCasts = casts.retiredCasts;
+
+    // 顧客: この端末に顧客がいないときだけ、控えの顧客を書く（同じ店の端末で戻し直したときは、端末の顧客を残す）。
+    // 顧客の控えには名前・指名と着席の履歴・来店の記録・タグだけが入っている。入れなかった項目は空の値で補う
+    // （顧客の画面・領収書・統合・名前の候補・顧客ランク・誕生日の案内・顧客分析が項目の有無で崩れないように）
+    const incomingCustomers = data.customerBackup?.kind === 'customerBackup' ? data.customerBackup.data?.customers : null;
+    let customersText = null;
+    const sinceDay = getBizDayKey();   // 戻した時点の営業日。顧客の土台（restoredBase）の sinceDay
+    if (isPlainObject(incomingCustomers) && Object.keys(incomingCustomers).length > 0 && !Persist.failedReads.has('customers')) {
+      const own = Persist.read('customers');
+      if (!Persist.failedReads.has('customers') && (own == null || (isPlainObject(own) && Object.keys(own).length === 0))) {
+        Object.values(incomingCustomers).forEach(customer => {
+          if (!isPlainObject(customer)) return;
+          CLOUD_RESTORE_CUSTOMER_EMPTY.forEach(([field, empty]) => {
+            if (customer[field] === undefined) customer[field] = Array.isArray(empty) ? [] : empty;
+          });
+          // 戻した集計と履歴を土台にする。戻したあとの来店は、この日以降の分だけを集計して足し合わせる（syncCustomers）。
+          // 控えに入っている土台（前の戻しの土台）は使わない: 集計の項目には、その土台と戻したあとの来店がすでに足されているため
+          customer.restoredBase = customerRestoredBaseFrom(customer, sinceDay);
+        });
+        customersText = JSON.stringify(incomingCustomers);
+        restoredCustomers = Object.keys(incomingCustomers).length;
+      }
+    }
+    // 顧客を戻さなかったときは、クラウドの顧客一覧（ダッシュボード用）の件数を保留の数にする。この端末の顧客が追いつくまで送らない
+    const holdRows = restoredCustomers > 0 ? 0 : Math.max(0, Math.trunc(Number(data.customersRows)) || 0);
+
+    // 送信まわりは仕様どおりに上書きする。店舗ID（shopId・monitorShopId）は応答の店舗ID。
+    // 閲覧用ID・操作用IDは控えのままなので、スタッフのスマホのQRも読み直さなくてよい
+    const payload = {
+      settings:JSON.stringify({
+        ...settings,
+        monitorEndpoint:endpoint,
+        monitorWriteToken:code,
+        monitorShopId:data.shopId,
+        shopId:data.shopId,
+        monitorEnabled:true,
+        ownerCustomersHoldRows:holdRows,
+        ownerCustomersHoldUntil:holdRows > 0 ? Date.now() + 30 * 86400000 : 0,   // 保留は最長30日
+      }),
+      listState:JSON.stringify(listState),
+    };
+    const theme = backup.theme != null && typeof resolveImportedTheme === 'function'
+      ? resolveImportedTheme(JSON.stringify(backup.theme)) : null;
+    if (theme) payload.theme = JSON.stringify(theme);
+    if (backup.themeSelection === 1) payload.themeSelection = JSON.stringify(1);
+    if (backup.listWhite === 0 || backup.listWhite === 1) payload.listWhite = JSON.stringify(backup.listWhite);
+    if (customersText !== null) payload.customers = customersText;
+
+    // 伝票番号の続き: 端末の今の値と控えの値の大きい方（番号を小さくしない）。端末の slipCounter のほかの項目は保つ
+    const backupSlip = Number(backup.slipCounter?.prevDaysMax);
+    if (isPlainObject(backup.slipCounter) && Number.isFinite(backupSlip) && backupSlip >= 0 && !Persist.failedReads.has('slipCounter')) {
+      const currentSlip = Persist.read('slipCounter');
+      if (!Persist.failedReads.has('slipCounter')) {
+        const base = isPlainObject(currentSlip) ? currentSlip : {};
+        payload.slipCounter = JSON.stringify({ ...base, prevDaysMax:Math.max(Number(base.prevDaysMax) || 0, Math.trunc(backupSlip)) });
+      }
+    }
+
+    // 書き込むデータだけ読み込み失敗の印を外す（ほかのデータの保護は残す）
+    Object.keys(payload).forEach(name => Persist.unlock(name));
+    if (Persist.importAll(payload) === false) return false;
+    reloadAfterImport();
+
+    // 8. JSON読み込みの完了後と同じ再描画。設定画面も開き直して新しい値を見せる
+    refreshAfterImport(!!payload.theme);
+    if (typeof renderSettingsPanel === 'function') renderSettingsPanel();
+
+    // 9. 新しい店舗IDで送り直しの判定をやり直す
+    if (typeof OwnerExport !== 'undefined') OwnerExport.reset();
+  } catch (error) {
+    console.error('[CloudRestore] restore failed:', error);
+    await appAlert('設定を戻す途中で問題が起きました。\n' + (error && error.message ? error.message : error));
+    return false;
+  }
+
+  // 10. 完了
+  await appAlert('設定を戻しました。1分ほどで店外モニターにつながり、この端末が店の端末として登録されます。プリンター・文字サイズ・ログインのパスワードは、この端末で設定してください。'
+    + (restoredCustomers > 0
+      ? '顧客も戻しました（' + restoredCustomers + '件）。名前・指名と着席の履歴・来店の記録・タグだけを戻します。電話番号・メモ・誕生日などは戻りません。'
+      : '顧客一覧は戻りません。ダッシュボードの顧客一覧は、この端末の顧客がそれまでの件数に追いつくまで入れ替え前のまま残します（最長30日）。'));
+  return true;
+}
 /* ================================================================
    POS セット入力スピナー画面（オーダー画面のセットカテゴリ）
 ================================================================ */
@@ -28522,6 +28936,16 @@ function renderSettingsPanel() {
           </div>
         </div>
         <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:8px">
+          <div class="settings-label">☁ クラウドの控えから戻す<div class="settings-sub">端末を入れ替えたときに使います。運営者から受け取った登録コードを入れると、店の設定・メニュー・料金・キャスト名簿（時給・バック）・顧客が戻ります。今日のリスト・過去の営業日は戻りません。</div></div>
+          <div style="display:flex;flex-direction:column;gap:6px;width:100%">
+            <label class="settings-sub" for="cloud-restore-endpoint">エンドポイントURL</label>
+            <input type="url" class="settings-input" id="cloud-restore-endpoint" value="${escAttr(cfg.monitorEndpoint || '')}" placeholder="https://xxx.workers.dev" autocomplete="off" oninput="event.stopPropagation()" onchange="event.stopPropagation()" style="width:min(100%,520px)">
+            <label class="settings-sub" for="cloud-restore-code">登録コード</label>
+            <input type="text" class="settings-input" id="cloud-restore-code" value="" placeholder="運営者から受け取った32文字" autocomplete="off" autocapitalize="off" spellcheck="false" oninput="event.stopPropagation()" onchange="event.stopPropagation()" style="width:min(100%,520px)">
+          </div>
+          <div><button type="button" class="btn" onclick="restoreSettingsFromCloud()">☁ クラウドから戻す</button></div>
+        </div>
+        <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:8px">
           <div class="settings-label">📏 保存データの大きさ<div class="settings-sub">保存先にあるデータごとの大きさを調べます（見るだけで、データは変わりません）</div></div>
           <div><button type="button" class="btn" onclick="settingsShowStorageSizes()">大きさを調べる</button></div>
           <div id="storage-size-report" style="width:100%"></div>
@@ -28591,7 +29015,7 @@ function renderSettingsPanel() {
       <div class="settings-section-header"><span class="settings-section-title">📡 店外モニター</span></div>
       <div class="settings-section-body">
         <div class="settings-row">
-          <div class="settings-label">店外モニターを有効にする<div class="settings-sub">卓ごとの人数・時間・会計の明細、出勤キャストの名前などの店内状況を、30秒ごとに運営者のサーバーへ送ります。あわせてオーナーダッシュボード用に、リスト表（客名・注文の明細を含む）、顧客一覧（メモ・誕生日・職業・勤務先などを含む）、日計表（キャストの出勤・退勤・時給・バック・日給）も送り、400日保存します</div></div>
+          <div class="settings-label">店外モニターを有効にする<div class="settings-sub">卓ごとの人数・時間・会計の明細、出勤キャストの名前などの店内状況を、30秒ごとに運営者のサーバーへ送ります。あわせてオーナーダッシュボード用に、リスト表（客名・注文の明細を含む）、顧客一覧（メモ・誕生日・職業などを含む）、日計表（キャストの出勤・退勤・時給・バック・日給）も送り、400日保存します。さらに、端末の入れ替えに備えた控えとして、店の設定・メニュー・料金・キャスト名簿（時給・バック）も送ります（最新の1本だけ保存）。顧客の控え（端末の入れ替えに備えたもの。名前・指名と着席の履歴・来店の記録・タグだけで、電話番号・宛名・勤務先・誕生日・職業・メモなどは送りません。オーナーダッシュボードには出ません）も送ります（最新の1本だけ保存）</div></div>
           <label style="display:flex;align-items:center;gap:6px;min-height:44px;cursor:pointer">
             <input type="checkbox" id="cfg-monitorEnabled" ${cfg.monitorEnabled ? 'checked' : ''}>
             <span>有効</span>
@@ -30848,6 +31272,111 @@ function _customerStringList(values) {
   return [...new Set(source.map(value => String(value || '').trim()).filter(Boolean))];
 }
 
+/* ================================================================
+   戻した顧客の「土台」（restoredBase。2026-10-25 クラウドの控えから戻した顧客）
+   syncCustomers は端末にある営業日と今日のリストだけから集計を作り直す。クラウドの控えから戻した顧客は、戻す前の営業日がこの端末に無いので、
+   そのままだと再来店して精算された時点で、来店回数・累計・履歴が新しい端末の分だけになってしまう。
+   そこで戻すとき各顧客に土台（戻した集計と履歴・戻した時点の営業日 sinceDay）を付け、syncCustomers は sinceDay 以降の分だけを集計して土台と足し合わせる。
+   土台を持たない顧客（今までのすべての顧客）の計算は変えない。
+================================================================ */
+const CUSTOMER_VISIT_HISTORY_MAX = 50;
+
+function _customerBaseCasts(newer, older) {
+  const seen = new Set();
+  const out = [];
+  [...(Array.isArray(newer) ? newer : []), ...(Array.isArray(older) ? older : [])].forEach(item => {
+    if (!item || typeof item !== 'object') return;
+    const key = `${item.cast}::${item.type}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(item);
+  });
+  return out;
+}
+
+function _customerBaseDates(...lists) {
+  return [...new Set(lists.flatMap(list => (Array.isArray(list) ? list : [])).filter(day => typeof day === 'string' && day))].sort();
+}
+
+/* 土台から、顧客の集計の項目を作る（土台だけのとき・新しい分と足し合わせる前の形） */
+function customerTopFromBase(base) {
+  const visits = Math.max(0, Number(base.visits) || 0);
+  const totalSpend = Number(base.totalSpend) || 0;
+  const attendedHistory = _customerBaseCasts(base.attendedHistory, []);
+  return {
+    visits, totalSpend,
+    avgSpend: visits > 0 ? Math.round(totalSpend / visits) : 0,
+    avgStayMin: Number(base.avgStayMin) || 0,
+    dates: _customerBaseDates(base.dates),
+    firstVisit: base.firstVisit || '',
+    lastVisit: base.lastVisit || '',
+    recentDates: Array.isArray(base.recentDates) ? [...base.recentDates] : [],
+    visitHistory: (Array.isArray(base.visitHistory) ? base.visitHistory : []).slice(0, CUSTOMER_VISIT_HISTORY_MAX),
+    shimeiHistory: _customerBaseCasts(base.shimeiHistory, []),
+    attendedHistory,
+    rotHistory: attendedHistory.map(item => item.cast),
+    autoMergeSources: [...new Set(Array.isArray(base.autoMergeSources) ? base.autoMergeSources : [])],
+  };
+}
+
+/* 新しい端末で集計した分（entry。sinceDay 以降）に土台を足し合わせる。newStayCount は entry の平均滞在に使った回数 */
+function customerApplyRestoredBase(entry, base, newStayCount) {
+  const top = customerTopFromBase(base);
+  const visits = entry.visits + top.visits;
+  const totalSpend = entry.totalSpend + top.totalSpend;
+  // 平均滞在は回数で重みを付ける（土台は回数、新しい分は滞在の分かった回数）
+  const baseWeight = top.avgStayMin > 0 ? top.visits : 0;
+  const stayWeight = baseWeight + newStayCount;
+  const dates = _customerBaseDates(top.dates, entry.dates);
+  const allDates = _customerBaseDates(dates, [top.firstVisit], [top.lastVisit], top.recentDates);
+  const attendedHistory = _customerBaseCasts(entry.attendedHistory, top.attendedHistory);
+  return {
+    ...entry,
+    visits, totalSpend,
+    avgSpend: visits > 0 ? Math.round(totalSpend / visits) : 0,
+    avgStayMin: stayWeight > 0 ? Math.round((entry.avgStayMin * newStayCount + top.avgStayMin * baseWeight) / stayWeight) : 0,
+    dates,
+    firstVisit: allDates.length ? allDates[0] : '',
+    lastVisit: allDates.length ? allDates[allDates.length - 1] : '',
+    recentDates: [...allDates].reverse().slice(0, 3),
+    visitHistory: [...(entry.visitHistory || []), ...top.visitHistory].slice(0, CUSTOMER_VISIT_HISTORY_MAX),
+    shimeiHistory: _customerBaseCasts(entry.shimeiHistory, top.shimeiHistory),
+    attendedHistory,
+    rotHistory: attendedHistory.map(item => item.cast),
+    autoMergeSources: [...new Set([...(entry.autoMergeSources || []), ...top.autoMergeSources])],
+    restoredBase: base,
+  };
+}
+
+/* 統合・名前の統合で、両方の土台を足し合わせる（片方だけならそのまま。どちらも無ければ undefined）。sinceDay は古い方 */
+function customerMergeRestoredBases(a, b) {
+  if (!a && !b) return undefined;
+  if (!a || !b) return JSON.parse(JSON.stringify(a || b));
+  const ta = customerTopFromBase(a);
+  const tb = customerTopFromBase(b);
+  const visits = ta.visits + tb.visits;
+  const weightA = ta.avgStayMin > 0 ? ta.visits : 0;
+  const weightB = tb.avgStayMin > 0 ? tb.visits : 0;
+  const dates = _customerBaseDates(ta.dates, tb.dates);
+  const allDates = _customerBaseDates(dates, [ta.firstVisit, tb.firstVisit, ta.lastVisit, tb.lastVisit], ta.recentDates, tb.recentDates);
+  const sinceDays = [a.sinceDay, b.sinceDay].filter(Boolean).sort();
+  return {
+    visits,
+    totalSpend: ta.totalSpend + tb.totalSpend,
+    avgStayMin: weightA + weightB > 0 ? Math.round((ta.avgStayMin * weightA + tb.avgStayMin * weightB) / (weightA + weightB)) : 0,
+    dates,
+    firstVisit: allDates.length ? allDates[0] : '',
+    lastVisit: allDates.length ? allDates[allDates.length - 1] : '',
+    recentDates: [...allDates].reverse().slice(0, 3),
+    visitHistory: [...ta.visitHistory, ...tb.visitHistory]
+      .sort((x, y) => String(y?.bizKey || '').localeCompare(String(x?.bizKey || ''))).slice(0, CUSTOMER_VISIT_HISTORY_MAX),
+    shimeiHistory: _customerBaseCasts(ta.shimeiHistory, tb.shimeiHistory),
+    attendedHistory: _customerBaseCasts(ta.attendedHistory, tb.attendedHistory),
+    autoMergeSources: [...new Set([...ta.autoMergeSources, ...tb.autoMergeSources])],
+    sinceDay: sinceDays[0] || '',
+  };
+}
+
 /* リスト表の精算済みデータから顧客情報を集計・マージ */
 function syncCustomers() {
   const backups = loadBackupsStrict();
@@ -30947,6 +31476,9 @@ function syncCustomers() {
       }
       const bizKey = snap.dayKey || getBizDayKey(row.settledAt ? new Date(row.settledAt) : new Date());
       const visitBaseRow = row.isFirst ? row : (rows.find(r => r.gid === row.gid && r.isFirst) || row);
+      // 戻した顧客は、戻した時点の営業日（sinceDay）より前の分を数えない（土台に入っている）
+      const baseSince = existingFull[name]?.restoredBase?.sinceDay;
+      if (baseSince && bizKey < baseSince) return;
 
       if (!aggregated[name]) aggregated[name] = { visits_detail: [], sources: [] };
       const a = aggregated[name];
@@ -31134,6 +31666,13 @@ function syncCustomers() {
       referrer:          existing[name]?.referrer || '',
       holidays:          existing[name]?.holidays || '',
     };
+    // 戻した顧客（土台あり）: 端末で集計した分（sinceDay 以降）に土台を足し合わせる
+    const restoredBase = existingFull[name]?.restoredBase;
+    if (restoredBase) rebuilt[name] = customerApplyRestoredBase(rebuilt[name], restoredBase, stayValues.length);
+  });
+  // 戻した顧客で、sinceDay 以降の来店が（取り消しなどで）無くなったものは、土台の集計に戻す
+  Object.entries(existingFull).forEach(([name, customer]) => {
+    if (!rebuilt[name] && customer?.restoredBase) rebuilt[name] = { ...customer, ...customerTopFromBase(customer.restoredBase) };
   });
 
   const merged = { ...existingFull, ...rebuilt };
@@ -31477,7 +32016,7 @@ function openCustomerDetail(name) {
         // 隣り合って "3"+"40分" が "340分" に見えていた・2026-07-25 オーナー報告）。
         // 人数には単位「名」を付けて、隣の滞在と数字が混ざらないようにする。
         const cel = 'padding:6px 8px;white-space:nowrap';
-        return `<tr><td style="${cel}">${visit.bizKey ? bizKeyToLabel(visit.bizKey) : '—'}</td><td style="${cel}">${escHtml(visit.tableNum || '—')}</td><td style="${cel};text-align:right">${Number(visit.gcount) || 0}名</td><td style="${cel};text-align:right">${_customerStayLabel(visit.stayMin)}</td><td style="${cel}">${_customerPaymentMethodLabel(visit.method)}</td><td style="${cel}">${shimei}</td><td style="${cel};text-align:right">¥${(Number(visit.amount) || 0).toLocaleString()}</td><td style="padding:6px 8px;min-width:180px;white-space:normal">${escHtml(visit.orderSummary || '—')}</td></tr>`;
+        return `<tr><td style="${cel}">${visit.bizKey ? bizKeyToLabel(visit.bizKey) : '—'}</td><td style="${cel}">${escHtml(visit.tableNum || '—')}</td><td style="${cel};text-align:right">${Number(visit.gcount) > 0 ? Number(visit.gcount) + '名' : '—'}</td><td style="${cel};text-align:right">${_customerStayLabel(visit.stayMin)}</td><td style="${cel}">${_customerPaymentMethodLabel(visit.method)}</td><td style="${cel}">${shimei}</td><td style="${cel};text-align:right">¥${(Number(visit.amount) || 0).toLocaleString()}</td><td style="padding:6px 8px;min-width:180px;white-space:normal">${escHtml(visit.orderSummary || '—')}</td></tr>`;
       }).join('')
     : '<tr><td colspan="8" style="color:var(--tx3);text-align:center;padding:12px">来店履歴はありません</td></tr>';
   const analyticsHistory = Array.isArray(cust.visitHistory) ? cust.visitHistory : [];
@@ -31768,6 +32307,10 @@ function doMerge(sourceName, targetName) {
     else if (sm && tm && sm !== tm) tgt.memo = `${tm}\n---\n${sm}`;
     if (!tgt.name2 && src.name2) tgt.name2 = src.name2;
     if (!tgt.receiptName && src.receiptName) tgt.receiptName = src.receiptName;
+    // 戻した顧客の土台は統合先へ足し合わせる（統合元の土台は残さない。二重に数えない）
+    const mergedBase = customerMergeRestoredBases(tgt.restoredBase, src.restoredBase);
+    if (mergedBase) tgt.restoredBase = mergedBase;
+    delete src.restoredBase;
     saveCustomers(customers);
   }
 
@@ -31857,6 +32400,8 @@ async function editCustomerName(oldName) {
       else if (sm && tm && sm !== tm)   custData[trimmed].memo  = `${tm}\n---\n${sm}`;
       if (!custData[trimmed].name2 && oldEntry.name2) custData[trimmed].name2 = oldEntry.name2;
       if (!custData[trimmed].receiptName && oldEntry.receiptName) custData[trimmed].receiptName = oldEntry.receiptName;
+      const mergedBase = customerMergeRestoredBases(custData[trimmed].restoredBase, oldEntry.restoredBase);
+      if (mergedBase) custData[trimmed].restoredBase = mergedBase;
     }
     delete custData[oldName];
     saveCustomers(custData);
@@ -32456,6 +33001,20 @@ function reloadAfterImport() {
   ensureStableIds();
 }
 
+/* 読み込み（JSON・クラウドの控えから戻す）のあとの再描画。取り消し履歴は新しい内容と合わないので空にする */
+function refreshAfterImport(importedTheme) {
+  undoStack = [];
+  redoStack = [];
+  renderTable();
+  renderCastPanel();
+  renderTimetable();
+  updateStoreStatusBadge();
+  refreshHistoryBtns();
+  if (importedTheme && typeof restoreThemeVisualFromPersist === 'function') restoreThemeVisualFromPersist();
+  if (typeof initListWhiteFromPersist === 'function') initListWhiteFromPersist();
+  if (typeof syncCurrentThemeSelect === 'function') syncCurrentThemeSelect();
+}
+
 function openImportDialog() {
   const input = document.getElementById('import-file-input');
   if (!input) return;
@@ -32543,16 +33102,7 @@ function onImportFileSelected(input) {
         ensureStableIds();
       }
 
-      undoStack = [];
-      redoStack = [];
-      renderTable();
-      renderCastPanel();
-      renderTimetable();
-      updateStoreStatusBadge();
-      refreshHistoryBtns();
-      if (importedTheme && typeof restoreThemeVisualFromPersist === 'function') restoreThemeVisualFromPersist();
-      if (typeof initListWhiteFromPersist === 'function') initListWhiteFromPersist();
-      if (typeof syncCurrentThemeSelect === 'function') syncCurrentThemeSelect();
+      refreshAfterImport(importedTheme);
       await appAlert('インポートが完了しました。');
     } catch(err) {
       await appAlert('ファイルの読み込みに失敗しました。\n' + err.message);
