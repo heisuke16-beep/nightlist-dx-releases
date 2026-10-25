@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.86">
+<meta name="app-version" content="1.1.87">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -7071,8 +7071,8 @@ html[data-display="desktop"] #tabs .tab-btn .tab-app-icon { width: 56px; height:
   <div class="sum-divider"></div>
   <div class="sum-item"><span class="sum-label">精算済み</span><span class="sum-val green" id="s-sales">¥0</span></div>
   <div class="sum-item"><span class="sum-label">未精算</span><span class="sum-val gold" id="s-unsettled">¥0</span></div>
-  <div class="sum-item"><span class="sum-label">総売上</span><span class="sum-val" id="s-forecast">¥0</span></div>
-  <div class="sum-item"><span class="sum-label">客単価</span><span class="sum-val" id="s-avg">—</span></div>
+  <div class="sum-item sum-item-forecast"><span class="sum-label">総売上</span><span class="sum-val" id="s-forecast">¥0</span></div>
+  <div class="sum-item sum-item-avg"><span class="sum-label">客単価</span><span class="sum-val" id="s-avg">—</span></div>
 </div>
 
 <script>
@@ -9651,7 +9651,6 @@ const CFG_DEFAULTS = {
   monitorOpsToken: '',      // 店外モニター操作トークン（初回有効化時に生成）
   monitorShopId: '',        // オーナーダッシュボード用の不変店舗ID（初回送信時に生成。shopId と同じ値）
   shopId:        '',        // 店舗ID（不変）。起動時に無ければ作る。店外モニター・ダッシュボード・保存データの meta で同じ値を使う
-  ownerExportEnabled: false, // オーナーダッシュボードへ客名を含む売上・顧客データと日計表（出退勤・給与）を送る（店の同意が要る。店外モニターON中だけ動く）
   posMenu:         {},      // POSカスタムメニュー { shot:[{name,amount},...], bottle:[...], ... }
   posCatLayout:    [],      // POSカテゴリの並び・表示 [{key,visible}]。空=既定順・全表示
   posCatLabels:    {},      // 既定POSカテゴリの表示名の上書き { set:'セット料金', ... }。未設定=既定名
@@ -9781,11 +9780,6 @@ function mergeCfgDefaults(saved) {
   merged.payrollHalfCloseDays = normalizePayrollHalfCloseDays(merged.payrollHalfCloseDays);
   // 旧既定値の28:00だけを30:00へ引き上げ、既存端末にも新しい選択肢を反映する。
   if (Number(merged.clockOutTo) === 1680) merged.clockOutTo = CFG_DEFAULTS.clockOutTo;
-  // 以前はオーナーダッシュボードへの送信が店外モニターと同じスイッチだった。今送っている店（アンベリール等）を
-  // 止めないよう、スイッチを分けた時点で店外モニターONの店だけONを引き継ぐ。新しくONにする店は明示の同意が要る（2026-09-28）
-  if (saved && !Object.prototype.hasOwnProperty.call(saved, 'ownerExportEnabled')) {
-    merged.ownerExportEnabled = merged.monitorEnabled === true;
-  }
   return merged;
 }
 
@@ -18723,8 +18717,9 @@ const RemoteMonitor = (() => {
       sending = false;
     }
     if (sent && appliedCommand) await sendNow(false);
-    // 客名・顧客メモを含むオーナーダッシュボード用データは、店が別に同意（ONに）した時だけ送る（2026-09-28 総点検）
-    if (sent && applyCommands && cfg.ownerExportEnabled === true && typeof OwnerExport !== 'undefined') await OwnerExport.syncOne();
+    // オーナーダッシュボード用データ（客名・顧客メモ・給与を含む）は、店外モニターが有効なら送る。
+    // 以前は別のスイッチ（cfg.ownerExportEnabled）があったが、2026-10-25 オーナー決定で外した。古い設定に残った値は見ない
+    if (sent && applyCommands && typeof OwnerExport !== 'undefined') await OwnerExport.syncOne();
     return sent;
   }
 
@@ -18796,6 +18791,9 @@ async function monitorReissueQr() {
   const style = document.createElement('style');
   style.id = 'remote-monitor-css';
   style.textContent = `
+    /* 閲覧用と管理者用のQRは左右に並べる。幅が足りない画面では縦に落ちる（2026-10-25 オーナー依頼） */
+    .monitor-qr-pair{width:100%;display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;align-items:start}
+    .monitor-qr-col{display:flex;flex-direction:column;gap:8px;min-width:0}
     .monitor-qr-wrap{width:100%;display:flex;flex-direction:column;align-items:center;gap:8px;padding:12px;border:1px solid var(--bdr);border-radius:8px;background:var(--sur3)}
     .monitor-qr-image{display:flex;justify-content:center;max-width:100%;padding:8px;background:#fff;border-radius:8px}
     .monitor-qr-image svg{display:block;max-width:100%;height:auto}
@@ -28515,7 +28513,7 @@ function renderSettingsPanel() {
       <div class="settings-section-header"><span class="settings-section-title">📡 店外モニター</span></div>
       <div class="settings-section-body">
         <div class="settings-row">
-          <div class="settings-label">店外モニターを有効にする<div class="settings-sub">卓ごとの人数・時間・会計の明細、出勤キャストの名前などの店内状況を、30秒ごとに運営者のサーバーへ送ります。お客様の名前は送りません</div></div>
+          <div class="settings-label">店外モニターを有効にする<div class="settings-sub">卓ごとの人数・時間・会計の明細、出勤キャストの名前などの店内状況を、30秒ごとに運営者のサーバーへ送ります。あわせてオーナーダッシュボード用に、リスト表（客名・注文の明細を含む）、顧客一覧（メモ・誕生日・職業・勤務先などを含む）、日計表（キャストの出勤・退勤・時給・バック・日給）も送り、400日保存します</div></div>
           <label style="display:flex;align-items:center;gap:6px;min-height:44px;cursor:pointer">
             <input type="checkbox" id="cfg-monitorEnabled" ${cfg.monitorEnabled ? 'checked' : ''}>
             <span>有効</span>
@@ -28537,13 +28535,6 @@ function renderSettingsPanel() {
         </div>
         </div>
         <div class="settings-row">
-          <div class="settings-label">オーナーダッシュボードへ売上・顧客・給与データも送る<div class="settings-sub">リスト表（客名・注文の明細を含む）、顧客一覧（メモ・誕生日・職業・勤務先などを含む）、日計表（キャストの出勤・退勤・時給・バック・日給）を運営者のサーバーへ送り、400日保存します。お店の同意を得てからONにしてください。店外モニターが有効な時だけ送ります</div></div>
-          <label style="display:flex;align-items:center;gap:6px;min-height:44px;cursor:pointer">
-            <input type="checkbox" id="cfg-ownerExportEnabled" ${cfg.ownerExportEnabled === true ? 'checked' : ''}>
-            <span>送る</span>
-          </label>
-        </div>
-        <div class="settings-row">
           <div class="settings-label">店舗ID（オーナーダッシュボード用）<div class="settings-sub">運営者に伝えると、ダッシュボードでこの店舗を見られるようになります</div></div>
           <code id="monitor-shop-id" style="user-select:all">${escHtml(cfg.shopId || cfg.monitorShopId || '（初回送信時に自動発行）')}</code>
         </div>
@@ -28553,11 +28544,17 @@ function renderSettingsPanel() {
         </div>
         ${RemoteMonitor.lastError() ? `<div class="settings-row"><div class="settings-label" style="color:var(--red)">⚠ ${escHtml(RemoteMonitor.lastError())}</div></div>` : ''}
         <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:8px">
-          <div class="settings-label" style="width:100%">閲覧用QRコード</div>
-          <div class="monitor-qr-wrap" id="monitor-settings-qr"></div>
-          <div class="settings-label" style="width:100%;margin-top:8px">管理者用QR（操作可）</div>
-          <div class="monitor-qr-wrap" id="monitor-settings-ops-qr"></div>
-          <div class="settings-sub" style="line-height:1.7">管理者用QRを読んだスマホは待機キャストの退勤操作ができます。渡す相手に注意してください</div>
+          <div class="monitor-qr-pair">
+            <div class="monitor-qr-col">
+              <div class="settings-label">閲覧用QRコード</div>
+              <div class="monitor-qr-wrap" id="monitor-settings-qr"></div>
+            </div>
+            <div class="monitor-qr-col">
+              <div class="settings-label">管理者用QR（操作可）</div>
+              <div class="monitor-qr-wrap" id="monitor-settings-ops-qr"></div>
+              <div class="settings-sub" style="line-height:1.7">管理者用QRを読んだスマホは待機キャストの退勤操作ができます。渡す相手に注意してください</div>
+            </div>
+          </div>
           <button type="button" class="btn danger" onclick="monitorReissueQr()" style="min-height:44px">🔄 QRを再発行</button>
           <div class="settings-sub" style="line-height:1.7">QRを読み込んだスマホだけが店内状況を見られます。スタッフが辞めた時は再発行してください。再発行したら新しいQRをスタッフに読み直してもらってください。</div>
         </div>
@@ -29544,7 +29541,6 @@ async function applySettings() {
   const screenSlipTotalOnly = get('cfg-screenSlipTotalOnly')?.value === '1';
   const fullscreenOnBoot = !!(get('cfg-fullscreenOnBoot')?.checked);
   const monitorEnabled = !!(get('cfg-monitorEnabled')?.checked);
-  const ownerExportEnabled = get('cfg-ownerExportEnabled') ? !!get('cfg-ownerExportEnabled').checked : cfg.ownerExportEnabled === true;
   const monitorEndpoint = (get('cfg-monitorEndpoint')?.value || '').trim();
   const monitorWriteToken = (get('cfg-monitorWriteToken')?.value || '').trim();
   let monitorReadToken = String(cfg.monitorReadToken || '').trim();
@@ -29698,7 +29694,7 @@ async function applySettings() {
     taxRate, taxRound, discountAfterTax, cardFeeRate, cardFeeRound, advanceFeeCredit, tillFloat,
     posKeepTableAfterCheckout,
     receiptPrinterOff, screenSlipTotalOnly,
-    showCountdown, fullscreenOnBoot, monitorEnabled, ownerExportEnabled, monitorEndpoint, monitorWriteToken, monitorReadToken, monitorOpsToken,
+    showCountdown, fullscreenOnBoot, monitorEnabled, monitorEndpoint, monitorWriteToken, monitorReadToken, monitorOpsToken,
     monitorShopId: cfg.monitorShopId || '',
     posMenu, posCatLayout, posCatLabels, posItemLabels, posCustomCats, posPrices, shimeiExtItems, drinkItems, shotLabel,
     specialRateRound: get('cfg-specialRateRound') ? (get('cfg-specialRateRound').value === '0' ? 0 : 100) : posSpecialRoundUnit(),
@@ -32991,6 +32987,10 @@ function initListWhiteFromPersist() {
     /* 第2弾K: padding0だと内蔵の戻る/オーダーボタン上端がバー境界線に密着するため縦3pxを追加して分離 */
     'html[data-display="tablet"] #summary-bar{height:auto;min-height:var(--app-footer-height);padding:3px 12px}',
     'html[data-display="tablet"] #summary-bar .sum-val{font-size:13px}',
+    /* 操作ボタンが並ぶ時（オーダー画面・紙の伝票ビュー）は、総売上・客単価・現金/カードの内訳を出さない。
+       1280px幅だとボタン8つと数字が入りきらず、横スクロールバーが線のように出ていた（2026-10-25 オーナー指示）。
+       他の画面のフッターでは今までどおり出す */
+    'html[data-display="tablet"] #summary-bar.has-pos-actions .sum-item-forecast,html[data-display="tablet"] #summary-bar.has-pos-actions .sum-item-avg,html[data-display="tablet"] #summary-bar.has-pos-actions .sum-sales-breakdown{display:none}',
     /* POSタブの埋め込み操作ボタン。base(#summary-pos-actions .pos-bottom-btn)は既にheight:36px固定なので、
        この上書きが効くまでは47b側の旧min-height:48pxが底上げしていた。36pxへ揃える */
     'html[data-display="tablet"] .pos-bottom-btn{min-height:36px}',
