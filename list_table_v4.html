@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.87">
+<meta name="app-version" content="1.1.88">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -9586,6 +9586,8 @@ const CFG_DEFAULTS = {
   vipFeePerGuest: false,             // VIP席の基本利用料を人数分にする
   vipFeePerExtension: false,         // VIP席の利用料を延長ごとに加算する
   vipFeePerExtensionPerGuest: false, // VIP席の利用料を延長ごとに人数分加算する
+  vipFeeLabel: 'VIP席利用料',        // 伝票に印字するVIP席利用料の項目名（「項目名（席名）」の形で出る。空=既定名）
+  vipFeeExtProrate: false,           // 延長の利用料を延長時間で按分する（セット分数あたりの利用料として計算。OFF=延長1回ごとに利用料そのまま）
   clockInFrom:   1200,        // 出勤時刻の選択肢・開始（分）例:1200=20:00
   clockInTo:     1410,        // 出勤時刻の選択肢・終了（分）例:1410=23:30
   clockInStep:   30,          // 出勤時刻の刻み（分）
@@ -11721,6 +11723,9 @@ function updateExtension(id, ci, value) {
   if (!row) return;
   const first = state.rows.find(r => r.gid === row.gid && r.isFirst) || row;
   const oldExtCount = (Array.isArray(first.extensions) ? first.extensions : []).filter(v => parseInt(v) > 0).length;
+  // VIP席利用料を延長時間で按分する設定のときは、回数が同じでも分数が変わると金額が変わる（30分→60分）ので分数の並びで比べる
+  const _vipExtSig = r => (Array.isArray(r.extensions) ? r.extensions : []).map(v => parseInt(v) > 0 ? parseInt(v) : 0).join(',');
+  const oldExtSig = cfg.vipFeeExtProrate ? _vipExtSig(first) : '';
   row.extensions[ci] = value;
   row.endMin = calcEndMin(row, state.rows);
   // 先頭行の延長変更は同組全員の同列に連動。数値ならこのラウンドの課金席数(退席を除く)を記録。
@@ -11738,7 +11743,8 @@ function updateExtension(id, ci, value) {
     });
   }
   const newExtCount = (Array.isArray(first.extensions) ? first.extensions : []).filter(v => parseInt(v) > 0).length;
-  if (newExtCount !== oldExtCount) syncVipFeeOrder(first);
+  const newExtSig = cfg.vipFeeExtProrate ? _vipExtSig(first) : '';
+  if (newExtCount !== oldExtCount || newExtSig !== oldExtSig) syncVipFeeOrder(first);
   renderTable();
   if (typeof renderPOSPanel === 'function') renderPOSPanel();
   saveState();
@@ -14900,24 +14906,85 @@ function vipFeeUnits(row, settings) {
   const extUnit = src.vipFeePerExtensionPerGuest ? guests : (src.vipFeePerExtension ? 1 : 0);
   return baseUnits + extCount * extUnit;
 }
+/* 伝票に印字するVIP席利用料の項目名。空欄は既定名（cfg.vipFeeLabel、2026-10-25）。 */
+function vipFeeLabel(settings) {
+  const src = settings || {};
+  return String(src.vipFeeLabel ?? '').trim() || 'VIP席利用料';
+}
+/* 行の卓番号に一致するVIP席（利用料が立つ席だけ）。無ければ null。
+   syncVipFeeOrder と延長試算（_posExtTrial）が同じ判定を使い、試算と実額を一致させる。 */
+function vipSeatForRow(row, settings) {
+  const src = settings || {};
+  const seat = (Array.isArray(src.vipSeats) ? src.vipSeats : [])
+    .find(item => item && item.name === String(row?.tableNum ?? ''));
+  return seat && (Number(seat.fee) || 0) > 0 ? seat : null;
+}
+/* 延長1回あたりの利用料の掛け数（人数分=人数 / 延長ごと=1 / 加算なし=0）。vipFeeUnits と同じ規則。 */
+function vipFeeExtUnit(row, settings) {
+  const src = settings || {};
+  const guests = Number(row?.gcount) || 1;
+  return src.vipFeePerExtensionPerGuest ? guests : (src.vipFeePerExtension ? 1 : 0);
+}
+/* 延長m分で加算する利用料の単価。按分OFFは延長の長さによらず利用料そのまま（従来どおり）。
+   按分ONは「セット分数あたりの利用料」として延長分数に比例（基準=セット分数 defStay、未設定は60分）。 */
+function vipFeeExtAmount(fee, extMin, settings) {
+  const src = settings || {};
+  const amount = Number(fee) || 0;
+  if (!src.vipFeeExtProrate) return amount;
+  const basis = Number(src.defStay) > 0 ? Number(src.defStay) : 60;
+  return Math.round(amount * (Number(extMin) || 0) / basis);
+}
+/* VIP席利用料の自動明細を [{name, amount, qty}] で返す純関数（先頭=基本料、続けて延長の按分明細を延長分数の昇順）。
+   按分OFF、または延長で加算しない設定のときは従来どおり1行（qty=vipFeeUnits）。 */
+function vipFeeLines(row, settings, seat) {
+  const src = settings || {};
+  const fee = Number(seat?.fee) || 0;
+  if (!seat || fee <= 0) return [];
+  const label = vipFeeLabel(src) + '（' + seat.name + '）';
+  const extUnit = vipFeeExtUnit(row, src);
+  if (!src.vipFeeExtProrate || extUnit <= 0) {
+    const units = vipFeeUnits(row, src);
+    return units > 0 ? [{ name: label, amount: fee, qty: units }] : [];
+  }
+  const guests = Number(row?.gcount) || 1;
+  const lines = [{ name: label, amount: fee, qty: src.vipFeePerGuest ? guests : 1 }];
+  // 延長を分数ごとにまとめる（30分2回 → 1行・数量2回分）
+  const byMin = new Map();
+  (Array.isArray(row?.extensions) ? row.extensions : []).forEach(value => {
+    const min = parseInt(value);
+    if (min > 0) byMin.set(min, (byMin.get(min) || 0) + 1);
+  });
+  [...byMin.keys()].sort((a, b) => a - b).forEach(min => {
+    const amount = vipFeeExtAmount(fee, min, src);
+    if (amount > 0) lines.push({ name: label + '延長' + min + '分', amount, qty: byMin.get(min) * extUnit });
+  });
+  return lines;
+}
+/* 次に延長m分を入れたとき、VIP席利用料として課税対象に増える金額（延長試算用）。VIP席でなければ0。 */
+function vipFeeExtIncrement(row, settings, extMin) {
+  const src = settings || {};
+  const seat = vipSeatForRow(row, src);
+  const extUnit = vipFeeExtUnit(row, src);
+  if (!seat || extUnit <= 0) return 0;
+  return vipFeeExtAmount(Number(seat.fee) || 0, extMin, src) * extUnit;
+}
 function syncVipFeeOrder(row) {
   if (!row || row.settled) return;
   const orders = posOrders(row);
   for (let i = orders.length - 1; i >= 0; i--) {
     if (orders[i]?.vipAuto === true) orders.splice(i, 1);
   }
-  const seat = (Array.isArray(cfg.vipSeats) ? cfg.vipSeats : [])
-    .find(item => item && item.name === String(row.tableNum ?? ''));
-  const fee = Number(seat?.fee) || 0;
-  if (!seat || fee <= 0) return;
-  const units = vipFeeUnits(row, cfg);
-  if (units <= 0) return;
+  const seat = vipSeatForRow(row, cfg);
+  if (!seat) return;
+  const lines = vipFeeLines(row, cfg, seat);
+  if (!lines.length) return;
   const createdAt = Date.now();
-  orders.unshift({
+  // 基本料→延長の順を保つため、まとめて先頭へ差し込む
+  orders.unshift(...lines.map(line => ({
     id: 'po_vip_' + createdAt + '_' + Math.random().toString(36).slice(2, 7),
-    name: 'VIP席利用料（' + seat.name + '）', amount: fee, qty: units,
+    name: line.name, amount: line.amount, qty: line.qty,
     category: 'vip', vipAuto: true, createdAt,
-  });
+  })));
 }
 function posSelectedRow() {
   const firsts = posFirstRows();
@@ -24640,7 +24707,9 @@ function _posExtTrial(row, extMin, trialCasts = []) {
   // 今回の延長は何回目か＝既存ラウンド数（押した後の延長だけに乗る判定を実精算と揃える）。
   const nextRoundNo = (typeof _posExtRounds === 'function') ? _posExtRounds(row).length : 0;
   const emptyJonaiExtra = (typeof _emptyJonaiForRound === 'function') ? _emptyJonaiForRound(row, idx, seatCount, nextRoundNo) : 0;
-  const t = _posComputeTotals(calcBill(row).subtotal, posOrders(row), extPriceTotal + enchoshimeiExtra + emptyJonaiExtra);
+  // VIP席の延長ごとの利用料：次の延長で増える分（按分ONなら延長分数に比例）。実際に延長した後の伝票（syncVipFeeOrder）と同じ式。
+  const vipFeeExtra = (typeof vipFeeExtIncrement === 'function') ? vipFeeExtIncrement(row, cfg, extMin) : 0;
+  const t = _posComputeTotals(calcBill(row).subtotal, posOrders(row), extPriceTotal + enchoshimeiExtra + emptyJonaiExtra + vipFeeExtra);
   const advance = (typeof _posAdvancePrincipal === 'function') ? _posAdvancePrincipal(row) : 0;
   const dueCash = Math.max(0, t.cash - advance);
   const dueCard = ceilAddRate(dueCash, cfg.cardFeeRate || 0, cfg.cardFeeRound || 100);
@@ -28160,6 +28229,15 @@ function renderSettingsPanel() {
                 <input type="checkbox" id="cfg-vipFeePerExtensionPerGuest" ${cfg.vipFeePerExtensionPerGuest ? 'checked' : ''}>
                 <span>延長ごとに人数分加算する<span class="settings-sub">オンの場合「延長ごとに加算」より優先</span></span>
               </label>
+              <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:13px;min-height:44px">
+                <input type="checkbox" id="cfg-vipFeeExtProrate" ${cfg.vipFeeExtProrate === true ? 'checked' : ''}>
+                <span>延長の利用料を延長時間で按分する<span class="settings-sub">セットの分数あたりの利用料として計算。例: セット60分・利用料¥2,000なら延長30分は¥1,000（上の「延長ごとに加算」がオンのときに効きます）</span></span>
+              </label>
+              <label style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;font-size:13px;min-height:44px">
+                <span>伝票の項目名</span>
+                <input type="text" class="settings-input" id="cfg-vipFeeLabel" value="${escAttr(vipFeeLabel(cfg))}" placeholder="VIP席利用料" maxlength="20" style="width:200px">
+                <span class="settings-sub">伝票には「項目名（席名）」と印字されます。空欄は「VIP席利用料」</span>
+              </label>
             </div>
           </div>
         </div>
@@ -29392,6 +29470,12 @@ async function applySettings() {
   const vipFeePerGuest = !!(get('cfg-vipFeePerGuest')?.checked);
   const vipFeePerExtension = !!(get('cfg-vipFeePerExtension')?.checked);
   const vipFeePerExtensionPerGuest = !!(get('cfg-vipFeePerExtensionPerGuest')?.checked);
+  // 按分・項目名は画面に欄が無いときは今の値のまま（空欄の項目名は既定名に戻す）
+  const vipFeeExtProrate = get('cfg-vipFeeExtProrate') ? !!get('cfg-vipFeeExtProrate').checked : cfg.vipFeeExtProrate === true;
+  const vipFeeLabelInput = get('cfg-vipFeeLabel');
+  const vipFeeLabelValue = vipFeeLabelInput
+    ? (String(vipFeeLabelInput.value || '').trim().slice(0, 20) || 'VIP席利用料')
+    : vipFeeLabel(cfg);
   const rankVip            = parseInt(get('cfg-rankVip')?.value)            || cfg.rankVip;
   const rankRepeat         = parseInt(get('cfg-rankRepeat')?.value)         || cfg.rankRepeat;
   const birthdayAlertVal   = parseInt(get('cfg-birthdayAlertDays')?.value);
@@ -29683,6 +29767,7 @@ async function applySettings() {
     clockInFrom, clockInTo, clockInStep,
     clockOutFrom, clockOutTo, clockOutStep,
     tableMax, tableNames, vipEnabled, vipSeats, vipFeePerGuest, vipFeePerExtension, vipFeePerExtensionPerGuest,
+    vipFeeExtProrate, vipFeeLabel: vipFeeLabelValue,
     extOptions, sources, conditions, staffNames, hqOutLabels, specialInLabels, rankVip, rankRepeat,
     birthdayAlertDays,
     setPrice, earlySetEnabled, earlySetFromH, earlySetToH, earlySetPrice,
