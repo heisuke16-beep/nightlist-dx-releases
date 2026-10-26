@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.89">
+<meta name="app-version" content="1.1.91">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -8775,7 +8775,12 @@ const SelfUpdate = {
       if (!res || !res.ok) return null;
       const info = await res.json();
       if (!info || info.managed !== true) return null;
-      return { fileVersion: String(info.fileVersion || ''), lastResult: String(info.lastResult || '') };
+      return {
+        fileVersion: String(info.fileVersion || ''),
+        lastCheck: String(info.lastCheck || ''),
+        lastResult: String(info.lastResult || ''),
+        lastMessage: String(info.lastMessage || ''),
+      };
     } catch (_) {
       return null;
     }
@@ -8816,6 +8821,96 @@ const SelfUpdate = {
       return this._result('ready', `✅ v${managed.fileVersion} が準備できています。ブラウザを開き直すと反映されます`);
     }
     return this._result('latest', `最新版です（v${this.currentVersion()}）。更新は端末が自動で受け取ります`);
+  },
+
+  /* 設定の「今すぐ更新」（2026-10-26 オーナー要望: 押したらその場で更新を取りに行く）。
+     管理端末ではアプリ自身は何も書き換えない。配信サーバーの POST /__update_now に
+     端末側アップデーターの起動を頼み、/__update_status の lastCheck が変わるのを待って結果を読む。
+     頼めない（古い配信サーバー・404・通信失敗）ときは、状態を見せるだけの従来の応答に戻す。 */
+  async _runManagedUpdateNow(managed, onProgress, options = {}) {
+    const pollIntervalMs = Number.isFinite(options.pollIntervalMs) ? options.pollIntervalMs : 2000;
+    const pollTimeoutMs = Number.isFinite(options.pollTimeoutMs) ? options.pollTimeoutMs : 90000;
+
+    const started = await this._requestManagedUpdateNow();
+    if (!started) return this._managedFallbackResult(managed);
+
+    onProgress('配信元から新しい版を受け取っています…');
+    const deadline = Date.now() + pollTimeoutMs;
+    for (;;) {
+      await this._sleep(pollIntervalMs);
+      const latest = await this._fetchManagedStatus();
+      if (latest) {
+        if (latest.lastCheck !== managed.lastCheck) return this._managedUpdateNowOutcome(latest);
+        if (started.recent) {
+          // 直前の押下で動いた確認の結果を受け取る場合: すでに新しい版が届いている、
+          // もしくは直前に確認が終わっている（lastCheck が変わらないまま終わっていた）なら、その結果を返す
+          if (this._managedHasNewer(latest) || this._isRecentCheck(latest.lastCheck)) return this._managedUpdateNowOutcome(latest);
+        }
+      }
+      if (Date.now() >= deadline) break;
+    }
+    return this._result('timeout', '確認に時間がかかっています。少し待ってからもう一度押してください');
+  },
+
+  /* POST /__update_now。受け付けられたとき（202）だけ { recent } を返し、それ以外は null。
+     recent は「前回の起動から20秒以内なので、サーバーは起動し直さなかった」の意味。 */
+  async _requestManagedUpdateNow() {
+    try {
+      const controller = (typeof AbortController === 'function') ? new AbortController() : null;
+      const timer = controller ? setTimeout(() => controller.abort(), 3000) : null;
+      let res;
+      try {
+        res = await fetch('/__update_now', {
+          method: 'POST',
+          headers: { 'X-NightList-Action': 'update-now' },
+          cache: 'no-store',
+          signal: controller ? controller.signal : undefined,
+        });
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+      if (!res || res.status !== 202) return null;
+      let info = null;
+      try { info = await res.json(); } catch (_) { info = null; }
+      const recent = !!info && info.started === false && info.reason === 'recent';
+      if (info && info.started === false && !recent) return null;
+      return { recent };
+    } catch (_) {
+      return null;
+    }
+  },
+
+  /* 頼めなかったとき。準備済みの新しい版があればそれを案内し、無いときは「最新版です」とは言わず
+     （確認していないため）、端末が自動で受け取るタイミングと、今すぐ受け取る手順を伝える。 */
+  _managedFallbackResult(managed) {
+    const result = this._managedResult(managed);
+    if (result.status !== 'latest') return result;
+    return this._result('latest', `現在 v${this.currentVersion()} です。この端末は更新を自動で受け取ります（Windowsにサインインして約2分後と、毎日13:00）。今すぐ受け取るには、端末を再起動して約3分後にNightListを開き直してください`);
+  },
+
+  _managedUpdateNowOutcome(status) {
+    if (this._managedHasNewer(status)) {
+      // 開き直しの案内。すでに同じ版の案内が出ていれば _showUpdateNotification が重ねて出さない
+      this._showUpdateNotification(status.fileVersion, this.currentVersion(), { reloadOnly: true });
+      return this._result('ready', `✅ v${status.fileVersion} を受け取りました。開き直すと反映されます`);
+    }
+    if (status.lastResult === 'latest' || status.lastResult === 'updated') {
+      return this._result('latest', `最新版です（v${this.currentVersion()}）`);
+    }
+    if (status.lastResult === 'offline') {
+      return this._result('error', '配信元に届きませんでした。インターネットにつながっているか確かめてください');
+    }
+    return this._result('error', `更新できませんでした（${status.lastMessage || status.lastResult || '原因不明'}）`);
+  },
+
+  /* lastCheck（ISO8601）が直近の確認かどうか。読めない値は「直近ではない」として扱う。 */
+  _isRecentCheck(lastCheck, withinMs = 30000) {
+    const at = Date.parse(lastCheck);
+    return Number.isFinite(at) && (Date.now() - at) >= -5000 && (Date.now() - at) <= withinMs;
+  },
+
+  _sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
   },
 
   _showUpdateNotification(remoteVersion, currentVersion, { reloadOnly = false } = {}) {
@@ -8913,7 +9008,12 @@ const SelfUpdate = {
       onProgress('確認中…');
       // 端末側スクリプトが更新を受け持つ端末では、ファイルの書き換えもファイル選択も行わない
       const managed = await this._fetchManagedStatus();
-      if (managed) return this._managedResult(managed);
+      if (managed) {
+        // 自動確認（interactive:false）は従来どおり状態を見るだけ。ボタンを押したときだけ、
+        // 端末側に「いま取りに行って」と頼んで結果を待つ（2026-10-26 オーナー要望）
+        if (options.interactive !== false) return await this._runManagedUpdateNow(managed, onProgress, options);
+        return this._managedResult(managed);
+      }
 
       if (!UsbStore.active || !UsbStore._dirHandle) return this._result('aborted', 'USBモードで利用できます');
 
@@ -9504,6 +9604,41 @@ function extItemLabel(min, idx, settings) {
   const names = (src && Array.isArray(src.extNames)) ? src.extNames : [];
   return String(names[idx] ?? '').trim() || ('延長' + min + '分');
 }
+/* 延長料金の表の分数を重複なしで返す（リスト表・過去レポートの延長欄の選択肢。同じ分数の行があっても「30」は1つ） */
+function extMinuteChoices(settings) {
+  const src = settings || (typeof cfg !== 'undefined' ? cfg : null);
+  const opts = (src && Array.isArray(src.extOptions)) ? src.extOptions : [];
+  return opts.filter((v, i) => opts.findIndex(w => String(w) === String(v)) === i);
+}
+/* 延長料金の表に同じ分数の行が2つ以上あるか。ある店だけ、画面の「◯分」の欄を品目名で出す */
+function extTableHasSameMinutes(settings) {
+  const src = settings || (typeof cfg !== 'undefined' ? cfg : null);
+  const opts = (src && Array.isArray(src.extOptions)) ? src.extOptions : [];
+  return opts.some((v, i) => opts.findIndex(w => Number(w) === Number(v)) !== i);
+}
+/* 延長の行の引き当て（金額・品目名を引く所はすべてここを通す）。伝票に記録した品目名と分数が両方合う行の番号、
+   記録が無い・見つからないときは同じ分数の最初の行（従来の動き）、分数の行も無ければ -1。 */
+function extRowIndexFor(min, label, settings) {
+  const src = settings || (typeof cfg !== 'undefined' ? cfg : null);
+  const opts = (src && Array.isArray(src.extOptions)) ? src.extOptions : [];
+  const text = String(label ?? '');
+  if (text) {
+    for (let i = 0; i < opts.length; i++) {
+      if (Number(opts[i]) === Number(min) && extItemLabel(opts[i], i, src) === text) return i;
+    }
+  }
+  return opts.indexOf(min);
+}
+/* POSの延長ボタンから外した行か。行の品目名の設定（extPosHiddenRows。画面で保存済みなら extPosByRow）を優先し、
+   無ければ従来の分数（extPosHidden）。外す行が0件の保存でも古い分数の設定へ戻らないよう、extPosByRow を立てる。 */
+function extPosButtonHidden(min, idx, settings) {
+  const src = settings || (typeof cfg !== 'undefined' ? cfg : null);
+  const rows = src && src.extPosHiddenRows;
+  if (Array.isArray(rows) && (rows.length > 0 || src.extPosByRow === true)) {
+    return rows.map(String).includes(extItemLabel(min, idx, src));
+  }
+  return ((src && Array.isArray(src.extPosHidden)) ? src.extPosHidden : []).map(Number).includes(Number(min));
+}
 function shimeiExtDefaultItems() {
   return {
     enshi: SHIMEI_EXT_DEFAULTS.enshi.map(item => ({ ...item })),
@@ -9588,6 +9723,8 @@ const CFG_DEFAULTS = {
   vipFeePerExtensionPerGuest: false, // VIP席の利用料を延長ごとに人数分加算する
   vipFeeLabel: 'VIP席利用料',        // 伝票に印字するVIP席利用料の項目名（「項目名（席名）」の形で出る。空=既定名）
   vipFeeExtProrate: false,           // 延長の利用料を延長時間で按分する（セット分数あたりの利用料として計算。OFF=延長1回ごとに利用料そのまま）
+  vipTaxRateEnabled: false,          // VIP席を使った伝票は、会計全体の税サ率を変える（cfg.vipEnabled がオフのときは効かない。2026-10-26）
+  vipTaxRate: null,                  // 上がONのときの税サ率（%）。空(null)・数でない値は「変えない」＝通常の taxRate
   clockInFrom:   1200,        // 出勤時刻の選択肢・開始（分）例:1200=20:00
   clockInTo:     1410,        // 出勤時刻の選択肢・終了（分）例:1410=23:30
   clockInStep:   30,          // 出勤時刻の刻み（分）
@@ -9596,6 +9733,8 @@ const CFG_DEFAULTS = {
   clockOutStep:  30,          // 退勤時刻の刻み（分）
   extOptions:   [20, 40, 60],// 延長の選択肢（分）
   extPosHidden: [],           // 延長の選択肢のうちPOSの延長ボタンに出さない分数（料金表には残る）
+  extPosHiddenRows: [],       // POSの延長ボタンに出さない行の品目名（同じ分数の行を分けて隠せる）。使われていればこちらを優先、無ければ上の分数
+  extPosByRow: false,         // 設定画面が extPosHiddenRows で保存したら true（外す行が0件でも上の分数へ戻らない）
   sources:      ['フロント','不明','新規','TikTok','紹介','案内所'],
   conditions:   ['NF','40込み','50込み','60込み','70込み'],
   staffNames:   [],          // 社員名簿（日次締め・社員日払いの名前補完に使用）
@@ -11160,6 +11299,7 @@ function normalizeRow(row, ctx) {
   row.rotations  = row.rotations.slice(0, rotCols);
   row.rotations2 = row.rotations2.slice(0, rotCols);
   row.extensions = row.extensions.slice(0, extCols);
+  if (Array.isArray(row.extLabels)) row.extLabels = row.extLabels.slice(0, extCols);   // 延長の行（品目名）の記録も列数に揃える
   // 旧 mainModoru フラグ → 新 mainType (modori_*) へマイグレーション。
   // 戻りボタンを廃止し、出戻りを mainType の独立3種で表現するための変換。
   if (row.mainModoru) {
@@ -11720,6 +11860,25 @@ function updateRotation2(id, ci, value) {
   renderTable();
   saveState();
 }
+/* 延長欄(ci列)の分数を変えたあと、先頭行の行の記録（extLabels[ci]）を直す。空にしたら消し、分数を変えたら
+   数字と空白を除いた品目名が同じ別の分数の行（例「テーブル延長30分」→「テーブル延長60分」）へ付け替え、無ければ空（最初の行）。 */
+function extLabelSyncAfterChange(row, ci, oldMin, value) {
+  if (!row || !Array.isArray(row.extLabels) || !row.extLabels[ci]) return;
+  const newMin = parseInt(value) || 0;
+  if (newMin === (oldMin || 0)) return;
+  const strip = s => String(s || '').replace(/[0-9０-９\s　]/g, '');
+  const want = strip(row.extLabels[ci]);
+  let next = '';
+  if (newMin > 0 && want) {
+    const opts = Array.isArray(cfg.extOptions) ? cfg.extOptions : [];
+    for (let i = 0; i < opts.length; i++) {
+      if (Number(opts[i]) !== newMin) continue;
+      const label = extItemLabel(opts[i], i);
+      if (strip(label) === want) { next = label; break; }
+    }
+  }
+  row.extLabels[ci] = next;
+}
 function updateExtension(id, ci, value) {
   const row = state.rows.find(r => r.id === id);
   if (!row) return;
@@ -11728,6 +11887,7 @@ function updateExtension(id, ci, value) {
   // VIP席利用料を延長時間で按分する設定のときは、回数が同じでも分数が変わると金額が変わる（30分→60分）ので分数の並びで比べる
   const _vipExtSig = r => (Array.isArray(r.extensions) ? r.extensions : []).map(v => parseInt(v) > 0 ? parseInt(v) : 0).join(',');
   const oldExtSig = cfg.vipFeeExtProrate ? _vipExtSig(first) : '';
+  const oldExtMin = parseInt(row.extensions[ci]) || 0;
   row.extensions[ci] = value;
   row.endMin = calcEndMin(row, state.rows);
   // 先頭行の延長変更は同組全員の同列に連動。数値ならこのラウンドの課金席数(退席を除く)を記録。
@@ -11739,6 +11899,7 @@ function updateExtension(id, ci, value) {
       ? ((row.gcount || 1) >= 2 ? Math.max(1, (typeof _posExtSeats === 'function' ? _posExtSeats(row) : (row.gcount || 1))) : 1)
       : null;
     if (Array.isArray(row.extRecordOnly)) row.extRecordOnly[ci] = false; // リスト表から直接入れた延長は、先頭行の分も実際の席として出す
+    extLabelSyncAfterChange(row, ci, oldExtMin, value);
     state.rows.filter(r => r.gid === row.gid && !r.isFirst).forEach(r => {
       r.extensions[ci] = value;
       r.endMin = calcEndMin(r, state.rows);
@@ -11915,16 +12076,16 @@ function calcBill(row) {
     base += _posExtBaseTotal(row);
   } else {
     // フォールバック（_posExtBaseTotal 未ロード時）：席数1（卓単位）で計上。
-    (row.extensions || []).forEach(ext => {
+    (row.extensions || []).forEach((ext, i) => {
       const min = parseInt(ext);
       if (!min) return;
-      const idx = (cfg.extOptions || []).indexOf(min);
+      const idx = extRowIndexFor(min, Array.isArray(row.extLabels) ? row.extLabels[i] : '');
       if (idx >= 0 && cfg.extPrices && cfg.extPrices[idx]) base += cfg.extPrices[idx];
     });
   }
   // ※延長"指名料"の自動加算は本店ルールで全廃。源泉はボーイ手入力の本延/延指オーダーのみ（posOrders側で計上）。
   //   かつての _ef() による mainType/subCast 由来の延長指名料の自動加算はここから削除済み。
-  const cash = ceilAddRate(base, cfg.taxRate || 0, cfg.taxRound || 100);
+  const cash = ceilAddRate(base, taxRateForRow(row), cfg.taxRound || 100);   // 税サ率はVIP席を使った伝票だけ変わりうる（taxRateForRow）
   const card = ceilAddRate(cash, cfg.cardFeeRate || 0, cfg.cardFeeRound || 100);
   return { subtotal: base, cash, card };
 }
@@ -12700,7 +12861,7 @@ function removeExtCol() {
   const removedIdx = state.extCols - 1;
   const changedFirstRows = state.rows.filter(r => r.isFirst && parseInt(r.extensions?.[removedIdx]) > 0);
   state.extCols--;
-  state.rows.forEach(r => { r.extensions = r.extensions.slice(0, state.extCols); r.endMin = calcEndMin(r, state.rows); });
+  state.rows.forEach(r => { r.extensions = r.extensions.slice(0, state.extCols); if (Array.isArray(r.extLabels)) r.extLabels = r.extLabels.slice(0, state.extCols); r.endMin = calcEndMin(r, state.rows); });
   changedFirstRows.forEach(syncVipFeeOrder);
   renderTable(); saveState();
 }
@@ -12914,7 +13075,7 @@ function tableOptions(sel) {
   return h;
 }
 function extSelectHtml(id, ci, val) {
-  const opts = ['', ...cfg.extOptions].map(v=>`<option value="${v}"${String(v)===String(val)?' selected':''}>${v||'-'}</option>`).join('');
+  const opts = ['', ...extMinuteChoices()].map(v=>`<option value="${v}"${String(v)===String(val)?' selected':''}>${v||'-'}</option>`).join('');
   return `<select class="${val ? '' : 'is-empty'}" style="width:42px" onchange="updateExtension('${id}',${ci},this.value)">${opts}</select>`;
 }
 
@@ -14921,6 +15082,39 @@ function vipSeatForRow(row, settings) {
     .find(item => item && item.name === String(row?.tableNum ?? ''));
   return seat && (Number(seat.fee) || 0) > 0 ? seat : null;
 }
+/* VIP席を使った伝票か（2026-10-26）。vipSeatForRow は利用料が立つ席だけ返すので、利用料0円の席も含めるために別に持つ。
+   卓は行の今の tableNum（利用料の自動明細 syncVipFeeOrder と同じ基準＝卓を移せば判定も移る）。
+   cfg.vipEnabled がオフなら常に false。 */
+function isVipSeatRow(row, settings) {
+  const src = settings || {};
+  if (!src.vipEnabled) return false;
+  const table = String(row?.tableNum ?? '');
+  if (!table) return false;
+  return (Array.isArray(src.vipSeats) ? src.vipSeats : []).some(item => item && item.name === table);
+}
+/* VIP席を使った伝票の税サ率（%）。空・数でない値・負の値は null（＝変えない）。数の文字列("40")は数として読む。 */
+function vipTaxRateOf(settings) {
+  const raw = settings?.vipTaxRate;
+  if (raw === null || raw === undefined || raw === '' || typeof raw === 'boolean') return null;
+  const rate = Number(raw);
+  return Number.isFinite(rate) && rate >= 0 ? rate : null;
+}
+/* 伝票の税サ率（%）を決める単一窓口。伝票の金額を出すすべての所（calcBill・_posBaseTotals・延長試算）がこれを通る。
+   VIP席を使った伝票だけ cfg.vipTaxRate、それ以外（機能オフ・率が空・VIP席でない）は今までどおり cfg.taxRate。 */
+function taxRateForRow(row, settings) {
+  const src = settings || cfg;
+  const base = src.taxRate || 0;
+  if (src.vipTaxRateEnabled !== true) return base;
+  const vipRate = vipTaxRateOf(src);
+  if (vipRate === null || !isVipSeatRow(row, src)) return base;
+  return vipRate;
+}
+/* 会計伝票の「税サ」に添える率の表示。VIP席の率が実際に効いていて通常の率と違うときだけ「(40%)」。それ以外は空（今までの表示のまま）。 */
+function taxRateNoteForRow(row, settings) {
+  const src = settings || cfg;
+  const rate = taxRateForRow(row, src);
+  return rate === (src.taxRate || 0) ? '' : '(' + rate + '%)';
+}
 /* 延長1回あたりの利用料の掛け数（人数分=人数 / 延長ごと=1 / 加算なし=0）。vipFeeUnits と同じ規則。 */
 function vipFeeExtUnit(row, settings) {
   const src = settings || {};
@@ -15012,8 +15206,9 @@ function posSpecialValue(item) {
   const value = Number(raw);
   return Number.isFinite(value) ? Math.max(0, value) : 0;
 }
-/* 特殊項目を除いた既存会計。割合の基準を全特殊項目で共有し、順序依存・複利を防ぐ。 */
-function _posBaseTotals(seatSubtotal, orders, extraTaxable) {
+/* 特殊項目を除いた既存会計。割合の基準を全特殊項目で共有し、順序依存・複利を防ぐ。
+   row は税サ率を決める伝票（VIP席を使った伝票だけ率が変わる。taxRateForRow）。渡さなければ通常の率。 */
+function _posBaseTotals(seatSubtotal, orders, extraTaxable, row) {
   const taxRound     = cfg.taxRound     || 100;
   let taxable = (seatSubtotal || 0) + (extraTaxable || 0);
   let incl = 0;
@@ -15027,7 +15222,7 @@ function _posBaseTotals(seatSubtotal, orders, extraTaxable) {
     else taxable += amt;
   });
   const subtotal = taxable + incl + postTax;
-  const cash = ceilAddRate(taxable, cfg.taxRate || 0, taxRound) + incl + postTax;
+  const cash = ceilAddRate(taxable, taxRateForRow(row), taxRound) + incl + postTax;
   return { subtotal, cash };
 }
 function posSpecialRoundUnit() { return cfg.specialRateRound === 0 ? 0 : 100; }
@@ -15050,11 +15245,12 @@ function posOrderLineAmount(order, baseTotals) {
   return posOrderUnitAmount(order, baseTotals) * (Number(order?.qty) || 1);
 }
 function posOrderPricing(row, extraTaxable) {
-  return _posBaseTotals(calcBill(row).subtotal, posOrders(row), extraTaxable || 0);
+  return _posBaseTotals(calcBill(row).subtotal, posOrders(row), extraTaxable || 0, row);
 }
-function _posComputeTotals(seatSubtotal, orders, extraTaxable) {
+/* row は税サ率を決める伝票（_posBaseTotals と同じ）。 */
+function _posComputeTotals(seatSubtotal, orders, extraTaxable, row) {
   const cardFeeRound = cfg.cardFeeRound || 100;
-  const baseTotals = _posBaseTotals(seatSubtotal, orders, extraTaxable);
+  const baseTotals = _posBaseTotals(seatSubtotal, orders, extraTaxable, row);
   const special = (orders || []).reduce((sum, order) => order?.category === 'special'
     ? sum + posOrderLineAmount(order, baseTotals) : sum, 0);
   const subtotal = baseTotals.subtotal + special;
@@ -15188,7 +15384,9 @@ function _posExtSeats(row) {
    gcountは入店の記録なので減らさない（2026-09-23 オーナー指摘: 退席させても伝票の人数が入店時のままだった）。 */
 function _posCurrentGuests(row) { return _posExtSeats(row); }
 
-/* 先頭行の延長ラウンド一覧 [{min, seats}]。seats=そのラウンドを入れた時点の課金席数。
+/* 先頭行の延長ラウンド一覧 [{min, seats, slot, label, idx}]。seats=そのラウンドを入れた時点の課金席数。
+   slot=延長欄の列番号。label=伝票に記録した行の品目名（row.extLabels[slot]。記録が無ければ空）。
+   idx=延長料金の表の行番号（extRowIndexFor の引き当て結果。金額・品目名はすべてこれで引く）。
    帰宅後に入れた延長は席数が減る＝ラウンドごとに席数が異なりうる（既存ラウンドは不変）。
    row.extSeats[i] に記録した席数を使う。古いデータ(未記録)は基本席数で補完。1名卓は常に1。
    ※先頭行だけで完結するので、ライブ・過去レポート（バックアップ行）両方で正しく動く。 */
@@ -15205,7 +15403,8 @@ function _posExtRounds(row) {
     const min = parseInt(v); if (!min) return;
     let seats = (seatsArr[i] != null) ? Number(seatsArr[i]) : baseSeats;
     if (!multi) seats = 1;
-    out.push({ min, seats: Math.max(1, seats) });
+    const label = Array.isArray(row.extLabels) ? String(row.extLabels[i] || '') : '';
+    out.push({ min, seats: Math.max(1, seats), slot: i, label, idx: extRowIndexFor(min, label) });
   });
   return out;
 }
@@ -15288,7 +15487,7 @@ function _posExtBaseTotal(row) {
         : []);
   let sum = 0;
   rounds.forEach((g, roundNo) => {
-    const idx = (cfg.extOptions || []).indexOf(g.min);
+    const idx = (g.idx != null) ? g.idx : extRowIndexFor(g.min);
     if (idx >= 0 && cfg.extPrices && cfg.extPrices[idx]) {
       const seats = (cfg.extBasePerSeat === false) ? 1 : Math.max(1, g.seats || 1);
       sum += cfg.extPrices[idx] * seats;
@@ -15300,7 +15499,7 @@ function _posExtBaseTotal(row) {
 function _posCalcTotal(row) {
   // 延長基本料は calcBill(row).subtotal に全席ぶん込み（calcBill が _posExtBaseTotal を呼ぶ）。
   // よって extraTaxable には足さない（足すと二重計上）。
-  return _posComputeTotals(calcBill(row).subtotal, posOrders(row), 0);
+  return _posComputeTotals(calcBill(row).subtotal, posOrders(row), 0, row);
 }
 /* 前金の内訳。principal＝入力した元本の合計（現金・カード・手数料カット）。
    extraFee＝カードを分けて切ったときに切り上げが複数回起きて、お客様が一括より多く払った手数料。
@@ -15417,26 +15616,26 @@ function _posSeatLineItems(row) {
     const line = _posMainTypeLine(sc.type, sc.cast);
     if (line) items.push(line);
   });
-  // 延長"基本料"：延長◯分の行を分数(min)ごとにまとめて表示。
+  // 延長"基本料"：延長料金の表の行ごとにまとめて表示（同じ分数の行が2つあれば2本に分かれる。行の並びは表の並び）。
   // qty は「各ラウンドの課金席数の合計」＝ _posExtBaseTotal と完全に同じ席数按分（単一式）。
   // cfg.extBasePerSeat===false の時はラウンドあたり1（卓単位）。退席ぶんは _posExtRounds の seats に既に反映済み。
   // ※延長"指名料"は本ルールでは自動加算しない（源泉はボーイ手入力の本延/延指オーダーのみ。posOrders側で表示）。
   //   よって mainType/subCast 由来の延長指名料行はここでは一切出さない。
   const _rounds = (typeof _posExtRounds === 'function') ? _posExtRounds(row) : [];
   // 空場内の上乗せ：ラウンドの分数に対応する場内延長指名料を使い、設定に応じて課金席数を掛ける。
-  // 同じ分数へ集約する行ではラウンド数ぶんを extra（qty×amount とは別枠の加算額）へ乗せる。
-  const _baseAgg = {};   // min → { min, qty, extra }
+  // 同じ行へ集約する行ではラウンド数ぶんを extra（qty×amount とは別枠の加算額）へ乗せる。
+  const _baseAgg = {};   // 表の行番号(idx) → { idx, min, qty, extra }
   _rounds.forEach((g, roundNo) => {
-    const idx = (cfg.extOptions || []).indexOf(g.min);
+    const idx = g.idx;
     const seats = (cfg.extBasePerSeat === false) ? 1 : Math.max(1, g.seats || 1);
-    const agg = (_baseAgg[g.min] = _baseAgg[g.min] || { min: g.min, qty: 0, extra: 0 });
+    const agg = (_baseAgg[idx] = _baseAgg[idx] || { idx, min: g.min, qty: 0, extra: 0 });
     agg.qty += seats;
     agg.extra += _emptyJonaiForRound(row, idx, g.seats, roundNo);
   });
-  Object.values(_baseAgg).sort((a, b) => a.min - b.min).forEach(g => {
-    const idx = (cfg.extOptions || []).indexOf(g.min);
+  Object.values(_baseAgg).sort((a, b) => a.idx - b.idx).forEach(g => {
+    const idx = g.idx;
     const extPrice = (idx >= 0 && cfg.extPrices && cfg.extPrices[idx]) ? cfg.extPrices[idx] : 0;
-    if (extPrice) items.push({ label: extItemLabel(g.min, idx), amount: extPrice, qty: g.qty, extMin: g.min, extra: g.extra });
+    if (extPrice) items.push({ label: extItemLabel(g.min, idx), amount: extPrice, qty: g.qty, extMin: g.min, extIdx: idx, extra: g.extra });
   });
   return items;
 }
@@ -15946,7 +16145,7 @@ function _posSlipCard(r, isSelected, totalCount, mode, padRows) {
   // Compute combined total inline from the already-fetched orders array so body and footer are always in sync.
   // 延長基本料は calcBill(r).subtotal に全席ぶん込み（calcBill が _posExtBaseTotal を呼ぶ）ので extraTaxable は 0。
   const seatBill = calcBill(r);
-  const b = _posComputeTotals(seatBill.subtotal, orders, 0);
+  const b = _posComputeTotals(seatBill.subtotal, orders, 0, r);
   const orderPricing = { subtotal:b.baseSubtotal, cash:b.baseCash };
   const people = _posCurrentGuests(r);
   const table = r.tableNum ? (posMainTableLabel(r) || '-') : '-';
@@ -16082,7 +16281,7 @@ function renderPOSSlipSheetView(firsts, selected) {
 function _posOrderSlipPanel(r) {
   const orders = posOrders(r);
   const seatBill = calcBill(r);
-  const totals = _posComputeTotals(seatBill.subtotal, orders, 0);
+  const totals = _posComputeTotals(seatBill.subtotal, orders, 0, r);
   const orderPricing = { subtotal:totals.baseSubtotal, cash:totals.baseCash };
   const tax = totals.cash - totals.subtotal;
   const table = r.tableNum ? (posMainTableLabel(r) || '-') : '-';
@@ -16114,10 +16313,10 @@ function _posOrderSlipPanel(r) {
   const seatLine = item => {
     const q = Number(item.qty) || 1;
     // 席由来の計算ラインは基本消せない（桁を揃えるため空セルを置く）。
-    // 延長だけは row.extensions が実体なので、その分数の最後のラウンドを消せるようにする
+    // 延長だけは row.extensions が実体なので、その行（品目名）の最後のラウンドを消せるようにする
     const cell = item.extMin
       ? '<button type="button" class="pos-slip-line-delete" title="この延長を1回分削除" aria-label="この延長を1回分削除"'
-        + ' onclick="event.stopPropagation();posDeleteLastExtByMin(&quot;' + escAttr(String(r.gid)) + '&quot;,&quot;' + escAttr(String(item.extMin)) + '&quot;)">×</button>'
+        + ' onclick="event.stopPropagation();posDeleteLastExtByRow(&quot;' + escAttr(String(r.gid)) + '&quot;,&quot;' + escAttr(String(item.extIdx)) + '&quot;)">×</button>'
       : '<span></span>';
     // extra: 空場内の繰延上乗せ（延長ラウンド単位の定額）。qtyに掛けず金額へ直接加算する。
     const lineTotal = (Number(item.amount) || 0) * q + (Number(item.extra) || 0);
@@ -16272,7 +16471,7 @@ function _posFloorCastChips(row, rowFilter) {
 }
 
 function _posFloorTotal(row) {
-  return _posComputeTotals(calcBill(row).subtotal, posOrders(row), 0).cash;
+  return _posComputeTotals(calcBill(row).subtotal, posOrders(row), 0, row).cash;
 }
 
 function _posCastFloorTables(castName) {
@@ -17291,20 +17490,17 @@ function posToggleDeparted(cast, rowId) {
   document.getElementById('pos-departed-guest-overlay')?.remove();
   saveState(); renderTable(); renderPOSPanel(); posOpenDepartedModal();
 }
-/* 延長の集計行（例「延長40分 x2」）の×から呼ぶ。その分数の最後のラウンドを1つ消す。
-   オーダー画面は分数でまとめて出すため、どのラウンドを消すか一意にならない。
+/* 延長の集計行（例「テーブル延長30分 x2」）の×から呼ぶ。延長料金の表の idx 行の最後のラウンドを1つ消す。
+   オーダー画面は行（品目名）でまとめて出すため、どのラウンドを消すか一意にならない。
    「直前に入れたものを取り消す」用途に合わせて末尾を選ぶ（2026-07-20 オーナー判断A）。
    古いラウンドを狙って消したい場合は履歴・修正から行う。 */
-function posDeleteLastExtByMin(gid, min) {
+function posDeleteLastExtByRow(gid, extIdx) {
   const row = state.rows.find(r => String(r.gid) === String(gid) && r.isFirst);
   if (!row || !Array.isArray(row.extensions)) return;
-  const target = String(min);
-  let idx = -1;
-  for (let i = row.extensions.length - 1; i >= 0; i--) {
-    if (String(row.extensions[i] || '') === target) { idx = i; break; }
-  }
-  if (idx < 0) return;
-  posOrderEditDeleteExt(idx, { skipConfirm: true });
+  const target = Number(extIdx);
+  const rounds = _posExtRounds(row).filter(g => g.idx === target);
+  if (!rounds.length) return;
+  return posOrderEditDeleteExt(rounds[rounds.length - 1].slot, { skipConfirm: true });
 }
 
 // 注文と客行の両方を同じundo単位で取り消す。料金行だけ消すとcalcBillが指名料を再生成する。
@@ -17364,7 +17560,10 @@ function posOpenDesignatedDrinkCastPick(name, amount, category) {
 function posProductHTML(item) {
   const onclick = _posCategoryDrinkPick(item.category)
     ? 'posOpenDesignatedDrinkCastPick(&quot;' + escAttr(item.name) + '&quot;,' + (Number(item.amount)||0) + ',&quot;' + escAttr(item.category) + '&quot;)'
-    : 'posAddItem(&quot;' + escAttr(item.name) + '&quot;,' + (Number(item.amount)||0) + ',&quot;' + escAttr(item.category) + '&quot;)';
+    : item.extIdx != null
+      // 延長ボタンは分数ではなく料金表の行番号を渡す（同じ分数の行でも、押した行の金額と品目名で入る）
+      ? 'posAddItem(&quot;' + escAttr(item.name) + '&quot;,' + (Number(item.amount)||0) + ',&quot;' + escAttr(item.category) + '&quot;,undefined,{extIdx:' + (Number(item.extIdx)||0) + '})'
+      : 'posAddItem(&quot;' + escAttr(item.name) + '&quot;,' + (Number(item.amount)||0) + ',&quot;' + escAttr(item.category) + '&quot;)';
   const productName = String(item.name || '');
   const separator = productName.indexOf(':');
   const designation = separator >= 0
@@ -17419,14 +17618,15 @@ function posCategoryItems(category, row) {
   // 延長ボタンは設定「延長料金」の行と一致させる（行を消せばボタンも消える）
   const extDefaultPrice = { 20: 4000, 40: 7000, 60: 11000 };
   const extOptions = (Array.isArray(cfg.extOptions) && cfg.extOptions.length ? cfg.extOptions : [20, 40, 60])
-    .map(v => Number(v)).filter(v => Number.isFinite(v) && v > 0);
-  const extPosHidden = (cfg.extPosHidden || []).map(Number);
-  const extItems = extOptions.map((min, idx) => ({
+    .map((v, idx) => ({ min: Number(v), idx })).filter(o => Number.isFinite(o.min) && o.min > 0);
+  // extIdx＝料金表の行番号。ボタンを押すと分数ではなくこの行で伝票に入る（同じ分数の行を分けて使える）
+  const extItems = extOptions.map(({ min, idx }) => ({
     name: extItemLabel(min, idx),
     amount: cfgYen((cfg.extPrices || [])[idx], extDefaultPrice[min] ?? 0),
     category,
+    extIdx: idx,
     min,
-  })).filter(item => !extPosHidden.includes(item.min)).map(({ min, ...item }) => item);
+  })).filter(item => !extPosButtonHidden(item.min, item.extIdx)).map(({ min, ...item }) => item);
   const map = {
     set: [{ name:posItemLabel('set'), amount: cfgYen(cfg.setPrice, 7000), category }],
     extension: extItems,
@@ -24808,9 +25008,10 @@ function _posOeSeatSet(row) {
   const it = (typeof _posSeatLineItems === 'function' ? _posSeatLineItems(row) : []).find(x => String(x.label).startsWith('SET:'));
   return it ? { label: it.label, amount: it.amount || 0, people: row.gcount || 1 } : null;
 }
-/* 延長（row.extensions）の編集行用データ。posオーダー明細ではないので別に拾う。 */
+/* 延長（row.extensions）の編集行用データ。posオーダー明細ではないので別に拾う。
+   idx＝延長料金の表の行番号、label＝その行の品目名（伝票に記録した行で引く。記録が無ければ同じ分数の最初の行）。 */
 function _posOeExtLines(row) {
-  const opts = cfg.extOptions || [], prices = cfg.extPrices || [];
+  const prices = cfg.extPrices || [];
   const setQty = (row && row.posOrders ? row.posOrders : []).filter(o => o.category === 'set')
                    .reduce((s, o) => s + Math.max(1, Number(o.qty) || 1), 0);
   const baseSeats = setQty > 0 ? setQty : (row ? (row.gcount || 1) : 1);
@@ -24820,10 +25021,10 @@ function _posOeExtLines(row) {
   (row && Array.isArray(row.extensions) ? row.extensions : []).forEach((v, i) => {
     const min = parseInt(v);
     if (!min) return;
-    const idx = opts.indexOf(min);
+    const idx = extRowIndexFor(min, row && Array.isArray(row.extLabels) ? row.extLabels[i] : '');
     let seats = (seatsArr[i] != null) ? Number(seatsArr[i]) : baseSeats;   // ラウンドごとの課金席数（帰宅で減りうる）
     if (!multi) seats = 1;
-    out.push({ extIdx: i, min, amount: (idx >= 0 && prices[idx]) ? prices[idx] : 0, seats: Math.max(1, seats) });
+    out.push({ extIdx: i, min, idx, label: extItemLabel(min, idx), amount: (idx >= 0 && prices[idx]) ? prices[idx] : 0, seats: Math.max(1, seats) });
   });
   return out;
 }
@@ -24849,7 +25050,7 @@ function _posOeRowsHtml(orders, seatSet, row) {
   html += extLines.map(e => `
     <tr>
       <td style="padding:10px 6px 10px 14px;text-align:center;color:var(--tx3);user-select:none">⏱</td>
-      <td style="padding:10px 14px;font-weight:700;color:var(--tx)">延長${e.min}分<span style="color:var(--tx3);font-size:11px;font-weight:400;margin-left:8px">延長</span></td>
+      <td style="padding:10px 14px;font-weight:700;color:var(--tx)">${escHtml(e.label)}<span style="color:var(--tx3);font-size:11px;font-weight:400;margin-left:8px">延長</span></td>
       <td style="padding:10px 14px;text-align:center;color:var(--tx2)">${e.seats}</td>
       <td style="padding:10px 14px;text-align:right;font-family:var(--mono);color:var(--tx)">¥${((e.amount||0)*e.seats).toLocaleString()}</td>
       <td style="padding:10px 14px;text-align:center;white-space:nowrap">
@@ -24991,8 +25192,10 @@ async function posOrderEditDeleteExt(extIdx, opts) {
   if (!Array.isArray(row.extensions) || row.extensions[extIdx] == null) return;
   const min = row.extensions[extIdx];
   if (!min) return;
+  // 確認とトーストには、その延長を入れた行の品目名を出す（記録が無い延長は同じ分数の最初の行の品目名）
+  const extLabel = extItemLabel(parseInt(min), extRowIndexFor(parseInt(min), Array.isArray(row.extLabels) ? row.extLabels[extIdx] : ''));
   // オーダー画面の×から呼ぶ時は確認を出さない（1タッチ削除・undoで戻せる・2026-07-20）
-  if (!(opts && opts.skipConfirm) && !(await appConfirm(`「延長${min}分」を削除しますか？`, { danger: true }))) return;
+  if (!(opts && opts.skipConfirm) && !(await appConfirm(`「${extLabel}」を削除しますか？`, { danger: true }))) return;
   pushUndo();
   const grp = state.rows.filter(r => r.gid === row.gid);
   // 多人数卓は各人行へ振り分けてあるので、同じスロットをグループ全行で空にする
@@ -25001,6 +25204,7 @@ async function posOrderEditDeleteExt(extIdx, opts) {
   targets.forEach(r => { if (Array.isArray(r.extensions) && r.extensions[extIdx] != null) r.extensions[extIdx] = ''; });
   if (Array.isArray(row.extSeats)) row.extSeats[extIdx] = null;   // このラウンドの課金席数記録もクリア
   if (Array.isArray(row.extRecordOnly)) row.extRecordOnly[extIdx] = false;
+  if (Array.isArray(row.extLabels)) row.extLabels[extIdx] = '';   // 行（品目名）の記録も消す
   // 終了時刻を延長削除ぶん戻す（calcEndMin = 開始+セット+延長合計）
   if (typeof calcEndMin === 'function') {
     const newEnd = calcEndMin(row);
@@ -25012,7 +25216,7 @@ async function posOrderEditDeleteExt(extIdx, opts) {
   } else if (cfg.extAutoShimeiFee && typeof _posAutoExtShimeiFeeSync === 'function') _posAutoExtShimeiFeeSync(row, Number(min));
   saveState(); renderTable(); renderPOSPanel();
   if (typeof _posOeRerender === 'function') _posOeRerender();
-  showToast('延長' + min + '分 を削除しました');
+  showToast(extLabel + ' を削除しました');
 }
 
 /* 既存SETを編集モードでセット入力スピナー画面に開く */
@@ -25065,9 +25269,10 @@ function posOrderEditSeatSet() {
 /* ================================================================
    POS レシート印刷（独立ウィンドウ）
 ================================================================ */
-/* 延長試算ヘルパー */
-function _posExtTrial(row, extMin, trialCasts = []) {
-  const idx = (cfg.extOptions || []).indexOf(extMin);
+/* 延長試算ヘルパー。extIdx＝延長料金の表の行番号（同じ分数の行を分ける店で、押す行の金額で試算する）。
+   省略時、またはその行の分数が extMin と違うときは、同じ分数の最初の行（別の分数の金額で試算しない）。 */
+function _posExtTrial(row, extMin, trialCasts = [], extIdx) {
+  const idx = (extIdx != null && Number(extIdx) >= 0 && Number((cfg.extOptions || [])[extIdx]) === Number(extMin)) ? Number(extIdx) : extRowIndexFor(extMin);
   const extPrice = (idx >= 0 && cfg.extPrices) ? (cfg.extPrices[idx] || 0) : 0;
   let enchoshimeiExtra = 0;
   const _ef2 = t => {
@@ -25123,11 +25328,25 @@ function _posExtTrial(row, extMin, trialCasts = []) {
   const emptyJonaiExtra = (typeof _emptyJonaiForRound === 'function') ? _emptyJonaiForRound(row, idx, seatCount, nextRoundNo) : 0;
   // VIP席の延長ごとの利用料：次の延長で増える分（按分ONなら延長分数に比例）。実際に延長した後の伝票（syncVipFeeOrder）と同じ式。
   const vipFeeExtra = (typeof vipFeeExtIncrement === 'function') ? vipFeeExtIncrement(row, cfg, extMin) : 0;
-  const t = _posComputeTotals(calcBill(row).subtotal, posOrders(row), extPriceTotal + enchoshimeiExtra + emptyJonaiExtra + vipFeeExtra);
+  const t = _posComputeTotals(calcBill(row).subtotal, posOrders(row), extPriceTotal + enchoshimeiExtra + emptyJonaiExtra + vipFeeExtra, row);
   const advance = (typeof _posAdvancePrincipal === 'function') ? _posAdvancePrincipal(row) : 0;
   const dueCash = Math.max(0, t.cash - advance);
   const dueCard = ceilAddRate(dueCash, cfg.cardFeeRate || 0, cfg.cardFeeRound || 100);
-  return { extMin, extPrice: extPriceTotal, enchoshimeiExtra, cash: t.cash, card: t.card, dueCash, dueCard };
+  return { extMin, extIdx: idx, extPrice: extPriceTotal, enchoshimeiExtra, cash: t.cash, card: t.card, dueCash, dueCard };
+}
+
+/* 延長試算・ご案内の行 [{min, idx, label}]。延長料金の表の行ごとに回す（label＝その行の品目名）。
+   row.extTrialOptions（分数の配列。デモ・比較用）が付いた行は、各分数を「その分数の最初の行」に写して回す。 */
+function _extTrialRows(row) {
+  const opts = cfg.extOptions || [];
+  const rows = Array.isArray(row && row.extTrialOptions)
+    ? row.extTrialOptions.map(min => ({ min, idx: extRowIndexFor(min) }))
+    : opts.map((min, idx) => ({ min, idx }));
+  return rows.map(r => ({ ...r, label: r.idx >= 0 ? extItemLabel(r.min, r.idx) : '延長' + r.min + '分' }));
+}
+/* 試算・ご案内の左の欄に出す文字。同じ分数の行がある店は品目名、無い店は今までどおり「◯分」 */
+function _extTrialRowText(r) {
+  return extTableHasSameMinutes() ? r.label : r.min + '分';
 }
 
 /* 延長試算モーダルのチップ用: 卓に付いていて延長指名料が立つ子を [{cast, type, label, excluded}] で返す。
@@ -25193,7 +25412,6 @@ function posPrintReceipt() {
   }
   const b     = _posCalcTotal(row);
   const table = row.tableNum ? (posTableCustomName(row.tableNum) || posTableLabel(row.tableNum)) : '-';
-  const opts  = cfg.extOptions || [];
   const advance = (typeof _posAdvancePrincipal === 'function') ? _posAdvancePrincipal(row) : 0;
   const advBd = (typeof _posAdvanceBreakdown === 'function') ? _posAdvanceBreakdown(row) : { principal: advance, extraFee: 0 };
 
@@ -25203,13 +25421,16 @@ function posPrintReceipt() {
   const cardFeeRound = cfg.cardFeeRound || 100;
   const curCard = advance ? ceilAddRate(curCash, cardFeePct, cardFeeRound) : (parseInt(row.amountCard) || ceilAddRate(curCash, cardFeePct, cardFeeRound));
 
-  const extRows = opts.map(min => {
-    const t = _posExtTrial(row, min);
+  const sameMinutes = extTableHasSameMinutes();
+  const extRows = (cfg.extOptions || []).map((min, idx) => {
+    const t = _posExtTrial(row, min, [], idx);
     const cashDelta = t.cash - b.cash;
     const extCash   = advance ? t.dueCash : curCash + cashDelta;
     const extCard   = advance ? t.dueCard : ceilAddRate(extCash, cardFeePct, cardFeeRound);
     return '<div class="pos-ext-row">'
-      + '<div class="pos-ext-min">' + min + '<small>分</small></div>'
+      + (sameMinutes
+        ? '<div class="pos-ext-min" style="font-size:16px;line-height:1.3">' + escHtml(extItemLabel(min, idx)) + '</div>'
+        : '<div class="pos-ext-min">' + min + '<small>分</small></div>')
       + '<div class="pos-ext-right">'
       + '<span class="pos-ext-cash">現金 ¥' + extCash.toLocaleString() + '</span>'
       + '<span class="pos-ext-card">カード ¥' + extCard.toLocaleString() + '</span>'
@@ -25488,7 +25709,7 @@ function _receiptTotalsRows(row, block) {
   const cardFinal = isSplit ? (parseInt(row.amountCard) || 0) : b.card;
   const rows = [];
   if (block.showSubtotal) rows.push({ label:'合計', amount:b.subtotal });
-  if (block.showTax) rows.push({ label:'税サ', amount:tax });
+  if (block.showTax) rows.push({ label:'税サ' + taxRateNoteForRow(row), amount:tax });   // VIP席の率が効いている伝票だけ「税サ(40%)」
   let payment = 'both';
   if (block.paymentRows === 'auto' && row.settled) payment = row.amountMethod || 'cash';
   if (payment === 'cash' || payment === 'both') rows.push({ label:'現金' + (isSplit ? '(分割)' : ''), amount:cashTotal, pay:true });
@@ -25564,11 +25785,11 @@ function _extTrialModel(row, block) {
   const advBd = (typeof _posAdvanceBreakdown === 'function') ? _posAdvanceBreakdown(row) : { principal: advance, extraFee: 0 };
   const curCash = advance ? Math.max(0, b.cash - advance) : (parseInt(row.amountCash) || b.cash);
   const curCard = advance ? ceilAddRate(curCash, cardFeePct, cardFeeRound) : (parseInt(row.amountCard) || ceilAddRate(curCash, cardFeePct, cardFeeRound));
-  const options = (Array.isArray(row.extTrialOptions) ? row.extTrialOptions : (cfg.extOptions || [])).map(min => {
-    const trial = _posExtTrial(row, min);
+  const options = _extTrialRows(row).map(r => {
+    const trial = _posExtTrial(row, r.min, [], r.idx);
     const cash = advance ? trial.dueCash : curCash + (trial.cash - b.cash);
     const card = advance ? trial.dueCard : ceilAddRate(cash, cardFeePct, cardFeeRound);
-    return { min, cash, card };
+    return { min: r.min, idx: r.idx, label: r.label, cash, card };
   });
   return { advance, advBd, curCash, curCard, showCard: block.showCard !== false, options };
 }
@@ -25579,7 +25800,7 @@ function _extTrialTableHtml(row, block, comparison) {
   let rows = '';
   options.forEach((option, i) => {
     rows += '<tr class="' + (i > 0 ? 'sep' : '') + '">'
-      + '<td class="time">⏱ ' + option.min + '分</td>'
+      + '<td class="time">⏱ ' + escHtml(_extTrialRowText(option)) + '</td>'
       + '<td class="amt">¥' + option.cash.toLocaleString() + '</td>'
       + (showCard ? '<td class="amt">¥' + option.card.toLocaleString() + '</td>' : '') + '</tr>';
   });
@@ -25991,8 +26212,12 @@ async function posAddItem(name, amount, category, spShares) {
   // 帰宅後に入れた延長は減った席数ぶんしか入らない＝既存の延長は変えず、次の延長から席数が減る。
   // このラウンドの課金席数を先頭行 row.extSeats[slot] に記録し、精算・表示はそれを使う。
   if (category === 'extension') {
+    // 延長ボタン経由は opts.extIdx（延長料金の表の行番号）で分数と品目名を決める。
+    // 行番号が無い呼び出し（古い経路）は、今までどおり名前の最初の数字を分数にして、行の記録は入れない。
+    const optMin = Number((cfg.extOptions || [])[opts && opts.extIdx]);
+    const byRow = !!opts && opts.extIdx != null && optMin > 0;
     const m = String(name).match(/(\d+)/);
-    const min = m ? m[1] : '';
+    const min = byRow ? String(optMin) : (m ? m[1] : '');
     if (min) {
       const grp = state.rows.filter(r => r.gid === row.gid).sort((a, b) => (a.gidx || 0) - (b.gidx || 0));
       // 退席後の課金席数（退席キャストぶん減る）。延長はその席数ぶんだけ、残っているお客様の行に前から振り分ける。
@@ -26004,6 +26229,12 @@ async function posAddItem(name, amount, category, spShares) {
       if (!Array.isArray(row.extSeats)) row.extSeats = [];
       while (row.extSeats.length <= slot) row.extSeats.push(null);
       row.extSeats[slot] = (row.gcount || 1) >= 2 ? Math.max(1, activeSeats) : 1;
+      // 押した行の品目名を先頭行 row.extLabels[slot] に記録する（金額はこの名前で表の行を引く。同組の他の行には写さない）。
+      if (byRow) {
+        if (!Array.isArray(row.extLabels)) row.extLabels = [];
+        while (row.extLabels.length <= slot) row.extLabels.push('');
+        row.extLabels[slot] = extItemLabel(optMin, opts.extIdx);
+      } else if (Array.isArray(row.extLabels) && row.extLabels[slot]) row.extLabels[slot] = '';
       // 退席したお客様の行には入れない。お客様を選ばずに人数だけ減らした記録は誰が帰ったか分からないので、残っている行の前から数える。
       const seatCount = Math.max(1, activeSeats);
       let targets = [row];
@@ -26349,9 +26580,8 @@ function _extComparisonAmounts(sourceRow, casts) {
     const cash = advance ? trial.dueCash : currentCash + trial.cash - base.cash;
     return { cash, card:card(cash) };
   };
-  const options = Array.isArray(row.extTrialOptions) ? row.extTrialOptions : (cfg.extOptions || []);
   return { currentCash, currentCard, advance, advancePrincipal: advBd.principal, advanceExtraFee: advBd.extraFee,
-    rows: options.map(min => ({ min, free:amount(_posExtTrial(row, min)), nominated:amount(_posExtTrial(row, min, casts)) })) };
+    rows: _extTrialRows(row).map(r => ({ min:r.min, idx:r.idx, label:r.label, free:amount(_posExtTrial(row, r.min, [], r.idx)), nominated:amount(_posExtTrial(row, r.min, casts, r.idx)) })) };
 }
 
 /* この卓に指名が付いているか（比較表の見出しを「指名追加なし／フリー継続」のどちらにするか） */
@@ -26391,7 +26621,7 @@ function _extComparisonTableHtml(row, block, comparison) {
     + '<div class="extcmp-title">' + (amounts.advance ? '延長後の残金' : '延長後の合計金額') + '</div>'
     + '<div class="extcmp-target">延長指名：' + comparison.labels.map(escHtml).join('／') + '</div>'
     + '<table class="extcmp-table"><thead><tr><th scope="col">延長</th><th scope="col">' + (hasDesignation ? '指名追加なし' : 'フリー継続') + '</th><th scope="col">延長指名</th></tr></thead><tbody>'
-    + amounts.rows.map(r => '<tr><td>' + escHtml(String(r.min)) + '分</td><td>' + cell(r.free) + '</td><td>' + cell(r.nominated) + '</td></tr>').join('')
+    + amounts.rows.map(r => '<tr><td>' + escHtml(_extTrialRowText(r)) + '</td><td>' + cell(r.free) + '</td><td>' + cell(r.nominated) + '</td></tr>').join('')
     + '</tbody></table>'
     + '<div class="extcmp-note">卓全体の' + (amounts.advance ? '残金' : '合計') + 'です。追加注文で金額は変わります。</div>'
     + '</section>';
@@ -26400,7 +26630,8 @@ function _extComparisonTableHtml(row, block, comparison) {
 function _extComparisonSample() {
   const row = { ..._receiptSampleRow(), id:'ext-comparison-sample', gid:'ext-comparison-sample',
     mainType:'free', mainCast:'花子', rotations:['花子'], settled:false, gcount:1,
-    extensions:[], extSeats:[], extTrialOptions:[...(cfg.extOptions || [])],
+    // extTrialOptions は空にして延長料金の表の行ごとに回す（分数で渡すと同じ分数の行が最初の行に寄って2回出る）
+    extensions:[], extSeats:[], extTrialOptions:null,
     posOrders:[{ category:'set', name:posItemLabel('set'), amount:cfg.setPrice || 7000, qty:1 }], amountCash:0 };
   return { row, comparison:_extComparisonSelection(row, _extComparisonCandidates(row)) };
 }
@@ -26887,7 +27118,7 @@ function renderPastTable() {
   // リスト表と同じ選択肢（数字の卓＋VIP席＋一覧に無い現在値）を使う（2026-07-26）
   function pTableOpts(sel) { return tableOptions(sel); }
   function pExtSel(id, ci, val) {
-    const opts = ['', ...cfg.extOptions].map(v =>
+    const opts = ['', ...extMinuteChoices()].map(v =>
       `<option value="${v}"${String(v)===String(val)?' selected':''}>${v||'-'}</option>`).join('');
     return `<select style="width:42px" onchange="pastUpdateExt('${id}',${ci},this.value)">${opts}</select>`;
   }
@@ -27251,7 +27482,9 @@ function pastUpdateExt(id, ci, val) {
   if (!pastState) return;
   const r = pastState.rows.find(r => r.id === id);
   if (!r) return;
+  const oldExtMin = parseInt(r.extensions[ci]) || 0;
   r.extensions[ci] = val;
+  if (r.isFirst) extLabelSyncAfterChange(r, ci, oldExtMin, val);   // 延長の行（品目名）の記録も同じ規則で付け替える
   r.endMin = calcEndMin(r, pastState.rows);
   renderPastTable();
 }
@@ -27340,6 +27573,7 @@ function pastRemExtCol() {
   pastState.extCols--;
   pastState.rows.forEach(r => {
     r.extensions = r.extensions.slice(0, pastState.extCols);
+    if (Array.isArray(r.extLabels)) r.extLabels = r.extLabels.slice(0, pastState.extCols);
     r.endMin = calcEndMin(r, pastState.rows);
   });
   renderPastTable();
@@ -28512,7 +28746,7 @@ function renderSettingsPanel() {
                     <input type="text" class="settings-input" id="cfg-extOpt-${i}-name" value="${escAttr((cfg.extNames||[])[i] ?? '')}" placeholder="延長${min}分" style="width:110px" title="空欄にすると「延長${min}分」で印字されます" oninput="_settingsMarkDirty()">
                   </td>
                   <td style="padding:5px 4px;text-align:center">
-                    <input type="checkbox" id="cfg-extOpt-${i}-pos" ${(cfg.extPosHidden || []).map(Number).includes(Number(min)) ? '' : 'checked'} title="POSの延長ボタンに表示する">
+                    <input type="checkbox" id="cfg-extOpt-${i}-pos" ${extPosButtonHidden(min, i) ? '' : 'checked'} title="POSの延長ボタンに表示する">
                   </td>
                   <td style="padding:5px 4px;text-align:center">
                     <button type="button" onclick="extOptDelRow(this)" style="background:none;border:none;cursor:pointer;color:var(--tx3);font-size:15px;padding:2px 6px;line-height:1" title="削除">✕</button>
@@ -28520,6 +28754,7 @@ function renderSettingsPanel() {
                 </tr>`).join('')}
             </tbody>
           </table>
+          <div class="settings-sub">同じ分数の行を2つ作れます（例: カウンター延長30分 2,500円／テーブル延長30分 3,500円）。品目名で区別し、伝票とボタンにその名前で出ます</div>
         </div>
         <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:6px;padding:12px 0">
           <div class="settings-label" style="font-weight:700;margin-bottom:2px">延長指名料をご案内・空場内に載せる</div>
@@ -28652,6 +28887,13 @@ function renderSettingsPanel() {
                 <input type="text" class="settings-input" id="cfg-vipFeeLabel" value="${escAttr(vipFeeLabel(cfg))}" placeholder="VIP席利用料" maxlength="20" style="width:200px">
                 <span class="settings-sub">伝票には「項目名（席名）」と印字されます。空欄は「VIP席利用料」</span>
               </label>
+              <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;font-size:13px;min-height:44px">
+                <label style="display:flex;align-items:center;gap:7px;cursor:pointer">
+                  <input type="checkbox" id="cfg-vipTaxRateEnabled" ${cfg.vipTaxRateEnabled === true ? 'checked' : ''} onchange="vipTaxRateToggle(this.checked)"> VIP席を使った伝票は、税サの率を変える
+                </label>
+                <input type="number" class="settings-input" id="cfg-vipTaxRate" value="${vipTaxRateOf(cfg) ?? ''}" min="0" max="50" step="1" style="width:80px" ${cfg.vipTaxRateEnabled === true ? '' : 'disabled'}> %（伝票全体）
+              </div>
+              <div class="settings-sub">VIP席の卓で作った伝票は、会計全体にこの率の税サがかかります。通常の率は『料金・税サ』の設定</div>
             </div>
           </div>
         </div>
@@ -29866,6 +30108,30 @@ function settingsBusinessTypeChanged(value) {
 }
 
 /* 設定を保存して全体に即時反映 */
+/* 延長料金の表（設定画面）の行を読む。[{min, name, label, pos}]。label＝伝票に印字する品目名（空欄は「延長◯分」）、pos＝POSボタンに出す。
+   分数が正の行だけ（保存される extOptions と同じ並び）。 */
+function _settingsExtTableRows() {
+  const out = [];
+  document.querySelectorAll('#ext-options-tbody tr').forEach(tr => {
+    const min = parseInt(tr.querySelector('input[id$="-min"]')?.value);
+    if (!(min > 0)) return;
+    const name = String(tr.querySelector('input[id$="-name"]')?.value || '').trim();
+    const posInput = tr.querySelector('input[id$="-pos"]');
+    out.push({ min, name, label: name || ('延長' + min + '分'), pos: !posInput || !!posInput.checked });
+  });
+  return out;
+}
+/* 延長料金の表の保存前の検査。同じ分数の行が2つ以上あるとき、それらの品目名（空欄は「延長◯分」）が互いに違うこと。
+   重なった行があればその分数を返す（無ければ 0）。分数が違う行の品目名が同じでも止めない（今まで動いていた店を止めない）。 */
+function extTableSameMinuteConflict(rows) {
+  const seen = new Set();
+  for (const r of (Array.isArray(rows) ? rows : [])) {
+    const key = r.min + '|' + (r.label || String(r.name || '').trim() || ('延長' + r.min + '分'));
+    if (seen.has(key)) return r.min;
+    seen.add(key);
+  }
+  return 0;
+}
 async function applySettings() {
   const invalidBack = Array.from(document.querySelectorAll('.back-unit-value')).find(input => input.validity?.valid === false);
   if (invalidBack) {
@@ -29896,6 +30162,13 @@ async function applySettings() {
   const vipFeePerExtensionPerGuest = !!(get('cfg-vipFeePerExtensionPerGuest')?.checked);
   // 按分・項目名は画面に欄が無いときは今の値のまま（空欄の項目名は既定名に戻す）
   const vipFeeExtProrate = get('cfg-vipFeeExtProrate') ? !!get('cfg-vipFeeExtProrate').checked : cfg.vipFeeExtProrate === true;
+  // VIP席を使った伝票の税サ率: 画面に欄が無いときは今の値のまま。空欄は null（＝変えない）。ONのまま 0〜50 の整数でない値は保存せず案内する
+  const vipTaxRateEnabled = get('cfg-vipTaxRateEnabled') ? !!get('cfg-vipTaxRateEnabled').checked : cfg.vipTaxRateEnabled === true;
+  const vipTaxRateInput = get('cfg-vipTaxRate');
+  const vipTaxRateText = vipTaxRateInput ? String(vipTaxRateInput.value ?? '').trim() : '';
+  const vipTaxRateNumber = vipTaxRateText === '' ? NaN : Number(vipTaxRateText);
+  const vipTaxRateValid = Number.isInteger(vipTaxRateNumber) && vipTaxRateNumber >= 0 && vipTaxRateNumber <= 50;
+  const vipTaxRate = vipTaxRateInput ? (vipTaxRateValid ? vipTaxRateNumber : null) : vipTaxRateOf(cfg);
   const vipFeeLabelInput = get('cfg-vipFeeLabel');
   const vipFeeLabelValue = vipFeeLabelInput
     ? (String(vipFeeLabelInput.value || '').trim().slice(0, 20) || 'VIP席利用料')
@@ -29968,6 +30241,16 @@ async function applySettings() {
   }
 
   // バリデーション
+  if (vipTaxRateEnabled && vipTaxRateInput && vipTaxRateText !== '' && !vipTaxRateValid) {
+    await appAlert('VIP席を使った伝票の税サ率は、0〜50の整数で入力してください（空欄なら通常の率のままです）');
+    return;
+  }
+  // 延長料金の表: 同じ分数の行が2つ以上あるときは、品目名を別々にする（伝票とボタンで行を見分けるため）。何も消さず、入れた値は画面に残る。
+  const extSameMinute = extTableSameMinuteConflict(_settingsExtTableRows());
+  if (extSameMinute) {
+    await appAlert(`延長料金の表: 同じ分数の行が2つ以上あるときは、伝票の品目名を別々にしてください（${extSameMinute}分）`);
+    return;
+  }
   if (timeStartH >= timeEndH) { await appAlert('営業開始時刻は終了時刻より前にしてください'); return; }
   if (rankRepeat >= rankVip)  { await appAlert('リピーター閾値はVIP閾値より小さくしてください'); return; }
   if (bizHour < 5 || bizHour > 18) { await appAlert('営業日の境界時刻は5〜18時の範囲で設定してください'); return; }
@@ -30015,17 +30298,12 @@ async function applySettings() {
     });
     return names;
   })();
-  const extPosHidden = (() => {
-    const rows = document.querySelectorAll('#ext-options-tbody tr');
-    if (!rows.length) return cfg.extPosHidden || [];
-    const hidden = [];
-    rows.forEach(tr => {
-      const v = parseInt(tr.querySelector('input[id$="-min"]')?.value);
-      const posInput = tr.querySelector('input[id$="-pos"]');
-      if (v > 0 && posInput && !posInput.checked) hidden.push(v);
-    });
-    return hidden;
-  })();
+  // POSボタンから外す行は品目名で保存する（同じ分数の行を分けて隠せる）。従来の extPosHidden（分数）は書き換えない。
+  const extPosTableShown = document.querySelectorAll('#ext-options-tbody tr').length > 0;
+  const extPosHiddenRows = extPosTableShown
+    ? _settingsExtTableRows().filter(r => !r.pos).map(r => r.label)
+    : (cfg.extPosHiddenRows || []);
+  const extPosByRow = extPosTableShown ? true : cfg.extPosByRow === true;
   // 空欄は NaN になり ?? では拾えず 0% で計算されていた → 数値でなければ現在値を保つ
   const taxRate         = _int('cfg-taxRate', cfg.taxRate);
   const taxRound        = parseInt(get('cfg-taxRound')?.value)        || cfg.taxRound;
@@ -30191,14 +30469,14 @@ async function applySettings() {
     clockInFrom, clockInTo, clockInStep,
     clockOutFrom, clockOutTo, clockOutStep,
     tableMax, tableNames, vipEnabled, vipSeats, vipFeePerGuest, vipFeePerExtension, vipFeePerExtensionPerGuest,
-    vipFeeExtProrate, vipFeeLabel: vipFeeLabelValue,
+    vipFeeExtProrate, vipFeeLabel: vipFeeLabelValue, vipTaxRateEnabled, vipTaxRate,
     extOptions, sources, conditions, staffNames, hqOutLabels, specialInLabels, rankVip, rankRepeat,
     birthdayAlertDays,
     setPrice, earlySetEnabled, earlySetFromH, earlySetToH, earlySetPrice,
     nominateFee, dohanFee, dohanIncludesSet, jonaiFee, enchoshimeiFee,
     extFeeHonshimeiAmt, extFeeJounaiAmt, extFeeEnchoshimeiAmt,
     extFeeHonshimeiAmts, extFeeJounaiAmts, extFeeEnchoshimeiAmts,
-    extFeeOnHonshimei, extFeeOnJounai, extFeeOnEnchoshimei, extPrices, extPosHidden, extNames,
+    extFeeOnHonshimei, extFeeOnJounai, extFeeOnEnchoshimei, extPrices, extPosHiddenRows, extPosByRow, extNames,
     extAutoShimeiFee, extBasePerSeat, extFeePerSeat, doubanAsHonshimeiExt, modoriHonshimeiAgg, modoriEnchoshimeiAgg,
     taxRate, taxRound, discountAfterTax, cardFeeRate, cardFeeRound, advanceFeeCredit, tillFloat,
     posKeepTableAfterCheckout,
@@ -30262,6 +30540,12 @@ function _vipSeatRowHTML(seat) {
 function vipSeatsToggle(enabled) {
   const editor = document.getElementById('cfg-vip-seats-editor');
   if (editor) editor.style.display = enabled ? 'block' : 'none';
+}
+
+/* 「税サの率を変える」のチェックに合わせて、率の欄を押せる／押せないにする（チェックを外しても入れた値は残す） */
+function vipTaxRateToggle(enabled) {
+  const input = document.getElementById('cfg-vipTaxRate');
+  if (input) input.disabled = !enabled;
 }
 
 function vipSeatAdd() {
