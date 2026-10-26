@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.93">
+<meta name="app-version" content="1.1.94">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -12839,7 +12839,7 @@ function payslipPrint(allCasts) {
   const w = window.open('', '_blank', 'width=920,height=1240');
   if (!w) { if (typeof showToast === 'function') showToast('ポップアップがブロックされました'); return; }
   w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>給与明細</title>' + _payslipStyles(true)
-    + '</head><body>' + pages + '<script>window.onload=function(){window.print()}<\/script></body></html>');
+    + '</head><body>' + pages + '<script>window.onafterprint=()=>setTimeout(()=>window.close(),100);window.onload=()=>window.print()<\/script></body></html>');
   w.document.close();
 }
 
@@ -21010,7 +21010,7 @@ function castRankingPrint() {
     + '<div class="title"><h1>' + printTitle + '</h1><div class="month">' + monthLabel + '</div></div>'
     + _castRankingPrintTableHtml(data, rows, salesBase)
     + _castRankingNoteHtml(data)
-    + '<script>window.onload=function(){window.print()}<\/script>'
+    + '<script>window.onafterprint=()=>setTimeout(()=>window.close(),100);window.onload=()=>window.print()<\/script>'
     + '</body></html>'
   );
   w.document.close();
@@ -22412,7 +22412,7 @@ function printReport() {
     + '<div class="hd">' + (y || '____') + ' 年 ' + (mo || '__') + ' 月 ' + (da || '__') + ' 日 ' + (wd ? '（' + wd + '）' : '') + '</div>'
     + tableHtml
     + '<div class="namebox"><div class="namebox-head"><h3>キャスト別指名売上　合計 ¥' + nominatedSalesTotal.toLocaleString() + '</h3><div class="namebox-slip">最終伝票 ' + finalSlipLabel + '</div></div><div class="nb-list">' + nameItems + '</div></div>'
-    + '<script>window.onload=function(){window.print()}<\/script>'
+    + '<script>window.onafterprint=()=>setTimeout(()=>window.close(),100);window.onload=()=>window.print()<\/script>'
     + '</body></html>'
   );
   w.document.close();
@@ -22454,7 +22454,7 @@ function printDeductionSheet() {
     + '</style></head><body>'
     + '<div class="top"><div class="shop">' + escHtml(cfg.shopName || '') + '</div><h1>控除票</h1><div class="date">' + dateLabel + '</div></div>'
     + _deductionSheetPrintTableHtml(src)
-    + '<script>window.onload=function(){window.print()}<\/script>'
+    + '<script>window.onafterprint=()=>setTimeout(()=>window.close(),100);window.onload=()=>window.print()<\/script>'
     + '</body></html>'
   );
   w.document.close();
@@ -24120,7 +24120,7 @@ function _dailyCloseSectionHtml(src, agg, payrollRows, isPast) {
       .dc-list-head{display:flex;justify-content:space-between;gap:8px;font-size:12px;margin-bottom:8px}.dc-list-head span{color:var(--tx3)}
       .dc-list-row{display:grid;grid-template-columns:minmax(100px,1fr) 110px 28px;gap:6px;margin-top:6px}.dc-list-row input,.dc-manual input,.dc-note{background:var(--sur);color:var(--tx);border:1px solid var(--bdr2);border-radius:6px;padding:7px 8px;min-width:0}
       .dc-list-row input[type=number]{text-align:right}.dc-delete{font-size:18px;color:#d66}.dc-add{margin-top:8px;padding:5px 9px;font-size:11px}.dc-empty{font-size:11px;color:var(--tx3);padding:7px 0}
-      .dc-manual{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:14px}.dc-field{display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--tx2)}.dc-field small{color:var(--tx3)}
+      .dc-manual{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:14px;align-items:end}.dc-field{display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--tx2)}.dc-field small{color:var(--tx3)}
       .dc-note-wrap{margin-top:12px}.dc-note-head{display:flex;align-items:center;justify-content:space-between;gap:8px}.dc-copy-btn{border:1px solid var(--bdr2);border-radius:6px;background:var(--sur2);color:var(--tx2);cursor:pointer;padding:4px 8px;font-size:11px}.dc-note{width:100%;box-sizing:border-box;resize:vertical;min-height:72px}
       .dc-results{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin-top:14px}.dc-result{background:var(--sur2);border:1px solid var(--bdr);border-radius:10px;padding:12px;text-align:center}.dc-result span,.dc-result small{display:block;color:var(--tx3);font-size:11px}.dc-result strong{display:block;font-size:20px;margin:5px 0;color:var(--tx)}
       .dc-result.ok strong{color:var(--green)}.dc-result.plus strong{color:#6aa6e8}.dc-result.minus strong{color:#e66}.dc-warning{margin-top:8px;color:#e5a84b;font-size:12px;text-align:right}
@@ -24422,7 +24422,7 @@ function _dailyClosePrintDocument(model, now = new Date()) {
     + '<div class="grid">' + salesBox + flowBox + cashBox + plBox + '</div>'
     + castSection
     + foot
-    + '<script>window.onload=function(){window.print()}<\/script>'
+    + '<script>window.onafterprint=()=>setTimeout(()=>window.close(),100);window.onload=()=>window.print()<\/script>' // 印刷後に窓を閉じる（レシート印刷と同じ）
     + '</body></html>';
 }
 
@@ -36172,7 +36172,7 @@ function castMonthlyPrint() {
     + _castDetailMonthlyTableHtml(data, true)
     + _castDetailDrinkSummaryHtml(data)
     + '<div class="payslip-legal">※本指売上・ボトル売上は2026-08-20以降に締めた日から集計します。それ以前の締めは「—」表示です。</div>'
-    + '<script>window.onload=function(){window.print()}<\/script>'
+    + '<script>window.onafterprint=()=>setTimeout(()=>window.close(),100);window.onload=()=>window.print()<\/script>'
     + '</body></html>');
   w.document.close();
 }
