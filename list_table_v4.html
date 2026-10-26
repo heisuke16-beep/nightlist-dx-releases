@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.94">
+<meta name="app-version" content="1.1.95">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -3311,13 +3311,18 @@ table#customer-table { border-collapse: collapse; width: 100%; min-width: 800px;
 .settings-ext-rule-edit:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
 .settings-ext-rule-edit > :last-child { font-size:20px; line-height:1; color:var(--tx2); }
 @media(max-width:640px) { .settings-ext-rule { align-items:stretch; flex-direction:column; gap:12px; padding:14px; } .settings-ext-rule-edit { margin-left:23px; } }
-/* メニュー編集のタブ（2026-10-04）。選んだカテゴリの表だけを出す。ほかのカテゴリは消さずに隠すだけ（保存は全カテゴリまとめて） */
-.pos-me-tabs { display:flex; flex-wrap:wrap; gap:6px; width:100%; margin:4px 0 12px; padding-bottom:10px; border-bottom:1px solid var(--bdr); }
-.pos-me-tab { min-height:40px; padding:6px 16px; border:1px solid var(--bdr2); border-radius:20px; background:var(--sur3); color:var(--tx2); font-family:inherit; font-size:13px; font-weight:700; cursor:pointer; white-space:nowrap; }
-.pos-me-tab.is-active { border-color:var(--gold2); background:var(--goldglow); color:var(--gold2); }
+/* メニュー編集のタブ（2026-10-04）。選んだカテゴリの表だけを出す。ほかのカテゴリは消さずに隠すだけ（保存は全カテゴリまとめて）
+   2026-10-27: 丸いボタンに見えてタブと分からなかったので、上だけ角丸のタブにし、選択中のタブを下の枠（表）とつなげる */
+.pos-me-tabs { display:flex; flex-wrap:wrap; align-items:flex-end; gap:4px; width:100%; margin:8px 0 0; padding:0 8px; }
+.pos-me-tab { position:relative; z-index:1; min-height:40px; margin-bottom:-1px; padding:6px 18px; border:1px solid var(--bdr2); border-radius:10px 10px 0 0; background:var(--sur3); color:var(--tx2); font-family:inherit; font-size:13px; font-weight:700; cursor:pointer; white-space:nowrap; }
+.pos-me-tab:hover { color:var(--tx); }
+.pos-me-tab.is-active { z-index:2; min-height:46px; border-bottom-color:var(--sur); background:var(--sur); color:var(--gold2); box-shadow:inset 0 3px 0 var(--gold); }
+.pos-me-tabbed { width:100%; box-sizing:border-box; margin-bottom:12px; padding:12px 12px 4px; border:1px solid var(--bdr2); border-radius:10px; background:var(--sur); }
+.pos-me-tabbed > .pos-menu-editor { border-bottom:none; }
 .pos-me-tabbed > .pos-menu-editor:not(.is-active),
 .pos-me-tabbed > .pos-me-hint:not(.is-active) { display:none !important; }
-.pos-me-tabbed .pos-me-acc > summary { display:none; }
+/* タブ名と同じ見出し帯は出さない（タブレット表示の summary 拡大ルールより優先） */
+.pos-me-tabbed .pos-me-acc > summary { display:none !important; }
 .pos-me-acc { width:100%; }
 .pos-me-acc > summary { cursor:pointer; padding:8px 10px; border:1px solid var(--bdr); border-radius:8px; background:var(--sur3); font-size:13px; user-select:none; }
 .pos-me-acc > summary:hover { border-color: var(--bdr2); }
