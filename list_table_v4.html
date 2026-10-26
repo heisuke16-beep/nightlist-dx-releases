@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.91">
+<meta name="app-version" content="1.1.92">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -17760,7 +17760,7 @@ function extOptAddRow() {
       </div>
     </td>
     <td style="padding:5px 4px">
-      <input type="text" class="settings-input" id="cfg-extOpt-${idx}-name" value="" placeholder="延長◯分" style="width:110px" title="空欄にすると「延長◯分」で印字されます" oninput="_settingsMarkDirty()">
+      <input type="text" class="settings-input" id="cfg-extOpt-${idx}-name" value="" placeholder="延長◯分" style="width:200px" title="空欄にすると「延長◯分」で印字されます" oninput="_settingsMarkDirty()">
     </td>
     <td style="padding:5px 4px;text-align:center">
       <input type="checkbox" id="cfg-extOpt-${idx}-pos" checked title="POSの延長ボタンに表示する">
@@ -28743,7 +28743,7 @@ function renderSettingsPanel() {
                     </div>
                   </td>
                   <td style="padding:5px 4px">
-                    <input type="text" class="settings-input" id="cfg-extOpt-${i}-name" value="${escAttr((cfg.extNames||[])[i] ?? '')}" placeholder="延長${min}分" style="width:110px" title="空欄にすると「延長${min}分」で印字されます" oninput="_settingsMarkDirty()">
+                    <input type="text" class="settings-input" id="cfg-extOpt-${i}-name" value="${escAttr((cfg.extNames||[])[i] ?? '')}" placeholder="延長${min}分" style="width:200px" title="空欄にすると「延長${min}分」で印字されます" oninput="_settingsMarkDirty()">
                   </td>
                   <td style="padding:5px 4px;text-align:center">
                     <input type="checkbox" id="cfg-extOpt-${i}-pos" ${extPosButtonHidden(min, i) ? '' : 'checked'} title="POSの延長ボタンに表示する">
