@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.95">
+<meta name="app-version" content="1.1.96">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -12001,6 +12001,9 @@ async function settle(id) {
 function cancelSettle(id) {
   const row = state.rows.find(r => r.id === id);
   if (!row) return;
+  // 次のお客様が入っている卓の伝票は戻さない（29 posRefuseRestoreIfTableTaken）
+  if (typeof posRefuseRestoreIfTableTaken === 'function'
+    && posRefuseRestoreIfTableTaken(state.rows.find(r => r.gid === row.gid && r.isFirst) || row)) return;
   if (row.amountMethod === 'urikake' && !urikakeRevokeByRowId(row.id)) {
     showToast('売掛台帳の取消に失敗しました');
     return;
@@ -14995,6 +14998,34 @@ function posSlipsUsingTable(label, exceptGid) {
   if (!label) return [];
   return state.rows.filter(r => r.isFirst && !r.settled && String(r.gid) !== String(exceptGid)
     && (posMainTableLabel(r) === label || posLinkedTableLabels(r).includes(label)));
+}
+/* 精算を戻すと卓に出てくる伝票について、その卓に今いるほかのお客様の伝票（未精算、または会計済みで席に残っている伝票）。
+   1枚でもあれば精算を戻さない（2026-10-27 オーナー「戻せないようにして。ほぼ戻すことないから」）。
+   戻すと同じ卓に伝票が2枚並び、前のお客様のキャストもその卓の在卓に数え直されるため。
+   卓が空いていれば今までどおり戻せる（日計表の本指名バックを確かめるために精算して戻す実務。v1.1.73）。 */
+function posRestoreBlockers(first) {
+  const tables = [], slips = [];
+  if (!first) return { tables, slips };
+  const labels = [posMainTableLabel(first), ...posLinkedTableLabels(first)].filter(label => label && label !== '-');
+  if (!labels.length) return { tables, slips };
+  posFloorRows().forEach(r => {
+    if (String(r.gid) === String(first.gid)) return;
+    const used = [posMainTableLabel(r), ...posLinkedTableLabels(r)];
+    const hit = labels.filter(label => used.includes(label));
+    if (!hit.length) return;
+    slips.push(r);
+    hit.forEach(label => { if (!tables.includes(label)) tables.push(label); });
+  });
+  return { tables, slips };
+}
+/* 戻せないときは理由を出して true を返す。リスト表の取消・集計の復元・会計済カードの取消で共通。 */
+function posRefuseRestoreIfTableTaken(first) {
+  const { tables, slips } = posRestoreBlockers(first);
+  if (!slips.length) return false;
+  appAlert('No.' + slipNoLabel(first) + ' は精算を戻せません。\n'
+    + tables.map(posTableDisplay).join('・') + 'に、今 ' + slips.map(r => 'No.' + slipNoLabel(r)).join('・') + ' のお客様が入っています。\n'
+    + '今のお客様が卓を空けたあとなら戻せます。');
+  return true;
 }
 /* 客を卓へ順に振り分ける。主の卓から同じ人数ずつ、端数は前の卓へ（5名・3卓なら 2・2・1）。
    主の卓以外に座る客は個別卓（_indivTable）にして、リスト表の卓欄にその卓を入れる。 */
@@ -23393,6 +23424,8 @@ function posReportPrint(gid) {
 async function posReportRestore(gid) {
   const row = state.rows.find(r => r.gid === gid && r.isFirst);
   if (!row) return;
+  // 次のお客様が入っている卓の伝票は戻さない（29 posRefuseRestoreIfTableTaken）
+  if (typeof posRefuseRestoreIfTableTaken === 'function' && posRefuseRestoreIfTableTaken(row)) return;
   if (!(await appConfirm(`No.${slipNoLabel(row)} ${row.source||''} を未精算に戻しますか？\n（POSレジの伝票一覧に復元されます）`))) return;
   if (row.amountMethod === 'urikake' && !urikakeRevokeByRowId(row.id)) {
     showToast('売掛台帳の取消に失敗しました');
