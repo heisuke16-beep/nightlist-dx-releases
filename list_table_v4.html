@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.92">
+<meta name="app-version" content="1.1.93">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -9740,6 +9740,7 @@ const CFG_DEFAULTS = {
   staffNames:   [],          // 社員名簿（日次締め・社員日払いの名前補完に使用）
   hqOutLabels:  [],          // 日次締め・特別出金の内容候補
   specialInLabels: [],       // 日次締め・特別入金の内容候補
+  dailyCloseLabels: {},      // 日次締めの項目名の呼び方（キー→名前。空=初期の名前。画面・印刷・CSV共通。2026-10-27）
   rankVip:      10,          // VIP閾値（来店回数）
   rankRepeat:   3,           // リピーター閾値
   birthdayAlertDays: 14,     // 誕生日接近バッジの日数
@@ -9910,8 +9911,22 @@ function normalizePayrollHalfCloseDays(value) {
   return isValidPayrollHalfCloseDays(value) ? [Number(value[0]), Number(value[1])] : [15, 0];
 }
 
+/* 日次締めの項目名（2026-10-27）。壊れた保存値でも画面・印刷が崩れないよう、読み込み時と保存時に整える:
+   オブジェクト以外は空、文字列でない値は捨てる、前後の空白を除く、30文字まで、空は捨てる */
+function normalizeDailyCloseLabels(value) {
+  const out = {};
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return out;
+  Object.entries(value).forEach(([key, raw]) => {
+    if (typeof raw !== 'string') return;
+    const name = Array.from(raw.trim()).slice(0, 30).join('').trim();
+    if (name) out[key] = name;
+  });
+  return out;
+}
+
 function mergeCfgDefaults(saved) {
   const merged = { ...CFG_DEFAULTS, ...(saved || {}) };
+  merged.dailyCloseLabels = normalizeDailyCloseLabels(merged.dailyCloseLabels);
   merged.businessType = normalizeBusinessType(merged.businessType);
   merged.showtimeScope = merged.showtimeScope === 'all' ? 'all' : 'table';
   merged.defaultTheme = merged.defaultTheme === 'champagne' ? 'champagne' : 'night';
@@ -23414,6 +23429,45 @@ const DAILY_CLOSE_FROZEN_FIELDS = [
   'cardSlipCount', 'closedAt',
 ];
 
+/* 名称変更の対象（2026-10-27）。画面に出ている日次締めの項目だけ。区画の題・表の見出し・印刷の枠の題・
+   印刷だけにある行・常備金・現金売上・売掛回収（現金）は対象にしない。
+   print は印刷・CSVの初期名で、画面と違うものだけ持つ（名前を変えていない店の画面・紙・CSVを今と同じにするため） */
+const DAILY_CLOSE_LABEL_GROUPS = ['自動集計', '入出金', '手入力', '計算結果'];
+const DAILY_CLOSE_LABEL_ITEMS = [
+  { key:'totalSales', group:'自動集計', screen:'総売上' },
+  { key:'castPayTotal', group:'自動集計', screen:'社交給料計' },
+  { key:'castNibaraiTotal', group:'自動集計', screen:'日払／社交' },
+  { key:'urikakeRepay', group:'自動集計', screen:'売掛金回収' },
+  { key:'urikakeSales', group:'自動集計', screen:'売掛発生' },
+  { key:'cardSlipCount', group:'自動集計', screen:'カード伝票枚数' },
+  { key:'staffPay', group:'入出金', screen:'社員日払い' },
+  { key:'expenses', group:'入出金', screen:'雑費' },
+  { key:'hqOut', group:'入出金', screen:'特別出金（当日の粗利に関係しない出金）', print:'特別出金' },
+  { key:'specialIn', group:'入出金', screen:'特別入金' },
+  { key:'actualCash', group:'手入力', screen:'実際現金（営業終了後にレジ内の金額を入力してください）', print:'実際現金' },
+  { key:'coinCarry', group:'手入力', screen:'小銭繰越' },
+  { key:'receiptCount', group:'手入力', screen:'領収書枚数' },
+  { key:'withdrawSlipCount', group:'手入力', screen:'出金伝票枚数' },
+  { key:'note', group:'手入力', screen:'営業報告' },
+  { key:'calculatedCash', group:'計算結果', screen:'計算上現金（常備金＋現金売上）', print:'計算上の現金' },
+  { key:'cashDifference', group:'計算結果', screen:'現金誤差' },
+  { key:'transferCash', group:'計算結果', screen:'振込現金' },
+  { key:'grossProfit', group:'計算結果', screen:'粗利益' },
+  { key:'profitRate', group:'計算結果', screen:'利益率' },
+];
+
+/* 項目名を返す。店が付けた名前（cfg.dailyCloseLabels）があれば画面・印刷・CSVで同じ名前、無ければ初期の名前
+   （画面と印刷で違うものは forPrint で切り替える）。文章や式の中に出す名前は、画面でも forPrint=true の短い方を使う。
+   HTMLに入れるときは呼び出し側で _dailyCloseAttr を通す（利用者の入力のため） */
+function dailyCloseLabel(key, forPrint = false) {
+  const custom = (typeof cfg === 'object' && cfg && cfg.dailyCloseLabels && typeof cfg.dailyCloseLabels === 'object')
+    ? cfg.dailyCloseLabels[key] : '';
+  if (typeof custom === 'string' && custom.trim()) return custom.trim();
+  const item = DAILY_CLOSE_LABEL_ITEMS.find(entry => entry.key === key);
+  if (!item) return String(key);
+  return forPrint && item.print ? item.print : item.screen;
+}
+
 function _dailyCloseNum(value) {
   const n = Number(value);
   return Number.isFinite(n) ? Math.trunc(n) : 0;
@@ -23489,7 +23543,7 @@ function _dailyCloseNormalizeFrozen(frozen) {
 function _dailyCloseEmptyRecord() {
   return {
     staffPay: [], expenses: [], hqOut: [], specialIn: [],
-    actualCash: null, receiptCount: 0, withdrawSlipCount: 0,
+    actualCash: null, coinCarry: 0, receiptCount: 0, withdrawSlipCount: 0,
     note: '', frozen: _dailyCloseEmptyFrozen(),
   };
 }
@@ -23505,6 +23559,8 @@ function _dailyCloseNormalizeRecord(record) {
   });
   out.actualCash = (src.actualCash === null || src.actualCash === undefined || src.actualCash === '')
     ? null : _dailyCloseNum(src.actualCash);
+  // 小銭繰越（2026-10-27）: 無い古い記録は0。ここに入れないと保存・再集計のたびに消える
+  out.coinCarry = Math.max(0, _dailyCloseNum(src.coinCarry));
   out.receiptCount = Math.max(0, _dailyCloseNum(src.receiptCount));
   out.withdrawSlipCount = Math.max(0, _dailyCloseNum(src.withdrawSlipCount));
   out.note = String(src.note || '');
@@ -23522,17 +23578,20 @@ function dailyCloseCalc(record, frozen, tillFloat = 60000) {
   const specialInTotal = _dailyCloseListTotal(rec.specialIn);
   // 計算上現金 = レジ内にあるべき額。営業開始時点でレジには常備金が入っているため常備金を起点に積む
   // （例: 常備金6万＋現金売上18,600円で、レジ内78,600円なら誤差0）
+  // 小銭繰越は計算上現金にも現金誤差にも影響しない（店が小銭をレジの外へ出して別に保管し、戻すときは特別入金に入れる）
   const calculatedCash = Math.max(0, _dailyCloseNum(tillFloat)) + auto.cashSales + specialInTotal + auto.urikakeRepayCash
     - expenseTotal - auto.castNibaraiTotal - staffPayTotal - hqOutTotal;
   const hasActualCash = rec.actualCash !== null;
   const actualCash = hasActualCash ? rec.actualCash : null;
   const cashDifference = hasActualCash ? actualCash - calculatedCash : null;
-  const transferCash = hasActualCash ? Math.max(0, actualCash - Math.max(0, _dailyCloseNum(tillFloat))) : null;
+  // 振込現金 = 実際現金 − 常備金 − その日の小銭繰越（小銭の端数はレジに残して本部へ上納しない）
+  const transferCash = hasActualCash ? Math.max(0, actualCash - Math.max(0, _dailyCloseNum(tillFloat)) - rec.coinCarry) : null;
   const grossProfit = auto.totalSales - expenseTotal - auto.castPayTotal;
   const profitRate = auto.totalSales ? grossProfit / auto.totalSales : null;
   return {
     staffPayTotal, expenseTotal, hqOutTotal, specialInTotal,
     calculatedCash, cashDifference, transferCash, grossProfit, profitRate,
+    coinCarry: rec.coinCarry,
   };
 }
 
@@ -23726,7 +23785,7 @@ function _dailyCloseCurrentRecord() {
 function dailyCloseSetField(field, value) {
   const rec = _dailyCloseCurrentRecord();
   if (field === 'actualCash') rec.actualCash = value === '' ? null : _dailyCloseNum(value);
-  else if (field === 'receiptCount' || field === 'withdrawSlipCount') rec[field] = Math.max(0, _dailyCloseNum(value));
+  else if (field === 'receiptCount' || field === 'withdrawSlipCount' || field === 'coinCarry') rec[field] = Math.max(0, _dailyCloseNum(value));
   else if (field === 'note') rec.note = String(value || '');
   else return;
   if (_dailyCloseSaveCurrent(rec)) _dailyCloseRerender();
@@ -23943,24 +24002,46 @@ function _dailyCloseListHtml(field, title, record, month, readOnly, candidates =
   </div>`;
 }
 
+/* 項目名をHTMLに入れる形で返す（店が付けた名前は利用者の入力なのでエスケープする） */
+function _dailyCloseLabelHtml(key, forPrint = false) {
+  return _dailyCloseAttr(dailyCloseLabel(key, forPrint));
+}
+
 function _dailyCloseAutoTable(auto, month) {
+  const L = _dailyCloseLabelHtml;
   const row = (label, today, monthly, detail = '') => `<tr><th>${label}</th><td>${_dailyCloseYen(today)}${detail}</td><td>${_dailyCloseYen(monthly)}</td></tr>`;
   return `<div class="dc-table-wrap"><table class="dc-auto-table">
     <thead><tr><th>自動集計</th><th>本日</th><th>当月累計</th></tr></thead><tbody>
-      ${row('総売上', auto.totalSales, month.totalSales,
+      ${row(L('totalSales'), auto.totalSales, month.totalSales,
         `<small>現金 ${_dailyCloseYen(auto.cashSales)} / カード ${_dailyCloseYen(auto.cardSales)} / 売掛 ${_dailyCloseYen(auto.urikakeSales)}</small>`)}
-      ${row('社交給料計', auto.castPayTotal, month.castPayTotal)}
-      ${row('日払／社交', auto.castNibaraiTotal, month.castNibaraiTotal)}
-      ${row('売掛金回収', auto.urikakeRepayCash + auto.urikakeRepayCard, month.urikakeRepayCash + month.urikakeRepayCard,
+      ${row(L('castPayTotal'), auto.castPayTotal, month.castPayTotal)}
+      ${row(L('castNibaraiTotal'), auto.castNibaraiTotal, month.castNibaraiTotal)}
+      ${row(L('urikakeRepay'), auto.urikakeRepayCash + auto.urikakeRepayCard, month.urikakeRepayCash + month.urikakeRepayCard,
         `<small>現金 ${_dailyCloseYen(auto.urikakeRepayCash)} / カード ${_dailyCloseYen(auto.urikakeRepayCard)}</small>`)}
-      ${row('売掛発生', auto.urikakeSales, month.urikakeSales)}
-      <tr><th>カード伝票枚数</th><td>${auto.cardSlipCount}枚</td><td>${month.cardSlipCount}枚</td></tr>
+      ${row(L('urikakeSales'), auto.urikakeSales, month.urikakeSales)}
+      <tr><th>${L('cardSlipCount')}</th><td>${auto.cardSlipCount}枚</td><td>${month.cardSlipCount}枚</td></tr>
     </tbody></table></div>`;
 }
 
-function _dailyCloseResultCard(label, value, monthValue, cls = '', monthPrefix = '当月累計', suffix = '') {
+/* note: 金額の下に小さく添える一言（小銭繰越を含む・除く）。当月累計より上に出す */
+function _dailyCloseResultCard(label, value, monthValue, cls = '', monthPrefix = '当月累計', suffix = '', note = '') {
+  const noteHtml = note ? `<small>${note}</small>` : '';
   const monthHtml = monthValue === null ? '' : `<small>${monthPrefix} ${monthValue}${suffix}</small>`;
-  return `<div class="dc-result ${cls}"><span>${label}</span><strong>${value}</strong>${monthHtml}</div>`;
+  return `<div class="dc-result ${cls}"><span>${label}</span><strong>${value}</strong>${noteHtml}${monthHtml}</div>`;
+}
+
+/* 振込現金0円の注意書き。条件は 実際現金 < 常備金 + その日の小銭繰越。
+   小銭繰越が0なら今までの文のまま（画面は「⚠ …です。」、印刷は短い文）。1円以上なら画面・印刷とも同じ文。
+   名前は文章の中なので、画面でも印刷・CSVと同じ短い方を使う。返すのは素の文字列（HTMLに入れるときは呼び出し側でエスケープ） */
+function _dailyCloseTransferWarningText(tillFloat, coinCarry, forPrint) {
+  const actual = dailyCloseLabel('actualCash', true);
+  const transfer = dailyCloseLabel('transferCash', true);
+  if (coinCarry > 0) {
+    return `⚠ ${actual}がレジ常備金 ${_dailyCloseYen(tillFloat)} と${dailyCloseLabel('coinCarry', true)} ${_dailyCloseYen(coinCarry)} の合計を下回るため、${transfer}は0円です。`;
+  }
+  return forPrint
+    ? `${actual}が常備金 ${_dailyCloseYen(tillFloat)} を下回るため${transfer}は0円`
+    : `⚠ ${actual}がレジ常備金 ${_dailyCloseYen(tillFloat)} を下回るため、${transfer}は0円です。`;
 }
 
 async function dailyCloseCopyMonthNotes(bizKey) {
@@ -24022,7 +24103,10 @@ function _dailyCloseSectionHtml(src, agg, payrollRows, isPast) {
   };
   const disabled = readOnly ? ' disabled' : '';
   const cashDiffClass = calc.cashDifference === null ? '' : calc.cashDifference === 0 ? ' ok' : calc.cashDifference > 0 ? ' plus' : ' minus';
-  const transferWarning = record.actualCash !== null && record.actualCash < tillFloat;
+  const L = _dailyCloseLabelHtml;
+  const transferWarning = record.actualCash !== null && record.actualCash < tillFloat + calc.coinCarry;
+  // 振込現金の下の一言（小銭繰越を使う日だけ。名前は文章の中なので短い方）
+  const coinNote = calc.coinCarry > 0 ? `${_dailyCloseLabelHtml('coinCarry', true)} ${_dailyCloseYen(calc.coinCarry)} を除く` : '';
   return `<div id="daily-close-host" class="agg-box dc-section">
     <style>
       .dc-section{margin-top:18px}.dc-head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px}
@@ -24036,35 +24120,36 @@ function _dailyCloseSectionHtml(src, agg, payrollRows, isPast) {
       .dc-list-head{display:flex;justify-content:space-between;gap:8px;font-size:12px;margin-bottom:8px}.dc-list-head span{color:var(--tx3)}
       .dc-list-row{display:grid;grid-template-columns:minmax(100px,1fr) 110px 28px;gap:6px;margin-top:6px}.dc-list-row input,.dc-manual input,.dc-note{background:var(--sur);color:var(--tx);border:1px solid var(--bdr2);border-radius:6px;padding:7px 8px;min-width:0}
       .dc-list-row input[type=number]{text-align:right}.dc-delete{font-size:18px;color:#d66}.dc-add{margin-top:8px;padding:5px 9px;font-size:11px}.dc-empty{font-size:11px;color:var(--tx3);padding:7px 0}
-      .dc-manual{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:14px}.dc-field{display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--tx2)}.dc-field small{color:var(--tx3)}
+      .dc-manual{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:14px}.dc-field{display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--tx2)}.dc-field small{color:var(--tx3)}
       .dc-note-wrap{margin-top:12px}.dc-note-head{display:flex;align-items:center;justify-content:space-between;gap:8px}.dc-copy-btn{border:1px solid var(--bdr2);border-radius:6px;background:var(--sur2);color:var(--tx2);cursor:pointer;padding:4px 8px;font-size:11px}.dc-note{width:100%;box-sizing:border-box;resize:vertical;min-height:72px}
       .dc-results{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin-top:14px}.dc-result{background:var(--sur2);border:1px solid var(--bdr);border-radius:10px;padding:12px;text-align:center}.dc-result span,.dc-result small{display:block;color:var(--tx3);font-size:11px}.dc-result strong{display:block;font-size:20px;margin:5px 0;color:var(--tx)}
       .dc-result.ok strong{color:var(--green)}.dc-result.plus strong{color:#6aa6e8}.dc-result.minus strong{color:#e66}.dc-warning{margin-top:8px;color:#e5a84b;font-size:12px;text-align:right}
       @media(max-width:900px){.dc-list-grid{grid-template-columns:1fr}.dc-manual{grid-template-columns:1fr}.dc-results{grid-template-columns:repeat(2,minmax(0,1fr))}}
       @media print{.dc-add,.dc-delete,.dc-copy-btn{display:none}.dc-list-row input,.dc-manual input,.dc-note{border:none;background:transparent}}
     </style>
-    <div class="dc-head"><div><h3>${readOnly || frozen ? '🔒' : '🔓'} 日次締め</h3><div class="dc-status">${readOnly ? '🔒 過去日の確定値（読み取り専用）' : frozen ? `🔒 ロック中（確定 ${new Date(auto.closedAt).toLocaleString('ja-JP')}）` : '🔓 未確定 — 自動集計はライブ値。締めたらロックしてください'}</div></div><div class="agg-box-actions dc-actions"><button type="button" onmousedown="event.preventDefault()" onclick="dailyClosePrint()">🖨 印刷</button><button type="button" onmousedown="event.preventDefault()" onclick="dailyCloseExportCSV()">💾 CSV保存</button></div></div>
+    <div class="dc-head"><div><h3>${readOnly || frozen ? '🔒' : '🔓'} 日次締め</h3><div class="dc-status">${readOnly ? '🔒 過去日の確定値（読み取り専用）' : frozen ? `🔒 ロック中（確定 ${new Date(auto.closedAt).toLocaleString('ja-JP')}）` : '🔓 未確定 — 自動集計はライブ値。締めたらロックしてください'}</div></div><div class="agg-box-actions dc-actions"><button type="button" class="dc-labels-btn" onmousedown="event.preventDefault()" onclick="dailyCloseLabelsOpen()">✏ 名称変更</button><button type="button" onmousedown="event.preventDefault()" onclick="dailyClosePrint()">🖨 印刷</button><button type="button" onmousedown="event.preventDefault()" onclick="dailyCloseExportCSV()">💾 CSV保存</button></div></div>
     ${_dailyCloseAutoTable(auto, month)}
     <div class="dc-list-grid">
-      ${_dailyCloseListHtml('staffPay', '社員日払い', record, month, readOnly, candidates.staffPay)}
-      ${_dailyCloseListHtml('expenses', '雑費', record, month, readOnly)}
-      ${_dailyCloseListHtml('hqOut', '特別出金（当日の粗利に関係しない出金）', record, month, readOnly, candidates.hqOut)}
-      ${_dailyCloseListHtml('specialIn', '特別入金', record, month, readOnly, candidates.specialIn)}
+      ${_dailyCloseListHtml('staffPay', L('staffPay'), record, month, readOnly, candidates.staffPay)}
+      ${_dailyCloseListHtml('expenses', L('expenses'), record, month, readOnly)}
+      ${_dailyCloseListHtml('hqOut', L('hqOut'), record, month, readOnly, candidates.hqOut)}
+      ${_dailyCloseListHtml('specialIn', L('specialIn'), record, month, readOnly, candidates.specialIn)}
     </div>
     <div class="dc-manual">
-      <label class="dc-field">実際現金（営業終了後にレジ内の金額を入力してください）<input type="number" inputmode="numeric" min="0" step="100" value="${record.actualCash ?? ''}" placeholder="数えた現金" onchange="dailyCloseSetField('actualCash',this.value)"${disabled}></label>
-      <label class="dc-field">領収書枚数<input type="number" inputmode="numeric" min="0" step="1" value="${record.receiptCount || ''}" placeholder="0" onchange="dailyCloseSetField('receiptCount',this.value)"${disabled}></label>
-      <label class="dc-field">出金伝票枚数<input type="number" inputmode="numeric" min="0" step="1" value="${record.withdrawSlipCount || ''}" placeholder="0" onchange="dailyCloseSetField('withdrawSlipCount',this.value)"${disabled}></label>
+      <label class="dc-field">${L('actualCash')}<input type="number" inputmode="numeric" min="0" step="100" value="${record.actualCash ?? ''}" placeholder="数えた現金" onchange="dailyCloseSetField('actualCash',this.value)"${disabled}></label>
+      <label class="dc-field">${L('coinCarry')}<input type="number" inputmode="numeric" min="0" step="1" value="${record.coinCarry || ''}" placeholder="0" onchange="dailyCloseSetField('coinCarry',this.value)"${disabled}></label>
+      <label class="dc-field">${L('receiptCount')}<input type="number" inputmode="numeric" min="0" step="1" value="${record.receiptCount || ''}" placeholder="0" onchange="dailyCloseSetField('receiptCount',this.value)"${disabled}></label>
+      <label class="dc-field">${L('withdrawSlipCount')}<input type="number" inputmode="numeric" min="0" step="1" value="${record.withdrawSlipCount || ''}" placeholder="0" onchange="dailyCloseSetField('withdrawSlipCount',this.value)"${disabled}></label>
     </div>
-    <div class="dc-field dc-note-wrap"><div class="dc-note-head"><span>営業報告</span><button type="button" class="dc-copy-btn" onmousedown="event.preventDefault()" onclick="dailyCloseCopyMonthNotes('${_dailyCloseAttr(src.dayKey)}')">📋 当月まとめをコピー</button></div><textarea class="dc-note" onchange="dailyCloseSetField('note',this.value)"${disabled}>${_dailyCloseAttr(record.note)}</textarea></div>
+    <div class="dc-field dc-note-wrap"><div class="dc-note-head"><span>${L('note')}</span><button type="button" class="dc-copy-btn" onmousedown="event.preventDefault()" onclick="dailyCloseCopyMonthNotes('${_dailyCloseAttr(src.dayKey)}')">📋 当月まとめをコピー</button></div><textarea class="dc-note" onchange="dailyCloseSetField('note',this.value)"${disabled}>${_dailyCloseAttr(record.note)}</textarea></div>
     <div class="dc-results">
-      ${_dailyCloseResultCard('計算上現金（常備金＋現金売上）', _dailyCloseYen(calc.calculatedCash), null)}
-      ${_dailyCloseResultCard('現金誤差', calc.cashDifference === null ? '—' : (calc.cashDifference > 0 ? '+' : '') + _dailyCloseYen(calc.cashDifference), null, cashDiffClass)}
-      ${_dailyCloseResultCard('振込現金', calc.transferCash === null ? '—' : _dailyCloseYen(calc.transferCash), _dailyCloseYen(month.transferCash))}
-      ${_dailyCloseResultCard('粗利益', _dailyCloseYen(calc.grossProfit), _dailyCloseYen(month.grossProfit))}
-      ${_dailyCloseResultCard('利益率', _dailyCloseRate(calc.profitRate), _dailyCloseRate(month.profitRate), '', '当月平均')}
+      ${_dailyCloseResultCard(L('calculatedCash'), _dailyCloseYen(calc.calculatedCash), null)}
+      ${_dailyCloseResultCard(L('cashDifference'), calc.cashDifference === null ? '—' : (calc.cashDifference > 0 ? '+' : '') + _dailyCloseYen(calc.cashDifference), null, cashDiffClass)}
+      ${_dailyCloseResultCard(L('transferCash'), calc.transferCash === null ? '—' : _dailyCloseYen(calc.transferCash), _dailyCloseYen(month.transferCash), '', '当月累計', '', coinNote)}
+      ${_dailyCloseResultCard(L('grossProfit'), _dailyCloseYen(calc.grossProfit), _dailyCloseYen(month.grossProfit))}
+      ${_dailyCloseResultCard(L('profitRate'), _dailyCloseRate(calc.profitRate), _dailyCloseRate(month.profitRate), '', '当月平均')}
     </div>
-    ${transferWarning ? `<div class="dc-warning">⚠ 実際現金がレジ常備金 ${_dailyCloseYen(tillFloat)} を下回るため、振込現金は0円です。</div>` : ''}
+    ${transferWarning ? `<div class="dc-warning">${_dailyCloseAttr(_dailyCloseTransferWarningText(tillFloat, calc.coinCarry, false))}</div>` : ''}
   </div>`;
 }
 
@@ -24073,12 +24158,12 @@ function _dailyCloseSectionHtml(src, agg, payrollRows, isPast) {
    店長が本部・オーナーへ渡す／店に保管する用。表示・印刷・保存だけで、保存データは変えない。
    値は画面の日次締め（_dailyCloseSectionHtml）と日計表（_payrollTableModel）と同じ計算から取る。
 ================================================================ */
-// 入出金の一覧: [保存欄, 見出し, 名前・内容の欄, 合計の欄（dailyCloseCalc と当月累計で共通）]
+// 入出金の一覧: [保存欄（見出しの名前は dailyCloseLabel(保存欄, true) で引く）, 名前・内容の欄, 合計の欄（dailyCloseCalc と当月累計で共通）]
 const DAILY_CLOSE_REPORT_LISTS = [
-  ['staffPay', '社員日払い', 'name', 'staffPayTotal'],
-  ['expenses', '雑費', 'label', 'expenseTotal'],
-  ['hqOut', '特別出金', 'label', 'hqOutTotal'],
-  ['specialIn', '特別入金', 'label', 'specialInTotal'],
+  ['staffPay', 'name', 'staffPayTotal'],
+  ['expenses', 'label', 'expenseTotal'],
+  ['hqOut', 'label', 'hqOutTotal'],
+  ['specialIn', 'label', 'specialInTotal'],
 ];
 
 /* 打ちかけの欄（実際現金・日払いなど）を確定させる。ボタンは mousedown でフォーカスを奪わないので、
@@ -24161,20 +24246,22 @@ function _dailyClosePrintDocument(model, now = new Date()) {
   const yenOr = value => value === null ? '—' : yen(value);
   const num = value => (Number(value) || 0).toLocaleString('ja-JP');
   const kv = (label, value, cls = '') => '<div class="kv' + (cls ? ' ' + cls : '') + '"><span>' + label + '</span><b>' + value + '</b></div>';
+  const L = key => _dailyCloseLabelHtml(key, true);
   const shopName = String(cfg.shopName || '').trim();
   const status = auto.closedAt > 0 ? '確定 ' + _dailyCloseStamp(auto.closedAt) : (model.isPast ? '未確定' : '未確定（印刷時点の値）');
 
   const salesBox = '<section class="box"><h2>売上</h2>'
-    + '<div class="hero"><span>総売上</span><b>' + yen(auto.totalSales) + '</b></div>'
+    + '<div class="hero"><span>' + L('totalSales') + '</span><b>' + yen(auto.totalSales) + '</b></div>'
     + kv('現金', yen(auto.cashSales), 'sub') + kv('カード', yen(auto.cardSales), 'sub') + kv('売掛', yen(auto.urikakeSales), 'sub')
-    + kv('売掛金回収', yen(auto.urikakeRepayCash + auto.urikakeRepayCard), 'gap')
+    + kv(L('urikakeRepay'), yen(auto.urikakeRepayCash + auto.urikakeRepayCard), 'gap')
     + kv('現金', yen(auto.urikakeRepayCash), 'sub') + kv('カード', yen(auto.urikakeRepayCard), 'sub')
-    + kv('売掛発生', yen(auto.urikakeSales), 'gap')
+    + kv(L('urikakeSales'), yen(auto.urikakeSales), 'gap')
     + kv('伝票（精算済み）', num(agg.count) + '枚')
     + '<div class="trio"><div><span>総客数</span><b>' + num(agg.guests) + '人</b></div><div><span>組数</span><b>' + num(agg.count) + '組</b></div><div><span>客単価</span><b>' + yen(agg.avg) + '</b></div></div>'
     + '</section>';
 
-  const ledgerRows = DAILY_CLOSE_REPORT_LISTS.map(([field, title, textProp, totalKey]) => {
+  const ledgerRows = DAILY_CLOSE_REPORT_LISTS.map(([field, textProp, totalKey]) => {
+    const title = L(field);
     const items = record[field].length
       ? record[field].map(item => {
           const text = String(item[textProp] || '').trim();
@@ -24184,45 +24271,49 @@ function _dailyClosePrintDocument(model, now = new Date()) {
     return '<tr class="grp"><th>' + title + '</th><td>' + yen(calc[totalKey]) + '</td></tr>' + items;
   }).join('');
   const flowBox = '<section class="box"><h2>入出金</h2><table class="ledger"><tbody>' + ledgerRows
-    + '<tr class="grp"><th>日払／社交<small>キャストの日払いの合計</small></th><td>' + yen(auto.castNibaraiTotal) + '</td></tr>'
+    + '<tr class="grp"><th>' + L('castNibaraiTotal') + '<small>キャストの日払いの合計</small></th><td>' + yen(auto.castNibaraiTotal) + '</td></tr>'
     + '</tbody></table></section>';
 
   // 計算上の現金の式は dailyCloseCalc と同じ並び
+  const coinName = L('coinCarry');
   const formula = '常備金 ' + yen(tillFloat)
     + ' ＋ 現金売上 ' + yen(auto.cashSales)
-    + ' ＋ 特別入金 ' + yen(calc.specialInTotal)
+    + ' ＋ ' + L('specialIn') + ' ' + yen(calc.specialInTotal)
     + ' ＋ 売掛回収（現金） ' + yen(auto.urikakeRepayCash)
-    + ' − 雑費 ' + yen(calc.expenseTotal)
-    + ' − 日払／社交 ' + yen(auto.castNibaraiTotal)
-    + ' − 社員日払い ' + yen(calc.staffPayTotal)
-    + ' − 特別出金 ' + yen(calc.hqOutTotal);
+    + ' − ' + L('expenses') + ' ' + yen(calc.expenseTotal)
+    + ' − ' + L('castNibaraiTotal') + ' ' + yen(auto.castNibaraiTotal)
+    + ' − ' + L('staffPay') + ' ' + yen(calc.staffPayTotal)
+    + ' − ' + L('hqOut') + ' ' + yen(calc.hqOutTotal);
   const diff = calc.cashDifference;
   // 白黒でも分かるよう、誤差には「一致・過剰・不足」を添える（金額の書き方は画面と同じ）
   const diffText = diff === null ? '—'
     : (diff > 0 ? '+' : '') + yen(diff) + '<small>' + (diff === 0 ? '一致' : diff > 0 ? '過剰' : '不足') + '</small>';
-  const transferWarning = record.actualCash !== null && record.actualCash < tillFloat;
+  const transferWarning = record.actualCash !== null && record.actualCash < tillFloat + calc.coinCarry;
+  // 小銭繰越を使わない日の紙は今のまま。使う日だけ、実際現金の次に1行と、振込現金の下に小さな式を足す
   const cashBox = '<section class="box"><h2>現金</h2>'
-    + kv('計算上の現金', yen(calc.calculatedCash), 'em')
+    + kv(L('calculatedCash'), yen(calc.calculatedCash), 'em')
     + '<div class="formula">＝ ' + formula + '</div>'
-    + kv('実際現金', yenOr(record.actualCash))
-    + kv('現金誤差', diffText, 'em')
-    + kv('振込現金', yenOr(calc.transferCash), 'em')
-    + (transferWarning ? '<div class="formula">実際現金が常備金 ' + yen(tillFloat) + ' を下回るため振込現金は0円</div>' : '')
-    + kv('領収書枚数', num(record.receiptCount) + '枚', 'gap')
-    + kv('出金伝票枚数', num(record.withdrawSlipCount) + '枚')
-    + kv('カード伝票枚数', num(auto.cardSlipCount) + '枚')
+    + kv(L('actualCash'), yenOr(record.actualCash))
+    + (calc.coinCarry > 0 ? kv(coinName, yen(calc.coinCarry)) : '')
+    + kv(L('cashDifference'), diffText, 'em')
+    + kv(L('transferCash'), yenOr(calc.transferCash), 'em')
+    + (calc.coinCarry > 0 ? '<div class="formula">＝ ' + L('actualCash') + ' − 常備金 − ' + coinName + '</div>' : '')
+    + (transferWarning ? '<div class="formula">' + esc(_dailyCloseTransferWarningText(tillFloat, calc.coinCarry, true)) + '</div>' : '')
+    + kv(L('receiptCount'), num(record.receiptCount) + '枚', 'gap')
+    + kv(L('withdrawSlipCount'), num(record.withdrawSlipCount) + '枚')
+    + kv(L('cardSlipCount'), num(auto.cardSlipCount) + '枚')
     + '</section>';
 
   const monthLabel = (Number(String(src.dayKey || '').slice(4, 6)) || '') + '月・' + month.days + '日分';
   const plBox = '<section class="box"><h2>損益<small>当月累計 ' + monthLabel + '</small></h2>'
     + '<table class="pl"><thead><tr><th></th><th>本日</th><th>当月累計</th></tr></thead><tbody>'
-    + '<tr><th>総売上</th><td>' + yen(auto.totalSales) + '</td><td>' + yen(month.totalSales) + '</td></tr>'
-    + '<tr><th>社交給料計</th><td>' + yen(auto.castPayTotal) + '</td><td>' + yen(month.castPayTotal) + '</td></tr>'
-    + '<tr class="em"><th>粗利益</th><td>' + yen(calc.grossProfit) + '</td><td>' + yen(month.grossProfit) + '</td></tr>'
-    + '<tr><th>振込現金</th><td>' + yenOr(calc.transferCash) + '</td><td>' + yen(month.transferCash) + '</td></tr>'
-    + '<tr class="em"><th>利益率</th><td>' + _dailyCloseRate(calc.profitRate) + '</td><td>' + _dailyCloseRate(month.profitRate) + '<small>平均</small></td></tr>'
+    + '<tr><th>' + L('totalSales') + '</th><td>' + yen(auto.totalSales) + '</td><td>' + yen(month.totalSales) + '</td></tr>'
+    + '<tr><th>' + L('castPayTotal') + '</th><td>' + yen(auto.castPayTotal) + '</td><td>' + yen(month.castPayTotal) + '</td></tr>'
+    + '<tr class="em"><th>' + L('grossProfit') + '</th><td>' + yen(calc.grossProfit) + '</td><td>' + yen(month.grossProfit) + '</td></tr>'
+    + '<tr><th>' + L('transferCash') + '</th><td>' + yenOr(calc.transferCash) + '</td><td>' + yen(month.transferCash) + '</td></tr>'
+    + '<tr class="em"><th>' + L('profitRate') + '</th><td>' + _dailyCloseRate(calc.profitRate) + '</td><td>' + _dailyCloseRate(month.profitRate) + '<small>平均</small></td></tr>'
     + '</tbody></table>'
-    + '<div class="formula">粗利益 ＝ 総売上 − 雑費 − 社交給料計</div>'
+    + '<div class="formula">' + L('grossProfit') + ' ＝ ' + L('totalSales') + ' − ' + L('expenses') + ' − ' + L('castPayTotal') + '</div>'
     + '</section>';
 
   // キャストの表（金額の書き方は日計表の _payYen と同じ。本数は0なら空欄）
@@ -24261,7 +24352,7 @@ function _dailyClosePrintDocument(model, now = new Date()) {
     + '</section>';
 
   const foot = '<div class="foot">'
-    + '<section class="box report"><h2>営業報告</h2><div class="report-body">' + esc(record.note) + '</div></section>'
+    + '<section class="box report"><h2>' + L('note') + '</h2><div class="report-body">' + esc(record.note) + '</div></section>'
     + '<div class="sign"><div class="stamps">'
     + '<div class="stamp"><span>店長</span><i></i></div>'
     + '<div class="stamp"><span>確認</span><i></i></div>'
@@ -24299,7 +24390,7 @@ function _dailyClosePrintDocument(model, now = new Date()) {
     + '.formula{font-size:7pt;line-height:1.35;padding:.3mm 0 .8mm 3.5mm}'
     + '.pl th,.pl td{padding:.7mm 0;border-bottom:.4pt dotted #888;text-align:right;white-space:nowrap}'
     + '.pl thead th{font-size:7pt;font-weight:400;border-bottom:.6pt solid #000}'
-    + '.pl tbody th{text-align:left;font-weight:400}'
+    + '.pl tbody th{text-align:left;font-weight:400;white-space:normal;word-break:break-all}'
     + '.pl tr.em th,.pl tr.em td{font-weight:700;font-size:9.5pt}.pl td small{font-size:6.5pt;margin-left:1mm}'
     + '.cast{margin-top:3mm}h2.sec{border-bottom:none;margin-bottom:.8mm}'
     + '.cast th,.cast td{border:.5pt solid #000;padding:.35mm 1.4mm;line-height:1.25;text-align:right;white-space:nowrap}'
@@ -24352,6 +24443,8 @@ function _dailyCloseCsvText(model) {
   const { src, record, auto, calc, month, tillFloat, agg, castRows, castTotal } = model;
   const blank = value => (value === null || value === undefined) ? '' : value;
   const rate = value => value === null ? '' : (value * 100).toFixed(1);
+  // 項目名は印刷と同じ（店が付けた名前があればそれ。CSVはHTMLではないのでエスケープしない）
+  const L = key => dailyCloseLabel(key, true);
   // 先頭に店名・営業日・状態（ファイルを集めて見ても、どの店のいつの分か分かるように。判定担当の指摘 2026-10-23）
   const rows = [
     ['店名', String(cfg.shopName || '').trim()],
@@ -24361,34 +24454,37 @@ function _dailyCloseCsvText(model) {
     ['区分', '項目', '金額', '当月累計'],
   ];
   const add = (section, item, value, monthValue = '') => rows.push([section, item, blank(value), blank(monthValue)]);
-  add('売上', '総売上', auto.totalSales, month.totalSales);
+  add('売上', L('totalSales'), auto.totalSales, month.totalSales);
   add('売上', '現金', auto.cashSales);
   add('売上', 'カード', auto.cardSales);
   add('売上', '売掛', auto.urikakeSales);
-  add('売上', '売掛金回収', auto.urikakeRepayCash + auto.urikakeRepayCard, month.urikakeRepayCash + month.urikakeRepayCard);
-  add('売上', '売掛金回収（現金）', auto.urikakeRepayCash);
-  add('売上', '売掛金回収（カード）', auto.urikakeRepayCard);
-  add('売上', '売掛発生', auto.urikakeSales, month.urikakeSales);
+  add('売上', L('urikakeRepay'), auto.urikakeRepayCash + auto.urikakeRepayCard, month.urikakeRepayCash + month.urikakeRepayCard);
+  add('売上', L('urikakeRepay') + '（現金）', auto.urikakeRepayCash);
+  add('売上', L('urikakeRepay') + '（カード）', auto.urikakeRepayCard);
+  add('売上', L('urikakeSales'), auto.urikakeSales, month.urikakeSales);
   add('売上', '伝票の枚数（精算済み）', agg.count);
   add('売上', '総客数', agg.guests);
   add('売上', '組数', agg.count);
   add('売上', '客単価', agg.avg);
-  DAILY_CLOSE_REPORT_LISTS.forEach(([field, title, textProp, totalKey]) => {
+  DAILY_CLOSE_REPORT_LISTS.forEach(([field, textProp, totalKey]) => {
+    const title = L(field);
     record[field].forEach(item => add('入出金', title + '：' + (String(item[textProp] || '').trim() || '—'), item.amount));
     add('入出金', title + ' 計', calc[totalKey], month[totalKey]);
   });
-  add('入出金', '日払／社交', auto.castNibaraiTotal, month.castNibaraiTotal);
+  add('入出金', L('castNibaraiTotal'), auto.castNibaraiTotal, month.castNibaraiTotal);
   add('現金', '常備金', tillFloat);
-  add('現金', '計算上の現金', calc.calculatedCash);
-  add('現金', '実際現金', record.actualCash);
-  add('現金', '現金誤差', calc.cashDifference);
-  add('現金', '振込現金', calc.transferCash, month.transferCash);
-  add('現金', '領収書枚数', record.receiptCount);
-  add('現金', '出金伝票枚数', record.withdrawSlipCount);
-  add('現金', 'カード伝票枚数', auto.cardSlipCount, month.cardSlipCount);
-  add('損益', '社交給料計', auto.castPayTotal, month.castPayTotal);
-  add('損益', '粗利益', calc.grossProfit, month.grossProfit);
-  add('損益', '利益率(%)（当月は平均）', rate(calc.profitRate), rate(month.profitRate));
+  add('現金', L('calculatedCash'), calc.calculatedCash);
+  add('現金', L('actualCash'), record.actualCash);
+  // 小銭繰越は0円でも必ず出す（CSVは行の並びを固定にする）
+  add('現金', L('coinCarry'), calc.coinCarry);
+  add('現金', L('cashDifference'), calc.cashDifference);
+  add('現金', L('transferCash'), calc.transferCash, month.transferCash);
+  add('現金', L('receiptCount'), record.receiptCount);
+  add('現金', L('withdrawSlipCount'), record.withdrawSlipCount);
+  add('現金', L('cardSlipCount'), auto.cardSlipCount, month.cardSlipCount);
+  add('損益', L('castPayTotal'), auto.castPayTotal, month.castPayTotal);
+  add('損益', L('grossProfit'), calc.grossProfit, month.grossProfit);
+  add('損益', L('profitRate') + '(%)（当月は平均）', rate(calc.profitRate), rate(month.profitRate));
   rows.push([]);
   rows.push(['社交名', '出勤', '退勤', '勤務時間(分)', '指名売上', '本指名', '同伴', '場内', 'バック合計', '日給', '日払い', '控除計', '差引支給']);
   castRows.forEach(r => rows.push([r.castName, r.clockIn, r.clockOut, r.workMinutes, r.sales, r.honshimei, r.douhan, r.jonai,
@@ -24396,7 +24492,7 @@ function _dailyCloseCsvText(model) {
   rows.push(['合計（' + castRows.length + '人）', '', '', '', castTotal.sales, castTotal.honshimei, castTotal.douhan, castTotal.jonai,
     castTotal.backTotal, castTotal.dailyPay, castTotal.nibarai, castTotal.deductionTotal, castTotal.netPay]);
   rows.push([]);
-  rows.push(['営業報告', String(record.note || '').replace(/\r\n|\r|\n/g, ' ')]);
+  rows.push([L('note'), String(record.note || '').replace(/\r\n|\r|\n/g, ' ')]);
   return rows.map(row => row.map(v => '"' + String(v).replace(/"/g, '""') + '"').join(',')).join('\r\n');
 }
 
@@ -24412,6 +24508,149 @@ function dailyCloseExportCSV() {
   document.body.appendChild(link); link.click(); link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
   showToast('日次締めCSVを保存しました');
+}
+
+/* ================================================================
+   日次締めの名称変更（2026-10-27）
+   項目名は日ではなく店の設定（cfg.dailyCloseLabels）。未確定・ロック中・過去日のどれでも開ける。
+   ネイティブのダイアログは使わず、appConfirm などと同じ見た目の部品（pos-co-overlay app-dialog-overlay）を使う。
+================================================================ */
+let _dailyCloseLabelDialog = null; // 開いている名称変更ダイアログ。2つ同時には開かない
+
+function _dailyCloseLabelsDialogHtml() {
+  const esc = _dailyCloseAttr;
+  const current = normalizeDailyCloseLabels(cfg.dailyCloseLabels);
+  const groups = DAILY_CLOSE_LABEL_GROUPS.map(group => {
+    const rows = DAILY_CLOSE_LABEL_ITEMS.filter(item => item.group === group).map(item => `<div class="dc-label-row">
+        <label class="dc-label-def" for="dc-label-${item.key}">${esc(item.screen)}${item.print ? `<small>印刷: ${esc(item.print)}</small>` : ''}</label>
+        <input id="dc-label-${item.key}" class="dc-label-input" type="text" maxlength="30" autocomplete="off" data-dc-label="${item.key}" value="${esc(current[item.key] || '')}" placeholder="${esc(item.screen)}">
+      </div>`).join('');
+    return `<div class="dc-label-group"><h4>${esc(group)}</h4>${rows}</div>`;
+  }).join('');
+  return `<style>
+      .dc-label-panel{width:min(680px,calc(100vw - 32px));max-height:85vh}
+      .dc-label-lead{margin-top:6px;color:var(--tx2);font-size:13px;line-height:1.6}
+      .dc-label-cols,.dc-label-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px;align-items:center}
+      .dc-label-cols{margin-top:14px;color:var(--tx3);font-size:11px}
+      .dc-label-group{margin-top:12px}.dc-label-group h4{margin:0 0 4px;font-size:13px;color:var(--gold)}
+      .dc-label-row{padding:5px 0;border-bottom:1px solid var(--bdr)}
+      .dc-label-def{color:var(--tx);font-size:13px;line-height:1.4;overflow-wrap:anywhere}.dc-label-def small{display:block;color:var(--tx3);font-size:11px}
+      .dc-label-input{width:100%;box-sizing:border-box;min-width:0;padding:8px 10px;background:var(--sur3);border:1px solid var(--bdr2);border-radius:var(--radius);color:var(--tx);font:inherit;font-size:15px}
+      .dc-label-input:focus{outline:2px solid var(--gold);border-color:var(--gold)}
+      .dc-label-panel > .pos-co-footer{padding:12px 22px 18px;border-top:1px solid var(--bdr)}
+      .dc-label-actions{display:grid;grid-template-columns:1fr 1.5fr 1fr;gap:10px}.dc-label-actions .pos-co-btn{height:46px;padding:6px 8px;font-size:15px}
+      @media(max-width:600px){.dc-label-cols{display:none}.dc-label-row{grid-template-columns:1fr;gap:4px}.dc-label-actions{grid-template-columns:1fr}}
+    </style>
+    <div class="pos-co-panel app-dialog-panel dc-label-panel" role="dialog" aria-modal="true" aria-labelledby="dc-label-title">
+      <div class="pos-co-body app-dialog-body">
+        <div class="app-dialog-message" id="dc-label-title">日次締めの名称変更</div>
+        <div class="dc-label-lead">空欄にすると初期の名前に戻ります。画面・印刷・CSVに使われます。</div>
+        <div class="dc-label-cols"><span>初期の名前</span><span>今の名前</span></div>
+        ${groups}
+      </div>
+      <div class="pos-co-footer"><div class="dc-label-actions">
+        <button type="button" class="pos-co-btn app-dialog-ok" onclick="dailyCloseLabelsSave()">保存</button>
+        <button type="button" class="pos-co-btn app-dialog-cancel" onclick="dailyCloseLabelsResetAll()">すべて初期の名前に戻す</button>
+        <button type="button" class="pos-co-btn app-dialog-cancel" onclick="dailyCloseLabelsCancel()">キャンセル</button>
+      </div></div>
+    </div>`;
+}
+
+/* 画面の非常リセット（時計の長押し）はダイアログの部品だけを外す。外れていたら閉じた扱いに戻す
+   （残すとボタンが効かず、別の欄のEnterで捨てたはずの名前が保存される） */
+function _dailyCloseLabelsDropDetached() {
+  const dialog = _dailyCloseLabelDialog;
+  if (!dialog || dialog.overlay.isConnected !== false) return false;
+  _dailyCloseLabelDialog = null;
+  document.removeEventListener('keydown', _dailyCloseLabelsKeydown);
+  return true;
+}
+
+function dailyCloseLabelsOpen() {
+  _dailyCloseLabelsDropDetached();
+  if (_dailyCloseLabelDialog) return;
+  // 打ちかけの欄（実際現金・小銭繰越など）を先に確定させる。保存すると区画を描き直すので、残すと打った値が消える
+  _dailyCloseFlushInput();
+  const overlay = document.createElement('div');
+  overlay.className = 'pos-co-overlay app-dialog-overlay';
+  overlay.innerHTML = _dailyCloseLabelsDialogHtml();
+  _dailyCloseLabelDialog = { overlay };
+  // 外側のクリックでは閉じない（打ちかけを失わないため）。Esc・キャンセルは何も保存せず閉じる
+  document.addEventListener('keydown', _dailyCloseLabelsKeydown);
+  document.body.appendChild(overlay);
+  const first = overlay.querySelector('input[data-dc-label]');
+  if (first && typeof first.focus === 'function') first.focus();
+}
+
+function _dailyCloseLabelsInputs() {
+  const dialog = _dailyCloseLabelDialog;
+  return dialog ? Array.from(dialog.overlay.querySelectorAll('input[data-dc-label]')) : [];
+}
+
+function _dailyCloseLabelsKeydown(event) {
+  if (!_dailyCloseLabelDialog || _dailyCloseLabelsDropDetached() || _appDialogActive) return;
+  if (event.key === 'Escape') {
+    if (event.isComposing) return; // 変換の取り消しのEscでは閉じない
+    event.preventDefault();
+    event.stopPropagation();
+    dailyCloseLabelsCancel();
+    return;
+  }
+  if (event.key === 'Enter') {
+    // 入力欄でのEnterは保存。変換の確定のEnterは保存にしない。ボタン上のEnterはそのボタンの動作に任せる
+    if (event.isComposing || event.keyCode === 229) return;
+    if (event.target && event.target.tagName === 'INPUT') {
+      event.preventDefault();
+      dailyCloseLabelsSave();
+    }
+    return;
+  }
+  if (event.key !== 'Tab') return;
+  const focusable = Array.from(_dailyCloseLabelDialog.overlay.querySelectorAll('input[data-dc-label], button'));
+  if (focusable.length < 2) return;
+  const current = focusable.indexOf(document.activeElement);
+  const next = event.shiftKey
+    ? (current <= 0 ? focusable.length - 1 : current - 1)
+    : (current < 0 || current === focusable.length - 1 ? 0 : current + 1);
+  event.preventDefault();
+  focusable[next].focus();
+}
+
+function _dailyCloseLabelsClose() {
+  const dialog = _dailyCloseLabelDialog;
+  if (!dialog) return;
+  _dailyCloseLabelDialog = null;
+  document.removeEventListener('keydown', _dailyCloseLabelsKeydown);
+  dialog.overlay.remove();
+  // 保存すると区画ごと描き直されて元のボタンが入れ替わるので、描き直した後のボタンへフォーカスを戻す
+  const opener = document.querySelector('#daily-close-host .dc-labels-btn');
+  if (opener && typeof opener.focus === 'function') opener.focus();
+}
+
+function dailyCloseLabelsCancel() {
+  _dailyCloseLabelsClose();
+}
+
+/* 入力欄を全部空にするだけ。保存は「保存」を押したとき */
+function dailyCloseLabelsResetAll() {
+  _dailyCloseLabelsInputs().forEach(input => { input.value = ''; });
+}
+
+/* 空でない入力のうち、画面の初期名と同じでないものだけを持つ。日次締めの記録（dailyclose）は変えない */
+function dailyCloseLabelsSave() {
+  if (!_dailyCloseLabelDialog) return;
+  const picked = {};
+  _dailyCloseLabelsInputs().forEach(input => {
+    const key = input.dataset && input.dataset.dcLabel;
+    const item = DAILY_CLOSE_LABEL_ITEMS.find(entry => entry.key === key);
+    const name = String(input.value || '').trim();
+    if (item && name && name !== item.screen) picked[key] = name;
+  });
+  cfg.dailyCloseLabels = normalizeDailyCloseLabels(picked);
+  saveCfg();
+  _dailyCloseRerender();
+  _dailyCloseLabelsClose();
+  showToast('✏ 日次締めの名称を保存しました');
 }
 /* ================================================================
    BUSINESS ANALYTICS（経営分析）
