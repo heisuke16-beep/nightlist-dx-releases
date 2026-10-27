@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.98">
+<meta name="app-version" content="1.1.99">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -1943,6 +1943,10 @@ html[data-theme="champagne"] .cs-screen { --cs-bg: #fbf5e9; --cs-ink: #2a1f19; -
 .pos-ext-chip .pos-ext-chip-mark { font-size:12px; color:var(--gold); }
 .pos-ext-chip.is-off { border-color:var(--bdr); background:transparent; color:var(--tx3); text-decoration:line-through; }
 .pos-ext-chip.is-off .pos-ext-chip-mark { color:var(--tx3); }
+/* 延長試算の席の種類の切り替え（同じ分数の行がある店だけ。2026-10-28） */
+.pos-ext-groups { display:flex; gap:8px; margin:0 0 10px; }
+.pos-ext-group-btn { flex:1; min-height:44px; padding:6px 10px; border-radius:8px; border:1px solid var(--bdr2); background:var(--sur3); color:var(--tx2); font:inherit; font-size:15px; font-weight:700; cursor:pointer; }
+.pos-ext-group-btn.is-on { border-color:var(--gold); background:var(--gold); color:#201a0c; }
 .pos-ext-row { display:flex; align-items:center; gap:14px; padding:10px 14px; margin-bottom:8px; background:var(--sur3); border:1px solid var(--bdr2); border-radius:8px; }
 .pos-ext-min { font-size:22px; font-weight:900; color:var(--tx); min-width:54px; line-height:1; }
 .pos-ext-min small { font-size:12px; font-weight:400; color:var(--tx2); margin-left:2px; }
@@ -25979,10 +25983,62 @@ function _posExtTrial(row, extMin, trialCasts = [], extIdx) {
    row.extTrialOptions（分数の配列。デモ・比較用）が付いた行は、各分数を「その分数の最初の行」に写して回す。 */
 function _extTrialRows(row) {
   const opts = cfg.extOptions || [];
-  const rows = Array.isArray(row && row.extTrialOptions)
+  const byMinutes = Array.isArray(row && row.extTrialOptions);
+  const rows = byMinutes
     ? row.extTrialOptions.map(min => ({ min, idx: extRowIndexFor(min) }))
     : opts.map((min, idx) => ({ min, idx }));
-  return rows.map(r => ({ ...r, label: r.idx >= 0 ? extItemLabel(r.min, r.idx) : '延長' + r.min + '分' }));
+  const list = rows.map(r => ({ ...r, label: r.idx >= 0 ? extItemLabel(r.min, r.idx) : '延長' + r.min + '分' }));
+  // 席の種類を選んだ伝票は、その種類の行（と種類名の無い行）だけ。分数で渡す行（デモ・比較用）は絞らない
+  const group = byMinutes ? '' : extTrialSelectedGroup(row);
+  return group ? list.filter(r => { const g = r.idx >= 0 ? extTrialGroupOf(r.idx) : ''; return !g || g === group; }) : list;
+}
+
+/* 席の種類で延長料金が違う店（同じ分数の行がある店）の、延長の行の種類名（2026-10-28 ヴェルベ）。
+   品目名から「延長」・分数・かっこを除いた残り（例:「延長30分(ボックス)」→「ボックス」、「カウンター延長30分」→「カウンター」）。
+   同じ分数の行が無い店と、種類名が残らない行は ''（どの種類を選んでも出す）。 */
+function extTrialGroupOf(idx) {
+  if (!extTableHasSameMinutes()) return '';
+  // 全角の数字・かっこ（「延長３０分（ボックス）」）も同じに扱うため、先に NFKC で半角へそろえる
+  const name = String((cfg.extNames || [])[idx] ?? '').normalize('NFKC').trim();
+  return name.replace(/延長/g, '').replace(/\d+\s*分/g, '').replace(/[()（）[\]［］【】「」\s]/g, '').trim();
+}
+/* 延長試算で選べる種類（表の順・重複なし）。2つ未満なら切り替えを出さない */
+function extTrialGroups() {
+  const groups = [];
+  (cfg.extOptions || []).forEach((min, idx) => {
+    const group = extTrialGroupOf(idx);
+    if (group && !groups.includes(group)) groups.push(group);
+  });
+  return groups.length >= 2 ? groups : [];
+}
+/* この伝票の試算に出す種類（'' は全部）。延長試算で選んだもの（row.extTrialGroup。'*'＝両方）。選ぶまでは今までどおり全部 */
+function extTrialSelectedGroup(row) {
+  const groups = extTrialGroups();
+  if (!groups.length || !row) return '';
+  return groups.includes(row.extTrialGroup) ? row.extTrialGroup : '';
+}
+/* 延長試算の種類の切り替えボタン（種類が2つ以上ある店だけ）。attr(i) はボタンに付ける押した時の処理（i＝種類の番号、-1＝両方） */
+function _extTrialGroupButtonsHtml(row, attr) {
+  const groups = extTrialGroups();
+  if (!groups.length) return '';
+  const current = extTrialSelectedGroup(row);
+  const button = (index, label, on) => '<button type="button" class="pos-ext-group-btn' + (on ? ' is-on' : '') + '" aria-pressed="' + on + '" ' + attr(index) + '>' + escHtml(label) + '</button>';
+  return '<div class="pos-ext-groups" role="group" aria-label="延長の席の種類">'
+    + groups.map((group, index) => button(index, group, current === group)).join('')
+    + button(-1, '両方', current === '') + '</div>';
+}
+/* 延長試算の種類を選ぶ（伝票に覚える。印刷・お客様向けの画面も同じ種類になる） */
+function _extTrialSetGroup(row, index) {
+  const groups = extTrialGroups();
+  if (!row || !groups.length) return;
+  row.extTrialGroup = index >= 0 && index < groups.length ? groups[index] : '*';
+  saveState();
+}
+function posExtTrialSelectGroup(index) {
+  const row = posSelectedRow();
+  if (!row) return;
+  _extTrialSetGroup(row, Number(index));
+  posPrintReceipt();
 }
 /* 試算・ご案内の左の欄に出す文字。同じ分数の行がある店は品目名、無い店は今までどおり「◯分」 */
 function _extTrialRowText(r) {
@@ -26062,7 +26118,8 @@ function posPrintReceipt() {
   const curCard = advance ? ceilAddRate(curCash, cardFeePct, cardFeeRound) : (parseInt(row.amountCard) || ceilAddRate(curCash, cardFeePct, cardFeeRound));
 
   const sameMinutes = extTableHasSameMinutes();
-  const extRows = (cfg.extOptions || []).map((min, idx) => {
+  // 席の種類を選んだ伝票は、その種類の行だけ（印刷・お客様向けの画面と同じ _extTrialRows を通す）
+  const extRows = _extTrialRows(row).map(({ min, idx }) => {
     const t = _posExtTrial(row, min, [], idx);
     const cashDelta = t.cash - b.cash;
     const extCash   = advance ? t.dueCash : curCash + cashDelta;
@@ -26092,6 +26149,7 @@ function posPrintReceipt() {
     + (advance ? '<div class="pos-split-remain"><span class="pos-split-remain-label">前金 −¥' + advBd.principal.toLocaleString() + (advBd.extraFee ? '／分割手数料の充当 −¥' + advBd.extraFee.toLocaleString() : '') + '</span><span class="pos-split-remain-val">残金 ¥' + curCash.toLocaleString() + '</span></div>' : '')
     + _posExtTrialChipsHtml(row)
     + '<div class="pos-ext-divider">延長した場合の試算</div>'
+    + _extTrialGroupButtonsHtml(row, index => 'onclick="posExtTrialSelectGroup(' + index + ')"')
     + extRows
     + '<div class="pos-co-actions" style="margin-top:16px">'
     + '<button class="pos-co-btn cash" onclick="document.getElementById(\'pos-ext-overlay\').remove();posPrintExtTrial()">' + printOrShowLabel('🖨️ このまま印刷', '案内を画面に出す') + '</button>'
@@ -26583,7 +26641,9 @@ function posPrintExtTrial(row, comparison) {
     + 'th{font-size:11pt;font-weight:700;padding-bottom:3mm;border-bottom:2px solid #000}'
     + 'th.t{text-align:left}.ext-table.show-card th.t{width:34%}.ext-table.show-card th.amt{width:33%}.ext-table.hide-card th.t,.ext-table.hide-card th.amt{width:50%}th.amt{text-align:center}'
     + 'td{font-size:12pt;font-weight:700;padding:5mm 0;white-space:nowrap}'
-    + 'td.time{text-align:left}td.amt{text-align:center}'
+    // 延長時間の欄は折り返す（「延長30分(ボックス)」のような長い品目名が金額に重なるため。2026-10-28）。
+    // 語の途中では折らず（keep-all）かっこの前で折る。入りきらない語だけ途中で折る
+    + 'td.time{text-align:left;font-size:10pt;white-space:normal;word-break:keep-all;overflow-wrap:anywhere;line-height:1.3;padding-right:1mm}td.amt{text-align:center}'
     + 'tr.sep td{border-top:2px dashed #999}'
     + '.logo{display:block;width:30mm;margin:0 auto 2mm}.r-blk-shop{margin:0 0 2mm}.r-blk-text{line-height:1.5;margin:3mm 0;white-space:normal}.r-blk-image{display:block;max-width:100%;height:auto}.r-blk-divider{border:0;border-top-width:1px;border-top-color:#000;margin:2mm 0}.r-blk-spacer{width:100%}'
     // 上下余白はドライバ側が持つ（2026-07-14 実機TM-T20IIで確認）:
@@ -27294,7 +27354,7 @@ function _posOpenExtComparison(row) {
     + '</fieldset><div style="font-size:12px;color:var(--tx2);margin-bottom:12px">'
     + '案内のみ。実際の指名・注文は別途登録してください。'
     + (cfg.extFeePerSeat ? '<br>店舗設定：指名1人につき在席' + _posExtSeats(row) + '名分の延長指名料。' : '')
-    + '</div><div data-preview></div><div data-hint role="status" style="padding:8px 0;font-size:12px;color:var(--tx2)"></div>'
+    + '</div><div data-ext-groups></div><div data-preview></div><div data-hint role="status" style="padding:8px 0;font-size:12px;color:var(--tx2)"></div>'
     + '<div class="pos-co-actions" style="margin-top:12px;position:sticky;bottom:0;padding:8px 0;background:var(--bg)">'
     + '<button type="button" class="pos-co-btn cash" data-action="print">' + printOrShowLabel('🖨️ 案内を印刷', '案内を画面に出す') + '</button>'
     + '<button type="button" class="pos-co-btn card" data-action="bill">' + printOrShowLabel('🧾 伝票を印刷', 'お会計を画面に出す') + '</button>'
@@ -27311,6 +27371,8 @@ function _posOpenExtComparison(row) {
     const ready = !enabled || comparison.casts.length > 0;
     overlay.querySelector('[data-action="print"]').disabled = !ready;
     overlay.querySelector('[data-hint]').textContent = ready ? '' : '比較するキャストを選んでください。';
+    // 席の種類の切り替え（種類が2つ以上ある店だけ。2026-10-28）
+    overlay.querySelector('[data-ext-groups]').innerHTML = _extTrialGroupButtonsHtml(liveRow() || row, index => 'data-ext-group="' + index + '"');
     overlay.querySelector('[data-preview]').innerHTML = ready
       ? '<div class="ext-trial-preview" style="background:#fff;color:#000;padding:12px;max-width:320px;margin:auto">'
         + _printDocBodyHtml('extTrial', _extComparisonRow(liveRow() || row), _extTrialBlocks(), comparison) + '</div>' : '';
@@ -27318,6 +27380,8 @@ function _posOpenExtComparison(row) {
   overlay.addEventListener('change', update);
   overlay.addEventListener('click', event => {
     if (event.target === overlay) { close(); return; }
+    const groupButton = event.target.closest('[data-ext-group]');
+    if (groupButton) { _extTrialSetGroup(liveRow() || row, Number(groupButton.dataset.extGroup)); update(); return; }
     const action = event.target.closest('[data-action]')?.dataset.action;
     if (!action) return;
     if (action === 'close') { close(); return; }
