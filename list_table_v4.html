@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.100">
+<meta name="app-version" content="1.1.101">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -3358,6 +3358,11 @@ table#customer-table { border-collapse: collapse; width: 100%; min-width: 800px;
 }
 .settings-input:focus { border-color: var(--gold); box-shadow: 0 0 0 2px rgba(201,168,76,0.15); }
 .settings-input.wide { width: 200px; }
+/* 起動ログインの入力欄（2026-10-28）。見出しを欄の上に置き、欄は置き場所いっぱいに広げる（基本の80px幅だと説明が切れていた） */
+.auth-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px 12px; width:100%; max-width:720px; }
+@media (max-width:600px) { .auth-fields { grid-template-columns:1fr; } }
+.auth-field { display:flex; flex-direction:column; gap:4px; font-size:12px; font-weight:600; color:var(--tx2); }
+.auth-field .settings-input { width:100%; min-height:40px; box-sizing:border-box; font-size:14px; }
 
 /* タグ編集UI */
 .tag-editor { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; flex: 1; }
@@ -27429,6 +27434,40 @@ function receiptPrinterOff() { return cfg.receiptPrinterOff === true; }
 function receiptPaperWidthMm() { return Number(cfg.receiptPaperWidth) === 72 ? 72 : 80; }
 function receiptPageCss() { return '@page{size:' + receiptPaperWidthMm() + 'mm auto;margin:0}'; }
 
+/* 目盛りの試し印刷（2026-10-28）。今の紙の幅（receiptPageCss）のまま、ページの左端を0として1mmごとの目盛りを80mmまで印字する。
+   紙のどこから印字が始まり、右はどこで切れるかを目盛りで読み、プリンターごとの印字できる範囲を確かめる（定規なしで測るため） */
+function receiptCalibrationPrint() {
+  const w = window.open('', '_blank', 'width=320,height=520');
+  if (!w) { showToast('ポップアップがブロックされました'); return; }
+  let ticks = '';
+  for (let mm = 0; mm <= 80; mm++) {
+    const height = mm % 10 === 0 ? 7 : mm % 5 === 0 ? 5 : 3;
+    ticks += '<i style="left:' + mm + 'mm;height:' + height + 'mm"></i>';
+    if (mm % 5 === 0) ticks += '<b style="left:' + mm + 'mm">' + mm + '</b>';
+  }
+  const width = receiptPaperWidthMm();
+  w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>目盛りの試し印刷</title><style>'
+    + receiptPageCss()
+    + '*{box-sizing:border-box;margin:0;padding:0}'
+    + 'body{width:' + width + 'mm;margin:0;color:#000;font-family:"Hiragino Kaku Gothic ProN","Meiryo",sans-serif}'
+    + 'h2{font-size:12pt;font-weight:800;text-align:center;margin:1mm 0 3mm}'
+    + '.ruler{position:relative;height:13mm;overflow:visible}'
+    + '.ruler i{position:absolute;top:0;width:0;border-left:0.3mm solid #000}'
+    + '.ruler b{position:absolute;top:8mm;font-size:8pt;font-weight:700;transform:translateX(-50%)}'
+    + '.edge{height:6mm;border:0.4mm solid #000;margin:2mm 0}'
+    + '.note{font-size:8.5pt;line-height:1.6;margin-top:2mm;padding:0 3mm}'
+    + '</style></head><body>'
+    + '<h2>目盛りの試し印刷</h2>'
+    + '<div class="ruler">' + ticks + '</div>'
+    + '<div class="edge"></div>'
+    + '<div class="ruler">' + ticks + '</div>'
+    + '<div class="note">紙の幅の設定: ' + width + 'mm<br>上と下に同じ目盛り（1mmごと。数字は5mmごと）、間の枠はページの幅いっぱいです。紙の左右の端と目盛りが写るように写真を撮ってください。</div>'
+    + '<div style="margin:10mm auto 0;width:0.5mm;height:0;border-top:1px solid #000;print-color-adjust:exact;-webkit-print-color-adjust:exact"></div>'
+    + '<script>window.onafterprint=()=>setTimeout(()=>window.close(),100);window.onload=()=>window.print()<\/script>'
+    + '</body></html>');
+  w.document.close();
+}
+
 /* ボタンの文言。プリンターを使わない店では「印刷」を「画面に出す」側の言い方にする */
 function printOrShowLabel(printLabel, showLabel) {
   return receiptPrinterOff() ? showLabel : printLabel;
@@ -29184,12 +29223,13 @@ function renderSettingsPanel() {
             <div class="settings-sub">${authIsSet ? `設定済み（ユーザー名: ${escHtml(authRecord.username || '')}）` : '未設定（誰でも起動できます）'}</div>
           </div>
           ${authIsSet ? `
-            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;width:100%">
-              <input type="password" class="settings-input" id="auth-current-password" placeholder="現在のパスワード" autocomplete="current-password">
-              <input type="text" class="settings-input" id="auth-new-username" value="${escAttr(authRecord.username || '')}" placeholder="新ユーザー名" autocomplete="username">
-              <input type="password" class="settings-input" id="auth-new-password" placeholder="新パスワード" autocomplete="new-password">
-              <input type="password" class="settings-input" id="auth-new-password2" placeholder="確認" autocomplete="new-password">
+            <div class="auth-fields">
+              <label class="auth-field"><span>現在のパスワード</span><input type="password" class="settings-input" id="auth-current-password" autocomplete="current-password"></label>
+              <label class="auth-field"><span>ユーザー名</span><input type="text" class="settings-input" id="auth-new-username" value="${escAttr(authRecord.username || '')}" autocomplete="username"></label>
+              <label class="auth-field"><span>新しいパスワード（8文字以上）</span><input type="password" class="settings-input" id="auth-new-password" autocomplete="new-password"></label>
+              <label class="auth-field"><span>新しいパスワード（確認）</span><input type="password" class="settings-input" id="auth-new-password2" autocomplete="new-password"></label>
             </div>
+            <div class="settings-sub">ユーザー名だけ変えるときも、新しいパスワードの2つの欄に入れます（今と同じパスワードで構いません）</div>
             <div style="display:flex;gap:8px;flex-wrap:wrap">
               <button type="button" class="btn primary" onclick="authSettingsChange()" ${authSupported ? '' : 'disabled'}>変更する</button>
               <button type="button" class="btn danger" onclick="authSettingsClear()" ${authSupported ? '' : 'disabled'}>ログインを解除</button>
@@ -29202,10 +29242,10 @@ function renderSettingsPanel() {
               </div>
             </div>
           ` : `
-            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;width:100%">
-              <input type="text" class="settings-input" id="auth-setup-username" placeholder="ユーザー名" autocomplete="username">
-              <input type="password" class="settings-input" id="auth-setup-password" placeholder="パスワード" autocomplete="new-password">
-              <input type="password" class="settings-input" id="auth-setup-password2" placeholder="パスワード確認" autocomplete="new-password">
+            <div class="auth-fields">
+              <label class="auth-field"><span>ユーザー名</span><input type="text" class="settings-input" id="auth-setup-username" autocomplete="username"></label>
+              <label class="auth-field"><span>パスワード（8文字以上）</span><input type="password" class="settings-input" id="auth-setup-password" autocomplete="new-password"></label>
+              <label class="auth-field"><span>パスワード（確認）</span><input type="password" class="settings-input" id="auth-setup-password2" autocomplete="new-password"></label>
             </div>
             <button type="button" class="btn primary" onclick="authSettingsSetup()" ${authSupported ? '' : 'disabled'}>ログインを設定</button>
           `}
@@ -29245,6 +29285,10 @@ function renderSettingsPanel() {
             <option value="80" ${receiptPaperWidthMm() === 80 ? 'selected' : ''}>80mm（EPSON TM-T20II など）</option>
             <option value="72" ${receiptPaperWidthMm() === 72 ? 'selected' : ''}>72mm（スター精密 mC-Print3 など）</option>
           </select>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">目盛りの試し印刷<div class="settings-sub">保存してある紙の幅で、1mmごとの目盛りを印刷します。右が切れる・片寄るときに、プリンターが印字できる範囲を確かめるのに使います</div></div>
+          <button type="button" class="btn" onclick="receiptCalibrationPrint()">🖨 目盛りを印刷</button>
         </div>
         <div class="settings-row">
           <div class="settings-label">お客様に見せるお会計<div class="settings-sub">最初に見せる内容です。出したあと、画面の下のボタンでも切り替えられます</div></div>
