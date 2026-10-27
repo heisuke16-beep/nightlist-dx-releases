@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.96">
+<meta name="app-version" content="1.1.97">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -3091,6 +3091,8 @@ table#customer-table { border-collapse: collapse; width: 100%; min-width: 800px;
 .pos-menu-editor .pos-me-pt-input { text-align:right; }
 .pos-menu-editor .pos-me-table input:focus { border-color:var(--gold); }
 .pos-menu-editor .pos-me-del { width:100%; padding-left:2px; padding-right:2px; }
+/* 横スクロールの枠。width:0＋min-width:100%で表の最低幅を外へ伝えず、設定画面全体が画面より広がるのを防ぐ */
+.pos-me-scroll { overflow-x:auto; width:0; min-width:100%; }
 /* 料金マスター: グループ帯・ゼブラ縞・統一行高で多列の追従を助ける */
 #cfg-fee-master-table { table-layout:fixed; }
 #cfg-fee-master-table .fee-master-group-head > td {
@@ -3148,8 +3150,9 @@ table#customer-table { border-collapse: collapse; width: 100%; min-width: 800px;
 .pay-settings-row p { margin:5px 0 0; }
 .pay-settings-inputs { display:flex; align-items:center; justify-content:flex-end; gap:8px; flex-wrap:wrap; flex-shrink:0; font-size:12px; }
 .pay-settings-inputs .settings-input { width:96px; }
-.back-unit-control { display:flex; align-items:center; gap:6px; min-width:158px; }
-.back-unit-control .back-unit-value { width:82px; min-width:65px; padding:7px 8px; border:1px solid var(--bdr); border-radius:6px; background:var(--sur2); color:var(--tx); font:inherit; }
+.back-unit-control { display:flex; align-items:center; gap:4px; min-width:0; }
+.back-unit-control .back-unit-value { flex:1 1 auto; width:auto; min-width:0; padding:7px 6px; border:1px solid var(--bdr); border-radius:6px; background:var(--sur2); color:var(--tx); font:inherit; }
+.back-unit-control .back-unit-toggle button { min-width:32px; }
 .back-unit-toggle { display:flex; flex-shrink:0; overflow:hidden; border:1px solid var(--bdr2); border-radius:7px; }
 .back-unit-toggle button { min-width:36px; min-height:36px; border:0; background:var(--sur2); color:var(--tx2); font:inherit; cursor:pointer; }
 .back-unit-toggle button[aria-pressed="true"] { background:var(--gold); color:#201a0c; font-weight:700; }
@@ -18053,9 +18056,12 @@ function _posMenuEditorHTML(key, label, items, open = false) {
   const splitBack = posMenuUsesSplitBack(key);
   const marginBack = posMenuUsesMarginBack(key);
   const marginCol = marginBack ? '<col style="width:118px">' : '';
+  /* バック列は入力欄と「%/円」ボタンが収まる幅にする（狭いとボタンが右隣の欄の下に潜って見えなくなる）。
+     メニュー名の欄に最低140pxを残し、足りない画面幅では表を横スクロールさせる */
+  const tableMinWidth = 140 + 28 + 96 + 156 * (splitBack ? 2 : 1) + (marginBack ? 118 : 0) + 64 + 44;
   const columns = splitBack
-    ? '<colgroup><col style="width:28px"><col><col style="width:96px"><col style="width:88px"><col style="width:88px">' + marginCol + '<col style="width:64px"><col style="width:44px"></colgroup>'
-    : '<colgroup><col style="width:28px"><col><col style="width:96px"><col style="width:96px">' + marginCol + '<col style="width:64px"><col style="width:44px"></colgroup>';
+    ? '<colgroup><col style="width:28px"><col><col style="width:96px"><col style="width:156px"><col style="width:156px">' + marginCol + '<col style="width:64px"><col style="width:44px"></colgroup>'
+    : '<colgroup><col style="width:28px"><col><col style="width:96px"><col style="width:156px">' + marginCol + '<col style="width:64px"><col style="width:44px"></colgroup>';
   const rows = (items || []).map(item => `<tr draggable="true">
     <td class="pos-me-drag" title="ドラッグして並び替え">⠿</td>
     <td><input type="text" class="pos-me-name-input" value="${escAttr(item.name)}" placeholder="メニュー名"></td>
@@ -18070,11 +18076,11 @@ function _posMenuEditorHTML(key, label, items, open = false) {
   return `<div class="settings-row pos-menu-editor" data-key="${escAttr(key)}" style="align-items:flex-start;flex-direction:column;gap:6px;margin-bottom:8px">
     <details class="pos-me-acc"${openAttr}>
       <summary><span class="settings-label pos-menu-editor-label" style="font-weight:700">${escHtml(label)}</span></summary>
-      <table class="pos-me-table" id="cfg-posMenu-${escAttr(key)}-tbl">
+      <div class="pos-me-scroll"><table class="pos-me-table" id="cfg-posMenu-${escAttr(key)}-tbl" style="min-width:${tableMinWidth}px">
         ${columns}
         <thead><tr><th></th><th>メニュー名</th><th>金額（円）</th>${splitBack ? '<th title="空欄なら通常バックと同額が適用されます。0は0円です">指名バック</th><th title="空欄なら指名バックと同額が適用されます">通常バック</th>' : '<th>バック</th>'}${marginBack ? '<th title="（販売価格−仕入れ値）×折半バックの率をキャストへバックします（率は 給与計算ルール → バック・SP）">仕入れ値・折半</th>' : ''}<th>pt</th><th></th></tr></thead>
         <tbody>${rows}</tbody>
-      </table>
+      </table></div>
       <button type="button" class="pos-me-add-btn" onclick="posMenuAddItem('${key}')">＋ 追加</button>
     </details>
   </div>`;
