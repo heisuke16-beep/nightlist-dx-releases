@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.99">
+<meta name="app-version" content="1.1.100">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -9822,6 +9822,7 @@ const CFG_DEFAULTS = {
   tillFloat:       60000,   // レジ常備金（超過分を本社へ振込）
   posKeepTableAfterCheckout: false, // true=精算しても「退店」を押すまで卓ビューに残す（会計済の卓と残り時間が見える。2026-10-04）
   receiptPrinterOff: false, // true=レシートプリンターを使わない。会計伝票・延長の案内・領収書を印刷せず画面に出す（2026-10-04 店の端末で使う想定）
+  receiptPaperWidth: 80,   // レシートの紙の幅（mm）。80=80mm紙の中央に72mmで印字（EPSON TM-T20II など。今まで）／72=ドライバーの用紙が72mm幅（スター精密 mC-Print3 など。2026-10-28 ヴェルベ）
   screenSlipTotalOnly: false, // 画面に出す会計伝票の最初の見せ方。true=合計だけ／false=明細も（画面のボタンでその場でも切り替えられる）
   showCountdown:   true,    // 残り時間カウントダウン表示
   fullscreenOnBoot: true,   // 営業開始時にフルスクリーンにする
@@ -9973,6 +9974,7 @@ function mergeCfgDefaults(saved) {
   merged.showtimeScope = merged.showtimeScope === 'all' ? 'all' : 'table';
   merged.defaultTheme = merged.defaultTheme === 'champagne' ? 'champagne' : 'night';
   merged.wageLockEnabled = merged.wageLockEnabled === true;
+  merged.receiptPaperWidth = Number(merged.receiptPaperWidth) === 72 ? 72 : 80;
   // 旧設定に印刷フラグが無い場合は、従来どおり先頭金額欄を印刷する。
   merged.payrollDeductionDisplayPrint = merged.payrollDeductionDisplayPrint !== false;
   merged.payrollDeductionNibaraiPrint = merged.payrollDeductionNibaraiPrint === true;
@@ -23100,7 +23102,7 @@ function _payrollBreakdownPrintDocument(r, src, countCols) {
     ? deductionLines.map(item => row(escHtml(item.label), item.value)).join('') + row('控除計', _payYen(d.deductionTotal), 'total')
     : '<div class="none">控除なし</div>';
   return '<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>給与明細 - ' + escHtml(d.castName) + '</title><style>'
-    + '@page{size:80mm auto;margin:0}*{box-sizing:border-box;margin:0;padding:0}'
+    + receiptPageCss() + '*{box-sizing:border-box;margin:0;padding:0}'
     + 'body{width:72mm;margin:0 auto;padding:3mm;font-family:"Hiragino Kaku Gothic ProN","Meiryo",sans-serif;color:#000;background:#fff;font-size:10pt;line-height:1.35;font-variant-numeric:tabular-nums}'
     + '.head{text-align:center}.shop{font-size:10pt;font-weight:800;letter-spacing:.06em;margin-bottom:1mm}.title{font-size:17pt;font-weight:900;letter-spacing:.3em;padding-left:.3em}.tag{display:inline-block;margin-top:.8mm;padding:0 2.5mm;border:1px solid #000;border-radius:3mm;font-size:8pt;font-weight:800}'
     + '.warn{margin-top:2mm;padding:1.2mm 1.5mm;border:1px dashed #000;font-size:8pt;font-weight:700}'
@@ -26568,7 +26570,7 @@ function posPrintReceiptDirect(row) {
   // 新規導入店舗がロゴ未設定のまま印刷すると前店舗のロゴが出てしまっていた（他店舗展開の洗い出しで発見・修正）。
   w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>伝票</title>'
     + '<style>'
-    + '@page{size:80mm auto;margin:0}'
+    + receiptPageCss()
     + '*{box-sizing:border-box;margin:0;padding:0}'
     // 幅72mm＝TM-T20IIの印字可能幅。margin:0 auto で80mm用紙の中央に置く（延長案内と同じ実機補正）
     + 'body{font-family:"Hiragino Kaku Gothic ProN","Meiryo",sans-serif;color:#000;width:72mm;padding:3mm;margin:0 auto' + scaleCss + '}'
@@ -26622,7 +26624,7 @@ function posPrintExtTrial(row, comparison) {
   const scaleCss = _printScaleCss(cfg.extTrialScale);
   w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>延長料金のご案内</title>'
     + '<style>'
-    + '@page{size:80mm auto;margin:0}'
+    + receiptPageCss()
     + '*{box-sizing:border-box;margin:0;padding:0}'
     // 幅72mm＝TM-T20IIの印字可能幅。margin:0 auto で80mm用紙の中央に置く（左寄せだと右に8mm余って全体が左にずれる）
     + 'body{font-family:"Hiragino Kaku Gothic ProN","Meiryo",sans-serif;color:#000;width:72mm;padding:4mm 3mm;margin:0 auto' + scaleCss + '}'
@@ -27420,6 +27422,12 @@ function _posOpenExtComparison(row) {
    見た目の決まりは 00-shell-head.html の .cs-* に置く。
 ================================================================ */
 function receiptPrinterOff() { return cfg.receiptPrinterOff === true; }
+
+/* レシートの紙の幅（mm。2026-10-28）。80＝80mm紙の中央に72mmで印字（EPSON TM-T20II など。今まで）。
+   72＝ドライバーの用紙が72mm幅（スター精密 mC-Print3 は80mmの用紙が無く、80mm前提だと右へ約4mmずれて右端が切れる）。
+   変えるのは @page の幅だけで、中身は72mmのまま（会計伝票・延長の案内・領収書・1日分の給与明細のレシートで共通） */
+function receiptPaperWidthMm() { return Number(cfg.receiptPaperWidth) === 72 ? 72 : 80; }
+function receiptPageCss() { return '@page{size:' + receiptPaperWidthMm() + 'mm auto;margin:0}'; }
 
 /* ボタンの文言。プリンターを使わない店では「印刷」を「画面に出す」側の言い方にする */
 function printOrShowLabel(printLabel, showLabel) {
@@ -29232,6 +29240,13 @@ function renderSettingsPanel() {
           </label>
         </div>
         <div class="settings-row">
+          <div class="settings-label">レシートの紙の幅<div class="settings-sub">会計伝票・延長の案内・領収書・1日分の給与明細のレシートの幅です。プリンターのドライバーの用紙に80mmが無い（一番広いのが「72mm x Receipt」）ときは72mmにします。80mmのままだと右へずれて右端が切れます</div></div>
+          <select class="settings-input" id="cfg-receiptPaperWidth" style="width:240px">
+            <option value="80" ${receiptPaperWidthMm() === 80 ? 'selected' : ''}>80mm（EPSON TM-T20II など）</option>
+            <option value="72" ${receiptPaperWidthMm() === 72 ? 'selected' : ''}>72mm（スター精密 mC-Print3 など）</option>
+          </select>
+        </div>
+        <div class="settings-row">
           <div class="settings-label">お客様に見せるお会計<div class="settings-sub">最初に見せる内容です。出したあと、画面の下のボタンでも切り替えられます</div></div>
           <select class="settings-input" id="cfg-screenSlipTotalOnly" style="width:200px">
             <option value="0" ${cfg.screenSlipTotalOnly ? '' : 'selected'}>明細も見せる</option>
@@ -31041,6 +31056,8 @@ async function applySettings() {
   const modoriEnchoshimeiAgg = ['enchoshimei40','jounai','none'].includes(modoriEnchoshimeiAggValue) ? modoriEnchoshimeiAggValue : 'enchoshimei40';
   const showCountdown   = !!(get('cfg-showCountdown')?.checked);
   const receiptPrinterOff = !!(get('cfg-receiptPrinterOff')?.checked);
+  // レシートの紙の幅（2026-10-28）。画面に欄が無いときは今の値のまま
+  const receiptPaperWidth = get('cfg-receiptPaperWidth') ? (get('cfg-receiptPaperWidth').value === '72' ? 72 : 80) : receiptPaperWidthMm();
   const screenSlipTotalOnly = get('cfg-screenSlipTotalOnly')?.value === '1';
   const fullscreenOnBoot = !!(get('cfg-fullscreenOnBoot')?.checked);
   const monitorEnabled = !!(get('cfg-monitorEnabled')?.checked);
@@ -31206,7 +31223,7 @@ async function applySettings() {
     extAutoShimeiFee, extBasePerSeat, extFeePerSeat, doubanAsHonshimeiExt, modoriHonshimeiAgg, modoriEnchoshimeiAgg,
     taxRate, taxRound, discountAfterTax, cardFeeRate, cardFeeRound, advanceFeeCredit, tillFloat,
     posKeepTableAfterCheckout,
-    receiptPrinterOff, screenSlipTotalOnly,
+    receiptPrinterOff, receiptPaperWidth, screenSlipTotalOnly,
     showCountdown, fullscreenOnBoot, monitorEnabled, monitorEndpoint, monitorWriteToken, monitorReadToken, monitorOpsToken,
     monitorShopId: cfg.monitorShopId || '',
     posMenu, posCatLayout, posCatLabels, posItemLabels, posBottleDrinkPick, posCustomCats, posPrices, shimeiExtItems, drinkItems, shotLabel,
@@ -36964,7 +36981,7 @@ function _ryoshuBotanicalDocumentHtml(data, { sourceOpts, scale = cfg.ryoshuScal
   const scaleCss = _printScaleCss(scale);
   return '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>領収書</title>'
     + '<style>'
-    + '@page{size:80mm auto;margin:0}'
+    + receiptPageCss()
     + '*{box-sizing:border-box;margin:0;padding:0}'
     + 'html,body{font-family:"Hiragino Mincho ProN","MS PMincho","MS Mincho",serif;color:#000;background:#fff;font-weight:700}'
     + '.r-font-mincho{font-family:"Hiragino Mincho ProN","MS PMincho","MS Mincho",serif}.r-font-gothic{font-family:"Hiragino Kaku Gothic ProN","Meiryo",sans-serif}'
@@ -37023,7 +37040,7 @@ function _ryoshuFramedDocumentHtml(data, { sourceOpts, scale = cfg.ryoshuScale, 
   const scaleCss = _printScaleCss(scale);
   return '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>領収書</title>'
     + '<style>'
-    + '@page{size:80mm auto;margin:0}'
+    + receiptPageCss()
     + '*{box-sizing:border-box;margin:0;padding:0}'
     + 'html,body{font-family:"Hiragino Mincho ProN","MS PMincho","MS Mincho",serif;color:#000;background:#fff;font-weight:700}'
     + '.r-font-mincho{font-family:"Hiragino Mincho ProN","MS PMincho","MS Mincho",serif}.r-font-gothic{font-family:"Hiragino Kaku Gothic ProN","Meiryo",sans-serif}'
@@ -37084,7 +37101,7 @@ function _receiptOpenWindow(data, template = _ryoshuOpts().template) {
   w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>領収書</title>'
     + '<style>'
     // 紙: 幅80mm、長さは中身ぶん(auto)。ステージ高さ(112mm)が実質の送り長になる。
-    + '@page{size:80mm auto;margin:0}'
+    + receiptPageCss()
     + '*{box-sizing:border-box;margin:0;padding:0}'
     // 全体太字: 明朝の細い横画がサーマル印刷で薄くなるため（2026-07-14 実機フィードバック「文字が薄い」）
     + 'html,body{font-family:"Hiragino Mincho ProN","MS Mincho",serif;color:#000;font-weight:700}'
