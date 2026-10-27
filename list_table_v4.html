@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.97">
+<meta name="app-version" content="1.1.98">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -774,6 +774,10 @@ body[data-tab-slide="prev"] > div:not(.hidden)[id$="-panel"] { animation: tab-sl
 #header-exit-btn {
   min-height: 44px;
 }
+/* 時給ロックのボタン（2026-10-28）。cfg.wageLockEnabled の店だけ JS（28c-wage-lock.js）が差し込む。
+   解除中は赤みをつけ、かけ忘れに気づけるようにする。ロック中はほかのヘッダーボタンと同じ見た目 */
+#header-wage-lock-btn { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; }
+#header-wage-lock-btn.is-unlocked { border-color: rgba(232,64,96,.42); background: rgba(232,64,96,.12); color: var(--red); }
 
 .header-btn-label {
   font-size: 9px;
@@ -1883,6 +1887,19 @@ html[data-theme="champagne"] .cs-screen { --cs-bg: #fbf5e9; --cs-ink: #2a1f19; -
 .app-dialog-ok { background: var(--gold); color: var(--bg); }
 .app-dialog-danger { background: var(--red); color: var(--tx); }
 .app-dialog-cancel { background: var(--sur3); color: var(--tx); border: 1px solid var(--bdr2); }
+/* 時給ロック（2026-10-28）: ロック中に隠した画面の案内と、解除の画面（器は app-dialog と共通） */
+.wage-lock-notice { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 56px 20px; text-align: center; }
+.wage-lock-notice.is-compact { padding: 22px 20px; }
+.wage-lock-notice-icon { font-size: 34px; line-height: 1; }
+.wage-lock-notice.is-compact .wage-lock-notice-icon { font-size: 26px; }
+.wage-lock-notice-title { font-size: 17px; font-weight: 800; color: var(--tx); }
+.wage-lock-notice-sub { max-width: 420px; font-size: 12px; line-height: 1.7; color: var(--tx3); }
+.wage-lock-notice-btn { min-height: 44px; padding: 0 22px; font-weight: 800; }
+.wage-lock-guide { margin-top: 8px; font-size: 13px; line-height: 1.7; color: var(--tx2); }
+.wage-lock-error { margin-top: 10px; font-size: 14px; font-weight: 700; color: var(--red); }
+.wage-lock-forgot { display: block; width: 100%; min-height: 44px; margin-top: 10px; padding: 0; border: 0; background: none; color: var(--tx3); font: inherit; font-size: 13px; text-decoration: underline; cursor: pointer; }
+.wage-lock-forgot:hover { color: var(--tx); }
+.analytics-kpi-card.wage-locked strong { color: var(--tx3); font-size: 22px; }
 /* 分割精算（テンキー） */
 .pos-split-fields { display: flex; gap: 10px; margin-bottom: 12px; }
 .pos-split-field { flex: 1; padding: 10px 14px; background: #12203a; border: 2px solid #2a3450; border-radius: 8px; cursor: pointer; }
@@ -5140,6 +5157,11 @@ html[data-theme="night"] #header #header-exit-btn {
   margin-left: 8px;
   border-radius: 8px;
 }
+html[data-theme="night"] #header #header-wage-lock-btn {
+  margin-left: 8px;
+  border-radius: 8px;
+}
+html[data-theme="night"] #header #header-wage-lock-btn.is-unlocked { border-color: rgba(232,64,96,.42); background: rgba(232,64,96,.12); color: var(--red); }
 html[data-theme="night"] #header #tab-demo-btn {
   min-width: 82px;
   border-color: var(--bdr2);
@@ -5496,6 +5518,11 @@ html[data-theme="night"] #summary-bar.has-pos-actions #summary-pos-actions .pos-
     background: transparent;
     color: #e8aaa0;
   }
+  html[data-theme="champagne"] #header #header-wage-lock-btn {
+    margin-left: 8px;
+    border-radius: 8px;
+  }
+  html[data-theme="champagne"] #header #header-wage-lock-btn.is-unlocked { border-color: #8e5e57; background: #412a29; color: #f2b7ad; }
   html[data-theme="champagne"] #header #tab-demo-btn {
     min-width: 82px;
     border-color: #605747;
@@ -9807,6 +9834,7 @@ const CFG_DEFAULTS = {
   posCatLayout:    [],      // POSカテゴリの並び・表示 [{key,visible}]。空=既定順・全表示
   posCatLabels:    {},      // 既定POSカテゴリの表示名の上書き { set:'セット料金', ... }。未設定=既定名
   posItemLabels:   {},      // 伝票に印字される固定品目名の上書き { set:'セット', nominate:'指名', ... }。未設定=既定名
+  posBottleDrinkPick: true, // false=ボトルを押してもキャストを選ぶ画面を出さない（ボトルを客が飲む店。2026-10-27 ヴェルベ）
   posCustomCats:   [        // 店舗独自のPOSカテゴリ（keyはラベル変更後も不変）
     { key: 'cust_1', label: 'その他' },
   ],
@@ -9888,6 +9916,8 @@ const CFG_DEFAULTS = {
   castListCustomOrder:           [],     // 手動（ドラッグ）で決めたキャスト名の並び
   // --- テーマ既定値（端末別。選択可能なのは従来nightとchampagneのみ） ---
   defaultTheme:                  'night', // 'night' | 'champagne'
+  // --- 時給ロック（2026-10-28 ヴェルベ）true=ヘッダーのボタンで、時給・日計表・設定などを隠せる（起動ログイン設定済みのときだけ効く）。false=今までどおり ---
+  wageLockEnabled:               false,
   // --- POS指名系・ドリンクのボタン単価（店ごとに可変） ---
   posPrices: {
     freeS:   1500, freeM:   2500, freeL:   3500,  // [互換用・廃止] 旧フリードリンク。UI・カテゴリからは削除済み
@@ -9938,6 +9968,7 @@ function mergeCfgDefaults(saved) {
   merged.businessType = normalizeBusinessType(merged.businessType);
   merged.showtimeScope = merged.showtimeScope === 'all' ? 'all' : 'table';
   merged.defaultTheme = merged.defaultTheme === 'champagne' ? 'champagne' : 'night';
+  merged.wageLockEnabled = merged.wageLockEnabled === true;
   // 旧設定に印刷フラグが無い場合は、従来どおり先頭金額欄を印刷する。
   merged.payrollDeductionDisplayPrint = merged.payrollDeductionDisplayPrint !== false;
   merged.payrollDeductionNibaraiPrint = merged.payrollDeductionNibaraiPrint === true;
@@ -14766,6 +14797,7 @@ function showTab(tab) {
   if (tab === 'pos') { window.scrollTo(0, 0); document.body.style.overflow = 'hidden'; renderPOSPanel(); _posStartTimer(); }
   else { document.body.style.overflow = ''; _posStopTimer(); }
   if (typeof _renderSummaryPosActions === 'function') _renderSummaryPosActions();
+  wageLockSyncHeader();   // 時給ロックのボタン（有効な店だけ。起動直後・F5後もここを通る）
   // 他タブでの変更（卓移動・伝票編集等）を取りこぼさないよう、戻ってきたら再描画。
   // ただし前回描画から state に変化が無ければ描き直さない（行数が多い日の体感速度のため・2026-07-20）
   if (tab === 'list' && _listRenderedRev !== _stateRev) renderTable();
@@ -14888,6 +14920,309 @@ function showTabWithSlide(tab, direction) {
   }
 }
 /* ================================================================
+   WAGE LOCK — 時給ロック（2026-10-28 ヴェルベ。キャストも端末を触る店向け）
+   仕様: .company/dev/specs/2026-10-28-nightlistdx-時給ロック.md
+
+   ・cfg.wageLockEnabled が false（既定）の店は、画面も動きも今までどおり。
+   ・ロック中は、時給と、時給を逆算できる画面だけを隠す:
+       設定タブ全体 ／ 集計の日計表・控除票・日次締め ／ 経営分析の給与カード3枚（キャスト給与計・粗利・店舗給率）
+     隠すのは画面だけ。給与の計算・日次締めの凍結・店外モニターやクラウドの控えへの送信は変えない。
+   ・解除中かどうかはメモリだけ（保存しない）。アプリを開いた時・F5後は、有効な店では必ずロックから始まる。
+   ・ロックのかけ外しは手で行う（ヘッダーのボタン）。解くパスワードは起動ログインと同じ（AuthStore.verify）。
+     忘れたらリカバリーコード（AuthStore.verifyRecovery）。コードで解いても起動ログインは消さない。
+   ・起動ログインが未設定の店は、解くパスワードが無いのでロックを効かせない。
+================================================================ */
+let _wageLockUnlocked = false;   // 解除中か。保存しない（再読み込みで必ず false に戻る）
+let _wageLockModal = null;       // 解除の画面が開いている間だけ入る
+
+function wageLockEnabledInCfg() {
+  return typeof cfg !== 'undefined' && !!cfg && cfg.wageLockEnabled === true;
+}
+
+function wageLockHasAuth() {
+  try {
+    // 壊れて読めなかったログイン情報は読み直さない（読むたびに退避コピーが増えるため）。読めないときはロックを効かせない
+    if (typeof Persist !== 'undefined' && Persist.failedReads.has('auth')) return false;
+    return !!(typeof AuthStore !== 'undefined' && AuthStore.read()?.hash);
+  } catch (_) { return false; }
+}
+
+/* 実際にロックが効いているか。隠す・出すの判定はすべてここを通す */
+function wageLockActive() {
+  return wageLockEnabledInCfg() && !_wageLockUnlocked && wageLockHasAuth();
+}
+
+/* ---------- ロック中の案内（隠した画面の代わりに出す） ---------- */
+function wageLockNoticeHtml(opts = {}) {
+  const compact = opts.compact === true;
+  return `<div class="wage-lock-notice${compact ? ' is-compact' : ''}" role="status">`
+    + '<div class="wage-lock-notice-icon" aria-hidden="true">🔒</div>'
+    + '<div class="wage-lock-notice-title">この画面はロックされています</div>'
+    + '<div class="wage-lock-notice-sub">時給がわかる画面を隠しています。解くには、起動ログインと同じパスワードを入力します。</div>'
+    + '<button type="button" class="btn primary wage-lock-notice-btn" onclick="wageLockOpenUnlock()">🔒 ロックを解く</button>'
+    + '</div>';
+}
+
+/* 集計の区画（日計表・控除票・日次締め）の代わり。区画の id は残す（集計内メニューのリンク・再描画が探すため） */
+function wageLockSectionHtml(id, title) {
+  return `<div id="${id}" class="agg-box wage-lock-section" style="margin-top:18px">`
+    + `<div class="agg-box-head"><h3>🔒 ${escHtml(title)}</h3></div>`
+    + wageLockNoticeHtml({ compact: true })
+    + '</div>';
+}
+
+/* 経営分析の給与カード1枚の代わり（カードの枚数・並びは変えない） */
+function wageLockKpiCardHtml(label, extraClass = '') {
+  return `<div class="analytics-kpi-card ${extraClass} is-blank wage-locked"><div class="analytics-kpi-head"><span>${escHtml(label)}</span></div><strong title="ロック中" aria-label="ロック中">🔒</strong></div>`;
+}
+
+/* 設定タブ: 設定の中身は描かず、案内だけにする（描いてあった中身も消す）。未保存の印も消す */
+function wageLockRenderSettingsNotice(form) {
+  if (form) form.innerHTML = wageLockNoticeHtml();
+  if (typeof _settingsClearDirty === 'function') _settingsClearDirty();
+}
+
+/* ---------- ヘッダーのボタン（wageLockEnabled の店だけ。false の店には要素そのものを置かない） ---------- */
+const WAGE_LOCK_ICON_CLOSED = '<svg class="champagne-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>';
+const WAGE_LOCK_ICON_OPEN = '<svg class="champagne-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 7.6-1.6"/></svg>';
+
+function wageLockHeaderModel() {
+  if (!wageLockEnabledInCfg()) return { show: false };
+  const locked = wageLockActive();
+  return locked
+    ? { show: true, locked: true, emoji: '🔒', label: 'ロック中', title: 'ロック中（押すと解除の画面が開きます）' }
+    : { show: true, locked: false, emoji: '🔓', label: '解除中', title: '解除中（押すとすぐロックします）' };
+}
+
+function wageLockHeaderInnerHtml(model) {
+  return `<span class="theme-icon-legacy" aria-hidden="true">${model.emoji}</span>${model.locked ? WAGE_LOCK_ICON_CLOSED : WAGE_LOCK_ICON_OPEN}<span class="theme-label">${model.label}</span>`;
+}
+
+/* ボタンを今の状態に合わせる。⋯ボタンの右・区切り線の左に置く */
+function wageLockSyncHeader() {
+  const model = wageLockHeaderModel();
+  let btn = document.getElementById('header-wage-lock-btn');
+  if (!model.show) {
+    if (btn) btn.remove();
+    return;
+  }
+  if (!btn) {
+    const group = document.querySelector('#header .header-btn-group');
+    if (!group) return;
+    btn = document.createElement('button');
+    btn.type = 'button';
+    btn.id = 'header-wage-lock-btn';
+    btn.className = 'btn';
+    btn.addEventListener('click', wageLockHeaderClick);
+    const sep = group.querySelector('.sep');
+    if (sep) group.insertBefore(btn, sep); else group.appendChild(btn);
+  }
+  btn.classList.toggle('is-unlocked', !model.locked);
+  btn.title = model.title;
+  btn.setAttribute('aria-label', model.label);
+  btn.innerHTML = wageLockHeaderInnerHtml(model);
+}
+
+async function wageLockHeaderClick() {
+  if (!wageLockEnabledInCfg()) return;
+  if (wageLockActive()) { wageLockOpenUnlock(); return; }
+  await wageLockLock();
+}
+
+/* 設定で今ONにした直後は解除中から始める（保存した瞬間に設定画面が閉じるのを防ぐ。かけるのは手で）。
+   applySettings から、ONに変わった保存のときだけ呼ぶ */
+function wageLockOnEnabled() {
+  _wageLockUnlocked = true;
+}
+
+/* ---------- ロックをかける ---------- */
+async function wageLockLock() {
+  if (!wageLockEnabledInCfg()) return false;
+  if (!wageLockHasAuth()) {
+    await appAlert('起動ログインが設定されていないため、ロックできません。\n設定 → 💾データ・システム →「アカウント（起動ログイン）」で設定してください。');
+    return false;
+  }
+  // 設定タブに保存していない変更があるときは、既存の設定タブ離脱（_confirmSettingsLeave）と同じ聞き方をする
+  if (document.body.dataset.activeTab === 'settings' && _settingsDirty) {
+    const save = await appConfirm('設定の変更を保存してロックしますか？\n\n・OK：変更を保存してロックします\n・キャンセル：設定タブに戻ります（変更はそのまま残ります）', {
+      okLabel: '保存してロック',
+      cancelLabel: '設定に戻る',
+    });
+    if (!save) return false;
+    await applySettings();
+    if (_settingsDirty) return false;   // 入力に不備があって保存できなかったときは、ロックしない
+  }
+  _wageLockUnlocked = false;
+  // 設定の中身は、開いているタブに関係なく案内に置き換える。集計・経営分析は開いているときだけ描き直す
+  // （閉じているタブは showTab で開くたびに描き直される）
+  renderSettingsPanel();
+  const tab = document.body.dataset.activeTab;
+  if (tab === 'report') renderReportPanel();
+  else if (tab === 'analytics') renderBusinessAnalyticsPanel();
+  wageLockSyncHeader();
+  showToast('🔒 ロックしました');
+  return true;
+}
+
+/* ---------- ロックを解く ---------- */
+/* 照合だけ（画面の部品に触れない）。mode: 'password'=起動ログインのパスワード ／ 'recovery'=リカバリーコード */
+async function wageLockCheckSecret(mode, secret) {
+  const record = AuthStore.read();
+  if (!record || !record.hash) return { ok: false, error: '起動ログインが設定されていません' };
+  const recovery = mode === 'recovery';
+  try {
+    const ok = recovery
+      ? await AuthStore.verifyRecovery(secret)
+      : await AuthStore.verify(record.username, secret);
+    return ok ? { ok: true } : { ok: false, error: recovery ? 'リカバリーコードが違います' : 'パスワードが違います' };
+  } catch (error) {
+    console.error('[WageLock] verify failed:', error);
+    return { ok: false, error: '確認に失敗しました' };
+  }
+}
+
+/* 正しければ解除中にする。リカバリーコードで解いても起動ログインには触れない */
+async function wageLockUnlockWith(mode, secret) {
+  const result = await wageLockCheckSecret(mode, secret);
+  if (result.ok) wageLockUnlock(mode);
+  return result;
+}
+
+function wageLockUnlock(mode) {
+  _wageLockUnlocked = true;
+  wageLockSyncHeader();
+  // 今開いているタブを描き直す（設定・集計・経営分析）
+  const tab = document.body.dataset.activeTab;
+  if (tab === 'settings') renderSettingsPanel();
+  else if (tab === 'report') renderReportPanel();
+  else if (tab === 'analytics') renderBusinessAnalyticsPanel();
+  showToast(mode === 'recovery'
+    ? '🔓 リカバリーコードでロックを解除しました（パスワードの決め直しは 設定 → アカウント）'
+    : '🔓 ロックを解除しました');
+}
+
+/* 解除の画面（アプリ独自のモーダル。伏せ字の入力欄。ネイティブのダイアログは使わない） */
+function wageLockUnlockModalHtml(mode) {
+  const recovery = mode === 'recovery';
+  const guide = recovery
+    ? 'リカバリーコード（ログインを設定したときに控えたコード）を入力してください。解除するだけで、起動ログインは消えません。'
+    : '起動ログインと同じパスワードを入力してください。';
+  const label = recovery ? 'リカバリーコード' : 'パスワード';
+  return '<div class="pos-co-panel app-dialog-panel wage-lock-panel" role="dialog" aria-modal="true" aria-labelledby="wage-lock-title">'
+    + '<div class="pos-co-body app-dialog-body">'
+    + `<div class="app-dialog-message" id="wage-lock-title">🔒 ${recovery ? 'リカバリーコードで解除' : 'ロックを解く'}</div>`
+    + `<div class="wage-lock-guide">${guide}</div>`
+    + `<input type="password" class="app-dialog-input" id="wage-lock-input" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="${label}" aria-label="${label}">`
+    + '<div class="wage-lock-error" id="wage-lock-error" role="alert" hidden></div>'
+    + '<div class="pos-co-actions app-dialog-actions">'
+    + '<button type="button" class="pos-co-btn app-dialog-ok" id="wage-lock-ok">解除</button>'
+    + '<button type="button" class="pos-co-btn cancel app-dialog-cancel" id="wage-lock-cancel">キャンセル</button>'
+    + '</div>'
+    + `<button type="button" class="wage-lock-forgot" id="wage-lock-forgot">${recovery ? 'パスワードで解除する' : 'パスワードを忘れた場合'}</button>`
+    + '</div></div>';
+}
+
+/* 開く。解けたら true、キャンセルなら false で終わる Promise を返す */
+function wageLockOpenUnlock() {
+  if (_wageLockModal) return _wageLockModal.promise;
+  if (!wageLockActive()) return Promise.resolve(true);   // もうロックされていない（古い案内が残っていた）
+  const modal = { mode: 'password', busy: false, resolve: null, opener: document.activeElement, overlay: document.createElement('div') };
+  modal.promise = new Promise(resolve => { modal.resolve = resolve; });
+  modal.overlay.id = 'wage-lock-overlay';
+  modal.overlay.className = 'pos-co-overlay app-dialog-overlay wage-lock-overlay';
+  modal.overlay.addEventListener('click', event => {
+    if (event.target === modal.overlay && !modal.busy) wageLockModalClose(false);
+  });
+  _wageLockModal = modal;
+  wageLockModalRender();
+  document.addEventListener('keydown', wageLockModalKeydown, true);
+  document.body.appendChild(modal.overlay);
+  wageLockModalFocus();
+  return modal.promise;
+}
+
+function wageLockModalRender() {
+  const modal = _wageLockModal;
+  if (!modal) return;
+  modal.overlay.innerHTML = wageLockUnlockModalHtml(modal.mode);
+  const find = id => modal.overlay.querySelector('#' + id);
+  // form は使わない（ブラウザの「パスワードを保存」を出さないため）。Enter で解除
+  find('wage-lock-input').addEventListener('keydown', event => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    wageLockModalSubmit();
+  });
+  find('wage-lock-ok').addEventListener('click', () => wageLockModalSubmit());
+  find('wage-lock-cancel').addEventListener('click', () => { if (!modal.busy) wageLockModalClose(false); });
+  find('wage-lock-forgot').addEventListener('click', () => {
+    if (modal.busy) return;
+    modal.mode = modal.mode === 'recovery' ? 'password' : 'recovery';
+    wageLockModalRender();
+    wageLockModalFocus();
+  });
+}
+
+function wageLockModalFocus() {
+  const input = _wageLockModal && _wageLockModal.overlay.querySelector('#wage-lock-input');
+  if (input && typeof input.focus === 'function') input.focus();
+}
+
+async function wageLockModalSubmit() {
+  const modal = _wageLockModal;
+  if (!modal || modal.busy) return;
+  const input = modal.overlay.querySelector('#wage-lock-input');
+  const okButton = modal.overlay.querySelector('#wage-lock-ok');
+  const secret = input ? input.value : '';
+  if (input) input.value = '';   // 入力した文字は画面に残さない（違うときも空にする。ブラウザの「パスワードを保存」を出さないため）
+  modal.busy = true;
+  if (okButton) okButton.disabled = true;
+  let result;
+  try {
+    result = await wageLockUnlockWith(modal.mode, secret);
+  } finally {
+    modal.busy = false;
+    if (okButton) okButton.disabled = false;
+  }
+  if (_wageLockModal !== modal) return;
+  if (result.ok) { wageLockModalClose(true); return; }
+  // 違うときは画面の中に出して、入力欄を空にする
+  const error = modal.overlay.querySelector('#wage-lock-error');
+  if (error) { error.textContent = result.error; error.hidden = false; }
+  wageLockModalFocus();
+}
+
+function wageLockModalKeydown(event) {
+  const modal = _wageLockModal;
+  if (!modal) return;
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!modal.busy) wageLockModalClose(false);
+    return;
+  }
+  if (event.key !== 'Tab') return;
+  const items = ['wage-lock-input', 'wage-lock-ok', 'wage-lock-cancel', 'wage-lock-forgot']
+    .map(id => modal.overlay.querySelector('#' + id))
+    .filter(el => el && !el.disabled);
+  if (items.length < 2) return;
+  const current = items.indexOf(document.activeElement);
+  const next = event.shiftKey
+    ? (current <= 0 ? items.length - 1 : current - 1)
+    : (current < 0 || current === items.length - 1 ? 0 : current + 1);
+  event.preventDefault();
+  items[next].focus();
+}
+
+function wageLockModalClose(unlocked) {
+  const modal = _wageLockModal;
+  if (!modal) return;
+  _wageLockModal = null;
+  document.removeEventListener('keydown', wageLockModalKeydown, true);
+  modal.overlay.remove();
+  if (modal.opener && typeof modal.opener.focus === 'function') modal.opener.focus();
+  modal.resolve(unlocked === true);
+}
+/* ================================================================
    POS PANEL (β) - 現場向けフィールドUI
 ================================================================ */
 function posBetaCategories(settings) {
@@ -14911,7 +15246,7 @@ function resolvePosCatLayout(settings) {
     if (known.has(key)) return;
     known.add(key);
     const override = String(labelOverrides[key] ?? '').trim();
-    all.push({ key, label: override || label, defaultLabel: label });
+    all.push({ key, label: override || label, defaultLabel: label, drinkPick: key === 'bottle' && src.posBottleDrinkPick !== false });
   });
   (Array.isArray(src.posCustomCats) ? src.posCustomCats : []).forEach(cat => {
     const key = String(cat?.key || '');
@@ -17354,12 +17689,10 @@ async function posDeleteSlip() {
 }
 
 const POS_DRINK_CATS = ['shot', 'bottle'];
-/* 固定カテゴリ(shot/bottle)は常時、店舗独自カテゴリはcfg.posCustomCatsのdrinkPickフラグで
-   「キャストバック」モーダル(posOpenDrinkCastPick)の要否を切り替える。 */
+/* 「キャストバック」モーダル(posOpenDrinkCastPick)を出すカテゴリ。ショットは常時、ボトルは cfg.posBottleDrinkPick
+   （既定ON。ボトルを客が飲む店はOFF。2026-10-27）、店舗独自カテゴリは cfg.posCustomCats の drinkPick で切り替える。 */
 function _posCategoryDrinkPick(category) {
-  if (POS_DRINK_CATS.includes(category)) return true;
-  const custom = (cfg.posCustomCats || []).find(c => c && c.key === category);
-  return !!(custom && custom.drinkPick);
+  return posMenuUsesSplitBack(category);
 }
 
 /* 仕入れ値と「折半」の入力を出すカテゴリ（ボトルと店舗独自のカテゴリ。2026-10-23 ヴェルベ対応） */
@@ -17367,8 +17700,9 @@ function posMenuUsesMarginBack(category) {
   return category === 'bottle' || /^cust_\d+$/.test(String(category || ''));
 }
 function posMenuUsesSplitBack(category, settings) {
-  if (POS_DRINK_CATS.includes(category)) return true;
   const src = settings || cfg;
+  if (category === 'bottle') return src.posBottleDrinkPick !== false;
+  if (POS_DRINK_CATS.includes(category)) return true;
   const custom = (src.posCustomCats || []).find(c => c && c.key === category);
   return !!(custom && custom.drinkPick);
 }
@@ -17964,6 +18298,22 @@ function posMenuSelectTab(key) {
   });
 }
 
+/* 保存でキャストバックの有無が変わったカテゴリの編集欄を、保存した内容で描き直す（バックの列が1列⇔2列に変わるため）。
+   保存は設定画面を描き直さないので、これが無いと設定を開き直すまで古い列のまま見える（2026-10-27） */
+function posMenuRerenderEditors(keys) {
+  const list = _posMenuEditorList();
+  keys.forEach(key => {
+    const old = document.querySelector(`#pos-menu-editors > .pos-menu-editor[data-key="${key}"]`);
+    const entry = list.find(([k]) => k === key);
+    if (!old || !entry) return;
+    old.insertAdjacentHTML('afterend', _posMenuEditorHTML(key, entry[1], posCategoryItems(key, null), true)
+      .replace('class="settings-row pos-menu-editor"', 'class="settings-row pos-menu-editor' + _posMenuTabPanelClass(key, list) + '"'));
+    old.remove();
+    const body = document.querySelector(`#cfg-posMenu-${key}-tbl tbody`);
+    if (body) _posMenuInitDnd(body);
+  });
+}
+
 function _posMenuInitDndAll() {
   document.querySelectorAll('table[id^="cfg-posMenu-"] tbody').forEach(_posMenuInitDnd);
   const catBody = document.getElementById('cfg-pos-cat-layout');
@@ -17976,7 +18326,8 @@ function _posCatRowHTML(cat) {
   const label = custom
     ? `<input type="text" class="settings-input pos-cat-label-input" value="${escAttr(cat.label)}" placeholder="カテゴリ名" oninput="posCatSyncLabel('${cat.key}',this.value)">`
     : `<input type="text" class="settings-input pos-cat-label-input" value="${escAttr(cat.label)}" placeholder="${escAttr(defaultLabel)}" title="空欄にすると既定名「${escAttr(defaultLabel)}」に戻ります" oninput="_settingsMarkDirty()">`;
-  const drinkPick = custom
+  // キャストバックの切り替えは店舗独自カテゴリとボトルだけ（ショットは常時ON、ほかの既定カテゴリは対象外）
+  const drinkPick = custom || cat.key === 'bottle'
     ? `<input type="checkbox" class="pos-cat-drinkpick" ${cat.drinkPick ? 'checked' : ''} aria-label="${escAttr(cat.label)}のキャストバック対象を選択する">`
     : '';
   return `<tr draggable="true" class="pos-cat-manage-row" data-key="${escAttr(cat.key)}" data-custom="${custom ? '1' : '0'}" data-default-label="${escAttr(defaultLabel)}">
@@ -23202,6 +23553,7 @@ function exportPayrollCSV() {
 
 /* 日計表セクション全体（見出し+ホスト）。src = #15 の { dayKey, rows, tt }（省略時は当日） */
 function _payrollSectionHtml(src) {
+  if (wageLockActive()) return wageLockSectionHtml('report-payroll', '日計表');   // 時給ロック中は案内だけ（2026-10-28）
   const model = _payrollTableModel(src);
   const hasDeductions = typeof cfg !== 'undefined' && Array.isArray(cfg.payrollDeductions) && cfg.payrollDeductions.length > 0;
   const deductionNote = hasDeductions
@@ -23224,6 +23576,7 @@ function _payrollSectionHtml(src) {
 }
 
 function _deductionSheetSectionHtml(src) {
+  if (wageLockActive()) return wageLockSectionHtml('report-deduction', '控除票');   // 時給ロック中は案内だけ（2026-10-28）
   const hasDeductions = typeof cfg !== 'undefined' && Array.isArray(cfg.payrollDeductions) && cfg.payrollDeductions.length > 0;
   return '<div id="report-deduction" class="agg-box" style="margin-top:18px">'
     + '<div class="agg-box-head">'
@@ -24131,6 +24484,7 @@ function _dailyCloseSectionHtml(src, agg, payrollRows, isPast) {
   const store = loadDailyClose();
   const saved = store[src.dayKey];
   if (isPast && !saved) return '';
+  if (wageLockActive()) return wageLockSectionHtml('daily-close-host', '日次締め');   // 時給ロック中は案内だけ（2026-10-28）
   const record = _dailyCloseNormalizeRecord(saved);
   const liveAuto = _dailyCloseLiveAuto(src, agg, payrollRows);
   const auto = _dailyCloseEffectiveAuto(record, liveAuto, isPast);
@@ -25085,7 +25439,10 @@ function _analyticsKpiHtml(summary, previous, hasPrevious) {
     ['本指名率', '本指名率', 'percent', ''], ['場内率', '場内率', 'percent', ''], ['粗利', '粗利', 'money', ''],
     ['キャスト給与計', 'キャスト給与計', 'money', ''],
   ];
+  // 時給ロック中（2026-10-28）: 給与がわかるカード（粗利・キャスト給与計・店舗給率）は🔒に置き換える。枚数・並びは変えない
+  const wageLocked = wageLockActive();
   return cards.map(([label, key, kind, cls]) => {
+    if (wageLocked && (label === '粗利' || label === 'キャスト給与計')) return wageLockKpiCardHtml(label);
     if (kind === 'shimei-money') key = analyticsShimeiBase === 'subtotal' ? '本指名売上小計' : '本指名売上総計';
     const value = summary[key];
     const display = value == null ? '—' : kind === 'money' ? _analyticsMoney(value)
@@ -25098,7 +25455,7 @@ function _analyticsKpiHtml(summary, previous, hasPrevious) {
     const toggle = kind === 'shimei-money' ? `<span class="analytics-kpi-base-toggle"><button class="analytics-preset${analyticsShimeiBase === 'subtotal' ? ' active' : ''}" onclick="analyticsSetShimeiBase('subtotal')">小計</button><button class="analytics-preset${analyticsShimeiBase === 'total' ? ' active' : ''}" onclick="analyticsSetShimeiBase('total')">総計</button></span>` : '';
     const shimeiAttr = kind === 'shimei-money' ? ` data-analytics-shimei-base="${analyticsShimeiBase}"` : '';
     return `<div class="analytics-kpi-card ${cls}${emptyCls}"${shimeiAttr}><div class="analytics-kpi-head"><span${labelTitle}>${label}</span>${toggle}${_analyticsBadge(value, previous[key], hasPrevious)}</div><strong>${display}</strong></div>`;
-  }).join('') + _analyticsStoreRatioCardHtml(summary, previous, hasPrevious);
+  }).join('') + (wageLocked ? wageLockKpiCardHtml('店舗給率', 'store-ratio') : _analyticsStoreRatioCardHtml(summary, previous, hasPrevious));
 }
 
 function _analyticsTrendHtml(items, valueKey, formatter, colorClass) {
@@ -28711,6 +29068,8 @@ function renderSettingsPanel() {
   }
   const form = document.getElementById('settings-form');
   if (!form) return;
+  // 時給ロック中は設定の中身を描かない（案内だけ。2026-10-28）。再描画の入口はすべてここを通る
+  if (wageLockActive()) { wageLockRenderSettingsNotice(form); return; }
   _settingsClearDirty();
   _shopLogoDraft = undefined;  // ロゴの下書きを破棄（再描画＝編集やり直し）
   _receiptLayoutDraft = _receiptDraftBlocks(cfg.receiptLayout);
@@ -28781,6 +29140,16 @@ function renderSettingsPanel() {
           <div class="settings-sub" style="line-height:1.7">
             起動時のロックです。USB内のデータファイル自体は暗号化されません。パスワードを忘れると解除できなくなるため、控えを安全な場所に保管してください
           </div>
+        </div>
+        <div class="settings-row" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--bdr)">
+          <div class="settings-label">時給のロックを使う
+            <div class="settings-sub" style="line-height:1.7">キャストも端末を触る店向け。ヘッダーの🔒で、時給・日計表・設定などを隠します。解くパスワードは起動ログインと同じです。忘れたらリカバリーコードで解けます。</div>
+            ${authIsSet ? '' : '<div class="settings-sub" style="color:#d85d5d">先に起動ログインを設定してください</div>'}
+          </div>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" id="cfg-wageLockEnabled" ${cfg.wageLockEnabled === true ? 'checked' : ''} ${authIsSet ? '' : 'disabled'}>
+            <span>使う</span>
+          </label>
         </div>
       </div>
     </div>
@@ -30416,6 +30785,7 @@ function extTableSameMinuteConflict(rows) {
   return 0;
 }
 async function applySettings() {
+  if (wageLockActive()) return;   // 時給ロック中は設定の欄が無い。画面の値で cfg を上書きしない
   const invalidBack = Array.from(document.querySelectorAll('.back-unit-value')).find(input => input.validity?.valid === false);
   if (invalidBack) {
     showToast('バックは0以上の数値で入力してください。円は整数で入力してください');
@@ -30625,6 +30995,12 @@ async function applySettings() {
     const drinkPick = !!tr.querySelector('.pos-cat-drinkpick')?.checked;
     return { key, label, drinkPick };
   });
+  // 保存前のキャストバックの有無（保存後に変わったカテゴリだけ、メニュー編集の表を描き直すため）。
+  // 保存前に足したカテゴリは、足した時点ではキャストバック無しで描いている
+  const splitBackBefore = new Map(['bottle', ...(cfg.posCustomCats || []).map(cat => cat.key)].map(key => [key, posMenuUsesSplitBack(key)]));
+  // ボトルのキャストバック（既定ON）。カテゴリの表が無い画面では今の設定のまま
+  const bottleCatRow = posCatRows.find(tr => tr.dataset.key === 'bottle');
+  const posBottleDrinkPick = bottleCatRow ? !!bottleCatRow.querySelector('.pos-cat-drinkpick')?.checked : cfg.posBottleDrinkPick !== false;
   const posCatLayout = posCatRows.map(tr => ({ key: tr.dataset.key, visible: !!tr.querySelector('.pos-cat-visible')?.checked }));
   // 既定カテゴリの名前: 既定名と同じ・空欄は保存しない（=既定名に戻る）
   const posItemLabelRows = document.querySelectorAll('#cfg-pos-item-labels tr[data-key]');
@@ -30676,7 +31052,7 @@ async function applySettings() {
       if (!name || isNaN(amount)) return null;
       const item = { name, amount };
       if (back) item.back = back;
-      if (posMenuUsesSplitBack(key, { posCustomCats }) && backFree) item.backFree = backFree;
+      if (posMenuUsesSplitBack(key, { posCustomCats, posBottleDrinkPick }) && backFree) item.backFree = backFree;
       if (pt) item.pt = pt;
       // 仕入れ値・折半（ボトル・店舗独自カテゴリ。2026-10-23）。保存で項目を組み直すので、ここで残さないと消える
       if (posMenuUsesMarginBack(key)) {
@@ -30719,6 +31095,9 @@ async function applySettings() {
   const rankingShowAmountToCast = get('cfg-rankingShowAmountToCast')?.checked !== false;
   const defaultThemeValue             = get('cfg-defaultTheme')?.value ?? cfg.defaultTheme;
   const defaultTheme                  = defaultThemeValue === 'champagne' ? 'champagne' : 'night';
+  // 時給ロック（2026-10-28）: 画面に欄が無いときは今の値のまま
+  const wageLockWasEnabled = cfg.wageLockEnabled === true;
+  const wageLockEnabled = get('cfg-wageLockEnabled') ? !!get('cfg-wageLockEnabled').checked : wageLockWasEnabled;
 
   // 領収書設定（文字列）。空欄で保存したら空欄にする（2026-09-28 オーナー決定。以前は空欄だと前の値が残り消せなかった）。
   // 入力欄が無いとき（描画前など）だけ現在値を保つ。但し書きが空欄なら印刷時は「ご飲食代として」を使う（49-receipt-print.js）。
@@ -30766,7 +31145,7 @@ async function applySettings() {
     receiptPrinterOff, screenSlipTotalOnly,
     showCountdown, fullscreenOnBoot, monitorEnabled, monitorEndpoint, monitorWriteToken, monitorReadToken, monitorOpsToken,
     monitorShopId: cfg.monitorShopId || '',
-    posMenu, posCatLayout, posCatLabels, posItemLabels, posCustomCats, posPrices, shimeiExtItems, drinkItems, shotLabel,
+    posMenu, posCatLayout, posCatLabels, posItemLabels, posBottleDrinkPick, posCustomCats, posPrices, shimeiExtItems, drinkItems, shotLabel,
     specialRateRound: get('cfg-specialRateRound') ? (get('cfg-specialRateRound').value === '0' ? 0 : 100) : posSpecialRoundUnit(),
     receiptStoreName1, receiptStoreAddr, receiptStoreTel, receiptInvoiceNo, receiptNote, receiptNoteCard,
     receiptLayout, extTrialLayout, ryoshuOpts, receiptScale, extTrialScale, ryoshuScale,
@@ -30782,10 +31161,13 @@ async function applySettings() {
     castListOrder: castListOrderMode(),
     castListCustomOrder: Array.isArray(cfg.castListCustomOrder) ? cfg.castListCustomOrder : [],
     pointsEnabled, pointRules, rankingShowAmountToCast,
-    defaultTheme,
+    defaultTheme, wageLockEnabled,
     // 伝票ロゴ: 下書きがあれば確定、なければ既存値を引き継ぐ（cfg丸ごと再構築のため明示しないと保存で消える）
     shopLogo: (_shopLogoDraft !== undefined ? _shopLogoDraft : (cfg.shopLogo || '')),
   };
+  // 今ONにした保存は解除中から始める（かけるのは手で）。ヘッダーのボタンも合わせる
+  if (wageLockEnabled && !wageLockWasEnabled) wageLockOnEnabled();
+  wageLockSyncHeader();
   state.castDefaults = { ...(state.castDefaults || {}), ...feeMasterValues.castDefaults };
   saveCfg();
   saveState();
@@ -30799,6 +31181,9 @@ async function applySettings() {
   renderCastPanel();
   renderCustomerTable();
   updateClock(); // ヘッダーの営業日表示を即時反映
+  const splitBackChanged = ['bottle', ...posCustomCats.map(cat => cat.key)]
+    .filter(key => posMenuUsesSplitBack(key) !== (splitBackBefore.get(key) ?? false));
+  if (splitBackChanged.length) posMenuRerenderEditors(splitBackChanged);
 
   _settingsClearDirty();
   _shopLogoDraft = undefined;  // ロゴ下書きは確定済み
@@ -33580,6 +33965,7 @@ function refreshAfterImport(importedTheme) {
   if (importedTheme && typeof restoreThemeVisualFromPersist === 'function') restoreThemeVisualFromPersist();
   if (typeof initListWhiteFromPersist === 'function') initListWhiteFromPersist();
   if (typeof syncCurrentThemeSelect === 'function') syncCurrentThemeSelect();
+  wageLockSyncHeader();   // 読み込んだ設定の時給ロックの有無にヘッダーのボタンを合わせる
 }
 
 function openImportDialog() {
@@ -34160,6 +34546,9 @@ function initListWhiteFromPersist() {
     'html[data-display="tablet"] #header #store-status-badge .ss-badge-value{font-size:13px}',
     'html[data-display="tablet"] #header #undo-btn .theme-label{display:none}',
     'html[data-display="tablet"] #header #undo-btn,html[data-display="tablet"] #header #header-more-btn{min-width:34px;padding-inline:7px}',
+    /* 時給ロックのボタンは、タブレットでは絵だけ（文字は出さない。ヘッダーを広げない） */
+    'html[data-display="tablet"] #header #header-wage-lock-btn .theme-label{display:none}',
+    'html[data-display="tablet"] #header #header-wage-lock-btn{min-width:34px;padding-inline:7px}',
 
     /* B. タブバー：旧「.tabs .tab-btn」は実要素(#tabs)と一致しない死にルールだったため削除し、
        正しいセレクタ「#tabs .tab-btn」で縮小値を定義する */
