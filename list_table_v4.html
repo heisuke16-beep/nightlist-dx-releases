@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.101">
+<meta name="app-version" content="1.1.102">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -27432,7 +27432,18 @@ function receiptPrinterOff() { return cfg.receiptPrinterOff === true; }
    72＝ドライバーの用紙が72mm幅（スター精密 mC-Print3 は80mmの用紙が無く、80mm前提だと右へ約4mmずれて右端が切れる）。
    変えるのは @page の幅だけで、中身は72mmのまま（会計伝票・延長の案内・領収書・1日分の給与明細のレシートで共通） */
 function receiptPaperWidthMm() { return Number(cfg.receiptPaperWidth) === 72 ? 72 : 80; }
-function receiptPageCss() { return '@page{size:' + receiptPaperWidthMm() + 'mm auto;margin:0}'; }
+function receiptPageCss(opts = {}) {
+  const width = receiptPaperWidthMm();
+  const page = '@page{size:' + width + 'mm auto;margin:0}';
+  if (width !== 72 || opts.raw) return page;
+  // 72mm（スター精密 mC-Print3）: 実際に印字できるのは、ページの左端から約69.5mmまで。ページの左端は紙の左から約4mm
+  // （2026-10-28 ヴェルベで目盛りの試し印刷から実測。100%だと右端が約69mmに来て切れていた）。72mm幅で作ってある中身を 68/72 に縮める。
+  // 置く位置: 左右に余白を持つ帳票（会計伝票・延長の案内・給与明細のレシート）は紙の真ん中に来るよう左から2mm（右の余白は約2.4mm残る）。
+  // 紙の幅いっぱいを使う領収書（回転ステージ）は、はみ出さないよう印字できる範囲の真ん中（左から0.8mm）
+  return page + 'html{zoom:94.4%}'
+    + 'body:not(:has(.r-stage,.rf-stage,.rb-stage)){margin-left:2mm!important;margin-right:0!important}'
+    + '.r-stage,.rf-stage,.rb-stage{margin-left:0.8mm!important;margin-right:0!important}';
+}
 
 /* 目盛りの試し印刷（2026-10-28）。今の紙の幅（receiptPageCss）のまま、ページの左端を0として1mmごとの目盛りを80mmまで印字する。
    紙のどこから印字が始まり、右はどこで切れるかを目盛りで読み、プリンターごとの印字できる範囲を確かめる（定規なしで測るため） */
@@ -27440,16 +27451,17 @@ function receiptCalibrationPrint() {
   const w = window.open('', '_blank', 'width=320,height=520');
   if (!w) { showToast('ポップアップがブロックされました'); return; }
   let ticks = '';
-  for (let mm = 0; mm <= 80; mm++) {
+  const width = receiptPaperWidthMm();
+  // 目盛りはページの幅の中だけ（はみ出すと Chrome がページ全体を縮めて印刷し、長さが合わなくなる。2026-10-28 の1回目で約90%に縮んだ）
+  for (let mm = 0; mm <= width; mm++) {
     const height = mm % 10 === 0 ? 7 : mm % 5 === 0 ? 5 : 3;
     ticks += '<i style="left:' + mm + 'mm;height:' + height + 'mm"></i>';
-    if (mm % 5 === 0) ticks += '<b style="left:' + mm + 'mm">' + mm + '</b>';
+    if (mm % 5 === 0 && mm > 0 && mm < width) ticks += '<b style="left:' + mm + 'mm">' + mm + '</b>';
   }
-  const width = receiptPaperWidthMm();
   w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>目盛りの試し印刷</title><style>'
-    + receiptPageCss()
+    + receiptPageCss({ raw: true })   // 位置の補正をかけずに、プリンターそのままの範囲を見る
     + '*{box-sizing:border-box;margin:0;padding:0}'
-    + 'body{width:' + width + 'mm;margin:0;color:#000;font-family:"Hiragino Kaku Gothic ProN","Meiryo",sans-serif}'
+    + 'body{width:' + width + 'mm;margin:0;overflow:hidden;color:#000;font-family:"Hiragino Kaku Gothic ProN","Meiryo",sans-serif}'
     + 'h2{font-size:12pt;font-weight:800;text-align:center;margin:1mm 0 3mm}'
     + '.ruler{position:relative;height:13mm;overflow:visible}'
     + '.ruler i{position:absolute;top:0;width:0;border-left:0.3mm solid #000}'
@@ -27461,7 +27473,7 @@ function receiptCalibrationPrint() {
     + '<div class="ruler">' + ticks + '</div>'
     + '<div class="edge"></div>'
     + '<div class="ruler">' + ticks + '</div>'
-    + '<div class="note">紙の幅の設定: ' + width + 'mm<br>上と下に同じ目盛り（1mmごと。数字は5mmごと）、間の枠はページの幅いっぱいです。紙の左右の端と目盛りが写るように写真を撮ってください。</div>'
+    + '<div class="note">紙の幅の設定: ' + width + 'mm<br>上と下に同じ目盛り（ページの左端が0、1mmごと。数字は5mmごと）、間の枠はページの幅いっぱいです。紙の左右の端と目盛りが写るように写真を撮ってください。</div>'
     + '<div style="margin:10mm auto 0;width:0.5mm;height:0;border-top:1px solid #000;print-color-adjust:exact;-webkit-print-color-adjust:exact"></div>'
     + '<script>window.onafterprint=()=>setTimeout(()=>window.close(),100);window.onload=()=>window.print()<\/script>'
     + '</body></html>');
