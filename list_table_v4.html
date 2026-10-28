@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.103">
+<meta name="app-version" content="1.1.104">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -20333,9 +20333,8 @@ async function _cloudRestoreRun() {
     if (Persist.importAll(payload) === false) return false;
     reloadAfterImport();
 
-    // 8. JSON読み込みの完了後と同じ再描画。設定画面も開き直して新しい値を見せる
+    // 8. JSON読み込みの完了後と同じ再描画（設定画面の描き直しも含む）
     refreshAfterImport(!!payload.theme);
-    if (typeof renderSettingsPanel === 'function') renderSettingsPanel();
 
     // 9. 新しい店舗IDで送り直しの判定をやり直す
     if (typeof OwnerExport !== 'undefined') OwnerExport.reset();
@@ -34103,6 +34102,9 @@ function refreshAfterImport(importedTheme) {
   renderTable();
   renderCastPanel();
   renderTimetable();
+  // 設定画面も新しい値で描き直す。古い入力欄のまま「保存する」を押すと、読み込んだ設定を上書きしてしまうため
+  // （2026-10-29 chuchu の端末で、設定画面を開いたまま JSON を読み込んだら古い値が残った）。未保存の印もここで消える
+  renderSettingsPanel();
   updateStoreStatusBadge();
   refreshHistoryBtns();
   if (importedTheme && typeof restoreThemeVisualFromPersist === 'function') restoreThemeVisualFromPersist();
