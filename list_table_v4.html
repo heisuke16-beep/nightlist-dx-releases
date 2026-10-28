@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.102">
+<meta name="app-version" content="1.1.103">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -16313,6 +16313,8 @@ function renderPOSPanel() {
     + ' onclick="posSelectCategory(\'' + key + '\')">' + escHtml(label) + '</button>'
   ).join('');
 
+  // 描き直してもカテゴリの列のスクロール位置を保つ（下の方のカテゴリを押すたびに先頭へ戻らないように）
+  const railScrollTop = root.querySelector('.pos-order-cat-rail')?.scrollTop || 0;
   root.innerHTML = '<div class="pos-order-shell">'
     + '<div class="pos-order-workspace">'
     + '<div class="pos-order-slip-area">' + (row ? _posOrderSlipPanel(row) : '') + '</div>'
@@ -16330,6 +16332,10 @@ function renderPOSPanel() {
     + '</div>'
     + '</div>'
     + '</div>';
+  if (railScrollTop) {
+    const rail = root.querySelector('.pos-order-cat-rail');
+    if (rail) rail.scrollTop = railScrollTop;
+  }
 }
 
 
