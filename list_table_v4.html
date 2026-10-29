@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.108">
+<meta name="app-version" content="1.1.109">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -8758,6 +8758,8 @@ const AuthGate = {
 // 配信元は全店舗共通の単一チャンネル（店舗ごとに変える理由がないため内蔵化）
 const SELF_UPDATE_URL = 'https://raw.githubusercontent.com/heisuke16-beep/nightlist-dx-releases/main/version.json';
 const SELF_UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const SELF_UPDATE_DIAG_KEY = 'nl-update-diag';
+const SELF_UPDATE_DIAG_MAX = 50;
 let selfUpdateDismissedVersion = null;
 
 const SelfUpdate = {
@@ -8765,25 +8767,79 @@ const SelfUpdate = {
     return document.querySelector('meta[name="app-version"]')?.content || 'unknown';
   },
 
-  startAutoCheck() {
-    if (this._autoCheckStarted) return;
-    this._autoCheckStarted = true;
-    const check = (opts) => {
-      this._checkForUpdateNotification(opts).catch(e => console.warn('[SelfUpdate] auto check failed:', e));
-    };
-    setTimeout(() => {
-      check({ initial: true });
-      setInterval(() => check({ initial: false }), SELF_UPDATE_CHECK_INTERVAL_MS);
-    }, 5000);
+  /* 端末の種類は「ページの開き方」で決める（2026-10-29）。file: で開かれた時だけ、昔の自己書き換えの道を残す。
+     http://localhost:8940/ などの配信端末では、アプリは自分の本体を書き換えず、配信元の version.json も見ない
+     （「今すぐ更新」がブラウザのファイル選択に落ちる事故を、サーバーの状態に関係なく起こさないため）。
+     開き方はキッティングの時点で決まっていて通信の失敗では変わらないので、結果は1回だけ求めて持つ。
+     判定の材料が無い時は書き換えない側（配信端末）に倒す。 */
+  _isServed() {
+    if (this._servedCache === undefined) {
+      let served = true;
+      try { served = !(typeof location !== 'undefined' && location && location.protocol === 'file:'); } catch (_) { served = true; }
+      this._servedCache = served;
+    }
+    return this._servedCache;
   },
 
+  /* opts: initialDelayMs（既定5000）・retryDelaysMs（既定[60000,180000]）・intervalMs・probeTimeoutMs・probeGapMs。
+     配信端末では、起動時にまず昔の本体ファイルの記録（appFile）を消す。 */
+  startAutoCheck(opts = {}) {
+    if (this._autoCheckStarted) return;
+    this._autoCheckStarted = true;
+    this._autoOpts = {
+      retryDelaysMs: Array.isArray(opts.retryDelaysMs) ? opts.retryDelaysMs.filter(Number.isFinite) : [60000, 180000],
+      probeTimeoutMs: opts.probeTimeoutMs,
+      probeGapMs: opts.probeGapMs,
+    };
+    const initialDelayMs = Number.isFinite(opts.initialDelayMs) ? opts.initialDelayMs : 5000;
+    const intervalMs = Number.isFinite(opts.intervalMs) ? opts.intervalMs : SELF_UPDATE_CHECK_INTERVAL_MS;
+    if (this._isServed()) this._forgetAppFileHandle().catch(() => {});
+    const check = (checkOpts) => {
+      this._checkForUpdateNotification(checkOpts).catch(e => console.warn('[SelfUpdate] auto check failed:', e));
+    };
+    this._autoInitialTimer = setTimeout(() => {
+      check({ initial: true });
+      this._autoIntervalTimer = setInterval(() => check({ initial: false }), intervalMs);
+    }, initialDelayMs);
+  },
+
+  /* 自動確認のタイマーをすべて止める（試験用。本体は呼ばない）。 */
+  _stopAutoCheck() {
+    if (this._autoInitialTimer) clearTimeout(this._autoInitialTimer);
+    if (this._autoIntervalTimer) clearInterval(this._autoIntervalTimer);
+    this._autoInitialTimer = null;
+    this._autoIntervalTimer = null;
+    this._cancelAutoRetries();
+  },
+
+  /* 自動確認（起動5秒後・6時間ごと・再確認）。配信端末では、お知らせに出すのは「開き直す」だけ。
+     何も分からなかった時（不明）は黙ったまま、起動時の確認に限って 60秒後・180秒後にもう一度確認する。
+     実行中に重ねて呼ばれても二重には走らせない。 */
   async _checkForUpdateNotification(opts = {}) {
+    if (this._autoInflight) return 'busy';
+    this._autoInflight = true;
     try {
-      const managed = await this._fetchManagedStatus();
-      if (managed) {
-        this._handleManagedCheck(managed, opts);
-        return;
+      const o = Object.assign({}, this._autoOpts || {}, opts);
+      const served = this._isServed();
+      const probe = await this._probeManagedStatus({
+        attempts: served ? 2 : 1,
+        timeoutMs: o.probeTimeoutMs,
+        gapMs: o.probeGapMs,
+      });
+      if (probe.kind === 'managed') {
+        this._cancelAutoRetries();
+        return this._handleManagedCheck(probe, opts);
       }
+      if (served) {
+        // 配信元の version.json は見ない。「今すぐ更新」付きのお知らせも作らない
+        if (probe.kind === 'unmanaged') {
+          this._cancelAutoRetries();
+        } else if (opts.initial) {
+          this._scheduleAutoRetries(o.retryDelaysMs);
+        }
+        return probe.kind;
+      }
+      // file: で開いた時だけ、今までどおり配信元を見て「今すぐ更新」付きのお知らせを出す
       const versionRes = await fetch(SELF_UPDATE_URL, { cache: 'no-store' });
       if (!versionRes.ok) throw new Error('version.json fetch failed');
       const info = this._validateVersionInfo(await versionRes.json());
@@ -8791,9 +8847,31 @@ const SelfUpdate = {
       if (this._shouldNotify(current, info, selfUpdateDismissedVersion)) {
         this._showUpdateNotification(info.version, current);
       }
+      return 'legacy';
     } catch (e) {
       console.warn('[SelfUpdate] auto check failed:', e);
+      return 'error';
+    } finally {
+      this._autoInflight = false;
     }
+  },
+
+  _scheduleAutoRetries(delays = [60000, 180000]) {
+    if (this._autoRetryTimers && this._autoRetryTimers.length) return;   // 二重には予約しない
+    this._autoRetryTimers = [];
+    for (const ms of delays) {
+      const timer = setTimeout(() => {
+        this._autoRetryTimers = (this._autoRetryTimers || []).filter(t => t !== timer);
+        this._checkForUpdateNotification({ initial: false, retry: true })
+          .catch(e => console.warn('[SelfUpdate] auto retry failed:', e));
+      }, ms);
+      this._autoRetryTimers.push(timer);
+    }
+  },
+
+  _cancelAutoRetries() {
+    for (const timer of (this._autoRetryTimers || [])) clearTimeout(timer);
+    this._autoRetryTimers = [];
   },
 
   _shouldNotify(currentVersion, remoteInfo, dismissedVersion) {
@@ -8808,29 +8886,177 @@ const SelfUpdate = {
      受け持つ端末では、アプリは自分のファイルを書き換えず「端末が受け取った版」だけを見る
      （2026-09-23 起動スクリプト側更新。自分のファイルの場所を推測して探す作りが
      ギャルサークルの「ファイルを選んでください」「起動中のアプリと一致しません」の原因だった）。
-     応答が無い・managed でない端末は従来どおり自己更新。 */
-  async _fetchManagedStatus() {
-    try {
-      const controller = (typeof AbortController === 'function') ? new AbortController() : null;
-      const timer = controller ? setTimeout(() => controller.abort(), 1500) : null;
+
+     答えを3つに分ける（2026-10-29。「答えが無い」と「管理していないと答えた」を区別するため）:
+       { kind: 'managed', fileName, fileVersion, lastCheck, lastResult, lastMessage, ms }   200 かつ managed:true
+       { kind: 'unmanaged', reason: 'managed_false' | 'http_404', ms }                      200 かつ managed:false、または 404
+       { kind: 'unknown', reason: 'timeout' | 'network' | 'http_<status>' | 'parse', ms }   それ以外（時間切れ・通信失敗・500・壊れたJSON）
+     「不明」の時だけ、opts.attempts 回（既定3）まで opts.gapMs（既定[1000,2000]）の間を空けて聞き直す。
+     1回の打ち切りは opts.timeoutMs（既定3000）。試すたびに _recordProbe に残す。 */
+  async _probeManagedStatus(opts = {}) {
+    const timeoutMs = Number.isFinite(opts.timeoutMs) ? opts.timeoutMs : 3000;
+    const attempts = (Number.isFinite(opts.attempts) && opts.attempts >= 1) ? Math.floor(opts.attempts) : 3;
+    const gaps = Array.isArray(opts.gapMs) ? opts.gapMs : [1000, 2000];
+    let last = { kind: 'unknown', reason: 'network', ms: 0 };
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      try {
+        last = await this._probeManagedOnce(timeoutMs);
+      } catch (_) {
+        last = { kind: 'unknown', reason: 'network', ms: 0 };
+      }
+      last.attempt = attempt;
+      this._recordProbe({ at: new Date().toISOString(), attempt, kind: last.kind, reason: last.reason || '', ms: last.ms }, { quiet: !!opts.quiet });
+      if (last.kind === 'managed') {
+        this.lastManaged = { lastCheck: last.lastCheck, fileVersion: last.fileVersion, lastResult: last.lastResult, at: Date.now() };
+      }
+      if (last.kind !== 'unknown') return last;
+      if (attempt < attempts) {
+        const gap = Number.isFinite(gaps[attempt - 1]) ? gaps[attempt - 1] : (Number.isFinite(gaps[gaps.length - 1]) ? gaps[gaps.length - 1] : 1000);
+        await this._sleep(gap);
+      }
+    }
+    return last;
+  },
+
+  /* 1回だけ聞く。fetch が止まったまま返らなくても、timeoutMs で必ず「時間切れ」にする。 */
+  async _probeManagedOnce(timeoutMs) {
+    const startedAt = Date.now();
+    const elapsed = () => Math.max(0, Date.now() - startedAt);
+    const controller = (typeof AbortController === 'function') ? new AbortController() : null;
+    let timer = null;
+    const timeout = new Promise(resolve => {
+      timer = setTimeout(() => {
+        if (controller) { try { controller.abort(); } catch (_) {} }
+        resolve({ kind: 'unknown', reason: 'timeout', ms: elapsed() });
+      }, timeoutMs);
+    });
+    const unknown = (reason) => ({ kind: 'unknown', reason, ms: elapsed() });
+    const isAbort = e => !!e && e.name === 'AbortError';
+    const work = (async () => {
       let res;
       try {
         res = await fetch('/__update_status', { cache: 'no-store', signal: controller ? controller.signal : undefined });
-      } finally {
-        if (timer) clearTimeout(timer);
+      } catch (e) {
+        return unknown(isAbort(e) ? 'timeout' : 'network');
       }
-      if (!res || !res.ok) return null;
-      const info = await res.json();
-      if (!info || info.managed !== true) return null;
+      if (!res) return unknown('network');
+      if (!res.ok) {
+        if (res.status === 404) return { kind: 'unmanaged', reason: 'http_404', ms: elapsed() };
+        return unknown('http_' + (Number.isFinite(res.status) ? res.status : 0));
+      }
+      let info;
+      try {
+        info = await res.json();
+      } catch (e) {
+        return unknown(isAbort(e) ? 'timeout' : 'parse');
+      }
+      if (!info || typeof info !== 'object') return unknown('parse');
+      if (info.managed === false) return { kind: 'unmanaged', reason: 'managed_false', ms: elapsed() };
+      if (info.managed !== true) return unknown('parse');
       return {
+        kind: 'managed',
+        fileName: String(info.fileName || ''),
         fileVersion: String(info.fileVersion || ''),
         lastCheck: String(info.lastCheck || ''),
         lastResult: String(info.lastResult || ''),
         lastMessage: String(info.lastMessage || ''),
+        ms: elapsed(),
       };
-    } catch (_) {
-      return null;
+    })();
+    try {
+      return await Promise.race([work, timeout]);
+    } finally {
+      clearTimeout(timer);
     }
+  },
+
+  /* 互換: 管理端末の状態だけが欲しい場面（「今すぐ更新」の結果待ちのポーリング）用。管理ありの時だけ返す。 */
+  async _fetchManagedStatus(opts = {}) {
+    const r = await this._probeManagedStatus({ attempts: 1, timeoutMs: 3000, quiet: true, ...opts });
+    return r.kind === 'managed' ? r : null;
+  },
+
+  /* ---- 診断の記録（2026-10-29。10/29 は記録が無く、空振りの原因を特定できなかった） ---- */
+
+  /* 問い合わせの結果を、直近50件まで localStorage の 'nl-update-diag' と console.warn に残す。
+     SelfUpdate.lastProbe に最後の1件を持つ（設定画面の「最後の確認」の表示用）。
+     配信端末では、つながらなかった・管理なしだった時に、端末の server-log.txt にも報告する。
+     quiet は結果待ちのポーリング用で、管理ありの成功は記録を増やさない。 */
+  _recordProbe(entry, { quiet = false } = {}) {
+    this.lastProbe = entry;
+    if (entry.kind === 'managed') {
+      if (!quiet) this._pushDiag(entry);
+      return;
+    }
+    this._pushDiag(entry);
+    try { console.warn('[SelfUpdate] probe', entry.kind, entry.reason, entry); } catch (_) {}
+    this._sendClientLog(entry);
+  },
+
+  _logEvent(name, detail) {
+    const entry = { at: new Date().toISOString(), event: name };
+    if (detail !== undefined) entry.detail = detail;
+    this._pushDiag(entry);
+    try { console.warn('[SelfUpdate]', name, detail === undefined ? '' : detail); } catch (_) {}
+  },
+
+  _pushDiag(entry) {
+    try {
+      if (typeof localStorage === 'undefined' || !localStorage) return;
+      let list = [];
+      try { list = JSON.parse(localStorage.getItem(SELF_UPDATE_DIAG_KEY) || '[]'); } catch (_) { list = []; }
+      if (!Array.isArray(list)) list = [];
+      list.push(entry);
+      localStorage.setItem(SELF_UPDATE_DIAG_KEY, JSON.stringify(list.slice(-SELF_UPDATE_DIAG_MAX)));
+    } catch (_) {}
+  },
+
+  /* 配信端末の server-log.txt へ、アプリから見た失敗を知らせる。結果は待たず、失敗も無視する（2秒で打ち切り）。 */
+  _sendClientLog(entry) {
+    try {
+      if (!this._isServed() || typeof fetch !== 'function') return;
+      const controller = (typeof AbortController === 'function') ? new AbortController() : null;
+      const timer = setTimeout(() => { if (controller) { try { controller.abort(); } catch (_) {} } }, 2000);
+      const done = () => clearTimeout(timer);
+      const body = JSON.stringify({
+        kind: entry.kind, reason: entry.reason, attempt: entry.attempt, ms: entry.ms,
+        appVersion: this.currentVersion(), at: entry.at,
+      });
+      const pending = fetch('/__client_log', {
+        method: 'POST',
+        keepalive: true,
+        headers: { 'Content-Type': 'application/json', 'X-NightList-Action': 'client-log' },
+        body,
+        signal: controller ? controller.signal : undefined,
+      });
+      if (pending && typeof pending.then === 'function') pending.then(done, done);
+      else done();
+    } catch (_) {}
+  },
+
+  /* 昔、ファイル選択で本体を選んだ端末に残る appFile のハンドルを消す。許可ダイアログや本体の直接上書きの種になる。
+     保存先フォルダのハンドルには触れない。失敗は黙って無視する。 */
+  async _forgetAppFileHandle() {
+    let ok = false;
+    try {
+      if (typeof indexedDB === 'undefined') {
+        this._logEvent('forget_app_file', false);
+        return false;
+      }
+      const db = await this._openDb();
+      ok = await new Promise(resolve => {
+        const finish = (value) => { try { db.close(); } catch (_) {} resolve(value); };
+        const tx = db.transaction(UsbStore._storeName, 'readwrite');
+        tx.objectStore(UsbStore._storeName).delete('appFile');
+        tx.oncomplete = () => finish(true);
+        tx.onerror = () => finish(false);
+        tx.onabort = () => finish(false);
+      });
+    } catch (_) {
+      ok = false;
+    }
+    this._logEvent('forget_app_file', ok);
+    return ok;
   },
 
   _managedHasNewer(managed) {
@@ -8878,17 +9104,31 @@ const SelfUpdate = {
     const pollIntervalMs = Number.isFinite(options.pollIntervalMs) ? options.pollIntervalMs : 2000;
     const pollTimeoutMs = Number.isFinite(options.pollTimeoutMs) ? options.pollTimeoutMs : 90000;
 
-    const started = await this._requestManagedUpdateNow();
-    if (!started) return this._managedFallbackResult(managed);
+    const started = await this._requestManagedUpdateNow(options);
+    if (!started.started) {
+      if (started.reason !== 'timeout') return this._managedFallbackResult(managed, started.reason);
+      // 受け付けの返事は無かったが、端末はタスクを起動している前提で、結果（lastCheck の変化）を待つ。
+      // 実際は動いているのに「端末を再起動して」と案内する嘘をなくす（2026-10-29）
+      onProgress('配信元から新しい版を受け取っています…');
+      const waitMs = Number.isFinite(options.postTimeoutWaitMs) ? options.postTimeoutWaitMs : 30000;
+      const waited = await this._pollManagedChange(managed, { recent: false, pollIntervalMs, timeoutMs: waitMs });
+      return waited || this._managedFallbackResult(managed, 'timeout');
+    }
 
     onProgress('配信元から新しい版を受け取っています…');
-    const deadline = Date.now() + pollTimeoutMs;
+    const outcome = await this._pollManagedChange(managed, { recent: started.recent, pollIntervalMs, timeoutMs: pollTimeoutMs });
+    return outcome || this._result('timeout', '確認に時間がかかっています。少し待ってからもう一度押してください');
+  },
+
+  /* 押した後の端末の状態を、lastCheck が変わるまで見る。変わったらその結果を返し、timeoutMs 内に変わらなければ null。 */
+  async _pollManagedChange(managed, { recent, pollIntervalMs, timeoutMs }) {
+    const deadline = Date.now() + timeoutMs;
     for (;;) {
       await this._sleep(pollIntervalMs);
       const latest = await this._fetchManagedStatus();
       if (latest) {
         if (latest.lastCheck !== managed.lastCheck) return this._managedUpdateNowOutcome(latest);
-        if (started.recent) {
+        if (recent) {
           // 直前の押下で動いた確認の結果を受け取る場合: すでに新しい版が届いている、
           // もしくは直前に確認が終わっている（lastCheck が変わらないまま終わっていた）なら、その結果を返す
           if (this._managedHasNewer(latest) || this._isRecentCheck(latest.lastCheck)) return this._managedUpdateNowOutcome(latest);
@@ -8896,15 +9136,28 @@ const SelfUpdate = {
       }
       if (Date.now() >= deadline) break;
     }
-    return this._result('timeout', '確認に時間がかかっています。少し待ってからもう一度押してください');
+    return null;
   },
 
-  /* POST /__update_now。受け付けられたとき（202）だけ { recent } を返し、それ以外は null。
+  /* POST /__update_now（10秒で打ち切る。options.updateNowTimeoutMs で変えられる）。結果は次の3通り:
+       { started: true, recent }                                                 受け付けられた（202）
+       { started: false, reason: 'timeout' }                                     返事が無かった（タスクは起動している前提で待つ）
+       { started: false, reason: 'http_405' | 'http_404' | 'http_<status>' | 'network' | 'not_started' }   頼めなかった
      recent は「前回の起動から20秒以内なので、サーバーは起動し直さなかった」の意味。 */
-  async _requestManagedUpdateNow() {
-    try {
-      const controller = (typeof AbortController === 'function') ? new AbortController() : null;
-      const timer = controller ? setTimeout(() => controller.abort(), 3000) : null;
+  async _requestManagedUpdateNow(options = {}) {
+    const timeoutMs = Number.isFinite(options.updateNowTimeoutMs) ? options.updateNowTimeoutMs : 10000;
+    const startedAt = Date.now();
+    const elapsed = () => Math.max(0, Date.now() - startedAt);
+    const controller = (typeof AbortController === 'function') ? new AbortController() : null;
+    let timer = null;
+    const timeout = new Promise(resolve => {
+      timer = setTimeout(() => {
+        if (controller) { try { controller.abort(); } catch (_) {} }
+        resolve({ started: false, reason: 'timeout' });
+      }, timeoutMs);
+    });
+    const isAbort = e => !!e && e.name === 'AbortError';
+    const work = (async () => {
       let res;
       try {
         res = await fetch('/__update_now', {
@@ -8913,26 +9166,40 @@ const SelfUpdate = {
           cache: 'no-store',
           signal: controller ? controller.signal : undefined,
         });
-      } finally {
-        if (timer) clearTimeout(timer);
+      } catch (e) {
+        return { started: false, reason: isAbort(e) ? 'timeout' : 'network' };
       }
-      if (!res || res.status !== 202) return null;
+      if (!res) return { started: false, reason: 'network' };
+      if (res.status !== 202) return { started: false, reason: 'http_' + (Number.isFinite(res.status) ? res.status : 0) };
       let info = null;
       try { info = await res.json(); } catch (_) { info = null; }
       const recent = !!info && info.started === false && info.reason === 'recent';
-      if (info && info.started === false && !recent) return null;
-      return { recent };
-    } catch (_) {
-      return null;
+      if (info && info.started === false && !recent) return { started: false, reason: 'not_started' };
+      return { started: true, recent };
+    })();
+    let outcome;
+    try {
+      outcome = await Promise.race([work, timeout]);
+    } finally {
+      clearTimeout(timer);
     }
+    if (outcome.reason === 'timeout') {
+      this._logEvent('update_now_timeout', elapsed());
+      this._sendClientLog({ kind: 'update_now', reason: 'timeout', attempt: 1, ms: elapsed(), at: new Date().toISOString() });
+    }
+    return outcome;
   },
 
-  /* 頼めなかったとき。準備済みの新しい版があればそれを案内し、無いときは「最新版です」とは言わず
-     （確認していないため）、端末が自動で受け取るタイミングと、今すぐ受け取る手順を伝える。 */
-  _managedFallbackResult(managed) {
+  /* 頼めなかったとき。準備済みの新しい版があればそれを案内する。無いときは「最新版です」とは言わず（確認していないため）、
+     古い配信サーバー（405）の時だけ、端末を再起動して受け取る手順を案内する。ほかの理由（時間切れ・通信失敗・404 など）で
+     「端末を再起動して」と言うのは嘘になるので、受け付けを確認できなかったことと、少し待ってからの押し直しだけを伝える。 */
+  _managedFallbackResult(managed, reason) {
     const result = this._managedResult(managed);
     if (result.status !== 'latest') return result;
-    return this._result('latest', `現在 v${this.currentVersion()} です。この端末は更新を自動で受け取ります（Windowsにサインインして約2分後と、毎日13:00）。今すぐ受け取るには、端末を再起動して約3分後にNightListを開き直してください`);
+    if (reason === 'http_405') {
+      return this._result('latest', `現在 v${this.currentVersion()} です。この端末は更新を自動で受け取ります（Windowsにサインインして約2分後と、毎日13:00）。今すぐ受け取るには、端末を再起動して約3分後にNightListを開き直してください`);
+    }
+    return this._result(reason === 'timeout' ? 'timeout' : 'error', '受け付けを確認できませんでした。営業はこのまま続けられます。1分ほど待ってから、もう一度押してください');
   },
 
   _managedUpdateNowOutcome(status) {
@@ -8961,6 +9228,8 @@ const SelfUpdate = {
   },
 
   _showUpdateNotification(remoteVersion, currentVersion, { reloadOnly = false } = {}) {
+    // 最後の守り: 将来どこから呼ばれても、配信端末では「今すぐ更新」付きの旧来のお知らせを描かない
+    if (!reloadOnly && this._isServed()) { this._logEvent('blocked_banner'); return; }
     const previous = document.getElementById('self-update-notification');
     if (previous?.dataset.version === remoteVersion) return;
     if (previous) previous.remove();
@@ -9035,11 +9304,30 @@ const SelfUpdate = {
     document.body.appendChild(banner);
   },
 
-  async checkAndRun(options = {}) {
-    const wasFullscreen = !!document.fullscreenElement;
-    const result = await this._checkAndRunCore(options);
-    await this._maybeRestoreFullscreen(wasFullscreen);
-    return result;
+  /* 「今すぐ更新」は同時に1つしか動かさない。バナー・設定ボタンが重なって押されても、動いている処理の結果を共有する
+     （POST やポーリングが二重に走らない）。後から押した側の進捗表示も、動いている処理の進捗を受け取る。 */
+  checkAndRun(options = {}) {
+    const onProgress = typeof options.onProgress === 'function' ? options.onProgress : null;
+    if (this._inflight) {
+      if (onProgress) this._progressSinks.push(onProgress);
+      return this._inflight;
+    }
+    this._progressSinks = onProgress ? [onProgress] : [];
+    const shared = text => {
+      for (const sink of this._progressSinks) {
+        try { sink(text); } catch (_) {}
+      }
+    };
+    const run = (async () => {
+      const wasFullscreen = !!document.fullscreenElement;
+      const result = await this._checkAndRunCore({ ...options, onProgress: shared });
+      await this._maybeRestoreFullscreen(wasFullscreen);
+      return result;
+    })();
+    this._inflight = run;
+    const release = () => { if (this._inflight === run) this._inflight = null; };
+    run.then(release, release);
+    return run;
   },
 
   async _maybeRestoreFullscreen(wasFullscreen) {
@@ -9052,16 +9340,32 @@ const SelfUpdate = {
     const onProgress = typeof options.onProgress === 'function' ? options.onProgress : () => {};
     try {
       const updateUrl = SELF_UPDATE_URL;
-      onProgress('確認中…');
-      // 端末側スクリプトが更新を受け持つ端末では、ファイルの書き換えもファイル選択も行わない
-      const managed = await this._fetchManagedStatus();
-      if (managed) {
+      const served = this._isServed();
+      onProgress(served ? '端末の更新の仕組みに確認しています…' : '確認中…');
+      // 端末側スクリプトが更新を受け持つ端末では、ファイルの書き換えもファイル選択も行わない。
+      // 配信端末では「不明」のとき最大3回まで聞き直す。file: で開いた昔の道は1回だけ聞く（待たせない）
+      const probe = await this._probeManagedStatus({
+        attempts: served ? options.probeAttempts : 1,
+        timeoutMs: options.probeTimeoutMs,
+        gapMs: options.probeGapMs,
+      });
+      if (probe.kind === 'managed') {
         // 自動確認（interactive:false）は従来どおり状態を見るだけ。ボタンを押したときだけ、
         // 端末側に「いま取りに行って」と頼んで結果を待つ（2026-10-26 オーナー要望）
-        if (options.interactive !== false) return await this._runManagedUpdateNow(managed, onProgress, options);
-        return this._managedResult(managed);
+        if (options.interactive !== false) return await this._runManagedUpdateNow(probe, onProgress, options);
+        return this._managedResult(probe);
       }
 
+      if (served) {
+        // 配信端末は、サーバーの状態がどうであっても、ここから先（USB・配信元の取得・確認ダイアログ・本体の書き換え）へ進まない
+        const cur = this.currentVersion();
+        if (probe.kind === 'unmanaged') {
+          return this._result('aborted', `この端末は自動更新の準備がまだ済んでいません。営業はこのまま続けられます。オーナーに連絡してください（現在 v${cur}）`);
+        }
+        return this._result('aborted', `端末の更新の仕組みにつながりませんでした。営業はこのまま続けられます。1分ほど待ってから、もう一度押してください（現在 v${cur}）`);
+      }
+
+      // ここから先は file: で開いた時だけ（昔の自己書き換えの道）
       if (!UsbStore.active || !UsbStore._dirHandle) return this._result('aborted', 'USBモードで利用できます');
 
       const versionRes = await this._fetchNoStore(updateUrl);
@@ -9104,8 +9408,8 @@ const SelfUpdate = {
       try {
         appFileHandle = await this._getVerifiedAppFileHandle();
       } catch (e) {
-        // ファイル選択ダイアログを閉じた場合はAbortError。それ以外は本体を開けなかった場合。
-        throw this._coded(e, (e && e.name === 'AbortError') ? 'PICK_CANCELED' : 'NO_APP_FILE');
+        // 本体を開けなかった場合（ファイル選択は出さない。見つからなければここで止まる）
+        throw this._coded(e, e && e.code ? e.code : 'NO_APP_FILE');
       }
 
       onProgress('書き換え中…');
@@ -9154,9 +9458,8 @@ const SelfUpdate = {
     if (code === 'SOURCE_HTTP') return '配信元に接続できませんでした。時間をおいてもう一度お試しください';
     if (code === 'BAD_VERSION_INFO') return '配信元の応答が不正です';
     if (code === 'BAD_HASH') return '取得ファイルの検証に失敗しました';
-    if (code === 'BAD_SELF_FILE') return '選択されたファイルは起動中のアプリと一致しません';
-    if (code === 'PICK_CANCELED') return 'アプリ本体のファイルが選ばれなかったため中止しました';
-    if (code === 'NO_APP_FILE') return 'アプリ本体のファイルを開けませんでした。いま開いているHTMLを選び直してください';
+    if (code === 'SERVED') return 'この端末は更新を自動で受け取ります。もう一度「今すぐ更新」を押してください';
+    if (code === 'NO_APP_FILE') return 'この開き方では更新できません。デスクトップの NightList アイコンから開き直してください';
     if (code === 'WRITE_FAILED') return '保存先（USB・マイクロSD）に書き込めませんでした。抜き差ししてもう一度お試しください';
     return '更新に失敗しました';
   },
@@ -9224,7 +9527,14 @@ const SelfUpdate = {
     return match ? match[1] : '';
   },
 
+  /* 書き換える本体ファイルを探す。見つからない時は、ファイル選択を出さずに NO_APP_FILE で止まる（2026-10-29）。
+     配信端末（file: 以外）では、本体を書き換える道そのものに入らない。 */
   async _getVerifiedAppFileHandle() {
+    if (this._isServed()) {
+      const err = new Error('served page never self-writes');
+      err.code = 'SERVED';
+      throw err;
+    }
     const fileName = decodeURIComponent(location.pathname.split('/').pop() || '');
     // いま開いているファイル名での探索を最優先にする。記憶済みハンドルを先にすると、
     // 配信ファイルのリネーム後に (a)旧ファイル消滅→未捕捉例外で即失敗
@@ -9232,7 +9542,7 @@ const SelfUpdate = {
     if (fileName) {
       try {
         const sameFolderHandle = await UsbStore._dirHandle.getFileHandle(fileName);
-        if (await this._ensureFilePermission(sameFolderHandle) && await this._verifyAppIdentity(sameFolderHandle)) {
+        if (await this._hasFilePermission(sameFolderHandle) && await this._verifyAppIdentity(sameFolderHandle)) {
           await this._saveHandle('appFile', sameFolderHandle);
           return sameFolderHandle;
         }
@@ -9253,25 +9563,15 @@ const SelfUpdate = {
     // リネーム・削除でハンドル先が消えているとgetFile()が例外を投げるため必ずガードする。
     try {
       const fromDb = await this._loadHandle('appFile');
-      if (fromDb && await this._ensureFilePermission(fromDb)) {
+      if (fromDb && await this._hasFilePermission(fromDb)) {
         if (await this._verifyAppIdentity(fromDb)) return fromDb;
       }
     } catch (_) {}
-    if (typeof showToast === 'function') showToast('アプリ本体のファイル（いま開いているHTML）を選択してください');
-    if (typeof showOpenFilePicker !== 'function') throw new Error('showOpenFilePicker unsupported');
-    const handles = await showOpenFilePicker({
-      types: [{ description: 'HTML', accept: { 'text/html': ['.html', '.htm'] } }],
-      excludeAcceptAllOption: false,
-      multiple: false,
-    });
-    const picked = handles && handles[0];
-    if (!picked || !await this._ensureFilePermission(picked) || !await this._verifyAppIdentity(picked)) {
-      const err = new Error('bad app file');
-      err.code = 'BAD_SELF_FILE';
-      throw err;
-    }
-    await this._saveHandle('appFile', picked);
-    return picked;
+    // 3段の探索がすべて外れた。ここでファイル選択を出していたのが、7/21・8/20・9/19〜23・9/30・10/29 の事故の最後の一歩だった。
+    // 選ばせずに止まる（呼び出し元が「この開き方では更新できません」を出す）
+    const err = new Error('app file not found');
+    err.code = 'NO_APP_FILE';
+    throw err;
   },
 
   async _findSingleMatchingAppFileInFolder() {
@@ -9281,7 +9581,7 @@ const SelfUpdate = {
       if (handle?.kind && handle.kind !== 'file') continue;
       if (!/\.html?$/i.test(name)) continue;
       try {
-        if (!await this._ensureFilePermission(handle)) continue;
+        if (!await this._hasFilePermission(handle)) continue;
         if (!await this._verifyAppIdentity(handle)) continue;
       } catch (_) { continue; }
       if (matched) return null; // 2件以上一致 → 誤ファイル書き換え防止のため採用しない
@@ -9290,11 +9590,11 @@ const SelfUpdate = {
     return matched;
   },
 
-  async _ensureFilePermission(handle) {
-    const opts = { mode: 'readwrite' };
-    if (typeof handle.queryPermission === 'function' && await handle.queryPermission(opts) === 'granted') return true;
-    if (typeof handle.requestPermission === 'function') return await handle.requestPermission(opts) === 'granted';
-    return true;
+  /* 書き込みの許可が「すでにある」時だけ真を返す。許可を求めるダイアログは出さない（2026-10-29）。
+     queryPermission が無い環境は、確認の手段が無いので真として扱う。 */
+  async _hasFilePermission(handle) {
+    if (typeof handle.queryPermission !== 'function') return true;
+    return await handle.queryPermission({ mode: 'readwrite' }) === 'granted';
   },
 
   async _verifyAppIdentity(handle) {
@@ -10574,14 +10874,28 @@ function snapRows() {
     _restoredFromKey: state._restoredFromKey || null,
   });
 }
-function pushUndo() {
+// 記録ごとの操作名（undoStack/redoStack と同じ位置に対応）。名前なしの記録は ''。
+// 外から undoStack を差し替えられても食い違わないよう、使う直前に長さを合わせる
+let undoLabels = [];
+let redoLabels = [];
+function pushUndo(label) {
   undoStack.push(snapRows());
-  if (undoStack.length > UNDO_MAX) undoStack.shift();
+  undoLabels.length = undoStack.length - 1;
+  undoLabels.push(label ? String(label) : '');
+  if (undoStack.length > UNDO_MAX) { undoStack.shift(); undoLabels.shift(); }
   redoStack = [];
+  redoLabels = [];
   refreshHistoryBtns();
+}
+function _undoToast(label, suffix) {
+  if (typeof showToast === 'function') showToast((label || '直前の操作') + ' を' + suffix);
 }
 function undo() {
   if (!undoStack.length) return;
+  undoLabels.length = undoStack.length;
+  const label = undoLabels.pop();
+  redoLabels.length = redoStack.length;
+  redoLabels.push(label || '');
   redoStack.push(snapRows());
   Object.assign(state, JSON.parse(undoStack.pop()));
   renderTable();
@@ -10590,15 +10904,21 @@ function undo() {
   if (typeof renderPOSPanel === 'function') renderPOSPanel();
   saveState(); refreshHistoryBtns();
   if (typeof posRefreshShowtimeCounts === 'function') posRefreshShowtimeCounts();
+  _undoToast(label, '取り消しました');
 }
 function redo() {
   if (!redoStack.length) return;
+  redoLabels.length = redoStack.length;
+  const label = redoLabels.pop();
+  undoLabels.length = undoStack.length;
+  undoLabels.push(label || '');
   undoStack.push(snapRows());
   Object.assign(state, JSON.parse(redoStack.pop()));
   renderTable();
   if (typeof renderPOSPanel === 'function') renderPOSPanel();
   saveState(); refreshHistoryBtns();
   if (typeof posRefreshShowtimeCounts === 'function') posRefreshShowtimeCounts();
+  _undoToast(label, 'やり直しました');
 }
 function toggleHeaderMoreMenu(event) {
   const menu = document.getElementById('header-more-menu');
@@ -10623,6 +10943,7 @@ function syncHeaderMoreMenuState(event) {
 function refreshHistoryBtns() {
   const u = document.getElementById('undo-btn');
   const r = document.getElementById('redo-btn');
+  if (!u || !r) return; // ボタンの無い環境（テスト・読み込み途中）でも記録を止めない
   u.disabled = !undoStack.length; u.style.opacity = undoStack.length ? '1' : '0.35';
   u.title    = `元に戻す (${undoStack.length}件)`;
   r.disabled = !redoStack.length; r.style.opacity = redoStack.length ? '1' : '0.35';
@@ -15976,7 +16297,7 @@ function _posAutoExtShimeiFeeSync(row, min) {
     const cur = matches.reduce((sum, o) => sum + (Number(o.qty) || 1), 0);
     if (cur < rounds) {
       for (let i = cur; i < rounds; i++) {
-        posAddItem(item.label + ':' + d.cast, Number(item.amount) || 0, item.key, undefined, { noDesignation:true });
+        posAddItem(item.label + ':' + d.cast, Number(item.amount) || 0, item.key, undefined, { noDesignation:true, noUndo:true });
       }
       return;
     }
@@ -18056,7 +18377,7 @@ function _posDeleteOrder(row, order) {
   const index = orders.indexOf(order);
   if (index < 0) return false;
   const removed = orders[index];
-  pushUndo();
+  pushUndo((typeof _posUndoLabelOfItem === 'function' ? _posUndoLabelOfItem(removed.name) : (removed.name || '明細')) + ' の削除');
   orders.splice(index, 1);
   const type = _POS_DESIG_CAT_TYPE[removed.category];
   const castOf = o => { const name = String(o.name || ''); const i = name.indexOf(':'); return i < 0 ? '' : name.slice(i + 1); };
@@ -19003,7 +19324,7 @@ async function posExtMappingAdd(row, min, slot) {
     const required = _extMappingRequired(row, entry);
     const current = posOrders(row).filter(o => _extMappingMatches(o, entry)).reduce((sum, o) => sum + (Number(o.qty) || 1), 0);
     for (let count = current; count < required; count++) {
-      await posAddItem(entry.name, entry.amount, entry.key, undefined, { noDesignation:true, extAutoToken:token });
+      await posAddItem(entry.name, entry.amount, entry.key, undefined, { noDesignation:true, noUndo:true, extAutoToken:token });
     }
   }
   if (result.missing.length) showToast('延長の追加項目が見つかりません。料金・会計の「追加項目を設定」を確認してください');
@@ -20543,7 +20864,7 @@ function posSetEntryApply(taxIncluded) {
   const fromHistEdit = _posSetEntry.fromHistEdit === true;
   const row = state.rows.find(r => r.gid === _posSetEntry.gid && r.isFirst);
   if (!row) return;
-  pushUndo();
+  pushUndo(typeof _posSetEntry.editIdx === 'number' ? 'セットの変更' : 'セット');
   const grp = state.rows.filter(r => r.gid === _posSetEntry.gid);
   grp.forEach(r => { r.startMin = _posSetEntry.startMin; });
   const isEdit = (typeof _posSetEntry.editIdx === 'number');
@@ -26010,7 +26331,7 @@ async function posOrderEditRemoveDeparted(di) {
   if (!Array.isArray(first.departedCasts) || first.departedCasts[di] == null) return;
   const c = first.departedCasts[di];
   if (!(await appConfirm(`退席${c ? '「' + c + '」' : '（フリー）'}を取り消しますか？`))) return;
-  pushUndo();
+  pushUndo('退席の取り消し');
   _posRemoveFreeDepartedAt(first, di); // 指名なしの退席なら、選んだお客様の行の対応も外す
   first.departedCasts.splice(di, 1);
   saveState(); renderTable(); renderPOSPanel(); _posOeRerender();
@@ -26026,7 +26347,7 @@ async function posOrderEditDeleteExt(extIdx, opts) {
   const extLabel = extItemLabel(parseInt(min), extRowIndexFor(parseInt(min), Array.isArray(row.extLabels) ? row.extLabels[extIdx] : ''));
   // オーダー画面の×から呼ぶ時は確認を出さない（1タッチ削除・undoで戻せる・2026-07-20）
   if (!(opts && opts.skipConfirm) && !(await appConfirm(`「${extLabel}」を削除しますか？`, { danger: true }))) return;
-  pushUndo();
+  pushUndo(extLabel + ' の削除');
   const grp = state.rows.filter(r => r.gid === row.gid);
   // 多人数卓は各人行へ振り分けてあるので、同じスロットをグループ全行で空にする
   // （先頭行だけ消すと精算は0なのに各人行に延長が残る不整合になる）。
@@ -26974,10 +27295,26 @@ async function _posApplyDesignationToList(row, cast, desigType, selectedTarget) 
   }
   if (usedFallback) showToast('入客' + (groupRows.indexOf(target) + 1) + 'に付けました');
 }
+/* 「元に戻す」の表示名。「ドリンクS:ゆい」→「ドリンクS（ゆい）」。 */
+function _posUndoLabelOfItem(name) {
+  const s = String(name == null ? '' : name);
+  const i = s.indexOf(':');
+  if (i < 0) return s;
+  const cast = s.slice(i + 1);
+  return cast ? s.slice(0, i) + '（' + cast + '）' : s.slice(0, i);
+}
 async function posAddItem(name, amount, category, spShares) {
   const opts = arguments[4];
+  const undoLabel = _posUndoLabelOfItem(name);
+  // 1回のボタン操作で記録は1回だけ。延長に伴う自動の指名料・VIP利用料は、内側から呼ばれた
+  // posAddItem（opts.noUndo）が記録せず、外側の1回に含まれる。新規伝票を作る場合は addGroup が記録済み。
+  let undoPushed = !!(opts && opts.noUndo);
   let row = posSelectedRow();
-  if (!row) { posCreateSlip(1); row = posSelectedRow(); }
+  if (!row) {
+    const before = undoStack.length;
+    posCreateSlip(1); row = posSelectedRow();
+    if (undoStack.length !== before) undoPushed = true;
+  }
   if (!row) return;
   const desigType = _POS_DESIG_CAT_TYPE[category];
   const desigCast = String(name).includes(':') ? String(name).slice(String(name).indexOf(':') + 1) : String(name);
@@ -26992,8 +27329,9 @@ async function posAddItem(name, amount, category, spShares) {
       || !state.rows.includes(row) || !state.rows.includes(selectedTarget)
       || row.settled || selectedTarget.settled || selectedTarget.gid !== row.gid
       || !(first.designationRetargets || []).includes(retarget)) return;
-    pushUndo();
+    if (!undoPushed) { pushUndo(undoLabel); undoPushed = true; }
   }
+  if (!undoPushed) { pushUndo(undoLabel); undoPushed = true; }
   const inputAmt = Number(amount) || 0;
   const orders = posOrders(row);
   const label = String(name).indexOf(':') >= 0 ? String(name).slice(0, String(name).indexOf(':')) : String(name);
@@ -29414,6 +29752,9 @@ function renderSettingsPanel() {
 
   const appVersion = document.querySelector('meta[name="app-version"]')?.content || 'unknown';
   const usbActive = typeof UsbStore !== 'undefined' && UsbStore.active;
+  const selfUpdateServed = selfUpdateIsServed();
+  const selfUpdateStale = selfUpdateServed ? selfUpdateStaleText() : '';
+  const selfUpdateProbe = selfUpdateServed ? selfUpdateProbeText() : '';
   const usbFolder = UsbStore.getDirName() || '未取得';
   const storageModeLabel = `USBモード（フォルダ名: ${escHtml(usbFolder)}）`;
   const authSupported = typeof AuthStore !== 'undefined' && AuthStore.isSupported();
@@ -30184,9 +30525,11 @@ function renderSettingsPanel() {
         </div>
         <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:8px">
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-            <button type="button" class="btn primary" id="self-update-btn" onclick="selfUpdateRunNow()" ${usbActive ? '' : 'disabled'}>🔄 今すぐ更新</button>
-            <span id="self-update-status" class="settings-sub">${usbActive ? '' : 'USBの準備が完了すると利用できます'}</span>
+            <button type="button" class="btn primary" id="self-update-btn" onclick="selfUpdateRunNow()" ${(usbActive || selfUpdateServed) ? '' : 'disabled'}>🔄 今すぐ更新</button>
+            <span id="self-update-status" class="settings-sub">${selfUpdateServed ? escHtml(selfUpdateStatusText()) : (usbActive ? '' : 'USBの準備が完了すると利用できます')}</span>
           </div>
+          ${selfUpdateServed ? `<div id="self-update-stale" class="settings-sub" style="color:#d85d5d;font-weight:700;${selfUpdateStale ? '' : 'display:none'}">${escHtml(selfUpdateStale)}</div>
+          <div id="self-update-detail" class="settings-sub" style="font-size:11px;${selfUpdateProbe ? '' : 'display:none'}">${escHtml(selfUpdateProbe)}</div>` : ''}
         </div>
       </div>
     </div>
@@ -30437,6 +30780,71 @@ async function usbSettingsActivate() {
   }
 }
 
+/* アプリ更新欄の「配信端末」表示（2026-10-29）。配信端末 = file: 以外で開いた画面（SelfUpdate._isServed）。
+   配信端末では、更新は端末（nightlist-updater）が自動で受け取り、アプリは自分の本体を書き換えない。
+   値は「今すぐ更新」や自動確認で得た端末の状態（SelfUpdate.lastManaged）と、最後の問い合わせ（SelfUpdate.lastProbe）から出す。 */
+function selfUpdateIsServed() {
+  try {
+    return typeof SelfUpdate !== 'undefined' && typeof SelfUpdate._isServed === 'function' && SelfUpdate._isServed();
+  } catch (_) {
+    return false;
+  }
+}
+
+function _selfUpdatePad2(n) { return String(n).padStart(2, '0'); }
+function _selfUpdateClock(ms) { const d = new Date(ms); return `${_selfUpdatePad2(d.getHours())}:${_selfUpdatePad2(d.getMinutes())}`; }
+function _selfUpdateLastCheckMs() {
+  const m = SelfUpdate.lastManaged;
+  const at = m && m.lastCheck ? Date.parse(m.lastCheck) : NaN;
+  return Number.isFinite(at) ? at : NaN;
+}
+
+/* 『更新はこの端末が自動で受け取ります（最終確認: M/D HH:mm ／ 端末の版 vX）』。まだ分からない値は出さない。 */
+function selfUpdateStatusText() {
+  const m = SelfUpdate.lastManaged;
+  const at = _selfUpdateLastCheckMs();
+  const parts = [];
+  if (Number.isFinite(at)) { const d = new Date(at); parts.push(`最終確認: ${d.getMonth() + 1}/${d.getDate()} ${_selfUpdateClock(at)}`); }
+  if (m && m.fileVersion) parts.push(`端末の版 v${m.fileVersion}`);
+  return '更新はこの端末が自動で受け取ります' + (parts.length ? `（${parts.join(' ／ ')}）` : '');
+}
+
+/* 最終確認が48時間より古い時の赤字。端末の自動更新が止まっているのを、店側でも気づけるようにする。 */
+function selfUpdateStaleText() {
+  const at = _selfUpdateLastCheckMs();
+  if (!Number.isFinite(at)) return '';
+  const age = Date.now() - at;
+  if (age <= 48 * 60 * 60 * 1000) return '';
+  return `端末の自動更新が${Math.floor(age / (24 * 60 * 60 * 1000))}日動いていません。オーナーに連絡してください`;
+}
+
+/* 『最後の確認: HH:mm 結果（理由）』。オーナーが遠隔で画面1枚から状況を読むための表示。 */
+function selfUpdateProbeText() {
+  const p = SelfUpdate.lastProbe;
+  if (!p) return '';
+  const at = Date.parse(p.at);
+  const kinds = { managed: '管理あり', unmanaged: '管理なし', unknown: '不明' };
+  const reasons = { timeout: '時間切れ', network: '通信失敗', parse: '応答が読めない', managed_false: '更新の準備なし', http_404: '古いサーバー' };
+  let reason = reasons[p.reason] || '';
+  if (!reason && /^http_\d+$/.test(String(p.reason))) reason = `応答エラー ${String(p.reason).slice(5)}`;
+  if (p.kind === 'managed' && Number.isFinite(p.ms)) reason = `応答 ${p.ms}ms`;
+  return `最後の確認: ${Number.isFinite(at) ? _selfUpdateClock(at) + ' ' : ''}${kinds[p.kind] || p.kind}${reason ? `（${reason}）` : ''}`;
+}
+
+function selfUpdateRefreshInfo() {
+  try {
+    if (!selfUpdateIsServed()) return;
+    const show = (id, text) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.textContent = text;
+      if (el.style) el.style.display = text ? '' : 'none';
+    };
+    show('self-update-stale', selfUpdateStaleText());
+    show('self-update-detail', selfUpdateProbeText());
+  } catch (_) {}
+}
+
 async function selfUpdateRunNow() {
   const btn = document.getElementById('self-update-btn');
   const status = document.getElementById('self-update-status');
@@ -30451,7 +30859,8 @@ async function selfUpdateRunNow() {
     setStatus('更新に失敗しました');
     if (typeof showToast === 'function') showToast('更新に失敗しました');
   } finally {
-    if (btn) btn.disabled = !(typeof UsbStore !== 'undefined' && UsbStore.active);
+    if (btn) btn.disabled = !((typeof UsbStore !== 'undefined' && UsbStore.active) || selfUpdateIsServed());
+    selfUpdateRefreshInfo();
   }
 }
 
@@ -34314,6 +34723,8 @@ function reloadAfterImport() {
 function refreshAfterImport(importedTheme) {
   undoStack = [];
   redoStack = [];
+  undoLabels = [];
+  redoLabels = [];
   renderTable();
   renderCastPanel();
   renderTimetable();
