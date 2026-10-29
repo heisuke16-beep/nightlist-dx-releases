@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.105">
+<meta name="app-version" content="1.1.106">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -31990,21 +31990,22 @@ function _payrollPercentBackSettingsHtml(num) {
       + (choiceOf(modeKey, baseKey) === value ? ' checked' : '') + '><span>'
       + (custom ? '<span class="pay-settings-badge">カスタムバック</span>' : '') + label + '<small>' + note + '</small></span></label>';
   };
-  const choices = (modeKey, baseKey, extraNote) =>
+  const shareNote = '同じ組に指名が複数いるときは折半します（集計の⚖で割合を変えた伝票は、その割合で分けます）。';
+  const choices = (modeKey, baseKey) =>
     radio(modeKey, baseKey, 'count', 'ナイトリスト標準（本数×単価）', '料金マスター・キャストの単価 × 本数')
-    + radio(modeKey, baseKey, 'net', '小計×率（指名ドリンク・折半の品を引く）', '（伝票の小計（税サ抜き）− 指名したキャストのドリンク・ショット代 − 折半の品の代金）× 率。指名者が複数なら指名売上と同じ割合で分けます' + extraNote)
-    + radio(modeKey, baseKey, 'subtotal', '小計×率（小計そのまま）', '伝票の小計（税サ抜き）× 率。ドリンク・ボトル・シャンパンも引きません。指名者が複数なら指名売上と同じ割合で分けます' + extraNote);
+    + radio(modeKey, baseKey, 'net', '小計×率（指名ドリンク・折半の品を引く）', '（伝票の小計（税サ抜き）− 指名したキャストのドリンク・ショット代 − 折半の品の代金）× 率。' + shareNote)
+    + radio(modeKey, baseKey, 'subtotal', '小計×率（小計そのまま）', '伝票の小計（税サ抜き）× 率。ドリンク・ボトル・シャンパンも引きません。' + shareNote);
   return '<h3>本指名バック</h3>'
-    + choices('payrollHonshimeiBackMode', 'payrollHonshimeiBackBase', '')
+    + choices('payrollHonshimeiBackMode', 'payrollHonshimeiBackBase')
     + '<div class="pay-settings-row"><div><label for="cfg-payrollHonshimeiBackRate">本指名バックが小計×％の場合</label><p>小計は税サ抜きの伝票の合計で、ドリンクなどを引く前の額で判定します。スライドでバック％が変わらない店は、右の％に標準と同じ％を入力するか、空欄にしてください。</p></div><div class="pay-settings-inputs">'
     + '<label for="cfg-payrollHonshimeiBackRate">標準</label>' + num('payrollHonshimeiBackRate', '本指名バックの標準の率', 10, 0, 100, 0.1) + '<span>%</span>'
     + '<span>／</span><label for="cfg-payrollHonshimeiBackHighThreshold">小計が</label>' + num('payrollHonshimeiBackHighThreshold', '高い率になる小計', 50000, 0, null, 1000) + '<span>円以上の伝票は</span>'
     + num('payrollHonshimeiBackHighRate', '本指名バックの高い率', 15, 0, 100, 0.1) + '<span>%</span></div></div>'
     + '<h3>同伴バック</h3>'
-    + choices('payrollDouhanBackMode', 'payrollDouhanBackBase', '。同伴の伝票に本指名の率は付きません')
-    + '<div class="pay-settings-row"><div><label for="cfg-payrollDouhanBackRate">同伴バックが小計×％の場合</label><p>小計の額に関係なく一律です。</p></div><div class="pay-settings-inputs">'
-    + num('payrollDouhanBackRate', '同伴バックの率', 20, 0, 100, 0.1) + '<span>%</span></div></div>'
-    + '<p class="pay-settings-note">率で払うときは「同伴1件につき追加する本数」の本指名＋1をOFFにしてください。</p>'
+    + choices('payrollDouhanBackMode', 'payrollDouhanBackBase')
+    + '<div class="pay-settings-row"><div><label for="cfg-payrollDouhanBackRate">同伴バックが小計×％の場合</label><p>小計は税サ抜きの伝票の合計です。小計の額に関係なく、いつも同じ％です。同伴の伝票には、本指名バックの％は付きません。</p></div><div class="pay-settings-inputs">'
+    + '<label for="cfg-payrollDouhanBackRate">標準</label>' + num('payrollDouhanBackRate', '同伴バックの率', 20, 0, 100, 0.1) + '<span>%</span></div></div>'
+    + '<p class="pay-settings-note">同伴バックをカスタムバックにしたときは、「同伴1件につき追加する本数」の本指名＋1をOFFにしてください。</p>'
     + '<h3>オリジナルバック</h3>'
     + '<p class="pay-settings-note">店が自分で作るバック項目です（例：外立ち）。日計表に本数を手入力する欄が出ます。単価は 料金マスター（店標準）とキャストのページ（個別）で入れます。</p>'
     + '<div class="pay-settings-table-wrap"><table class="pos-me-table" id="cfg-payroll-custom-backs-table"><thead><tr><th>項目名</th><th></th></tr></thead><tbody>'
