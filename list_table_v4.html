@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.106">
+<meta name="app-version" content="1.1.107">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -9785,6 +9785,7 @@ const CFG_DEFAULTS = {
   sources:      ['フロント','不明','新規','TikTok','紹介','案内所'],
   conditions:   ['NF','40込み','50込み','60込み','70込み'],
   staffNames:   [],          // 社員名簿（日次締め・社員日払いの名前補完に使用）
+  expenseLabels: [],         // 日次締め・雑費の内容候補（当日の粗利から引く支払い。2026-10-29）
   hqOutLabels:  [],          // 日次締め・特別出金の内容候補
   specialInLabels: [],       // 日次締め・特別入金の内容候補
   dailyCloseLabels: {},      // 日次締めの項目名の呼び方（キー→名前。空=初期の名前。画面・印刷・CSV共通。2026-10-27）
@@ -23865,7 +23866,7 @@ const DAILY_CLOSE_LABEL_ITEMS = [
   { key:'urikakeSales', group:'自動集計', screen:'売掛発生' },
   { key:'cardSlipCount', group:'自動集計', screen:'カード伝票枚数' },
   { key:'staffPay', group:'入出金', screen:'社員日払い' },
-  { key:'expenses', group:'入出金', screen:'雑費' },
+  { key:'expenses', group:'入出金', screen:'雑費（当日の粗利に関係する支払い）', print:'雑費' },
   { key:'hqOut', group:'入出金', screen:'特別出金（当日の粗利に関係しない出金）', print:'特別出金' },
   { key:'specialIn', group:'入出金', screen:'特別入金' },
   { key:'actualCash', group:'手入力', screen:'実際現金（営業終了後にレジ内の金額を入力してください）', print:'実際現金' },
@@ -24373,7 +24374,7 @@ function _dailyCloseAttr(value) {
 }
 
 function _dailyCloseHistoryNames(store, field = 'staffPay') {
-  if (!['staffPay', 'hqOut', 'specialIn'].includes(field)) return [];
+  if (!['staffPay', 'expenses', 'hqOut', 'specialIn'].includes(field)) return [];
   const textProp = field === 'staffPay' ? 'name' : 'label';
   const names = new Set();
   Object.values(store || {}).forEach(raw => {
@@ -24408,7 +24409,7 @@ function _dailyCloseCandidates(registered, history) {
 function _dailyCloseListHtml(field, title, record, month, readOnly, candidates = []) {
   const textProp = field === 'staffPay' ? 'name' : 'label';
   const placeholder = field === 'staffPay' ? '名前' : '内容';
-  const hasCandidates = ['staffPay', 'hqOut', 'specialIn'].includes(field);
+  const hasCandidates = ['staffPay', 'expenses', 'hqOut', 'specialIn'].includes(field);
   const listId = `daily-close-names-${field}`;
   const rows = record[field].map((item, index) => `<div class="dc-list-row">
     <input type="text" value="${_dailyCloseAttr(item[textProp])}" placeholder="${placeholder}"${hasCandidates ? ` list="${listId}"` : ''}
@@ -24523,6 +24524,7 @@ function _dailyCloseSectionHtml(src, agg, payrollRows, isPast) {
   const frozen = auto.closedAt > 0;
   const candidates = {
     staffPay: _dailyCloseCandidates(cfg.staffNames, _dailyCloseHistoryNames(store, 'staffPay')),
+    expenses: _dailyCloseCandidates(cfg.expenseLabels, _dailyCloseHistoryNames(store, 'expenses')),
     hqOut: _dailyCloseCandidates(cfg.hqOutLabels, _dailyCloseHistoryNames(store, 'hqOut')),
     specialIn: _dailyCloseCandidates(cfg.specialInLabels, _dailyCloseHistoryNames(store, 'specialIn')),
   };
@@ -24556,7 +24558,7 @@ function _dailyCloseSectionHtml(src, agg, payrollRows, isPast) {
     ${_dailyCloseAutoTable(auto, month)}
     <div class="dc-list-grid">
       ${_dailyCloseListHtml('staffPay', L('staffPay'), record, month, readOnly, candidates.staffPay)}
-      ${_dailyCloseListHtml('expenses', L('expenses'), record, month, readOnly)}
+      ${_dailyCloseListHtml('expenses', L('expenses'), record, month, readOnly, candidates.expenses)}
       ${_dailyCloseListHtml('hqOut', L('hqOut'), record, month, readOnly, candidates.hqOut)}
       ${_dailyCloseListHtml('specialIn', L('specialIn'), record, month, readOnly, candidates.specialIn)}
     </div>
@@ -29935,7 +29937,11 @@ function renderSettingsPanel() {
           <input type="number" class="settings-input" id="cfg-tillFloat" value="${cfg.tillFloat ?? 60000}" min="0" step="1000"> 円
         </div>
         <div class="settings-row">
-          <div class="settings-label">特別出金の項目<div class="settings-sub">Enterで追加、✕で削除。日次締めの内容候補に出ます</div></div>
+          <div class="settings-label">雑費の項目<div class="settings-sub">当日の粗利に関係する支払い（粗利益から引きます）。例: おしぼり・氷・消耗品。Enterで追加、✕で削除。日次締めの内容候補に出ます</div></div>
+          ${tagEditor('expenseLabels', cfg.expenseLabels || [])}
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">特別出金の項目<div class="settings-sub">当日の粗利に関係しない出費（粗利益から引きません）。例: 家賃・本部への入金。Enterで追加、✕で削除。日次締めの内容候補に出ます</div></div>
           ${tagEditor('hqOutLabels', cfg.hqOutLabels || [])}
         </div>
         <div class="settings-row">
@@ -31021,6 +31027,7 @@ async function applySettings() {
   const sources    = readTags('sources',    cfg.sources);
   const conditions = readTags('conditions', cfg.conditions);
   const staffNames = readTags('staffNames', cfg.staffNames || []);
+  const expenseLabels = readTags('expenseLabels', cfg.expenseLabels || []);
   const hqOutLabels = readTags('hqOutLabels', cfg.hqOutLabels || []);
   const specialInLabels = readTags('specialInLabels', cfg.specialInLabels || []);
 
@@ -31285,7 +31292,7 @@ async function applySettings() {
     clockOutFrom, clockOutTo, clockOutStep,
     tableMax, tableNames, vipEnabled, vipSeats, vipFeePerGuest, vipFeePerExtension, vipFeePerExtensionPerGuest,
     vipFeeExtProrate, vipFeeLabel: vipFeeLabelValue, vipTaxRateEnabled, vipTaxRate,
-    extOptions, sources, conditions, staffNames, hqOutLabels, specialInLabels, rankVip, rankRepeat,
+    extOptions, sources, conditions, staffNames, expenseLabels, hqOutLabels, specialInLabels, rankVip, rankRepeat,
     birthdayAlertDays,
     setPrice, earlySetEnabled, earlySetFromH, earlySetToH, earlySetPrice,
     nominateFee, dohanFee, dohanIncludesSet, jonaiFee, enchoshimeiFee,
