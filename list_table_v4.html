@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.107">
+<meta name="app-version" content="1.1.108">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -6944,7 +6944,7 @@ html[data-display="desktop"] #tabs .tab-btn .tab-app-icon { width: 56px; height:
           title="ドラッグで動かした並びを破棄し、開始時刻の早い順に自動で並べ直します">⇅ 開始時刻順に戻す</button>
   <span style="margin-left:auto;display:flex;align-items:center;gap:8px">
     <button class="btn" id="list-white-btn" onclick="toggleListWhite()" title="リスト表を白背景にする">☀ 白表示</button>
-    <button class="btn" onclick="doPrint()">🖨 印刷</button>
+    <button class="btn" onclick="printListPreview()">🖨 印刷</button>
   </span>
 </div>
 
@@ -13694,22 +13694,12 @@ function _countPrintCardSlips(row) {
   return _isPrintCardMethod(row) ? rowCardCount(row) : 0;
 }
 
-function doPrint() {
+/* リスト表の印刷ページ（.print-page の並び）を container の中に作る。state.rows が空なら何も作らず false。
+   doPrint（実際の印刷）と _printListDocument（印刷前の確認）の両方がこの1つの関数で作る（見たものと紙を一致させる） */
+function _printListBuildPages(container) {
   const ROWS_PER_PAGE = 30;
-  const container = document.getElementById('print-pages');
-  container.innerHTML = '';
-  // タイムテーブル印刷コンテナをクリア（競合防止）
-  const ttContainer = document.getElementById('tt-print-pages');
-  if (ttContainer) ttContainer.innerHTML = '';
-  // 印刷後（ダイアログを閉じた／キャンセルした）にプレビューDOMを必ず除去する
-  window.addEventListener('afterprint', function _clr() {
-    container.innerHTML = '';
-    if (ttContainer) ttContainer.innerHTML = '';
-    window.removeEventListener('afterprint', _clr);
-  }, { once: true });
-
   const allRows = state.rows;
-  if (allRows.length === 0) { window.print(); return; }
+  if (allRows.length === 0) return false;
 
   const rgnMap = {};
   let rn = 1;
@@ -13935,10 +13925,155 @@ function doPrint() {
 
     container.appendChild(page);
   });
+  return true;
+}
+
+function doPrint() {
+  const container = document.getElementById('print-pages');
+  container.innerHTML = '';
+  // タイムテーブル印刷コンテナをクリア（競合防止）
+  const ttContainer = document.getElementById('tt-print-pages');
+  if (ttContainer) ttContainer.innerHTML = '';
+  // 印刷後（ダイアログを閉じた／キャンセルした）にプレビューDOMを必ず除去する
+  window.addEventListener('afterprint', function _clr() {
+    container.innerHTML = '';
+    if (ttContainer) ttContainer.innerHTML = '';
+    window.removeEventListener('afterprint', _clr);
+  }, { once: true });
+
+  if (!_printListBuildPages(container)) { window.print(); return; }
 
   // 印刷ヒントを表示してから印刷ダイアログを開く
   _showPrintHint();
   setTimeout(() => window.print(), 300);
+}
+
+/* リスト表の印刷用CSS。本体の <style> にある .print-* の規則をそのまま写す（印刷と確認で書式を二重管理しない） */
+function _printListCss() {
+  let css = '';
+  try {
+    Array.from(document.styleSheets || []).forEach(sheet => {
+      let rules = [];
+      try { rules = Array.from(sheet.cssRules || []); } catch (e) { rules = []; }
+      rules.forEach(rule => {
+        if (rule.selectorText && /\.print-/.test(rule.selectorText)) css += rule.cssText + '\n';
+      });
+    });
+  } catch (e) { css = ''; }
+  return css;
+}
+
+/* 今の state のリスト表を、印刷ページと同じ見た目の1つのHTML文書にする（確認画面用）。
+   行が1つも無いときは、印刷しても空であることが分かる文書を返す */
+function _printListDocument() {
+  const holder = document.createElement('div');
+  const hasRows = _printListBuildPages(holder);
+  let body = holder.innerHTML;
+  if (!hasRows) {
+    const shopTitle = (cfg.shopName || '').trim();
+    const dateStr = document.getElementById('biz-date').textContent;
+    body = '<div class="print-page"><div class="print-header"><div class="print-title">' + (shopTitle ? escHtml(shopTitle) + ' — ' : '') + 'リスト表</div>'
+      + '<div class="print-date">' + escHtml(dateStr) + '</div></div>'
+      + '<div style="padding:30mm 0;text-align:center;font-size:12pt;color:#666">入客がありません（このまま印刷すると白紙になります）</div></div>';
+  }
+  return '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>リスト表</title><style>'
+    + '@page{size:A4 portrait;margin:0}body{margin:0;background:#fff}\n' + _printListCss()
+    + '</style></head><body>' + body + '</body></html>';
+}
+
+/* 🖨 印刷（今日のリスト表）: まず確認画面を出し、「印刷する」で doPrint() に進む */
+function printListPreview() {
+  const dateEl = document.getElementById('biz-date');
+  printPreviewOpen({
+    title: '🖨 リスト表の確認',
+    sub: String(dateEl && dateEl.textContent || ''),
+    docHtml: _printListDocument(),
+    onPrint: () => { doPrint(); return true; },
+  });
+}
+
+/* ================================================================
+   印刷前の確認画面（日計表・控除票・日次締め・リスト表）
+   中身は印刷と同じ HTML 文書を sandbox 付き iframe に入れて見せる（スクリプトは動かない＝開いただけで印刷が始まらない）。
+   「🖨 印刷する」→ onPrint() を呼び、false が返ったとき（ポップアップ拒否）だけ確認を残す。
+   「戻る」・× ・Esc で閉じるだけ。背景のクリックでは閉じない（2026-10-29 オーナー指示）。
+================================================================ */
+let _printPreviewActive = null;
+let _printPreviewKeyHandler = null;
+
+function _printPreviewFrameDoc(docHtml, margin) {
+  let doc = String(docHtml || '').replace(/<script\b[\s\S]*?<\/script>/gi, '');
+  // 紙の余白（@page margin）は iframe では効かないので、確認の表示だけ同じ余白を足す（印刷する文書は変えない）
+  if (margin) doc = doc.replace('</head>', '<style>html{box-sizing:border-box;padding:' + margin + '}</style></head>');
+  return doc;
+}
+
+function _printPreviewHtml(opts) {
+  const landscape = !!opts.landscape;
+  const pw = landscape ? 1123 : 794, ph = landscape ? 794 : 1123;   // A4 を 96dpi の px で
+  const vw = (typeof window !== 'undefined' && window.innerWidth) || 1280;
+  const vh = (typeof window !== 'undefined' && window.innerHeight) || 800;
+  const scale = Math.max(0.3, Math.min(1, (vw * 0.94 - 34) / pw));
+  const stageW = Math.round(pw * scale);
+  const stageH = Math.max(240, Math.min(Math.round(ph * scale), Math.round(vh * 0.94) - 190));
+  const frameDoc = _printPreviewFrameDoc(opts.docHtml, opts.margin).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+  const title = escHtml(String(opts.title || '印刷の確認'));
+  const sub = escHtml(String(opts.sub || ''));
+  return '<div id="print-preview-overlay" class="pos-co-overlay">'
+    + '<style>'
+    + '.pp-panel{padding:0;overflow:hidden;max-width:96vw}.pp-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;background:var(--sur2);border-bottom:1px solid var(--bdr2)}'
+    + '.pp-title{font-size:16px;font-weight:800;color:var(--tx)}.pp-sub{margin-top:2px;font-size:12px;color:var(--tx2)}'
+    + '.pp-close{display:flex;align-items:center;justify-content:center;flex:0 0 36px;width:36px;height:36px;padding:0;border:1px solid var(--bdr2);border-radius:8px;background:var(--sur);color:var(--tx);font-size:22px;cursor:pointer}'
+    + '.pp-body{padding:12px 16px;background:var(--sur2);display:flex;justify-content:center;min-height:0;overflow:auto}'
+    + '.pp-stage{position:relative;flex:0 0 auto;overflow:hidden;background:#fff;border:1px solid var(--bdr2);border-radius:4px;box-shadow:0 2px 10px rgba(0,0,0,.25)}'
+    + '.pp-frame{display:block;border:0;background:#fff;transform-origin:0 0}'
+    + '.pp-actions{display:flex;justify-content:flex-end;gap:10px;padding:12px 16px;border-top:1px solid var(--bdr)}'
+    + '.pp-back{min-height:40px;padding:0 16px;border:1px solid var(--bdr2);border-radius:8px;background:var(--sur);color:var(--tx);font:inherit;font-size:13px;font-weight:700;cursor:pointer}'
+    + '.pp-print{display:inline-flex;align-items:center;gap:5px;min-height:40px;padding:0 16px;border:1px solid #26977e;border-radius:8px;background:#167a65;color:#fff;font:inherit;font-size:13px;font-weight:800;white-space:nowrap;cursor:pointer}'
+    + '.pp-back:focus-visible,.pp-print:focus-visible,.pp-close:focus-visible{outline:2px solid var(--gold);outline-offset:2px}'
+    + '</style>'
+    + '<div class="pos-co-panel pp-panel" style="width:' + (stageW + 34) + 'px" role="dialog" aria-modal="true" aria-labelledby="print-preview-title">'
+    + '<div class="pp-head"><div><div id="print-preview-title" class="pp-title">' + title + '</div><div class="pp-sub">' + (sub ? sub + '　' : '') + '内容を確かめてから印刷してください</div></div>'
+    + '<button type="button" class="pp-close" onclick="printPreviewClose()" aria-label="閉じる">×</button></div>'
+    + '<div class="pp-body"><div class="pp-stage" style="width:' + stageW + 'px;height:' + stageH + 'px">'
+    + '<iframe class="pp-frame" title="' + title + '" sandbox style="width:' + pw + 'px;height:' + Math.round(stageH / scale) + 'px;transform:scale(' + scale + ')" srcdoc="' + frameDoc + '"></iframe></div></div>'
+    + '<div class="pp-actions"><button type="button" class="pp-back" id="print-preview-back" onclick="printPreviewClose()">戻る</button>'
+    + '<button type="button" class="pp-print" onclick="printPreviewPrint()"><span aria-hidden="true">🖨</span> 印刷する</button></div>'
+    + '</div></div>';
+}
+
+/* opts: { title, sub, docHtml（印刷用のHTML文書）, landscape, margin, onPrint } */
+function printPreviewOpen(opts) {
+  printPreviewClose();
+  _printPreviewActive = { onPrint: opts.onPrint, docHtml: String(opts.docHtml || '') };
+  document.body.insertAdjacentHTML('beforeend', _printPreviewHtml(opts));
+  _printPreviewKeyHandler = event => {
+    if (event.key !== 'Escape') return;
+    event.preventDefault();
+    event.stopPropagation();
+    printPreviewClose();
+  };
+  document.addEventListener('keydown', _printPreviewKeyHandler, true);
+  document.getElementById('print-preview-back')?.focus();
+  return true;
+}
+
+function printPreviewClose() {
+  _printPreviewActive = null;
+  if (_printPreviewKeyHandler) {
+    document.removeEventListener('keydown', _printPreviewKeyHandler, true);
+    _printPreviewKeyHandler = null;
+  }
+  document.getElementById('print-preview-overlay')?.remove();
+}
+
+/* 「🖨 印刷する」。印刷が始められたら確認を閉じ、ポップアップが止められたら（onPrint が false）確認を残す */
+function printPreviewPrint() {
+  const active = _printPreviewActive;
+  if (!active || typeof active.onPrint !== 'function') return false;
+  const ok = active.onPrint() !== false;
+  if (ok) printPreviewClose();
+  return ok;
 }
 
 function showToast(msg, duration=2000) {
@@ -18284,13 +18419,16 @@ function _posMenuInitDnd(tbody) {
    （タブを切り替えても入力中の内容は消えない）。選んでいたタブは、設定画面を描き直しても覚えておく。 */
 let _posMenuActiveTab = '';
 function _posMenuEditorList() {
+  // 店がカテゴリの名前を変えていれば（cfg.posCatLabels）タブもその名前にする。変えていなければ今までの名前（2026-10-29）
+  const overrides = (cfg.posCatLabels && typeof cfg.posCatLabels === 'object') ? cfg.posCatLabels : {};
+  const named = (key, fallback) => String(overrides[key] ?? '').trim() || fallback;
   return [
     ['shot',    shotLabel()],
-    ['bottle',  'ボトル'],
-    ['food',    'フード'],
-    ['bring',   '持込'],
-    ['discount','割引・割増'],
-    ['special', '特殊'],
+    ['bottle',  named('bottle', 'ボトル')],
+    ['food',    named('food', 'フード')],
+    ['bring',   named('bring', '持込')],
+    ['discount',named('discount', '割引・割増')],
+    ['special', named('special', '特殊')],
     ...resolvePosCatLayout(cfg).filter(cat => cat.key.startsWith('cust_')).map(cat => [cat.key, cat.label]),
   ];
 }
@@ -22771,8 +22909,9 @@ function exportCastProdCSV() {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
   showToast('CSVを保存しました');
 }
-/* 画面の日計表と同じ表示列をA4横で印刷（閲覧中の営業日#15対象）。 */
-function printReport() {
+/* 画面の日計表と同じ表示列をA4横で印刷（閲覧中の営業日#15対象）。
+   「🖨 印刷」→ printReport()（まず確認画面）→「印刷する」→ _printReportWindow()。文書は _printReportDocument() 1つで作る（2026-10-29 オーナー指示） */
+function _printReportDocument() {
   const src = (typeof _reportDaySource === 'function') ? _reportDaySource() : { dayKey: getBizDayKey(), rows: state.rows, tt: {} };
   const settled = (src.rows || []).filter(r => r.isFirst && r.settled);
   const model = _payrollTableModel(src);
@@ -22800,9 +22939,7 @@ function printReport() {
   const slipNoRange = _reportSlipNoRange(src.rows);
   const finalSlipLabel = slipNoRange.last > 0 ? 'No.' + slipNoRange.last : '—';
 
-  const w = window.open('', '_blank', 'width=920,height=1240');
-  if (!w) { if (typeof showToast === 'function') showToast('ポップアップがブロックされました'); return; }
-  w.document.write(
+  return (
     '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>日計表</title><style>'
     + '@page { size: A4 landscape; margin: 8mm 10mm; }'
     + '* { box-sizing: border-box; }'
@@ -22836,15 +22973,27 @@ function printReport() {
     + '<script>window.onafterprint=()=>setTimeout(()=>window.close(),100);window.onload=()=>window.print()<\/script>'
     + '</body></html>'
   );
-  w.document.close();
 }
 
-function printDeductionSheet() {
-  const deductionItems = (typeof cfg !== 'undefined' && Array.isArray(cfg.payrollDeductions)) ? cfg.payrollDeductions : [];
-  if (!deductionItems.length) {
-    if (typeof showToast === 'function') showToast('控除項目が設定されていません');
-    return;
-  }
+/* 印刷用の文書を新しい窓に書く（窓が開けたら true、ポップアップが止められたら案内を出して false） */
+function _printReportWindow(doc) {
+  const w = window.open('', '_blank', 'width=920,height=1240');
+  if (!w) { if (typeof showToast === 'function') showToast('ポップアップがブロックされました'); return false; }
+  w.document.write(doc);
+  w.document.close();
+  return true;
+}
+function _printDayLabel(src) {
+  const key = String((src && src.dayKey) || '');
+  return (key.length === 8 && typeof bizKeyToLabel === 'function') ? bizKeyToLabel(key) : '';
+}
+function printReport() {
+  const src = (typeof _reportDaySource === 'function') ? _reportDaySource() : { dayKey: getBizDayKey() };
+  const doc = _printReportDocument();
+  printPreviewOpen({ title: '🖨 日計表の確認', sub: _printDayLabel(src), docHtml: doc, landscape: true, margin: '8mm 10mm', onPrint: () => _printReportWindow(doc) });
+}
+
+function _printDeductionSheetDocument() {
   const src = (typeof _reportDaySource === 'function') ? _reportDaySource() : { dayKey: getBizDayKey(), rows: state.rows, tt: {} };
   const key = src.dayKey || '';
   const y = key.slice(0,4), mo = +key.slice(4,6), da = +key.slice(6,8);
@@ -22852,9 +23001,7 @@ function printDeductionSheet() {
   const dateLabel = /^\d{4}$/.test(y)
     ? '令和 ' + (+y - 2018) + ' 年 ' + mo + ' 月 ' + da + ' 日 ' + (wd ? wd + '曜日' : '')
     : '令和 ＿＿ 年 ＿＿ 月 ＿＿ 日';
-  const w = window.open('', '_blank', 'width=920,height=1240');
-  if (!w) { if (typeof showToast === 'function') showToast('ポップアップがブロックされました'); return; }
-  w.document.write(
+  return (
     '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>控除票</title><style>'
     + '@page{size:A4 portrait;margin:0}'
     + 'body{font-family:"Hiragino Kaku Gothic ProN","Meiryo",sans-serif;color:#000;margin:0;padding:12mm 14mm;box-sizing:border-box}'
@@ -22878,7 +23025,16 @@ function printDeductionSheet() {
     + '<script>window.onafterprint=()=>setTimeout(()=>window.close(),100);window.onload=()=>window.print()<\/script>'
     + '</body></html>'
   );
-  w.document.close();
+}
+function printDeductionSheet() {
+  const deductionItems = (typeof cfg !== 'undefined' && Array.isArray(cfg.payrollDeductions)) ? cfg.payrollDeductions : [];
+  if (!deductionItems.length) {
+    if (typeof showToast === 'function') showToast('控除項目が設定されていません');
+    return;
+  }
+  const src = (typeof _reportDaySource === 'function') ? _reportDaySource() : { dayKey: getBizDayKey() };
+  const doc = _printDeductionSheetDocument();
+  printPreviewOpen({ title: '🖨 控除票の確認', sub: _printDayLabel(src), docHtml: doc, onPrint: () => _printReportWindow(doc) });
 }
 
 /* ================================================================
@@ -24853,15 +25009,20 @@ function _dailyClosePrintDocument(model, now = new Date()) {
     + '</body></html>';
 }
 
-/* 🖨 印刷: 日計表の印刷（printReport）と同じく窓を開いて印刷する */
+/* 🖨 印刷: まず印刷の中身を確認画面で見せ、「印刷する」で日計表の印刷（printReport）と同じく窓を開いて印刷する（2026-10-29） */
 function dailyClosePrint() {
   _dailyCloseFlushInput();
   const model = _dailyCloseReportModel();
   if (!model) { showToast('この営業日の日次締めはありません'); return; }
+  const doc = _dailyClosePrintDocument(model);
+  printPreviewOpen({ title: '🖨 日次締めの確認', sub: _printDayLabel(model.src), docHtml: doc, landscape: true, margin: '7mm 9mm', onPrint: () => _dailyClosePrintWindow(doc) });
+}
+function _dailyClosePrintWindow(doc) {
   const w = window.open('', '_blank', 'width=1240,height=900');
-  if (!w) { showToast('ポップアップがブロックされました'); return; }
-  w.document.write(_dailyClosePrintDocument(model));
+  if (!w) { showToast('ポップアップがブロックされました'); return false; }
+  w.document.write(doc);
   w.document.close();
+  return true;
 }
 
 /* CSVの本文（BOMは保存時に付ける）。「区分,項目,金額,当月累計」の縦の表 → 空行 → キャストの表 → 空行 → 営業報告1行。
@@ -28491,10 +28652,10 @@ function closePastEditor(afterSave) {
   return false;
 }
 
-function doPastPrint() {
-  if (!pastState || !pastDayKey) return;
-  // pastStateを一時的にstateにスワップして既存doPrintを流用。
-  // doPrint() で例外が起きてもstateを必ず元に戻す（途中失敗で今日のデータが過去データに置換されるのを防ぐ）。
+/* pastStateを一時的にstateにスワップして fn を実行する（既存の印刷処理を流用するため）。
+   fn で例外が起きてもstateとbiz-date表示を必ず元に戻す（途中失敗で今日のデータが過去データに置換されるのを防ぐ）。
+   戻り値は fn の戻り値。例外のときは undefined（トーストで知らせる） */
+function _pastWithSwappedState(fn) {
   const savedState = JSON.parse(JSON.stringify(state));
   const bizDateEl = document.getElementById('biz-date');
   const savedBizDateText = bizDateEl?.textContent || '';
@@ -28503,7 +28664,7 @@ function doPastPrint() {
     // state.rows などを past側の値で上書き
     Object.keys(state).forEach(k => { delete state[k]; });
     Object.assign(state, pastState);
-    doPrint();
+    return fn();
   } catch(e) {
     console.error('[NightList] doPastPrint failed:', e);
     showToast('⚠ 過去リスト印刷中にエラー：データは復元しました');
@@ -28513,6 +28674,23 @@ function doPastPrint() {
     Object.assign(state, savedState);
     if (bizDateEl) bizDateEl.textContent = savedBizDateText;
   }
+}
+/* 🖨 印刷（過去の日のリスト表）: 確認画面を開く時と「印刷する」時のそれぞれで、state を差し替え→使う→必ず戻す、を完結させる。
+   確認画面を開いている間は state を差し替えたままにしない（2026-10-29） */
+function doPastPrint() {
+  if (!pastState || !pastDayKey) return;
+  const dayKey = pastDayKey;
+  const docHtml = _pastWithSwappedState(() => _printListDocument());
+  if (!docHtml) return;
+  printPreviewOpen({
+    title: '🖨 リスト表の確認',
+    sub: bizKeyToLabel(dayKey),
+    docHtml,
+    onPrint: () => {
+      if (!pastState || pastDayKey !== dayKey) { showToast('過去日のリストが閉じられたため印刷できません'); return false; }
+      return _pastWithSwappedState(() => { doPrint(); return true; }) === true;
+    },
+  });
 }
 async function deletePastDay(dayKey) {
   if (!(await appConfirm(`${bizKeyToLabel(dayKey)} のデータを削除しますか？`, { danger: true }))) return;
@@ -31344,6 +31522,9 @@ async function applySettings() {
   const splitBackChanged = ['bottle', ...posCustomCats.map(cat => cat.key)]
     .filter(key => posMenuUsesSplitBack(key) !== (splitBackBefore.get(key) ?? false));
   if (splitBackChanged.length) posMenuRerenderEditors(splitBackChanged);
+  // カテゴリの名前を変えたら、メニュー編集のタブも保存した名前にする（2026-10-29）
+  const posMenuTabsEl = document.getElementById('pos-menu-tabs');
+  if (posMenuTabsEl) posMenuTabsEl.innerHTML = _posMenuTabsHTML(_posMenuEditorList());
 
   _settingsClearDirty();
   _shopLogoDraft = undefined;  // ロゴ下書きは確定済み
@@ -31981,7 +32162,7 @@ function _payrollSettingsModalHtml() {
         </section>
       </div>
       <div class="pay-settings-error" id="payroll-settings-error" role="alert" hidden></div>
-      <div class="pay-settings-footer"><span>4つの分類をまとめて保存</span><button type="button" class="btn" onclick="payrollRulesCloseModal()">キャンセル</button><button type="button" class="btn primary" onclick="payrollSettingsSave()">保存して反映</button></div>
+      <div class="pay-settings-footer"><span>4つの分類をまとめて保存</span><button type="button" class="btn" onclick="payrollRulesCloseModal()">閉じる</button><button type="button" class="btn primary" onclick="payrollSettingsSave()">保存して反映</button></div>
     </div>
   </div>`;
 }
@@ -32269,7 +32450,9 @@ function payrollSettingsSave() {
   if (typeof payrollRefreshCustomBackMaster === 'function') payrollRefreshCustomBackMaster();
   if (typeof renderCastMgmt === 'function') renderCastMgmt();
   if (document.getElementById('payroll-table-host') && typeof renderReportPanel === 'function') renderReportPanel();
-  payrollRulesCloseModal();
+  // 保存してもモーダルは閉じない（続けて別の分類を直せるように。閉じるのは × かキャンセル。2026-10-29 オーナー）
+  error.hidden = true;
+  error.textContent = '';
   showToast('給与計算ルールを保存しました');
 }
 /* ================================================================
