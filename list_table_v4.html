@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.104">
+<meta name="app-version" content="1.1.105">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -3183,6 +3183,9 @@ table#customer-table { border-collapse: collapse; width: 100%; min-width: 800px;
 .pay-settings-choice { display:flex; align-items:center; gap:12px; padding:14px 0; border-bottom:1px solid var(--bdr); cursor:pointer; font-size:14px; }
 .pay-settings-choice input { width:20px; height:20px; accent-color:var(--gold); flex-shrink:0; }
 .pay-settings-choice small { display:block; margin-top:5px; color:var(--tx2); font-size:12px; line-height:1.5; }
+/* カスタムバック（店ごとの特別な計算）はナイトリスト標準と色で分ける（2026-10-29） */
+.pay-settings-choice.is-custom { background:rgba(124,92,255,.09); border-left:4px solid #7c5cff; padding-left:10px; padding-right:10px; }
+.pay-settings-badge { display:inline-block; margin-right:8px; padding:1px 8px; border-radius:999px; background:#7c5cff; color:#fff; font-size:11px; font-weight:700; vertical-align:1px; }
 .pay-settings-details { margin-top:18px; font-size:12px; }
 .pay-settings-details > summary { padding:10px 0; color:var(--tx2); cursor:pointer; min-height:24px; line-height:24px; }
 .pay-settings-optional { margin-top:22px; border-top:1px solid var(--bdr2); padding-top:6px; }
@@ -9911,6 +9914,9 @@ const CFG_DEFAULTS = {
   payrollHonshimeiBackHighThreshold: 50000,   // この額以上の小計（引く前）で高い率。0=常に通常の率
   payrollDouhanBackMode:             'count', // 'count'=本数×単価 | 'percent'=伝票の対象額×率
   payrollDouhanBackRate:             20,      // 同伴の率（%）
+  // 率を掛ける額（2026-10-29 chuchu）。'net'=小計−指名者のドリンク代−折半の品（ヴェルベ）| 'subtotal'=小計そのまま
+  payrollHonshimeiBackBase:          'net',
+  payrollDouhanBackBase:             'net',
   // --- オリジナルバック（店が作る手入力のバック項目。空=従来どおり） [{key:'cb_N', label}] ---
   payrollCustomBacks:                [],
   // --- 折半バック（メニューで「折半」にした品の（販売価格−仕入れ値）×率%。0=使わない） ---
@@ -22063,6 +22069,7 @@ function _aggPercentBackRate(role, subtotal) {
     : num(cfg?.payrollHonshimeiBackRate, 10);
 }
 /* 伝票ごとの率バックを指名者へ分ける。対象額 base ＝ max(小計 − 指名者のドリンク代 − 折半の品の代金, 0)。
+   役割ごとの設定（本指名 payrollHonshimeiBackBase／同伴 payrollDouhanBackBase）が 'subtotal' なら何も引かず base ＝ 小計（2026-10-29）。
    指名者が複数なら指名売上（nameGroups）と同じ重み（nominateShares・卓をまとめた組）で base を分ける。
    1伝票分のバック ＝ round(分けた base × 率 / 100)。 */
 function _aggPercentBackByCast(settled, slipInfo, nominateGroupRows, shimeiNominateTypes) {
@@ -22078,12 +22085,16 @@ function _aggPercentBackByCast(settled, slipInfo, nominateGroupRows, shimeiNomin
       : Array.from(info.nominators);
     if (!nomList.length) return;
     const allocShares = grouped ? ((allocRows.find(m => m.nominateGroupShares) || {}).nominateGroupShares || null) : r.nominateShares;
-    const base = Math.max(info.subtotal - info.nomDrinkAmt - info.marginAmt, 0);
-    const shares = _nominateAllocatedShares(base, nomList, allocShares);
+    const netBase = Math.max(info.subtotal - info.nomDrinkAmt - info.marginAmt, 0);
+    const subBase = Math.max(info.subtotal, 0);
+    const netShares = _nominateAllocatedShares(netBase, nomList, allocShares);
+    const subShares = subBase === netBase ? netShares : _nominateAllocatedShares(subBase, nomList, allocShares);
     nomList.forEach((cast, idx) => {
       const role = _aggPercentRoleOf(allocRows, cast);
       const rate = _aggPercentBackRate(role, info.subtotal);
-      const share = shares[idx];
+      const useSub = (role === 'douban' ? cfg?.payrollDouhanBackBase : cfg?.payrollHonshimeiBackBase) === 'subtotal';
+      const base = useSub ? subBase : netBase;
+      const share = (useSub ? subShares : netShares)[idx];
       (result[cast] = result[cast] || []).push({
         rowId: r.id, slipLabel: slipNoLabel(r), role,
         subtotal: info.subtotal, nomDrinkAmt: info.nomDrinkAmt, marginAmt: info.marginAmt,
@@ -31230,7 +31241,7 @@ async function applySettings() {
     payrollSlideTable, payrollSlideSource, payrollPeriodDeductions, payrollRoundMode, payrollRoundUnit,
     payrollDeductions, payrollDeductionDisplayField, payrollDeductionDisplayPrint, payrollDeductionNibaraiPrint, payrollMergeDrinks,
     payrollHonshimeiBackMode, payrollHonshimeiBackRate, payrollHonshimeiBackHighRate, payrollHonshimeiBackHighThreshold,
-    payrollDouhanBackMode, payrollDouhanBackRate, payrollCustomBacks, payrollMarginBackRate,
+    payrollDouhanBackMode, payrollDouhanBackRate, payrollHonshimeiBackBase, payrollDouhanBackBase, payrollCustomBacks, payrollMarginBackRate,
   } = _payrollSettingsSnapshot();
   const pointsEnabled = !!get('cfg-pointsEnabled')?.checked;
   const pointRules = feeMasterValues.pointRules;
@@ -31298,7 +31309,7 @@ async function applySettings() {
     payrollSlideTable, payrollSlideSource, payrollPeriodDeductions, payrollRoundMode, payrollRoundUnit,
     payrollDeductions, payrollDeductionDisplayField, payrollDeductionDisplayPrint, payrollDeductionNibaraiPrint, payrollMergeDrinks,
     payrollHonshimeiBackMode, payrollHonshimeiBackRate, payrollHonshimeiBackHighRate, payrollHonshimeiBackHighThreshold,
-    payrollDouhanBackMode, payrollDouhanBackRate, payrollCustomBacks, payrollMarginBackRate,
+    payrollDouhanBackMode, payrollDouhanBackRate, payrollHonshimeiBackBase, payrollDouhanBackBase, payrollCustomBacks, payrollMarginBackRate,
     payrollHiddenCols: Array.isArray(cfg.payrollHiddenCols) ? cfg.payrollHiddenCols : [],
     castListOrder: castListOrderMode(),
     castListCustomOrder: Array.isArray(cfg.castListCustomOrder) ? cfg.castListCustomOrder : [],
@@ -31834,7 +31845,7 @@ const PAYROLL_SETTINGS_KEYS = [
   'payrollSlideTable', 'payrollRoundMode', 'payrollRoundUnit',
   'payrollMergeDrinks',
   'payrollHonshimeiBackMode', 'payrollHonshimeiBackRate', 'payrollHonshimeiBackHighRate', 'payrollHonshimeiBackHighThreshold',
-  'payrollDouhanBackMode', 'payrollDouhanBackRate', 'payrollCustomBacks', 'payrollMarginBackRate',
+  'payrollDouhanBackMode', 'payrollDouhanBackRate', 'payrollHonshimeiBackBase', 'payrollDouhanBackBase', 'payrollCustomBacks', 'payrollMarginBackRate',
 ];
 let _payrollSettingsReturnFocus = null;
 
@@ -31863,8 +31874,8 @@ function _payrollSettingsSummaryHtml() {
   const summaries = {
     work: '標準時給 ' + yen(cfg.defaultWage) + ' / 出勤 ' + (cfg.payrollClockInRoundMin ?? 30) + '分・退勤 ' + (cfg.payrollClockOutRoundMin ?? 30) + '分単位' + (cfg.payrollLateFineEnabled === false ? ' / 遅刻罰金なし' : ''),
     back: 'ドリンク：' + (payrollDrinksMerged() ? '統合' : '指名・フリー別') + ' / 同伴：' + (extra.join('＋') || '追加なし') + ' / SP：' + (cfg.payrollSpInBackTotal === false ? '参考のみ' : '日給に含む')
-      + (cfg.payrollHonshimeiBackMode === 'percent' ? ' / 本指名：小計×' + (cfg.payrollHonshimeiBackRate ?? 10) + '%' + (Number(cfg.payrollHonshimeiBackHighThreshold ?? 50000) > 0 ? '（' + yen(cfg.payrollHonshimeiBackHighThreshold ?? 50000) + '以上は' + (cfg.payrollHonshimeiBackHighRate ?? 15) + '%）' : '') : '')
-      + (cfg.payrollDouhanBackMode === 'percent' ? ' / 同伴：小計×' + (cfg.payrollDouhanBackRate ?? 20) + '%' : '')
+      + (cfg.payrollHonshimeiBackMode === 'percent' ? ' / 本指名：小計' + (cfg.payrollHonshimeiBackBase === 'subtotal' ? '' : '（引いた後）') + '×' + (cfg.payrollHonshimeiBackRate ?? 10) + '%' + (Number(cfg.payrollHonshimeiBackHighThreshold ?? 50000) > 0 ? '（' + yen(cfg.payrollHonshimeiBackHighThreshold ?? 50000) + '以上は' + (cfg.payrollHonshimeiBackHighRate ?? 15) + '%）' : '') : '')
+      + (cfg.payrollDouhanBackMode === 'percent' ? ' / 同伴：小計' + (cfg.payrollDouhanBackBase === 'subtotal' ? '' : '（引いた後）') + '×' + (cfg.payrollDouhanBackRate ?? 20) + '%' : '')
       + (payrollCustomBackItems().length ? ' / オリジナル ' + payrollCustomBackItems().length + '項目' : '')
       + (Number(cfg.payrollMarginBackRate) > 0 ? ' / 折半 ' + Number(cfg.payrollMarginBackRate) + '%' : ''),
     deductions: '控除票：' + (normalizePayrollDeductionDisplayField(cfg.payrollDeductionDisplayField) === 'nominatedSales' ? '本指名売上' : '日給') + ' / 日ごと ' + (cfg.payrollDeductions || []).length + '項目 / 締めごと ' + (cfg.payrollPeriodDeductions || []).length + '項目',
@@ -31970,22 +31981,29 @@ function _payrollSettingsModalHtml() {
 
 /* 「バック・SP」タブの追加の節（2026-10-23 ヴェルベ対応）: 本指名・同伴の率バック、オリジナルバック、折半バック */
 function _payrollPercentBackSettingsHtml(num) {
-  const radio = (key, value, label, note) => '<label class="pay-settings-choice"><input type="radio" name="pay-' + key + '" id="cfg-' + key + '-' + value + '" value="' + value + '"'
-    + ((cfg[key] === 'percent' ? 'percent' : 'count') === value ? ' checked' : '') + '><span>' + label + '<small>' + note + '</small></span></label>';
-  const countNote = '料金マスター・キャストの単価 × 本数（今までどおり）';
-  const percentNote = '（伝票の小計（税サ抜き）− 指名者のドリンク代 − 折半の品の代金）× 率。指名者が複数なら指名売上と同じ割合で分けます';
+  // 方式は3択（2026-10-29）: ナイトリスト標準（本数×単価）／カスタム（小計から引いて×率）／カスタム（小計そのまま×率）。
+  // 保存は今までどおり Mode（count|percent）と Base（net|subtotal）の2つのキーに分ける。
+  const choiceOf = (modeKey, baseKey) => cfg[modeKey] !== 'percent' ? 'count' : (cfg[baseKey] === 'subtotal' ? 'subtotal' : 'net');
+  const radio = (modeKey, baseKey, value, label, note) => {
+    const custom = value !== 'count';
+    return '<label class="pay-settings-choice' + (custom ? ' is-custom' : '') + '"><input type="radio" name="pay-' + modeKey + '" id="cfg-' + modeKey + '-' + value + '" value="' + value + '"'
+      + (choiceOf(modeKey, baseKey) === value ? ' checked' : '') + '><span>'
+      + (custom ? '<span class="pay-settings-badge">カスタムバック</span>' : '') + label + '<small>' + note + '</small></span></label>';
+  };
+  const choices = (modeKey, baseKey, extraNote) =>
+    radio(modeKey, baseKey, 'count', 'ナイトリスト標準（本数×単価）', '料金マスター・キャストの単価 × 本数')
+    + radio(modeKey, baseKey, 'net', '小計×率（指名ドリンク・折半の品を引く）', '（伝票の小計（税サ抜き）− 指名したキャストのドリンク・ショット代 − 折半の品の代金）× 率。指名者が複数なら指名売上と同じ割合で分けます' + extraNote)
+    + radio(modeKey, baseKey, 'subtotal', '小計×率（小計そのまま）', '伝票の小計（税サ抜き）× 率。ドリンク・ボトル・シャンパンも引きません。指名者が複数なら指名売上と同じ割合で分けます' + extraNote);
   return '<h3>本指名バック</h3>'
-    + radio('payrollHonshimeiBackMode', 'count', '本数×単価', countNote)
-    + radio('payrollHonshimeiBackMode', 'percent', '伝票の小計×率', percentNote)
-    + '<div class="pay-settings-row"><div><label for="cfg-payrollHonshimeiBackRate">本指名の率</label><p>小計（引く前）が右の額以上の伝票は高い率。0円なら常に通常の率。</p></div><div class="pay-settings-inputs">'
-    + '<span>通常</span>' + num('payrollHonshimeiBackRate', '本指名の通常の率', 10, 0, 100, 0.1) + '<span>%</span>'
-    + '<label for="cfg-payrollHonshimeiBackHighRate">高い率</label>' + num('payrollHonshimeiBackHighRate', '本指名の高い率', 15, 0, 100, 0.1) + '<span>%</span>'
-    + '<label for="cfg-payrollHonshimeiBackHighThreshold">小計</label>' + num('payrollHonshimeiBackHighThreshold', '高い率になる小計', 50000, 0, null, 1000) + '<span>円以上</span></div></div>'
+    + choices('payrollHonshimeiBackMode', 'payrollHonshimeiBackBase', '')
+    + '<div class="pay-settings-row"><div><label for="cfg-payrollHonshimeiBackRate">本指名バックが小計×％の場合</label><p>小計は税サ抜きの伝票の合計で、ドリンクなどを引く前の額で判定します。スライドでバック％が変わらない店は、右の％に標準と同じ％を入力するか、空欄にしてください。</p></div><div class="pay-settings-inputs">'
+    + '<label for="cfg-payrollHonshimeiBackRate">標準</label>' + num('payrollHonshimeiBackRate', '本指名バックの標準の率', 10, 0, 100, 0.1) + '<span>%</span>'
+    + '<span>／</span><label for="cfg-payrollHonshimeiBackHighThreshold">小計が</label>' + num('payrollHonshimeiBackHighThreshold', '高い率になる小計', 50000, 0, null, 1000) + '<span>円以上の伝票は</span>'
+    + num('payrollHonshimeiBackHighRate', '本指名バックの高い率', 15, 0, 100, 0.1) + '<span>%</span></div></div>'
     + '<h3>同伴バック</h3>'
-    + radio('payrollDouhanBackMode', 'count', '本数×単価', countNote)
-    + radio('payrollDouhanBackMode', 'percent', '伝票の小計×率', percentNote + '。同伴の伝票に本指名の率は付きません')
-    + '<div class="pay-settings-row"><div><label for="cfg-payrollDouhanBackRate">同伴の率</label><p>小計の額に関係なく一律です。</p></div><div class="pay-settings-inputs">'
-    + num('payrollDouhanBackRate', '同伴の率', 20, 0, 100, 0.1) + '<span>%</span></div></div>'
+    + choices('payrollDouhanBackMode', 'payrollDouhanBackBase', '。同伴の伝票に本指名の率は付きません')
+    + '<div class="pay-settings-row"><div><label for="cfg-payrollDouhanBackRate">同伴バックが小計×％の場合</label><p>小計の額に関係なく一律です。</p></div><div class="pay-settings-inputs">'
+    + num('payrollDouhanBackRate', '同伴バックの率', 20, 0, 100, 0.1) + '<span>%</span></div></div>'
     + '<p class="pay-settings-note">率で払うときは「同伴1件につき追加する本数」の本指名＋1をOFFにしてください。</p>'
     + '<h3>オリジナルバック</h3>'
     + '<p class="pay-settings-note">店が自分で作るバック項目です（例：外立ち）。日計表に本数を手入力する欄が出ます。単価は 料金マスター（店標準）とキャストのページ（個別）で入れます。</p>'
@@ -32148,13 +32166,19 @@ function _collectPayrollSettings(overlay) {
   result.payrollSpFixed = Number(get('payrollSpFixed')?.value ?? cfg.payrollSpFixed) || 0;
   ['payrollLateFineEnabled','payrollDouhanAddsHonshimei','payrollDouhanAddsHonenFirst','payrollSpInBackTotal'].forEach(key => { result[key] = get(key).checked; });
   // 率バック・折半バック（2026-10-23）。入力欄が無い画面では今の設定のまま
-  ['payrollHonshimeiBackMode','payrollDouhanBackMode'].forEach(key => {
-    const percent = get(key + '-percent');
-    result[key] = percent ? (percent.checked ? 'percent' : 'count') : (cfg[key] === 'percent' ? 'percent' : 'count');
+  // 3択（count／net／subtotal）を Mode と Base に分けて保存。ナイトリスト標準を選んでも Base は今の値のまま残す
+  [['payrollHonshimeiBackMode','payrollHonshimeiBackBase'],['payrollDouhanBackMode','payrollDouhanBackBase']].forEach(([modeKey, baseKey]) => {
+    const net = get(modeKey + '-net'), sub = get(modeKey + '-subtotal');
+    const curBase = cfg[baseKey] === 'subtotal' ? 'subtotal' : 'net';
+    if (!net || !sub) { result[modeKey] = cfg[modeKey] === 'percent' ? 'percent' : 'count'; result[baseKey] = curBase; return; }
+    result[modeKey] = (net.checked || sub.checked) ? 'percent' : 'count';
+    result[baseKey] = sub.checked ? 'subtotal' : (net.checked ? 'net' : curBase);
   });
   ['payrollHonshimeiBackRate','payrollHonshimeiBackHighRate','payrollHonshimeiBackHighThreshold','payrollDouhanBackRate','payrollMarginBackRate'].forEach(key => {
     const el = get(key);
     if (!el) { result[key] = cfg[key]; return; }
+    // スライドの％が空欄＝スライドなし。標準と同じ％として保存する（2026-10-29）
+    if (key === 'payrollHonshimeiBackHighRate' && el.value === '') { result[key] = result.payrollHonshimeiBackRate; return; }
     const value = el.value === '' ? Number(el.dataset.fallback) : Number(el.value);
     result[key] = Number.isFinite(value) ? Math.max(0, value) : (Number(el.dataset.fallback) || 0);
   });
