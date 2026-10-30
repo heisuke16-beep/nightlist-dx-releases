@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.110">
+<meta name="app-version" content="1.1.111">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -1769,6 +1769,10 @@ html[data-theme="champagne"] .cs-screen { --cs-bg: #fbf5e9; --cs-ink: #2a1f19; -
 .cs-items .a { width: 6.5em; text-align: right; font-variant-numeric: tabular-nums; }
 /* 退席の行は印刷用の色が直に付いているので、画面の色に置き換える */
 .cs-items td[style] { color: var(--cs-sub) !important; border-top: 1px dashed var(--cs-line) !important; }
+/* 途中からVIP席へ移った伝票の上下の段（見出し・小計・税サ） */
+.cs-items tr.r-sec-head td { font-weight: 700; color: var(--cs-sub); letter-spacing: .08em; padding-top: clamp(10px, 1.8vh, 16px); }
+.cs-items tr.r-sec-sum td { font-weight: 700; }
+.cs-items tr.r-sec-sum td:first-child { text-align: right; }
 .cs-pay { min-width: 0; display: flex; flex-direction: column; justify-content: center; }
 .cs-breakdown-row { display: flex; justify-content: space-between; align-items: baseline; padding: 5px 0; font-size: clamp(17px, 2.9vh, 23px); color: var(--cs-sub); }
 .cs-breakdown-row b { font-weight: 600; color: var(--cs-ink); font-variant-numeric: tabular-nums; }
@@ -10072,6 +10076,7 @@ const CFG_DEFAULTS = {
   vipFeeExtProrate: false,           // 延長の利用料を延長時間で按分する（セット分数あたりの利用料として計算。OFF=延長1回ごとに利用料そのまま）
   vipTaxRateEnabled: false,          // VIP席を使った伝票は、会計全体の税サ率を変える（cfg.vipEnabled がオフのときは効かない。2026-10-26）
   vipTaxRate: null,                  // 上がONのときの税サ率（%）。空(null)・数でない値は「変えない」＝通常の taxRate
+  vipMidMoveEnabled: false,          // 通常の卓からVIP席へ移すとき「途中から移った」か「卓を間違えていた」かを選ばせる（選ぶ画面を出すかどうかだけ。2026-10-30）
   clockInFrom:   1200,        // 出勤時刻の選択肢・開始（分）例:1200=20:00
   clockInTo:     1410,        // 出勤時刻の選択肢・終了（分）例:1410=23:30
   clockInStep:   30,          // 出勤時刻の刻み（分）
@@ -12301,6 +12306,14 @@ function updateExtension(id, ci, value) {
       ? ((row.gcount || 1) >= 2 ? Math.max(1, (typeof _posExtSeats === 'function' ? _posExtSeats(row) : (row.gcount || 1))) : 1)
       : null;
     if (Array.isArray(row.extRecordOnly)) row.extRecordOnly[ci] = false; // リスト表から直接入れた延長は、先頭行の分も実際の席として出す
+    // 延長を入れた時刻（途中からVIP席へ移った伝票の「移る前／移った後」の判定に使う）。空の欄に入れたときだけ付け、分数だけ変えても変えない。欄を空にしたら消す
+    if (!min) {
+      if (Array.isArray(row.extAt)) row.extAt[ci] = '';
+    } else if (!oldExtMin) {
+      if (!Array.isArray(row.extAt)) row.extAt = [];
+      while (row.extAt.length <= ci) row.extAt.push('');
+      row.extAt[ci] = Date.now();
+    }
     extLabelSyncAfterChange(row, ci, oldExtMin, value);
     state.rows.filter(r => r.gid === row.gid && !r.isFirst).forEach(r => {
       r.extensions[ci] = value;
@@ -12490,7 +12503,13 @@ function calcBill(row) {
   }
   // ※延長"指名料"の自動加算は本店ルールで全廃。源泉はボーイ手入力の本延/延指オーダーのみ（posOrders側で計上）。
   //   かつての _ef() による mainType/subCast 由来の延長指名料の自動加算はここから削除済み。
-  const cash = ceilAddRate(base, taxRateForRow(row), cfg.taxRound || 100);   // 税サ率はVIP席を使った伝票だけ変わりうる（taxRateForRow）
+  let cash = ceilAddRate(base, taxRateForRow(row), cfg.taxRound || 100);   // 税サ率はVIP席を使った伝票だけ変わりうる（taxRateForRow）
+  if (typeof vipMoveActive === 'function' && vipMoveActive(row, cfg)) {
+    // 途中から移った伝票: 移った後の延長の基本料だけVIP席の率、残りは通常の率（段ごとに切り上げ。_posBaseTotalsByMove と同じ）
+    const afterBase = Math.min(Math.max(0, base), _posExtBaseSplit(row).after);
+    cash = ceilAddRate(base - afterBase, vipMoveBeforeRate(cfg), cfg.taxRound || 100)
+      + ceilAddRate(afterBase, vipMoveAfterRate(cfg), cfg.taxRound || 100);
+  }
   const card = ceilAddRate(cash, cfg.cardFeeRate || 0, cfg.cardFeeRound || 100);
   return { subtotal: base, cash, card };
 }
@@ -13266,24 +13285,33 @@ function removeExtCol() {
   const removedIdx = state.extCols - 1;
   const changedFirstRows = state.rows.filter(r => r.isFirst && parseInt(r.extensions?.[removedIdx]) > 0);
   state.extCols--;
-  state.rows.forEach(r => { r.extensions = r.extensions.slice(0, state.extCols); if (Array.isArray(r.extLabels)) r.extLabels = r.extLabels.slice(0, state.extCols); r.endMin = calcEndMin(r, state.rows); });
+  state.rows.forEach(r => { r.extensions = r.extensions.slice(0, state.extCols); if (Array.isArray(r.extLabels)) r.extLabels = r.extLabels.slice(0, state.extCols); if (Array.isArray(r.extAt)) r.extAt = r.extAt.slice(0, state.extCols); r.endMin = calcEndMin(r, state.rows); });
   changedFirstRows.forEach(syncVipFeeOrder);
   renderTable(); saveState();
 }
 // 卓番号は組の属性。先頭行の変更は個別化されていない行へ伝播し、undoとVIP席利用料の同期を通す
 // （2026-07-26修正の3症状を再発させない）。_indivTable の行は個別卓として独立し、
 // 組と同じ卓を選ぶと自動で追従に戻る。
-function updateRowTable(id, value) {
+/* vipChoice: 通常席からVIP席へ移すときの選択（'mid'=途中から移った / 'wrong'=卓を間違えていた）。選ぶ画面を出した後の再呼び出しだけが渡す */
+function updateRowTable(id, value, vipChoice) {
+  if (vipChoice !== 'mid' && vipChoice !== 'wrong') vipChoice = undefined;
   const row = state.rows.find(r => r.id === id);
   if (!row) return;
   if (String(row.tableNum ?? '') === String(value ?? '')) return;
   const first = state.rows.find(r => r.gid === row.gid && r.isFirst) || row;
   if (row.isFirst || !row._indivTable) {
     // キャンセル時はDOM側のselectが既に動いているので、描き直して元の卓に戻す
-    if (!posConfirmTableOccupied(value, row.gid)) { renderTable(); return; }
+    if (!vipChoice && !posConfirmTableOccupied(value, row.gid)) { renderTable(); return; }
+    // 通常席からVIP席へ移すときは、「途中から移った」か「卓を間違えていた」かを選ばせる（伝票設定の保存と同じ画面）。閉じたら何も変えない
+    if (!vipChoice && posVipMoveNeedsChoice(first, value)) {
+      posVipMoveOpenPicker(first, value, choice => updateRowTable(id, value, choice), () => renderTable());
+      return;
+    }
+    const oldTable = String(first.tableNum ?? '');
     pushUndo();
     state.rows.filter(r => r.gid === row.gid && !r._indivTable)
       .forEach(r => { r.tableNum = value; });
+    posVipMoveRecord(first, oldTable, vipChoice);
     syncVipFeeOrder(first);
   } else {
     pushUndo();
@@ -15984,8 +16012,148 @@ function taxRateForRow(row, settings) {
 /* 会計伝票の「税サ」に添える率の表示。VIP席の率が実際に効いていて通常の率と違うときだけ「(40%)」。それ以外は空（今までの表示のまま）。 */
 function taxRateNoteForRow(row, settings) {
   const src = settings || cfg;
+  if (vipMoveActive(row, src)) return '';   // 途中から移った伝票は、率を上下の段の税サに出す（合計欄は「税サ」だけ）
   const rate = taxRateForRow(row, src);
   return rate === (src.taxRate || 0) ? '' : '(' + rate + '%)';
+}
+
+/* ================================================================
+   途中からVIP席へ移った伝票（2026-10-30）
+   仕様: dev/specs/2026-10-30-nightlistdx-途中からVIP席へ移る伝票.md
+   伝票の先頭行 row.vipMove = { at, atMin, remainMin, from } があり、今の卓がVIP席のときだけ、
+   明細を「移る前」（通常の税サ率）と「移った後」（VIP席の率）に分けて数える。
+   移る前／移った後の分け方は vipMoveOrderAfter（注文）・vipMoveExtAfter（延長の回）の2つに集め、計算と会計伝票の表示が同じ決まりを使う。
+   vipMove の無い伝票は、ここの関数がすべて「移った後は無い」を返し、今までの計算の道をそのまま通る。
+================================================================ */
+function _vipMoveFirstRow(row) {
+  if (!row) return null;
+  if (row.isFirst || row.gid == null) return row;
+  return (typeof state === 'object' && state && Array.isArray(state.rows)
+    && state.rows.find(r => r.gid === row.gid && r.isFirst)) || row;
+}
+/* 途中移動が効いている伝票か（cfg.vipEnabled が真・vipMove がある・今の卓がVIP席）。計算と表示の全部がこれを通る。
+   cfg.vipMidMoveEnabled は見ない＝記録のある伝票は、あとで設定をオフにしても金額を変えない。 */
+function vipMoveActive(row, settings) {
+  const src = settings || cfg;
+  if (!row || (row.isFirst && !row.vipMove)) return false;   // ほとんどの呼び出しは先頭行。記録が無ければすぐ抜ける
+  const first = _vipMoveFirstRow(row);
+  const move = first && first.vipMove;
+  if (!move || !(Number(move.at) > 0)) return false;
+  if (!src || !src.vipEnabled) return false;
+  return isVipSeatRow(first, src);
+}
+function vipMoveOf(row) {
+  const first = _vipMoveFirstRow(row);
+  return (first && first.vipMove) || null;
+}
+/* 移る前の税サ率 = 通常の率。移った後 = VIP席の率（機能がオフ・率が空なら通常の率） */
+function vipMoveBeforeRate(settings) { return (settings || cfg).taxRate || 0; }
+function vipMoveAfterRate(settings) {
+  const src = settings || cfg;
+  const vipRate = vipTaxRateOf(src);
+  return src.vipTaxRateEnabled === true && vipRate !== null ? vipRate : (src.taxRate || 0);
+}
+/* 注文が「移った後」か。自動のVIP明細は移った後。それ以外は createdAt が移った時刻以降なら移った後（createdAt が無ければ移る前） */
+function vipMoveOrderAfter(order, move) {
+  if (!order || !move) return false;
+  if (order.vipAuto === true) return true;
+  const at = Number(order.createdAt);
+  return Number.isFinite(at) && at > 0 && at >= Number(move.at);
+}
+/* 延長の回（延長欄 slot）が「移った後」か。row.extAt[slot] が移った時刻以降なら移った後（記録が無ければ移る前）。row は先頭行 */
+function vipMoveExtAfter(row, slot, move) {
+  if (!row || !move || !Array.isArray(row.extAt)) return false;
+  const at = Number(row.extAt[slot]);
+  return Number.isFinite(at) && at > 0 && at >= Number(move.at);
+}
+/* 会計伝票の見出しに出す卓の名前（今の伝票と同じ出し方） */
+function _vipMoveTableName(tableNum) {
+  const value = String(tableNum ?? '');
+  return value ? (posTableCustomName(value) || posTableLabel(value)) : '';
+}
+/* 残り時間を切り上げる刻み（分）＝延長の最短の長さ。cfg.extOptions の正の値のうち一番短い分数。無ければ defStay（無ければ60） */
+function vipMoveUnitMin(settings) {
+  const src = settings || cfg;
+  const options = (Array.isArray(src.extOptions) ? src.extOptions : []).map(Number).filter(v => Number.isFinite(v) && v > 0);
+  if (options.length) return Math.min(...options);
+  return Number(src.defStay) > 0 ? Number(src.defStay) : 60;
+}
+/* 移った時点の残り時間（分）。移った時点で固定し、あとから計算し直さない */
+function vipMoveRemainNow(first) {
+  return Math.max(0, (Number(first?.endMin) || 0) - getNowMin());
+}
+
+/* 卓を通常席から VIP 席へ移すとき、「途中から移った」か「卓を間違えていた」かを選ばせる条件。
+   設定がオン・VIP席を使う・精算前・移る前が通常席・移った先がVIP席（利用料0円の席も含む）・自動のVIP明細以外の明細か延長が1つ以上ある。 */
+function posVipMoveNeedsChoice(first, newTable) {
+  if (!first || first.settled || !cfg.vipMidMoveEnabled || !cfg.vipEnabled) return false;
+  const oldTable = String(first.tableNum ?? '');
+  const nextTable = String(newTable ?? '');
+  if (oldTable === nextTable) return false;
+  if (isVipSeatRow({ tableNum: oldTable }, cfg) || !isVipSeatRow({ tableNum: nextTable }, cfg)) return false;
+  const hasOrder = posOrders(first).some(o => o && o.vipAuto !== true);
+  const hasExt = (Array.isArray(first.extensions) ? first.extensions : []).some(v => parseInt(v) > 0);
+  return hasOrder || hasExt;
+}
+/* 卓を変えたあと（pushUndo のあと・syncVipFeeOrder の前）に呼ぶ。choice='mid' なら移った記録を付け、
+   VIP席から通常の卓へ移したとき・「卓を間違えていた」のときは記録を消す。VIP席どうしは残す。 */
+function posVipMoveRecord(first, oldTable, choice) {
+  if (!first) return;
+  const nowVip = isVipSeatRow(first, cfg);
+  const wasVip = isVipSeatRow({ tableNum: String(oldTable ?? '') }, cfg);
+  if (choice === 'mid' && nowVip && !wasVip) {
+    first.vipMove = { at: Date.now(), atMin: getNowMin(), remainMin: vipMoveRemainNow(first), from: String(oldTable ?? '') };
+  } else if (!nowVip || choice === 'wrong') {
+    delete first.vipMove;
+  }
+}
+/* 選ぶ画面。ボタン2つと閉じる（×・Esc・外側）。閉じたら何も変えない。appConfirm は Esc と2つ目のボタンを区別できないので手作りにする。
+   伝票設定の保存（posApplySlipEdit）と、リスト表の卓の変更（updateRowTable）の両方がこれを使う。 */
+let _posVipMoveAsk = null;   // { onChoice, onCancel } 開いている間だけ入る
+function posVipMoveOpenPicker(first, newTable, onChoice, onCancel) {
+  _posVipMoveCloseUi();
+  _posVipMoveAsk = { onChoice, onCancel };
+  const rate = vipMoveAfterRate(cfg);
+  const overlay = document.createElement('div');
+  overlay.id = 'pos-vip-move-picker';
+  overlay.className = 'pos-nsm-overlay';
+  overlay.setAttribute('onclick', 'if(event.target===this)posVipMoveCancel()');
+  overlay.innerHTML = '<div class="pos-nsm pos-cast-picker" role="dialog" aria-modal="true" aria-labelledby="pos-vip-move-title">'
+    + '<div class="pos-nsm-header"><span id="pos-vip-move-title">VIP席へ移します</span>'
+    + '<button type="button" class="pos-nsm-close" aria-label="キャンセル" onclick="posVipMoveCancel()">×</button></div>'
+    + '<div class="pos-cast-picker-body">'
+    + '<button type="button" class="pos-cast-picker-option" data-vip-move-choice="mid" onclick="posVipMovePick(\'mid\')">途中から VIP 席へ移った'
+    + '<span style="display:block;font-size:12px;font-weight:600;opacity:.75">今から VIP 料金と税サ' + escHtml(String(rate)) + '%</span></button>'
+    + '<button type="button" class="pos-cast-picker-option" data-vip-move-choice="wrong" onclick="posVipMovePick(\'wrong\')">卓を間違えていた'
+    + '<span style="display:block;font-size:12px;font-weight:600;opacity:.75">最初から VIP 席として計算</span></button>'
+    + '</div></div>';
+  document.body.appendChild(overlay);
+  document.addEventListener('keydown', _posVipMoveKeydown, true);
+}
+function _posVipMoveKeydown(event) {
+  if (event.key !== 'Escape' || !_posVipMoveAsk) return;
+  // 緊急の画面リセットなどで画面だけ消えたときは、Esc を横取りせずに片付ける
+  if (!document.getElementById('pos-vip-move-picker')) { _posVipMoveCloseUi(); return; }
+  event.preventDefault();
+  event.stopPropagation();
+  posVipMoveCancel();
+}
+function _posVipMoveCloseUi() {
+  document.removeEventListener('keydown', _posVipMoveKeydown, true);
+  document.getElementById('pos-vip-move-picker')?.remove();
+  _posVipMoveAsk = null;
+}
+function posVipMovePick(choice) {
+  const ask = _posVipMoveAsk;
+  if (!ask || (choice !== 'mid' && choice !== 'wrong')) return;
+  _posVipMoveCloseUi();
+  ask.onChoice(choice);
+}
+function posVipMoveCancel() {
+  const ask = _posVipMoveAsk;
+  if (!ask) return;
+  _posVipMoveCloseUi();
+  if (ask.onCancel) ask.onCancel();
 }
 /* 延長1回あたりの利用料の掛け数（人数分=人数 / 延長ごと=1 / 加算なし=0）。vipFeeUnits と同じ規則。 */
 function vipFeeExtUnit(row, settings) {
@@ -16010,6 +16178,7 @@ function vipFeeLines(row, settings, seat) {
   if (!seat || fee <= 0) return [];
   const label = vipFeeLabel(src) + '（' + seat.name + '）';
   const extUnit = vipFeeExtUnit(row, src);
+  if (vipMoveActive(row, src)) return _vipMoveFeeLines(row, src, fee, label, extUnit);
   if (!src.vipFeeExtProrate || extUnit <= 0) {
     const units = vipFeeUnits(row, src);
     return units > 0 ? [{ name: label, amount: fee, qty: units }] : [];
@@ -16026,6 +16195,40 @@ function vipFeeLines(row, settings, seat) {
     const amount = vipFeeExtAmount(fee, min, src);
     if (amount > 0) lines.push({ name: label + '延長' + min + '分', amount, qty: byMin.get(min) * extUnit });
   });
+  return lines;
+}
+/* 途中から移った伝票のVIP席利用料。移った時点の残り時間の分（基本の行）と、移った後に入れた延長だけを数える。
+   基本の行: 残り0分なら作らない。按分オン=残り時間を延長の最短の長さで切り上げた分だけ（fee × 分 / 基準）、按分オフ=利用料1回分。
+   延長の行: extAt が移った時刻以降の延長だけ。金額・まとめ方は今までどおり（移る前の延長には付けない）。 */
+function _vipMoveFeeLines(row, src, fee, label, extUnit) {
+  const move = vipMoveOf(row);
+  const guests = Number(row?.gcount) || 1;
+  const baseQty = src.vipFeePerGuest ? guests : 1;
+  const remain = Math.max(0, Number(move?.remainMin) || 0);
+  const afterMins = [];
+  (Array.isArray(row?.extensions) ? row.extensions : []).forEach((value, slot) => {
+    const min = parseInt(value);
+    if (min > 0 && vipMoveExtAfter(row, slot, move)) afterMins.push(min);
+  });
+  const lines = [];
+  if (!src.vipFeeExtProrate) {
+    // 1行にまとめる経路（按分オフ）。数量 = 残り時間があれば基本の分 + 移った後の延長ぶん
+    const qty = (remain > 0 ? baseQty : 0) + (extUnit > 0 ? afterMins.length * extUnit : 0);
+    return qty > 0 ? [{ name: label, amount: fee, qty }] : [];
+  }
+  if (remain > 0) {
+    const unit = vipMoveUnitMin(src);
+    const billed = Math.ceil(remain / unit) * unit;
+    lines.push({ name: label + billed + '分', amount: vipFeeExtAmount(fee, billed, src), qty: baseQty });
+  }
+  if (extUnit > 0) {
+    const byMin = new Map();
+    afterMins.forEach(min => byMin.set(min, (byMin.get(min) || 0) + 1));
+    [...byMin.keys()].sort((a, b) => a - b).forEach(min => {
+      const amount = vipFeeExtAmount(fee, min, src);
+      if (amount > 0) lines.push({ name: label + '延長' + min + '分', amount, qty: byMin.get(min) * extUnit });
+    });
+  }
   return lines;
 }
 /* 次に延長m分を入れたとき、VIP席利用料として課税対象に増える金額（延長試算用）。VIP席でなければ0。 */
@@ -16081,6 +16284,7 @@ function posSpecialValue(item) {
 /* 特殊項目を除いた既存会計。割合の基準を全特殊項目で共有し、順序依存・複利を防ぐ。
    row は税サ率を決める伝票（VIP席を使った伝票だけ率が変わる。taxRateForRow）。渡さなければ通常の率。 */
 function _posBaseTotals(seatSubtotal, orders, extraTaxable, row) {
+  if (vipMoveActive(row, cfg)) return _posBaseTotalsByMove(seatSubtotal, orders, extraTaxable, row);
   const taxRound     = cfg.taxRound     || 100;
   let taxable = (seatSubtotal || 0) + (extraTaxable || 0);
   let incl = 0;
@@ -16096,6 +16300,34 @@ function _posBaseTotals(seatSubtotal, orders, extraTaxable, row) {
   const subtotal = taxable + incl + postTax;
   const cash = ceilAddRate(taxable, taxRateForRow(row), taxRound) + incl + postTax;
   return { subtotal, cash };
+}
+/* 途中から移った伝票の税サ。課税する額を「移る前」と「移った後」に分け、段ごとに率を掛けて100円単位などへ切り上げる
+   （伝票の上下の段を足すと合計に合う）。移る前の率 = 通常の率、移った後の率 = VIP席の率（vipMoveAfterRate）。
+   税込みの明細と、税サの後に引く割引・負の額は、今までどおり率を掛けずに足し、どちらの段の明細かで段の小計へ入れる。
+   移った後の段には、calcBill の移った後の延長の基本料（_posExtBaseSplit）と、延長試算で一時的に足す額（extraTaxable）が入る。
+   段ごとの小計・税サ・率は sections で返し、会計伝票の表示はそれを使う（表示側で計算し直さない）。 */
+function _posBaseTotalsByMove(seatSubtotal, orders, extraTaxable, row) {
+  const taxRound = cfg.taxRound || 100;
+  const move = vipMoveOf(row);
+  const discAfterTax = cfg.discountAfterTax !== false;
+  const seat = Number(seatSubtotal) || 0;
+  const afterSeat = Math.min(Math.max(0, seat), _posExtBaseSplit(row).after);
+  const before = { taxable: seat - afterSeat, incl: 0, postTax: 0, rate: vipMoveBeforeRate(cfg) };
+  const after = { taxable: afterSeat + (Number(extraTaxable) || 0), incl: 0, postTax: 0, rate: vipMoveAfterRate(cfg) };
+  (orders || []).forEach(o => {
+    if (o?.category === 'special') return;
+    const sec = vipMoveOrderAfter(o, move) ? after : before;
+    const amt = (Number(o.amount) || 0) * (Number(o.qty) || 1);
+    if (o.taxIncluded) sec.incl += amt;
+    else if ((o.category === 'discount' || amt < 0) && discAfterTax) sec.postTax += amt;
+    else sec.taxable += amt;
+  });
+  [before, after].forEach(sec => {
+    sec.subtotal = sec.taxable + sec.incl + sec.postTax;
+    sec.cash = ceilAddRate(sec.taxable, sec.rate, taxRound) + sec.incl + sec.postTax;
+    sec.tax = sec.cash - sec.subtotal;
+  });
+  return { subtotal: before.subtotal + after.subtotal, cash: before.cash + after.cash, sections: { before, after } };
 }
 function posSpecialRoundUnit() { return cfg.specialRateRound === 0 ? 0 : 100; }
 function posOrderUnitAmount(order, baseTotals) {
@@ -16128,7 +16360,9 @@ function _posComputeTotals(seatSubtotal, orders, extraTaxable, row) {
   const subtotal = baseTotals.subtotal + special;
   const cash = baseTotals.cash + special;
   const card = ceilAddRate(cash, cfg.cardFeeRate || 0, cardFeeRound);
-  return { subtotal, cash, card, special, baseSubtotal:baseTotals.subtotal, baseCash:baseTotals.cash };
+  const totals = { subtotal, cash, card, special, baseSubtotal:baseTotals.subtotal, baseCash:baseTotals.cash };
+  if (baseTotals.sections) totals.sections = baseTotals.sections;   // 途中から移った伝票だけ: 上下の段ごとの小計・税サ・率
+  return totals;
 }
 /* 多人数卓：先頭行以外のグループ各行に入った延長の「基本料(extPrice)」を合算して返す。
    延長基本料は席数ぶん課金するため各人行に1個ずつ入る。延長指名料は延長ラウンド単位で
@@ -16284,7 +16518,14 @@ function _posExtRounds(row) {
 function _posAutoExtShimeiFeeSync(row, min) {
   const targetMin = Number(min);
   if (!row || !targetMin) return;
-  const rounds = _posExtRounds(row).filter(r => r.min === targetMin).length;
+  const targetRounds = _posExtRounds(row).filter(r => r.min === targetMin);
+  const rounds = targetRounds.length;
+  // 途中から移った伝票は、移る前の回の分と移った後の回の分を別の行で持つ（税サの率が違うため）。
+  // sides = [{ after, rounds }]。途中移動が効いていない伝票は今までどおり1つ（after=null）
+  const move = vipMoveActive(row, cfg) ? vipMoveOf(row) : null;
+  const sides = move
+    ? [false, true].map(after => ({ after, rounds: targetRounds.filter(r => vipMoveExtAfter(row, r.slot, move) === after).length }))
+    : [{ after: null, rounds }];
   const departed = _posDepartedCasts(row);
   _posTableDesignations(row).forEach(d => {
     if (!d.cast || departed.includes(d.cast)) return;
@@ -16298,31 +16539,35 @@ function _posAutoExtShimeiFeeSync(row, min) {
     if (!item) return;
 
     const orders = posOrders(row);
-    const matches = orders.filter(o => {
-      const name = String(o.name || '');
-      const separator = name.indexOf(':');
-      return o.category === item.key && separator >= 0 && name.slice(separator + 1) === d.cast;
-    });
-    const cur = matches.reduce((sum, o) => sum + (Number(o.qty) || 1), 0);
-    if (cur < rounds) {
-      for (let i = cur; i < rounds; i++) {
-        posAddItem(item.label + ':' + d.cast, Number(item.amount) || 0, item.key, undefined, { noDesignation:true, noUndo:true });
+    sides.forEach(side => {
+      const onSide = o => side.after === null || vipMoveOrderAfter(o, move) === side.after;
+      const matches = orders.filter(o => {
+        const name = String(o.name || '');
+        const separator = name.indexOf(':');
+        return o.category === item.key && separator >= 0 && name.slice(separator + 1) === d.cast && onSide(o);
+      });
+      const cur = matches.reduce((sum, o) => sum + (Number(o.qty) || 1), 0);
+      if (cur < side.rounds) {
+        for (let i = cur; i < side.rounds; i++) {
+          posAddItem(item.label + ':' + d.cast, Number(item.amount) || 0, item.key, undefined,
+            { noDesignation:true, noUndo:true, ...(move ? { vipSide: side.after ? 'after' : 'before' } : {}) });
+        }
+        return;
       }
-      return;
-    }
-    let remove = cur - rounds;
-    for (let i = orders.length - 1; i >= 0 && remove > 0; i--) {
-      const order = orders[i];
-      const name = String(order.name || '');
-      const separator = name.indexOf(':');
-      if (order.category !== item.key || separator < 0 || name.slice(separator + 1) !== d.cast) continue;
-      const qty = Number(order.qty) || 1;
-      const amount = Math.min(qty, remove);
-      const nextQty = qty - amount;
-      remove -= amount;
-      if (nextQty > 0) order.qty = nextQty;
-      else orders.splice(i, 1);
-    }
+      let remove = cur - side.rounds;
+      for (let i = orders.length - 1; i >= 0 && remove > 0; i--) {
+        const order = orders[i];
+        const name = String(order.name || '');
+        const separator = name.indexOf(':');
+        if (order.category !== item.key || separator < 0 || name.slice(separator + 1) !== d.cast || !onSide(order)) continue;
+        const qty = Number(order.qty) || 1;
+        const amount = Math.min(qty, remove);
+        const nextQty = qty - amount;
+        remove -= amount;
+        if (nextQty > 0) order.qty = nextQty;
+        else orders.splice(i, 1);
+      }
+    });
   });
 }
 /* 空場内（金額0円・キャスト無しの場内ボタン）の、指定した延長ラウンドへの上乗せ額。
@@ -16352,21 +16597,34 @@ function _emptyJonaiForRound(row, idx, seats, roundNo) {
    空場内の上乗せ（_emptyJonaiForRound）は各ラウンドの場内延長指名料を使い、設定に応じて席数を掛ける。 */
 function _posExtBaseTotal(row) {
   if (!row) return 0;
+  const split = _posExtBaseSplit(row);
+  return split.before + split.after;
+}
+/* 延長"基本料"を「移る前」と「移った後」に分けて返す（途中から移った伝票のため。2026-10-30）。
+   その回の欄の extAt が vipMove.at 以降なら移った後。空場内の上乗せ（_emptyJonaiForRound）もその回に付いていく。
+   途中移動が効いていない伝票は before だけ（合計は今までの _posExtBaseTotal と同じ）。 */
+function _posExtBaseSplit(row) {
+  if (!row) return { before: 0, after: 0 };
   const rounds = (typeof _posExtRounds === 'function')
     ? _posExtRounds(row)
     : (Array.isArray(row.extensions)
         ? row.extensions.map(v => ({ min: parseInt(v), seats: 1 })).filter(g => g.min)
         : []);
-  let sum = 0;
+  const move = vipMoveActive(row, cfg) ? vipMoveOf(row) : null;
+  const first = move ? _vipMoveFirstRow(row) : null;
+  let before = 0, after = 0;
   rounds.forEach((g, roundNo) => {
     const idx = (g.idx != null) ? g.idx : extRowIndexFor(g.min);
+    let amount = 0;
     if (idx >= 0 && cfg.extPrices && cfg.extPrices[idx]) {
       const seats = (cfg.extBasePerSeat === false) ? 1 : Math.max(1, g.seats || 1);
-      sum += cfg.extPrices[idx] * seats;
+      amount += cfg.extPrices[idx] * seats;
     }
-    sum += _emptyJonaiForRound(row, idx, g.seats, roundNo);
+    amount += _emptyJonaiForRound(row, idx, g.seats, roundNo);
+    if (move && vipMoveExtAfter(first, g.slot, move)) after += amount;
+    else before += amount;
   });
-  return sum;
+  return { before, after };
 }
 function _posCalcTotal(row) {
   // 延長基本料は calcBill(row).subtotal に全席ぶん込み（calcBill が _posExtBaseTotal を呼ぶ）。
@@ -16458,7 +16716,8 @@ function extShimeiFeeAmount(type, idx) {
 function _posExtFeeForType(type, idx) {
   return extShimeiFeeAmount(type, idx);
 }
-function _posSeatLineItems(row) {
+/* side（途中から移った伝票の会計伝票だけが渡す）: 'before'=移る前の分（SET・指名料・移る前の延長）、'after'=移った後の延長だけ。省略=全部（今までどおり）。 */
+function _posSeatLineItems(row, side) {
   const baseSet = (() => {
     let amount = cfg.setPrice || 0;
     if (row.mainType === 'douban' && !cfg.dohanIncludesSet) return 0;
@@ -16488,6 +16747,7 @@ function _posSeatLineItems(row) {
     const line = _posMainTypeLine(sc.type, sc.cast);
     if (line) items.push(line);
   });
+  if (side === 'after') items.length = 0;   // SET・指名料は移る前。移った後の段は延長の基本料だけ
   // 延長"基本料"：延長料金の表の行ごとにまとめて表示（同じ分数の行が2つあれば2本に分かれる。行の並びは表の並び）。
   // qty は「各ラウンドの課金席数の合計」＝ _posExtBaseTotal と完全に同じ席数按分（単一式）。
   // cfg.extBasePerSeat===false の時はラウンドあたり1（卓単位）。退席ぶんは _posExtRounds の seats に既に反映済み。
@@ -16497,7 +16757,10 @@ function _posSeatLineItems(row) {
   // 空場内の上乗せ：ラウンドの分数に対応する場内延長指名料を使い、設定に応じて課金席数を掛ける。
   // 同じ行へ集約する行ではラウンド数ぶんを extra（qty×amount とは別枠の加算額）へ乗せる。
   const _baseAgg = {};   // 表の行番号(idx) → { idx, min, qty, extra }
+  const _moveSplit = (side === 'before' || side === 'after') && vipMoveActive(row, cfg) ? vipMoveOf(row) : null;
   _rounds.forEach((g, roundNo) => {
+    // 途中から移った伝票: 回ごとに移る前／移った後へ分けてから、行ごとにまとめる（roundNo は全体の何回目かのまま）
+    if (_moveSplit && vipMoveExtAfter(_vipMoveFirstRow(row), g.slot, _moveSplit) !== (side === 'after')) return;
     const idx = g.idx;
     const seats = (cfg.extBasePerSeat === false) ? 1 : Math.max(1, g.seats || 1);
     const agg = (_baseAgg[idx] = _baseAgg[idx] || { idx, min: g.min, qty: 0, extra: 0 });
@@ -16665,7 +16928,9 @@ function posSeTimeStep(delta) {
   _renderPosSlipEdit();
 }
 
-function posApplySlipEdit() {
+/* vipChoice: 通常席からVIP席へ移すときの選択（'mid'=途中から移った / 'wrong'=卓を間違えていた）。選ぶ画面を出した後の再呼び出しだけが渡す */
+function posApplySlipEdit(vipChoice) {
+  if (vipChoice !== 'mid' && vipChoice !== 'wrong') vipChoice = undefined;
   if (!_posSeIdx) return;
   const row = state.rows.find(r => r.gid === _posSeIdx.gid && r.isFirst);
   if (!row || row.settled) return;
@@ -16685,7 +16950,12 @@ function posApplySlipEdit() {
   const oldGcount = Number(row.gcount) || 1;
   const newTableNum = tblStr.replace(/^T-/, '');
   // 移動先が埋まっているときだけ確認する。キャンセルならモーダルを閉じずに戻る（卓を選び直せる）
-  if (newTableNum !== oldTableNum && !posConfirmTableOccupied(newTableNum, row.gid, () => posApplySlipEdit())) return;
+  if (newTableNum !== oldTableNum && !vipChoice && !posConfirmTableOccupied(newTableNum, row.gid, () => posApplySlipEdit())) return;
+  // 通常席からVIP席へ移すときは、「途中から移った」か「卓を間違えていた」かを選ばせる。閉じたら保存せず、伝票設定の画面に戻る
+  if (!vipChoice && posVipMoveNeedsChoice(row, newTableNum)) {
+    posVipMoveOpenPicker(row, newTableNum, choice => posApplySlipEdit(choice), null);
+    return;
+  }
 
   pushUndo();
   state.rows.filter(r => r.gid === _posSeIdx.gid).forEach(r => {
@@ -16698,6 +16968,7 @@ function posApplySlipEdit() {
   row.firstRepeat = !!_posSeIdx.firstRepeat;
   row.startMin = _posSeIdx.startMin;
   row.endMin   = _posSeIdx.startMin + oldDur;
+  if (newTableNum !== oldTableNum) posVipMoveRecord(row, oldTableNum, vipChoice);   // 残り時間は終了時刻を直したあとで数える
   if (String(row.tableNum ?? '') !== oldTableNum || (Number(row.gcount) || 1) !== oldGcount) syncVipFeeOrder(row);
 
   saveState();
@@ -26390,6 +26661,7 @@ async function posOrderEditDeleteExt(extIdx, opts) {
   if (Array.isArray(row.extSeats)) row.extSeats[extIdx] = null;   // このラウンドの課金席数記録もクリア
   if (Array.isArray(row.extRecordOnly)) row.extRecordOnly[extIdx] = false;
   if (Array.isArray(row.extLabels)) row.extLabels[extIdx] = '';   // 行（品目名）の記録も消す
+  if (Array.isArray(row.extAt)) row.extAt[extIdx] = '';           // 延長を入れた時刻の記録も消す
   // 終了時刻を延長削除ぶん戻す（calcEndMin = 開始+セット+延長合計）
   if (typeof calcEndMin === 'function') {
     const newEnd = calcEndMin(row);
@@ -26852,13 +27124,34 @@ function _receiptMergedOrderLines(orders, orderPricing) {
   return lines;
 }
 
+/* 途中からVIP席へ移った伝票の会計伝票を、上（移る前）と下（移った後）の2段に分けるための情報。効いていない伝票は null（今までの1段のまま）。
+   段の小計・税サ・率は posOrderPricing の sections をそのまま使う（表示側で計算し直さない）。印刷とお客様に見せる画面が同じ行を使う。 */
+function _receiptMoveSections(row, orderPricing) {
+  if (!vipMoveActive(row, cfg) || !orderPricing || !orderPricing.sections) return null;
+  const first = _vipMoveFirstRow(row);
+  const move = first.vipMove;
+  const sec = orderPricing.sections;
+  const fromName = _vipMoveTableName(move.from);
+  const nowName = _vipMoveTableName(first.tableNum);
+  const since = move.atMin != null && move.atMin !== '' ? ' ' + minToHHMM(Number(move.atMin)) + 'から' : '';
+  return {
+    move,
+    before: { title: '通常席' + (fromName ? '（' + fromName + '）' : ''), subtotal: sec.before.subtotal, tax: sec.before.tax, taxLabel: '税サ(' + sec.before.rate + '%)' },
+    after: { title: 'VIP席' + (nowName ? '（' + nowName + '）' : '') + since, subtotal: sec.after.subtotal, tax: sec.after.tax, taxLabel: '税サ(' + sec.after.rate + '%)' },
+  };
+}
+/* 上下の段の見出しの行と、段の小計・税サの行（class で見た目を決める。印刷の表とお客様に見せる画面の両方に同じ class を用意してある） */
+function _receiptSectionHeadTr(title) {
+  return '<tr class="r-sec-head"><td colspan="3">' + escHtml(title) + '</td></tr>';
+}
+function _receiptSectionSumTr(label, amount) {
+  return '<tr class="r-sec-sum"><td>' + escHtml(label) + '</td><td class="q"></td><td class="a">' + (Number(amount) || 0).toLocaleString() + '</td></tr>';
+}
+
 function _receiptDetailRows(row, minRows, showSetTime = true) {
   const orders = posOrders(row);
   const orderPricing = posOrderPricing(row, 0);
   const itemRows = [];
-  const setOrders   = orders.filter(o => o.category === 'set');
-  // 客に渡る伝票なので、金額0円・繰延専用の空場内明細は出さない（延長行の合算後金額に含まれるため）
-  const otherOrders = orders.filter(o => o.category !== 'set' && o.category !== 'jonai_empty');
   // merged: 同じ商品をまとめた行（数と金額はまとめた合計）。SETは時間が違うので1件ずつ出す
   const orderTr = (o, merged) => {
     let label = escHtml(o.name);
@@ -26870,18 +27163,41 @@ function _receiptDetailRows(row, minRows, showSetTime = true) {
     return '<tr><td>' + label + '</td><td class="q">' + q + '</td><td class="a">' + amount.toLocaleString() + '</td></tr>';
   };
   // 表示順: ①SET（最上段）→ ②指名・延長など脳みそ側ライン → ③その他オーダー（ドリンク・延指）
-  setOrders.forEach(o => itemRows.push(orderTr(o)));
-  _posSeatLineItems(row).forEach(item => {
-    const q = Number(item.qty) || 1;
-    // extra: 空場内の繰延上乗せ（延長ラウンド単位の定額）。qtyに掛けず金額へ直接加算する。
-    const lineTotal = (Number(item.amount) || 0) * q + (Number(item.extra) || 0);
-    itemRows.push('<tr><td>' + escHtml(item.label) + '</td><td class="q">' + q + '</td><td class="a">' + lineTotal.toLocaleString() + '</td></tr>');
-  });
-  _receiptMergedOrderLines(otherOrders, orderPricing).forEach(line => itemRows.push(orderTr(line.order, line)));
+  // 客に渡る伝票なので、金額0円・繰延専用の空場内明細は出さない（延長行の合算後金額に含まれるため）
+  const bodyRows = (list, seatItems) => {
+    const out = [];
+    list.filter(o => o.category === 'set').forEach(o => out.push(orderTr(o)));
+    seatItems.forEach(item => {
+      const q = Number(item.qty) || 1;
+      // extra: 空場内の繰延上乗せ（延長ラウンド単位の定額）。qtyに掛けず金額へ直接加算する。
+      const lineTotal = (Number(item.amount) || 0) * q + (Number(item.extra) || 0);
+      out.push('<tr><td>' + escHtml(item.label) + '</td><td class="q">' + q + '</td><td class="a">' + lineTotal.toLocaleString() + '</td></tr>');
+    });
+    _receiptMergedOrderLines(list.filter(o => o.category !== 'set' && o.category !== 'jonai_empty'), orderPricing)
+      .forEach(line => out.push(orderTr(line.order, line)));
+    return out;
+  };
+  const sections = _receiptMoveSections(row, orderPricing);
+  if (sections) {
+    // 途中からVIP席へ移った伝票: 移る前（通常席）と移った後（VIP席）の2段。同じ品を紙の上でまとめるのも段の中だけ。特殊項目は一番下
+    const regular = orders.filter(o => o.category !== 'special');
+    const isAfter = o => vipMoveOrderAfter(o, sections.move);
+    [['before', regular.filter(o => !isAfter(o))], ['after', regular.filter(isAfter)]].forEach(([side, list]) => {
+      const sec = sections[side];
+      itemRows.push(_receiptSectionHeadTr(sec.title));
+      bodyRows(list, _posSeatLineItems(row, side)).forEach(html => itemRows.push(html));
+      itemRows.push(_receiptSectionSumTr('小計', sec.subtotal));
+      itemRows.push(_receiptSectionSumTr(sec.taxLabel, sec.tax));
+    });
+    _receiptMergedOrderLines(orders.filter(o => o.category === 'special'), orderPricing)
+      .forEach(line => itemRows.push(orderTr(line.order, line)));
+  } else {
+    bodyRows(orders, _posSeatLineItems(row)).forEach(html => itemRows.push(html));
+  }
   // 退席ラインは一番下に離して表示（明細と分ける）。空行で間を空けてから最下部に出す。
   const depLines = (typeof _posDepartedLines === 'function') ? _posDepartedLines(row) : [];
   // 伝票見た目: 最低行数まで空行で埋める。注文が超えれば行は自動で増える
-  // （16→14へ削減: 2026-07-14 実機テスト・オーナー指示）
+  // （16→14へ削減: 2026-07-14 実機テスト・オーナー指示）。途中からVIP席へ移った伝票は2段を合わせた行数で数える
   while (itemRows.length < minRows - depLines.length) itemRows.push('<tr><td>&nbsp;</td><td class="q"></td><td class="a"></td></tr>');
   depLines.forEach((label, i) => {
     const sep = i === 0 ? 'border-top:1px dashed #000;' : '';
@@ -26892,42 +27208,63 @@ function _receiptDetailRows(row, minRows, showSetTime = true) {
 
 function _receiptCategoryRows(row) {
   const orderPricing = posOrderPricing(row, 0);
-  const groups = {
-    set: { label:'セット', qty:0, amount:0 },
-    designation: { label:'指名料', qty:0, amount:0 },
-    extension: { label:'延長', qty:0, amount:0 },
-    extDesignation: { label:'延長指名料', qty:0, amount:0 },
-    other: { label:'ドリンク・その他', qty:0, amount:0 },
+  // 種類別の行（セット・指名料・延長・延長指名料・ドリンク・その他）を、与えた注文と席の明細から作る
+  const groupRows = (orderList, seatItems) => {
+    const groups = {
+      set: { label:'セット', qty:0, amount:0 },
+      designation: { label:'指名料', qty:0, amount:0 },
+      extension: { label:'延長', qty:0, amount:0 },
+      extDesignation: { label:'延長指名料', qty:0, amount:0 },
+      other: { label:'ドリンク・その他', qty:0, amount:0 },
+    };
+    const add = (key, qty, amount) => {
+      const numericQty = Number(qty);
+      const q = qty === '' || qty === null || qty === undefined || !Number.isFinite(numericQty) ? 1 : numericQty;
+      groups[key].qty += q;
+      groups[key].amount += (Number(amount) || 0) * q;
+    };
+    orderList.forEach(o => {
+      const category = String(o.category || '');
+      if (category === 'jonai_empty') return;
+      const unitAmount = posOrderUnitAmount(o, orderPricing);
+      if (category === 'set') add('set', o.qty, unitAmount);
+      else if (['nominate', 'dohan', 'jonai'].includes(category)) add('designation', o.qty, unitAmount);
+      else if (/^(enshi|honen)/.test(category)) add('extDesignation', o.qty, unitAmount);
+      else add('other', o.qty, unitAmount);
+    });
+    seatItems.forEach(item => {
+      const label = String(item.label || '');
+      const numericQty = Number(item.qty);
+      const q = item.qty === '' || item.qty === null || item.qty === undefined || !Number.isFinite(numericQty) ? 1 : numericQty;
+      const amount = (Number(item.amount) || 0) * q + (Number(item.extra) || 0);
+      let key = 'designation';
+      if (item.extMin != null) key = 'extension';
+      else if (label.startsWith(posItemLabel('set') + ':')) key = 'set';
+      groups[key].qty += q;
+      groups[key].amount += amount;
+    });
+    return Object.values(groups).filter(group => group.qty || group.amount).map(group =>
+      '<tr><td>' + group.label + '</td><td class="q">' + group.qty + '</td><td class="a">' + group.amount.toLocaleString() + '</td></tr>'
+    ).join('');
   };
-  const add = (key, qty, amount) => {
-    const numericQty = Number(qty);
-    const q = qty === '' || qty === null || qty === undefined || !Number.isFinite(numericQty) ? 1 : numericQty;
-    groups[key].qty += q;
-    groups[key].amount += (Number(amount) || 0) * q;
-  };
-  posOrders(row).forEach(o => {
-    const category = String(o.category || '');
-    if (category === 'jonai_empty') return;
-    const unitAmount = posOrderUnitAmount(o, orderPricing);
-    if (category === 'set') add('set', o.qty, unitAmount);
-    else if (['nominate', 'dohan', 'jonai'].includes(category)) add('designation', o.qty, unitAmount);
-    else if (/^(enshi|honen)/.test(category)) add('extDesignation', o.qty, unitAmount);
-    else add('other', o.qty, unitAmount);
+  const orders = posOrders(row);
+  const sections = _receiptMoveSections(row, orderPricing);
+  if (!sections) return groupRows(orders, _posSeatLineItems(row));
+  // 途中からVIP席へ移った伝票: 移る前（通常席）と移った後（VIP席）の2段。特殊項目は一番下に別の行で出す
+  const regular = orders.filter(o => o.category !== 'special');
+  const isAfter = o => vipMoveOrderAfter(o, sections.move);
+  const parts = [['before', regular.filter(o => !isAfter(o))], ['after', regular.filter(isAfter)]].map(([side, list]) => {
+    const sec = sections[side];
+    return _receiptSectionHeadTr(sec.title) + groupRows(list, _posSeatLineItems(row, side))
+      + _receiptSectionSumTr('小計', sec.subtotal) + _receiptSectionSumTr(sec.taxLabel, sec.tax);
   });
-  _posSeatLineItems(row).forEach(item => {
-    const label = String(item.label || '');
-    const numericQty = Number(item.qty);
-    const q = item.qty === '' || item.qty === null || item.qty === undefined || !Number.isFinite(numericQty) ? 1 : numericQty;
-    const amount = (Number(item.amount) || 0) * q + (Number(item.extra) || 0);
-    let key = 'designation';
-    if (item.extMin != null) key = 'extension';
-    else if (label.startsWith(posItemLabel('set') + ':')) key = 'set';
-    groups[key].qty += q;
-    groups[key].amount += amount;
-  });
-  return Object.values(groups).filter(group => group.qty || group.amount).map(group =>
-    '<tr><td>' + group.label + '</td><td class="q">' + group.qty + '</td><td class="a">' + group.amount.toLocaleString() + '</td></tr>'
-  ).join('');
+  const specials = orders.filter(o => o.category === 'special');
+  if (specials.length) {
+    const qty = specials.reduce((sum, o) => sum + (Number(o.qty) || 1), 0);
+    const amount = specials.reduce((sum, o) => sum + posOrderLineAmount(o, orderPricing), 0);
+    parts.push('<tr><td>特殊項目</td><td class="q">' + qty + '</td><td class="a">' + amount.toLocaleString() + '</td></tr>');
+  }
+  return parts.join('');
 }
 
 function _receiptItemsHtml(row, block) {
@@ -27122,6 +27459,8 @@ function posPrintReceiptDirect(row) {
     + 'table.items th.q{width:9mm;text-align:center}table.items th.a{width:22mm;text-align:right}'
     + 'table.items td{border-bottom:1px solid #aaa;padding:0.4mm 1mm;height:3.6mm;line-height:1.15;vertical-align:middle}'
     + 'table.items td.q{text-align:center}table.items td.a{text-align:right}'
+    // 途中からVIP席へ移った伝票の上下の段（見出し・小計・税サ）
+    + 'table.items tr.r-sec-head td{font-weight:700;border-bottom:1px solid #000;padding-top:1.2mm}table.items tr.r-sec-sum td{font-weight:700}table.items tr.r-sec-sum td:first-child{text-align:right}'
     + 'table.sum{width:100%;border-collapse:collapse;border:2px solid #000;margin-top:3mm}'
     + 'table.sum td{border:1px solid #000;padding:2mm 2.5mm}'
     + 'table.sum .lbl{width:18mm;text-align:center;font-weight:800;font-size:11pt;line-height:1.5}'
@@ -27403,6 +27742,10 @@ async function posAddItem(name, amount, category, spShares) {
   const deferVal = isEmptyJonai ? (Number(cfg.jonaiFee) || 0) : undefined;
   // 押した時点の延長回数。これより後の延長だけに上乗せし、押した時点の会計は変えない（2026-10-21 オーナー決定）。
   const fromRoundVal = isEmptyJonai ? _posExtRounds(first).length : 0;
+  // 途中からVIP席へ移った伝票: 今足す明細は「移った後」。前の行と「移る前／移った後」が違えばまとめない（移った後のドリンクが移る前に入らないように）。
+  // opts.vipSide='before' は延長指名料の自動調整が、移る前の回の分を足し戻すときだけ使う（移る前の行として作る）
+  const vipMv = (typeof vipMoveActive === 'function' && vipMoveActive(first, cfg)) ? vipMoveOf(first) : null;   // typeof: posAddItem だけを切り出して動かすテスト（fixtures-points）で未定義でも落とさない
+  const newAfter = vipMv ? opts?.vipSide !== 'before' : null;
   // 延長(extension)はオーダー明細を作らない。延長は row.extensions を単一ソースとして
   // calcBill・_posSeatLineItems・リスト表・endMin が計上するため、オーダー明細も足すと
   // 延長料が二重計上（伝票に延長が2行・金額も倍）になる。延長は下の extensions 反映のみ行う。
@@ -27419,7 +27762,8 @@ async function posAddItem(name, amount, category, spShares) {
       (!isSpecial || (posSpecialMode(o) === specialMode && posSpecialValue(o) === specialValue)) &&
       (Number(o.defer) || 0) === (Number(deferVal) || 0) &&
       (Number(o.fromRound) || 0) === fromRoundVal &&
-      (o.cost === undefined ? undefined : Number(o.cost)) === costVal && (o.marginBack === true) === marginFlag);
+      (o.cost === undefined ? undefined : Number(o.cost)) === costVal && (o.marginBack === true) === marginFlag &&
+      (newAfter === null || vipMoveOrderAfter(o, vipMv) === newAfter));
     if (existing) {
       existing.qty = (Number(existing.qty) || 1) + 1;
       if (spShares) {
@@ -27429,7 +27773,7 @@ async function posAddItem(name, amount, category, spShares) {
         });
       }
     } else {
-      const order = { id: 'po_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7), name, amount: amt, qty:1, category, createdAt:Date.now() };
+      const order = { id: 'po_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7), name, amount: amt, qty:1, category, createdAt: vipMv && !newAfter ? Number(vipMv.at) - 1 : Date.now() };
       if (opts?.extAutoToken) order.extAutoToken = opts.extAutoToken;
       if (spShares) order.spShares = { ...spShares };
       if (backYen > 0) order.back = backYen;
@@ -27487,6 +27831,10 @@ async function posAddItem(name, amount, category, spShares) {
       if (!Array.isArray(row.extSeats)) row.extSeats = [];
       while (row.extSeats.length <= slot) row.extSeats.push(null);
       row.extSeats[slot] = (row.gcount || 1) >= 2 ? Math.max(1, activeSeats) : 1;
+      // 延長を入れた時刻（VIP席かどうかに関係なく付ける）。途中からVIP席へ移った伝票の「移る前／移った後」の判定に使う
+      if (!Array.isArray(row.extAt)) row.extAt = [];
+      while (row.extAt.length <= slot) row.extAt.push('');
+      row.extAt[slot] = Date.now();
       // 押した行の品目名を先頭行 row.extLabels[slot] に記録する（金額はこの名前で表の行を引く。同組の他の行には写さない）。
       if (byRow) {
         if (!Array.isArray(row.extLabels)) row.extLabels = [];
@@ -30284,6 +30632,10 @@ function renderSettingsPanel() {
                 <input type="number" class="settings-input" id="cfg-vipTaxRate" value="${vipTaxRateOf(cfg) ?? ''}" min="0" max="50" step="1" style="width:80px" ${cfg.vipTaxRateEnabled === true ? '' : 'disabled'}> %（伝票全体）
               </div>
               <div class="settings-sub">VIP席の卓で作った伝票は、会計全体にこの率の税サがかかります。通常の率は『料金・税サ』の設定</div>
+              <label style="display:flex;align-items:center;gap:7px;cursor:pointer;font-size:13px;min-height:44px">
+                <input type="checkbox" id="cfg-vipMidMoveEnabled" ${cfg.vipMidMoveEnabled === true ? 'checked' : ''}> 途中から VIP 席へ移ったお客様は、移った時刻から VIP 料金と税サを数える
+              </label>
+              <div class="settings-sub">オンにすると、伝票設定で通常の卓から VIP 席へ移すときに『途中から移った』か『卓を間違えていた』かを選べます</div>
             </div>
           </div>
         </div>
@@ -31627,6 +31979,8 @@ async function applySettings() {
   const vipFeeExtProrate = get('cfg-vipFeeExtProrate') ? !!get('cfg-vipFeeExtProrate').checked : cfg.vipFeeExtProrate === true;
   // VIP席を使った伝票の税サ率: 画面に欄が無いときは今の値のまま。空欄は null（＝変えない）。ONのまま 0〜50 の整数でない値は保存せず案内する
   const vipTaxRateEnabled = get('cfg-vipTaxRateEnabled') ? !!get('cfg-vipTaxRateEnabled').checked : cfg.vipTaxRateEnabled === true;
+  // 途中から VIP 席へ移る伝票の選択画面を出すか（画面に欄が無いときは今の値のまま）
+  const vipMidMoveEnabled = get('cfg-vipMidMoveEnabled') ? !!get('cfg-vipMidMoveEnabled').checked : cfg.vipMidMoveEnabled === true;
   const vipTaxRateInput = get('cfg-vipTaxRate');
   const vipTaxRateText = vipTaxRateInput ? String(vipTaxRateInput.value ?? '').trim() : '';
   const vipTaxRateNumber = vipTaxRateText === '' ? NaN : Number(vipTaxRateText);
@@ -31945,7 +32299,7 @@ async function applySettings() {
     clockInFrom, clockInTo, clockInStep,
     clockOutFrom, clockOutTo, clockOutStep,
     tableMax, tableNames, vipEnabled, vipSeats, vipFeePerGuest, vipFeePerExtension, vipFeePerExtensionPerGuest,
-    vipFeeExtProrate, vipFeeLabel: vipFeeLabelValue, vipTaxRateEnabled, vipTaxRate,
+    vipFeeExtProrate, vipFeeLabel: vipFeeLabelValue, vipTaxRateEnabled, vipTaxRate, vipMidMoveEnabled,
     extOptions, sources, conditions, staffNames, expenseLabels, hqOutLabels, specialInLabels, rankVip, rankRepeat,
     birthdayAlertDays,
     setPrice, earlySetEnabled, earlySetFromH, earlySetToH, earlySetPrice,
