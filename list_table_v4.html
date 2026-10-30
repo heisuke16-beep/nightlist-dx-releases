@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.109">
+<meta name="app-version" content="1.1.110">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -10183,6 +10183,7 @@ const CFG_DEFAULTS = {
   payrollBottleSpRate:           0.2,   // SP参考値の率（ボトル小計×rate）。最終額は手入力優先。
   payrollSpMode:                 'percent', // 店標準SP。既存データは従来の率を維持。
   payrollSpFixed:                0, // 円モードの1本あたり額。率とは別に保持。
+  payrollSplitRoundUnit:         1, // キャスト折半の1人分の端数単位（1 | 10 | 100）。1=人数割りで合計をバック額にそろえる。10/100=その単位未満を切り捨て、残りは店の取り分（2026-10-30 chuchu）
   defaultWage:                   0,     // 店標準時給（円/時）。キャスト個別の時給が空欄のときに適用。既定0=なしなので店が設定しない限り挙動不変。
   // --- ポイント設定（キャスト評価用。給与計算とは独立） ---
   pointsEnabled: false,
@@ -10213,9 +10214,11 @@ const CFG_DEFAULTS = {
   payrollHonshimeiBackRate:          10,      // 通常の率（%）
   payrollHonshimeiBackHighRate:      15,      // 高い率（%）
   payrollHonshimeiBackHighThreshold: 50000,   // この額以上の小計（引く前）で高い率。0=常に通常の率
-  payrollDouhanBackMode:             'count', // 'count'=本数×単価 | 'percent'=伝票の対象額×率
+  payrollDouhanBackMode:             'count', // 'count'=本数×単価 | 'percent'=伝票の対象額×率 | 'honshimei'=本指名と同じ（同伴の子を本指名の役割で扱い、本指名バックの方式・率・総取りに従う。同伴バック＝本数×単価も付く。2026-10-30 chuchu）
   payrollDouhanBackRate:             20,      // 同伴の率（%）
-  // 率を掛ける額（2026-10-29 chuchu）。'net'=小計−指名者のドリンク代−折半の品（ヴェルベ）| 'subtotal'=小計そのまま
+  // 率を掛ける額（2026-10-29 chuchu）。'net'=小計−指名者のドリンク代−折半の品（ヴェルベ）
+  //   | 'subtotal'=小計そのまま。本指名バックが percent+subtotal の店は総取り＝本指名の伝票では枝（場内・ヘルプ・フリー）にバック何も無し、本指名の役割の指名者本人にもドリンク・ショットのバック無し（2026-10-30）。
+  //   同伴バックの subtotal は総取りにしない。同伴の伝票も総取りにするには、同伴バックの方式（payrollDouhanBackMode）を 'honshimei' にする（同伴の子が本指名の役割になる）。
   payrollHonshimeiBackBase:          'net',
   payrollDouhanBackBase:             'net',
   // --- オリジナルバック（店が作る手入力のバック項目。空=従来どおり） [{key:'cb_N', label}] ---
@@ -10247,6 +10250,12 @@ let _cfgNeedsDrinkItemsMigration = false;
 
 function normalizePayrollDeductionDisplayField(value) {
   return value === 'nominatedSales' ? 'nominatedSales' : 'dailyPay';
+}
+
+/* キャスト折半の端数単位（2026-10-30）。1・10・100 以外（壊れた保存値）は 1（今まで通り）に戻す */
+function normalizePayrollSplitRoundUnit(value) {
+  const n = Number(value);
+  return n === 10 || n === 100 ? n : 1;
 }
 
 /* 給与明細の締め日（2026-10-23）。範囲外・型違いは初期値（月払い=末日、半月払い=15日と末日）に戻す。
@@ -22509,8 +22518,11 @@ function _nominateGroupSettledMembers(settledRows, groupId) {
 
 /* 伝票の小計×率のバック（本指名・同伴。2026-10-23 ヴェルベ対応）で、その伝票の指名者の役割。
    同じ伝票で本指名と同伴の両方なら同伴だけ（オーナー確認済み: 同伴の伝票に本指名の率は付かない）。
-   同伴＝douban の指名種別または dohan の注文。それ以外の指名者（本指名・出戻り本指名・nominate/honen の注文）は本指名。 */
+   同伴＝douban の指名種別または dohan の注文。それ以外の指名者（本指名・出戻り本指名・nominate/honen の注文）は本指名。
+   ただし同伴バックの方式が 'honshimei'（本指名と同じ・2026-10-30 chuchu）の店は、同伴の子も本指名の役割として扱う
+   （本指名バックの方式・率・総取りが同伴の伝票にも付く。同伴バック＝本数×単価は別に付く）。 */
 function _aggPercentRoleOf(rows, cast) {
+  if (cfg?.payrollDouhanBackMode === 'honshimei') return 'honshimei';
   const isDouban = (rows || []).some(r => (r.mainCast === cast && r.mainType === 'douban')
     || (r.subCasts || []).some(sc => sc && sc.cast === cast && sc.type === 'douban')
     || posOrders(r).some(o => /^dohan/.test(o.category || '') && _aggCastOf(o.name) === cast));
@@ -22640,6 +22652,20 @@ function computeReportAgg(settled) {
     subtotalSum += tableSubtotal;
     // この伝票の指名キャスト。後段のドリンク指D/D・商品バックの指名/通常判定にも使う（卓をまとめても伝票ごとのまま）
     const nominators = _aggNominatorsOf(r, SHIMEI_NOMINATE);
+    // 総取り（2026-10-30 chuchu）: 本指名バックが percent+subtotal（小計×率（本指名総取り））の店で、本指名の役割の指名者が総取りの指名者。
+    //   役割は率バックと同じ _aggPercentRoleOf。同伴の子は、同伴バックの方式が 'honshimei'（本指名と同じ）のときだけ本指名の役割＝総取りの指名者になる
+    //   （同伴が subtotal・net・percent・count の店では、同伴の子は総取りにならない）。
+    // 総取りの指名者が1人以上いる伝票では、指名者でない実在のキャスト（枝）に、ドリンク・ショットのバック本数、場内・延指の本数、
+    //   メニューのバック額（折半の品を除く）を付けない。総取りの指名者本人も、ドリンク・ショットのバック本数とそのメニューのバック額は付けない
+    //   （本人のほかのバック＝本指名・同伴・本延の本数、ドリンク以外のメニューのバック額は今のまま）。総取りでない指名者は今のまま。
+    // 売上・指名売上・個人小計売上・ポイント・ドリンクの杯数の表示・手入力のバック・折半のSP・率バックの計算は変えない。
+    const honshimeiTakesAllOn = cfg?.payrollHonshimeiBackMode === 'percent' && cfg?.payrollHonshimeiBackBase === 'subtotal';
+    const takesAllNominators = new Set(honshimeiTakesAllOn ? Array.from(nominators).filter(c => _aggPercentRoleOf([r], c) === 'honshimei') : []);
+    const takesAll = takesAllNominators.size > 0;
+    // 総取りの伝票の枝＝指名者でない実在のキャスト（ボーイ・ゲスト・指定なしは対象外のまま）
+    const isTakesAllBranch = c => takesAll && !!c && c !== 'ボーイ' && c !== 'ゲスト' && !nominators.has(c);
+    // 総取りの指名者本人
+    const isTakesAllSelf = c => !!c && takesAllNominators.has(c);
     {
       let nomDrinkAmt = 0, marginAmt = 0;
       posOrders(r).forEach(o => {
@@ -22730,10 +22756,16 @@ function computeReportAgg(settled) {
         else salesEntry.bottleSales += lineAmt;
       }
       const isNominator = !!cast && nominators.has(cast);
+      // 総取り。売上・商品集計の杯数・ポイントは変えず、バック本数とメニューのバック額だけ除く。
+      //   枝＝ドリンク・ショットの本数、場内・延指の本数、どの品のメニューのバック額。総取りの指名者本人＝ドリンク・ショットの本数とそのメニューのバック額
+      const isBranch = isTakesAllBranch(cast);
+      const isBranchDrink = (isBranch || isTakesAllSelf(cast)) && isDrinkCat;
+      const isBranchExt = isBranch && (o.category === 'jonai' || /^enshi/.test(o.category || ''));
       const productBack = _aggProductBack(o, isNominator);
       const rawPoint = Number(o.pt);
       const pointValue = cfg.pointsEnabled && Number.isFinite(rawPoint) ? ptHalfStep(rawPoint) : 0;
-      if (cast && !isExcludedDrinker && !o.spShares && productBack.amount > 0) {
+      // メニューのバック額は、枝ならどの品でも、総取りの指名者本人ならドリンク・ショットだけ付けない（折半の品＝spSharesは今までどおり除外）
+      if (cast && !isExcludedDrinker && !o.spShares && productBack.amount > 0 && !isBranch && !isBranchDrink) {
         prodBackByCast[cast] = (prodBackByCast[cast] || 0) + productBack.amount * qty;
       }
       if (cast && !isExcludedDrinker && !o.spShares && pointValue) {
@@ -22750,8 +22782,8 @@ function computeReportAgg(settled) {
         const _isModoriNominateLine = o.category === 'nominate' &&
           ((r.mainCast === cast && r.mainType === 'modori_honshimei') ||
            (r.subCasts || []).some(sc => sc.cast === cast && sc.type === 'modori_honshimei'));
-        if (!_isModoriNominateLine) _aggApplyProd(p, o.category, qty);
-        if (isDrinkCat && !productBack.isProductBack) {
+        if (!_isModoriNominateLine && !isBranchExt) _aggApplyProd(p, o.category, qty);
+        if (isDrinkCat && !productBack.isProductBack && !isBranchDrink) {
           // 指D = その卓の本指名/同伴キャスト本人のドリンク。メイン枠だけでなくサブ指名・
           // 指名系オーダー由来も含む（nominators）。指名売上と同じ判定。場内・延指は対象外。
           if (isSizeDrinkCat) {
@@ -22779,21 +22811,23 @@ function computeReportAgg(settled) {
     };  // 出戻り→振替先列
     const _hasOrderCat     = cat => posOrders(r).some(o => o.category === cat);
     const _hasOrderCatCast = (cat, c) => posOrders(r).some(o => o.category === cat && _aggCastOf(o.name) === c);
+    // 本指名の総取りの伝票では、指名者でない枝の場内・延指（出戻り延長指名を含む）は加算しない。指名者（本指名・同伴・出戻り本指名）は今のまま
+    const _addStruct = (c, col) => { const p = ensureP(c); if (!isTakesAllBranch(c)) p[col] += 1; };
     // メイン指名／出戻り
     if (_MODORI_COL[r.mainType] && r.mainCast) {
-      ensureP(r.mainCast)[_MODORI_COL[r.mainType]] += 1;
+      _addStruct(r.mainCast, _MODORI_COL[r.mainType]);
     } else {
       const _mc = _STRUCT_CAT[r.mainType];
-      if (_mc && r.mainCast && !_hasOrderCat(_mc)) ensureP(r.mainCast)[_PROD_OF[_mc]] += 1;
+      if (_mc && r.mainCast && !_hasOrderCat(_mc)) _addStruct(r.mainCast, _PROD_OF[_mc]);
     }
     // サブ指名／出戻り
     (r.subCasts || []).forEach(sc => {
       if (_MODORI_COL[sc.type] && sc.cast) {
-        ensureP(sc.cast)[_MODORI_COL[sc.type]] += 1;
+        _addStruct(sc.cast, _MODORI_COL[sc.type]);
         return;
       }
       const sCat = _STRUCT_CAT[sc.type];
-      if (sCat && sc.cast && !_hasOrderCatCast(sCat, sc.cast)) ensureP(sc.cast)[_PROD_OF[sCat]] += 1;
+      if (sCat && sc.cast && !_hasOrderCatCast(sCat, sc.cast)) _addStruct(sc.cast, _PROD_OF[sCat]);
     });
   });
 
@@ -27583,6 +27617,8 @@ function posAddItemWithCast(name, amount, category, cast) {
      1. 明細は満額1行で追加（品名に「（折半 A・B）」を付記。コロンは使わない —
         「:名前」形式にすると集計(_aggCastOf)が架空キャスト行を作ってしまうため）
      2. バック額を人数で均等割りし、各キャストの日計表SP（当日営業日）へ加算
+   端数（cfg.payrollSplitRoundUnit が10・100、2026-10-30）: 1人分の初期値を単位未満で切り捨て、
+     配らなかった分は「店の取り分」（記録しない）。合計がバック額以下なら確定できる。1なら従来どおり。
 ================================================================ */
 let _castSplitState = null;
 
@@ -27603,12 +27639,23 @@ function _castSplitSum() {
   return sum;
 }
 
+/* 折半の端数単位（cfg.payrollSplitRoundUnit。1=今まで通り・10/100=その単位未満を切り捨てて残りは店の取り分） */
+function _castSplitRoundUnit() {
+  return normalizePayrollSplitRoundUnit(cfg.payrollSplitRoundUnit);
+}
+
 /* 残額表示だけを更新（inputへの入力中はフル再描画すると focus が飛ぶため） */
 function _castSplitUpdateRemain() {
   const s = _castSplitState;
   const el = document.getElementById('pos-cs-remain');
   if (!s || !el) return;
   const remain = s.backTotal - _castSplitSum();
+  if (_castSplitRoundUnit() > 1) {
+    // 切り捨て単位の時: 残りは店の取り分（赤にしない）。バック額を超えたら超過（赤）
+    el.textContent = remain >= 0 ? '店の取り分 ¥' + remain.toLocaleString() : '¥' + (-remain).toLocaleString() + ' 超過';
+    el.style.color = remain === 0 ? '#38cc80' : (remain < 0 ? '#e5354d' : '#f5dfa0');
+    return;
+  }
   el.textContent = '残り ¥' + remain.toLocaleString();
   el.style.color = remain === 0 ? '#38cc80' : (remain < 0 ? '#e5354d' : '#f5dfa0');
 }
@@ -27643,7 +27690,9 @@ function _renderCastSplitModal() {
     + '<span class="pos-cs-back">バック（' + (margin != null ? '折半 ' + (Number(cfg.payrollMarginBackRate) || 0) + '%' : personal ? '個別設定' : cfg.payrollSpMode === 'yen' ? '1本あたり固定額' : ratePct + '%') + '） <b>¥' + s.backTotal.toLocaleString() + '</b></span>'
     + '<span class="pos-cs-remain" id="pos-cs-remain"></span></div>'
     + '<div class="pos-cs-list">' + (rows || '<div style="padding:8px;color:var(--tx3)">出勤中のキャストがいません</div>') + '</div>'
-    + '<div class="pos-cs-hint">「均等折半」で人数割りの初期値が入ります。個別SPは小計・1本あたりの額を人数割りして適用します。金額は1人ずつ手修正できます（合計がバック額と一致したら確定）。</div>'
+    + '<div class="pos-cs-hint">' + (_castSplitRoundUnit() > 1
+      ? '「均等折半」で人数割りの初期値（' + _castSplitRoundUnit() + '円未満切り捨て）が入ります。金額は1人ずつ自由に直せます。バック額に足りない分は店の取り分です（超えると確定できません）。'
+      : '「均等折半」で人数割りの初期値が入ります。個別SPは小計・1本あたりの額を人数割りして適用します。金額は1人ずつ手修正できます（合計がバック額と一致したら確定）。') + '</div>'
     + '<div class="pos-cs-actions">'
     + '<button class="pos-co-btn cancel" onclick="posCastSplitBack()">戻る</button>'
     + '<button class="pos-co-btn" style="background:#2680e8" onclick="posCastSplitEven()">均等折半</button>'
@@ -27669,25 +27718,39 @@ function _castSplitMarginBack(s) {
   return posMarginBackYen(item, s.amount);
 }
 
+/* 端数単位が10・100の時の1人分: 人数割りの値を単位未満で切り捨てる（浮動小数の誤差で1段下がらないよう有効桁をそろえる） */
+function _castSplitFloorShare(value, unit) {
+  return Math.floor(Number((value / unit).toPrecision(12))) * unit;
+}
+
 function _castSplitDefaultAllocation(s) {
   const casts = Array.from(s.checked);
+  // 端数単位が10・100の時は1人分を単位未満で切り捨て。バック額（total）は切り捨て前のまま、足りない分は店の取り分
+  const unit = _castSplitRoundUnit();
   // 折半バックの品は（販売価格−仕入れ値）×率を人数で分ける（個人SP・店SPより優先。端数は従来どおり先頭から1円ずつ）
   const margin = _castSplitMarginBack(s);
   if (margin != null) {
+    if (unit > 1) return { total:margin, shares:Object.fromEntries(casts.map(c => [c, _castSplitFloorShare(margin / casts.length, unit)])) };
     const base = casts.length ? Math.floor(margin / casts.length) : 0;
     return { total:margin, shares:Object.fromEntries(casts.map((c,i) => [c, base + (i < margin - base * casts.length ? 1 : 0)])) };
   }
   const personal = ['bottle','shot'].includes(s.category) && casts.some(c => castSpBackConfig(c));
   if (!personal || !casts.length) {
     const total = calcSpReference(s.amount);
+    if (unit > 1) return { total, shares:Object.fromEntries(casts.map(c => [c, _castSplitFloorShare(total / casts.length, unit)])) };
     const base = casts.length ? Math.floor(total / casts.length) : 0;
     return { total, shares:Object.fromEntries(casts.map((c,i) => [c, base + (i < total - base * casts.length ? 1 : 0)])) };
   }
-  const shares = Object.fromEntries(casts.map(c => {
+  const fullOf = c => {
     const config = castSpBackConfig(c);
-    const full = config ? (config.mode === 'yen' ? config.value : s.amount * config.value / 100) : calcSpReference(s.amount);
-    return [c, Math.round(full / casts.length)];
-  }));
+    return config ? (config.mode === 'yen' ? config.value : s.amount * config.value / 100) : calcSpReference(s.amount);
+  };
+  if (unit > 1) {
+    // 個別SP: 各人の full/人数 の合計（四捨五入）がバック額。1人分は各人の full/人数 を切り捨て
+    const each = casts.map(c => fullOf(c) / casts.length);
+    return { total:Math.round(each.reduce((sum,value) => sum + value,0)), shares:Object.fromEntries(casts.map((c,i) => [c, _castSplitFloorShare(each[i], unit)])) };
+  }
+  const shares = Object.fromEntries(casts.map(c => [c, Math.round(fullOf(c) / casts.length)]));
   return { total:Object.values(shares).reduce((sum,value) => sum + value,0), shares };
 }
 
@@ -27729,12 +27792,13 @@ async function posConfirmCastSplit() {
   // 明示0%・0円も有効。空欄と不正値だけを未入力扱いにする。
   const missing = casts.filter(c => s.shares[c] == null || String(s.shares[c]).trim() === '' || !Number.isFinite(Number(s.shares[c])) || Number(s.shares[c]) < 0);
   if (missing.length) { showToast('金額が未入力のキャストがいます: ' + missing.join('・') + '（「均等折半」で初期値を入れられます）'); return; }
-  // 割当合計 = バック額 を厳守（1円もズレない）
+  // 割当合計 = バック額 を厳守（1円もズレない）。端数を切り捨てる設定（10・100）の時は、バック額以下ならOK（足りない分は店の取り分）
   const sum = _castSplitSum();
-  if (sum !== s.backTotal) {
+  if (_castSplitRoundUnit() > 1 ? sum > s.backTotal : sum !== s.backTotal) {
     const diff = s.backTotal - sum;
     showToast('割当合計 ¥' + sum.toLocaleString() + ' がバック額 ¥' + s.backTotal.toLocaleString()
-      + ' と一致しません（' + (diff > 0 ? 'あと ¥' + diff.toLocaleString() : '¥' + (-diff).toLocaleString() + ' 超過') + '）');
+      + (_castSplitRoundUnit() > 1 ? ' を超えています（¥' + (-diff).toLocaleString() + ' 超過）'
+        : ' と一致しません（' + (diff > 0 ? 'あと ¥' + diff.toLocaleString() : '¥' + (-diff).toLocaleString() + ' 超過') + '）'));
     return;
   }
   // shares を確定値（整数円）に正規化
@@ -27746,7 +27810,9 @@ async function posConfirmCastSplit() {
   // 日計表を開いていれば即反映
   const rp = document.getElementById('report-panel');
   if (rp && !rp.classList.contains('hidden') && typeof renderReportPanel === 'function') renderReportPanel();
-  showToast('バック ¥' + s.backTotal.toLocaleString() + ' を折半 → SPに ' + detail);
+  // 配らなかった分は店の取り分（どこにも記録しない。明細は満額1行のまま）
+  const shopKeeps = s.backTotal - sum;
+  showToast('バック ¥' + s.backTotal.toLocaleString() + ' を折半 → SPに ' + detail + (shopKeeps > 0 ? '・店の取り分 ¥' + shopKeeps.toLocaleString() : ''));
 }
 /* 延長案内専用。比較の選択・仮定は伝票や注文に保存しない。 */
 function _extComparisonRow(row) {
@@ -31836,6 +31902,7 @@ async function applySettings() {
     payrollDeductions, payrollDeductionDisplayField, payrollDeductionDisplayPrint, payrollDeductionNibaraiPrint, payrollMergeDrinks,
     payrollHonshimeiBackMode, payrollHonshimeiBackRate, payrollHonshimeiBackHighRate, payrollHonshimeiBackHighThreshold,
     payrollDouhanBackMode, payrollDouhanBackRate, payrollHonshimeiBackBase, payrollDouhanBackBase, payrollCustomBacks, payrollMarginBackRate,
+    payrollSplitRoundUnit,
   } = _payrollSettingsSnapshot();
   const pointsEnabled = !!get('cfg-pointsEnabled')?.checked;
   const pointRules = feeMasterValues.pointRules;
@@ -31904,6 +31971,7 @@ async function applySettings() {
     payrollDeductions, payrollDeductionDisplayField, payrollDeductionDisplayPrint, payrollDeductionNibaraiPrint, payrollMergeDrinks,
     payrollHonshimeiBackMode, payrollHonshimeiBackRate, payrollHonshimeiBackHighRate, payrollHonshimeiBackHighThreshold,
     payrollDouhanBackMode, payrollDouhanBackRate, payrollHonshimeiBackBase, payrollDouhanBackBase, payrollCustomBacks, payrollMarginBackRate,
+    payrollSplitRoundUnit,
     payrollHiddenCols: Array.isArray(cfg.payrollHiddenCols) ? cfg.payrollHiddenCols : [],
     castListOrder: castListOrderMode(),
     castListCustomOrder: Array.isArray(cfg.castListCustomOrder) ? cfg.castListCustomOrder : [],
@@ -32443,6 +32511,7 @@ const PAYROLL_SETTINGS_KEYS = [
   'payrollMergeDrinks',
   'payrollHonshimeiBackMode', 'payrollHonshimeiBackRate', 'payrollHonshimeiBackHighRate', 'payrollHonshimeiBackHighThreshold',
   'payrollDouhanBackMode', 'payrollDouhanBackRate', 'payrollHonshimeiBackBase', 'payrollDouhanBackBase', 'payrollCustomBacks', 'payrollMarginBackRate',
+  'payrollSplitRoundUnit',
 ];
 let _payrollSettingsReturnFocus = null;
 
@@ -32471,7 +32540,8 @@ function _payrollSettingsSummaryHtml() {
   const summaries = {
     work: '標準時給 ' + yen(cfg.defaultWage) + ' / 出勤 ' + (cfg.payrollClockInRoundMin ?? 30) + '分・退勤 ' + (cfg.payrollClockOutRoundMin ?? 30) + '分単位' + (cfg.payrollLateFineEnabled === false ? ' / 遅刻罰金なし' : ''),
     back: 'ドリンク：' + (payrollDrinksMerged() ? '統合' : '指名・フリー別') + ' / 同伴：' + (extra.join('＋') || '追加なし') + ' / SP：' + (cfg.payrollSpInBackTotal === false ? '参考のみ' : '日給に含む')
-      + (cfg.payrollHonshimeiBackMode === 'percent' ? ' / 本指名：小計' + (cfg.payrollHonshimeiBackBase === 'subtotal' ? '' : '（引いた後）') + '×' + (cfg.payrollHonshimeiBackRate ?? 10) + '%' + (Number(cfg.payrollHonshimeiBackHighThreshold ?? 50000) > 0 ? '（' + yen(cfg.payrollHonshimeiBackHighThreshold ?? 50000) + '以上は' + (cfg.payrollHonshimeiBackHighRate ?? 15) + '%）' : '') : '')
+      + (cfg.payrollHonshimeiBackMode === 'percent' ? ' / 本指名：小計' + (cfg.payrollHonshimeiBackBase === 'subtotal' ? '（本指名総取り）' : '（引いた後）') + '×' + (cfg.payrollHonshimeiBackRate ?? 10) + '%' + (Number(cfg.payrollHonshimeiBackHighThreshold ?? 50000) > 0 ? '（' + yen(cfg.payrollHonshimeiBackHighThreshold ?? 50000) + '以上は' + (cfg.payrollHonshimeiBackHighRate ?? 15) + '%）' : '') : '')
+      + (cfg.payrollDouhanBackMode === 'honshimei' ? ' / 同伴：本指名と同じ＋同伴バック' : '')
       + (cfg.payrollDouhanBackMode === 'percent' ? ' / 同伴：小計' + (cfg.payrollDouhanBackBase === 'subtotal' ? '' : '（引いた後）') + '×' + (cfg.payrollDouhanBackRate ?? 20) + '%' : '')
       + (payrollCustomBackItems().length ? ' / オリジナル ' + payrollCustomBackItems().length + '項目' : '')
       + (Number(cfg.payrollMarginBackRate) > 0 ? ' / 折半 ' + Number(cfg.payrollMarginBackRate) + '%' : ''),
@@ -32537,6 +32607,7 @@ function _payrollSettingsModalHtml() {
             <span data-sp-value="yen" ${cfg.payrollSpMode === 'yen' ? '' : 'hidden'}>${num('payrollSpFixed','店標準SP額',0,0,null,1)}</span>
             <div role="group" aria-label="店標準SPの単位" class="back-unit-toggle"><button type="button" aria-label="店標準SPの単位: %" aria-pressed="${cfg.payrollSpMode !== 'yen'}" onclick="payrollSpModeSelect('percent')">%</button><button type="button" aria-label="店標準SPの単位: 円" aria-pressed="${cfg.payrollSpMode === 'yen'}" onclick="payrollSpModeSelect('yen')">円</button></div>
           </div></div>
+          <div class="pay-settings-row"><div><label for="cfg-payrollSplitRoundUnit">キャスト折半の端数</label><p>ボトル・ショットのキャスト折半で、1人分の初期値の端数をどうするか。切り捨てにすると、金額は1人ずつ自由に直せ、バック額に足りない分は店の取り分になります。</p></div><div class="pay-settings-inputs"><select id="cfg-payrollSplitRoundUnit" class="settings-input">${options([[1,'1円単位まで配る（合計をバック額にそろえる）'],[10,'10円未満を切り捨て（残りは店の取り分）'],[100,'100円未満を切り捨て（残りは店の取り分）']], normalizePayrollSplitRoundUnit(cfg.payrollSplitRoundUnit))}</select></div></div>
           <details class="pay-settings-details"><summary>バックの計算を確認</summary><p>バック ＝ 伝票から集計した本数 × 単価 ＋ SP（「SPを日給に含める」がONのとき）。単価はキャスト個別設定を優先し、空欄なら既定バックを使います。本数は日計表で修正できます。</p><p>SPは、日計表で手入力した額・キャスト折半の分・注文に付いたバック（ボトル・ショットやメニューのバック額）の合計です。キャスト1人に付けたボトルは、個別SP → メニューのバック額 → 店標準SP の順で決まります。ショットはメニューにバック額がある時だけSPになり、無ければ指D/Dの本数で数えます。</p><p>給率 ＝ 日給 ÷ キャストの帰属売上 × 100（参考値）。</p></details>
         </section>
         <section id="pay-settings-group-deductions" role="tabpanel" aria-labelledby="pay-settings-tab-deductions" data-pay-group="deductions" hidden>
@@ -32580,7 +32651,9 @@ function _payrollSettingsModalHtml() {
 function _payrollPercentBackSettingsHtml(num) {
   // 方式は3択（2026-10-29）: ナイトリスト標準（本数×単価）／カスタム（小計から引いて×率）／カスタム（小計そのまま×率）。
   // 保存は今までどおり Mode（count|percent）と Base（net|subtotal）の2つのキーに分ける。
-  const choiceOf = (modeKey, baseKey) => cfg[modeKey] !== 'percent' ? 'count' : (cfg[baseKey] === 'subtotal' ? 'subtotal' : 'net');
+  // 同伴の節だけ4択目の 'honshimei'（本指名と同じ）がある。保存は Mode='honshimei'、Base は今の値のまま
+  const choiceOf = (modeKey, baseKey) => (modeKey === 'payrollDouhanBackMode' && cfg[modeKey] === 'honshimei') ? 'honshimei'
+    : (cfg[modeKey] !== 'percent' ? 'count' : (cfg[baseKey] === 'subtotal' ? 'subtotal' : 'net'));
   const radio = (modeKey, baseKey, value, label, note) => {
     const custom = value !== 'count';
     return '<label class="pay-settings-choice' + (custom ? ' is-custom' : '') + '"><input type="radio" name="pay-' + modeKey + '" id="cfg-' + modeKey + '-' + value + '" value="' + value + '"'
@@ -32588,21 +32661,27 @@ function _payrollPercentBackSettingsHtml(num) {
       + (custom ? '<span class="pay-settings-badge">カスタムバック</span>' : '') + label + '<small>' + note + '</small></span></label>';
   };
   const shareNote = '同じ組に指名が複数いるときは折半します（集計の⚖で割合を変えた伝票は、その割合で分けます）。';
-  const choices = (modeKey, baseKey) =>
+  // 3つ目（小計そのまま）は、本指名の節だけ総取り（2026-10-30 chuchu）の名前と説明に差し替える。同伴の節は小計そのまま（総取りにはならない）。
+  const subtotalDefault = ['小計×率（小計そのまま）', '伝票の小計（税サ抜き）× 率。ドリンク・ボトル・シャンパンも引きません。' + shareNote];
+  const subtotalHonshimei = ['小計×率（本指名総取り）', '伝票の小計（税サ抜き）× 率。ドリンク・ボトル・シャンパンも引きません。本指名のいる伝票では、本指名本人にも、ほかのキャスト（場内・ヘルプ・フリー）にも、ドリンク・ショットのバックは付かず、ほかのキャストには場内指名のバックも付きません。その分は小計に入っていて、本指名のバックになるためです（本指名の総取り）。シャンパンなどのボトルは、折半の画面でお店が配ります。同伴の伝票は、同伴バックの設定で決まります。本指名も同伴もいない伝票（フリーだけ）は、今までどおり全員にバックが付きます。' + shareNote];
+  // 同伴の4択目: 同伴の伝票も本指名と同じに扱い（本指名の方式・率・総取り）、同伴バック（本数×単価）も付ける
+  const douhanSameAsHonshimei = ['本指名と同じ（同伴バックも付く）', '同伴の伝票も、本指名の伝票と同じに扱います。同伴の子には、本指名バック（上の本指名の欄の方式と率。「小計×率（本指名総取り）」なら総取りも同じ）と、同伴バック（キャストの単価・既定バックの「同伴」× 回数。例: 1回 2,000円）の両方が付きます。本指名と同伴が同じ伝票にいるときは、本指名バックを2人で折半します。本指名バックを小計×率にしている店で使います。'];
+  const choices = (modeKey, baseKey, subtotalText, fourth) =>
     radio(modeKey, baseKey, 'count', 'ナイトリスト標準（本数×単価）', '料金マスター・キャストの単価 × 本数')
     + radio(modeKey, baseKey, 'net', '小計×率（指名ドリンク・折半の品を引く）', '（伝票の小計（税サ抜き）− 指名したキャストのドリンク・ショット代 − 折半の品の代金）× 率。' + shareNote)
-    + radio(modeKey, baseKey, 'subtotal', '小計×率（小計そのまま）', '伝票の小計（税サ抜き）× 率。ドリンク・ボトル・シャンパンも引きません。' + shareNote);
+    + radio(modeKey, baseKey, 'subtotal', subtotalText[0], subtotalText[1])
+    + (fourth ? radio(modeKey, baseKey, 'honshimei', fourth[0], fourth[1]) : '');
   return '<h3>本指名バック</h3>'
-    + choices('payrollHonshimeiBackMode', 'payrollHonshimeiBackBase')
+    + choices('payrollHonshimeiBackMode', 'payrollHonshimeiBackBase', subtotalHonshimei)
     + '<div class="pay-settings-row"><div><label for="cfg-payrollHonshimeiBackRate">本指名バックが小計×％の場合</label><p>小計は税サ抜きの伝票の合計で、ドリンクなどを引く前の額で判定します。スライドでバック％が変わらない店は、右の％に標準と同じ％を入力するか、空欄にしてください。</p></div><div class="pay-settings-inputs">'
     + '<label for="cfg-payrollHonshimeiBackRate">標準</label>' + num('payrollHonshimeiBackRate', '本指名バックの標準の率', 10, 0, 100, 0.1) + '<span>%</span>'
     + '<span>／</span><label for="cfg-payrollHonshimeiBackHighThreshold">小計が</label>' + num('payrollHonshimeiBackHighThreshold', '高い率になる小計', 50000, 0, null, 1000) + '<span>円以上の伝票は</span>'
     + num('payrollHonshimeiBackHighRate', '本指名バックの高い率', 15, 0, 100, 0.1) + '<span>%</span></div></div>'
     + '<h3>同伴バック</h3>'
-    + choices('payrollDouhanBackMode', 'payrollDouhanBackBase')
+    + choices('payrollDouhanBackMode', 'payrollDouhanBackBase', subtotalDefault, douhanSameAsHonshimei)
     + '<div class="pay-settings-row"><div><label for="cfg-payrollDouhanBackRate">同伴バックが小計×％の場合</label><p>小計は税サ抜きの伝票の合計です。小計の額に関係なく、いつも同じ％です。同伴の伝票には、本指名バックの％は付きません。</p></div><div class="pay-settings-inputs">'
     + '<label for="cfg-payrollDouhanBackRate">標準</label>' + num('payrollDouhanBackRate', '同伴バックの率', 20, 0, 100, 0.1) + '<span>%</span></div></div>'
-    + '<p class="pay-settings-note">同伴バックをカスタムバックにしたときは、「同伴1件につき追加する本数」の本指名＋1をOFFにしてください。</p>'
+    + '<p class="pay-settings-note">同伴バックをカスタムバックにしたときは、「同伴1件につき追加する本数」の本指名＋1をOFFにしてください。「本指名と同じ（同伴バックも付く）」で本指名バックが小計×率の店は、本指名＋1を入れても金額は変わりません（本指名の本数の表示が増えるだけ）。</p>'
     + '<h3>オリジナルバック</h3>'
     + '<p class="pay-settings-note">店が自分で作るバック項目です（例：外立ち）。日計表に本数を手入力する欄が出ます。単価は 料金マスター（店標準）とキャストのページ（個別）で入れます。</p>'
     + '<div class="pay-settings-table-wrap"><table class="pos-me-table" id="cfg-payroll-custom-backs-table"><thead><tr><th>項目名</th><th></th></tr></thead><tbody>'
@@ -32766,9 +32845,12 @@ function _collectPayrollSettings(overlay) {
   // 率バック・折半バック（2026-10-23）。入力欄が無い画面では今の設定のまま
   // 3択（count／net／subtotal）を Mode と Base に分けて保存。ナイトリスト標準を選んでも Base は今の値のまま残す
   [['payrollHonshimeiBackMode','payrollHonshimeiBackBase'],['payrollDouhanBackMode','payrollDouhanBackBase']].forEach(([modeKey, baseKey]) => {
-    const net = get(modeKey + '-net'), sub = get(modeKey + '-subtotal');
+    const net = get(modeKey + '-net'), sub = get(modeKey + '-subtotal'), same = get(modeKey + '-honshimei');
     const curBase = cfg[baseKey] === 'subtotal' ? 'subtotal' : 'net';
-    if (!net || !sub) { result[modeKey] = cfg[modeKey] === 'percent' ? 'percent' : 'count'; result[baseKey] = curBase; return; }
+    const curMode = cfg[modeKey] === 'percent' ? 'percent' : ((modeKey === 'payrollDouhanBackMode' && cfg[modeKey] === 'honshimei') ? 'honshimei' : 'count');
+    if (!net || !sub) { result[modeKey] = curMode; result[baseKey] = curBase; return; }
+    // 同伴の「本指名と同じ」: 方式だけ 'honshimei' にして、率を掛ける額（Base）は今の値のまま触らない
+    if (same && same.checked) { result[modeKey] = 'honshimei'; result[baseKey] = curBase; return; }
     result[modeKey] = (net.checked || sub.checked) ? 'percent' : 'count';
     result[baseKey] = sub.checked ? 'subtotal' : (net.checked ? 'net' : curBase);
   });
@@ -32780,6 +32862,8 @@ function _collectPayrollSettings(overlay) {
     const value = el.value === '' ? Number(el.dataset.fallback) : Number(el.value);
     result[key] = Number.isFinite(value) ? Math.max(0, value) : (Number(el.dataset.fallback) || 0);
   });
+  // キャスト折半の端数単位（2026-10-30）。入力欄が無い画面では今の設定のまま
+  result.payrollSplitRoundUnit = normalizePayrollSplitRoundUnit(get('payrollSplitRoundUnit') ? get('payrollSplitRoundUnit').value : cfg.payrollSplitRoundUnit);
   result.payrollCustomBacks = _collectPayrollCustomBacks(overlay);
   result.payrollMergeDrinks = get('payrollMergeDrinks')?.checked === true;
   result.payrollDeductionDisplayField = normalizePayrollDeductionDisplayField(get('payrollDeductionDisplayField')?.value);
