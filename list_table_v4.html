@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.112">
+<meta name="app-version" content="1.1.113">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -10106,6 +10106,7 @@ const CFG_DEFAULTS = {
   expenseLabels: [],         // 日次締め・雑費の内容候補（当日の粗利から引く支払い。2026-10-29）
   hqOutLabels:  [],          // 日次締め・特別出金の内容候補
   specialInLabels: [],       // 日次締め・特別入金の内容候補
+  dailyClosePreset: 'standard', // 日次締めの形式: 'standard'（標準）| 'custom1'（カスタム1・レジ金の照合あり。2026-10-31）
   dailyCloseLabels: {},      // 日次締めの項目名の呼び方（キー→名前。空=初期の名前。画面・印刷・CSV共通。2026-10-27）
   rankVip:      10,          // VIP閾値（来店回数）
   rankRepeat:   3,           // リピーター閾値
@@ -10265,6 +10266,7 @@ const CFG_DEFAULTS = {
 let cfg = { ...CFG_DEFAULTS };
 let _cfgNeedsShimeiExtMigration = false;
 let _cfgNeedsDrinkItemsMigration = false;
+let _cfgNeedsDailyClosePresetMigration = false;   // 保存済みの設定に日次締めの形式が無い（起動時に1回だけ判定する）
 
 function normalizePayrollDeductionDisplayField(value) {
   return value === 'nominatedSales' ? 'nominatedSales' : 'dailyPay';
@@ -10309,6 +10311,7 @@ function normalizeDailyCloseLabels(value) {
 function mergeCfgDefaults(saved) {
   const merged = { ...CFG_DEFAULTS, ...(saved || {}) };
   merged.dailyCloseLabels = normalizeDailyCloseLabels(merged.dailyCloseLabels);
+  merged.dailyClosePreset = merged.dailyClosePreset === 'custom1' ? 'custom1' : 'standard';
   merged.businessType = normalizeBusinessType(merged.businessType);
   merged.showtimeScope = merged.showtimeScope === 'all' ? 'all' : 'table';
   merged.defaultTheme = merged.defaultTheme === 'champagne' ? 'champagne' : 'night';
@@ -10332,10 +10335,12 @@ function loadCfg() {
   if (s) {
     _cfgNeedsShimeiExtMigration = !Object.prototype.hasOwnProperty.call(s, 'shimeiExtItems');
     _cfgNeedsDrinkItemsMigration = !Object.prototype.hasOwnProperty.call(s, 'drinkItems');
+    _cfgNeedsDailyClosePresetMigration = !Object.prototype.hasOwnProperty.call(s, 'dailyClosePreset');
     cfg = mergeCfgDefaults(s);
   } else {
     _cfgNeedsShimeiExtMigration = false;
     _cfgNeedsDrinkItemsMigration = false;
+    _cfgNeedsDailyClosePresetMigration = true;
     cfg = { ...CFG_DEFAULTS, shimeiExtItems: shimeiExtDefaultItems(), drinkItems:drinkItemDefaults() };
   }
 }
@@ -24778,6 +24783,27 @@ const DAILY_CLOSE_LABEL_ITEMS = [
   { key:'profitRate', group:'計算結果', screen:'利益率' },
 ];
 
+/* 標準の名称変更の対象（2026-10-31）。標準の画面に出ている項目だけ。同じキーの呼び方は両方の形式で共有する */
+const DAILY_CLOSE_STD_LABEL_ITEMS = [
+  { key:'totalSales', group:'自動集計', screen:'総売上' },
+  { key:'castPayTotal', group:'自動集計', screen:'社交給料計' },
+  { key:'urikakeRepay', group:'自動集計', screen:'売掛金回収' },
+  { key:'urikakeSales', group:'自動集計', screen:'売掛発生' },
+  { key:'cardSlipCount', group:'自動集計', screen:'カード伝票枚数' },
+  { key:'staffPay', group:'入出金', screen:'社員日払い' },
+  { key:'girlsNibarai', group:'入出金', screen:'女子日払い' },
+  { key:'payout', group:'入出金', screen:'出金' },
+  { key:'note', group:'手入力', screen:'営業報告' },
+  { key:'cashRemain', group:'計算結果', screen:'現金残り' },
+  { key:'grossProfit', group:'計算結果', screen:'粗利益' },
+  { key:'profitRate', group:'計算結果', screen:'利益率' },
+];
+
+/* いま開く名称変更ダイアログの項目（標準／カスタム1） */
+function _dailyCloseLabelItemsNow() {
+  return dailyCloseIsCustom1() ? DAILY_CLOSE_LABEL_ITEMS : DAILY_CLOSE_STD_LABEL_ITEMS;
+}
+
 /* 項目名を返す。店が付けた名前（cfg.dailyCloseLabels）があれば画面・印刷・CSVで同じ名前、無ければ初期の名前
    （画面と印刷で違うものは forPrint で切り替える）。文章や式の中に出す名前は、画面でも forPrint=true の短い方を使う。
    HTMLに入れるときは呼び出し側で _dailyCloseAttr を通す（利用者の入力のため） */
@@ -24785,7 +24811,8 @@ function dailyCloseLabel(key, forPrint = false) {
   const custom = (typeof cfg === 'object' && cfg && cfg.dailyCloseLabels && typeof cfg.dailyCloseLabels === 'object')
     ? cfg.dailyCloseLabels[key] : '';
   if (typeof custom === 'string' && custom.trim()) return custom.trim();
-  const item = DAILY_CLOSE_LABEL_ITEMS.find(entry => entry.key === key);
+  const item = DAILY_CLOSE_LABEL_ITEMS.find(entry => entry.key === key)
+    || DAILY_CLOSE_STD_LABEL_ITEMS.find(entry => entry.key === key);
   if (!item) return String(key);
   return forPrint && item.print ? item.print : item.screen;
 }
@@ -24917,6 +24944,20 @@ function dailyCloseCalc(record, frozen, tillFloat = 60000) {
   };
 }
 
+/* 純関数。標準の日次締めの計算（2026-10-31）。出金は record.expenses（粗利益の式は dailyCloseCalc と同じ）。
+   現金残り = 当日の現金売上 + 売掛金回収の現金 − (出金 + 社員日払い + 女子日払い)（カードの回収は足さない）。マイナスもそのまま返す */
+function dailyCloseStandardCalc(record, frozen) {
+  const rec = _dailyCloseNormalizeRecord(record);
+  const auto = _dailyCloseNormalizeFrozen(frozen || rec.frozen);
+  const payoutTotal = _dailyCloseListTotal(rec.expenses);
+  const staffPayTotal = _dailyCloseListTotal(rec.staffPay);
+  const girlsNibaraiTotal = auto.castNibaraiTotal;
+  const cashRemain = auto.cashSales + auto.urikakeRepayCash - (payoutTotal + staffPayTotal + girlsNibaraiTotal);
+  const grossProfit = auto.totalSales - payoutTotal - auto.castPayTotal;
+  const profitRate = auto.totalSales ? grossProfit / auto.totalSales : null;
+  return { payoutTotal, staffPayTotal, girlsNibaraiTotal, cashRemain, grossProfit, profitRate };
+}
+
 /* 純関数。同じYYYYMMの保存済み締めだけを合算する。 */
 function dailyCloseMonthTotals(store, bizKey, tillFloat = 60000) {
   const month = String(bizKey || '').slice(0, 6);
@@ -25027,6 +25068,27 @@ function loadDailyClose() {
 
 function saveDailyClose(store) {
   return Persist.write('dailyclose', store);
+}
+
+/* 日次締めの形式（2026-10-31）。'custom1'＝カスタム1（レジ金の照合あり）、それ以外は標準 */
+function dailyCloseIsCustom1() {
+  return typeof cfg === 'object' && !!cfg && cfg.dailyClosePreset === 'custom1';
+}
+
+/* 既存端末の引き継ぎ。設定に形式が無い端末で、日次締めの記録が1日分でもあれば custom1、無ければ standard にして保存する。
+   起動時（設定を読んだ直後）に1回だけ。読み込みに失敗している間は決めない（仮の値を保存しない） */
+function migrateDailyClosePreset() {
+  if (!_cfgNeedsDailyClosePresetMigration) return false;
+  _cfgNeedsDailyClosePresetMigration = false;
+  const store = loadDailyClose();   // 先に読む（読めなかったときに failedReads へ入るように）
+  if (Persist.failedReads.has('settings') || Persist.failedReads.has('dailyclose') || Persist.writeBlockedReason) {
+    // 判定できないときは、今までの画面（カスタム1）に寄せる。後の保存で標準に固定されないように
+    cfg.dailyClosePreset = 'custom1';
+    return false;
+  }
+  cfg.dailyClosePreset = Object.keys(store).length > 0 ? 'custom1' : 'standard';
+  saveCfg();
+  return true;
 }
 
 /* 実装ノート: バックアップがある過去営業日だけを再計算する。既存レコードを正規化して
@@ -25303,7 +25365,7 @@ function _dailyCloseCandidates(registered, history) {
   return candidates;
 }
 
-function _dailyCloseListHtml(field, title, record, month, readOnly, candidates = []) {
+function _dailyCloseListHtml(field, title, record, month, readOnly, candidates = [], headText = null) {
   const textProp = field === 'staffPay' ? 'name' : 'label';
   const placeholder = field === 'staffPay' ? '名前' : '内容';
   const hasCandidates = ['staffPay', 'expenses', 'hqOut', 'specialIn'].includes(field);
@@ -25317,7 +25379,7 @@ function _dailyCloseListHtml(field, title, record, month, readOnly, candidates =
   </div>`).join('');
   const monthKey = { staffPay:'staffPayTotal', expenses:'expenseTotal', hqOut:'hqOutTotal', specialIn:'specialInTotal' }[field];
   return `<div class="dc-list-box">
-    <div class="dc-list-head"><strong>${title}</strong><span>当月計 ${_dailyCloseYen(month[monthKey])}</span></div>
+    <div class="dc-list-head"><strong>${title}</strong><span>${headText === null ? `当月計 ${_dailyCloseYen(month[monthKey])}` : headText}</span></div>
     ${rows || '<div class="dc-empty">入力なし</div>'}
     ${readOnly ? '' : `<button type="button" class="dc-add" onclick="dailyCloseAddRow('${field}')">＋ 行を追加</button>`}
     ${hasCandidates ? `<datalist id="${listId}">${candidates.map(name => `<option value="${_dailyCloseAttr(name)}"></option>`).join('')}</datalist>` : ''}
@@ -25405,11 +25467,35 @@ async function dailyCloseCopyMonthNotes(bizKey) {
   showToast(copied ? `営業報告 ${reports.length}日分をコピーしました` : '営業報告のコピーに失敗しました');
 }
 
+const DAILY_CLOSE_SECTION_CSS = `      .dc-section{margin-top:18px}.dc-head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+      .dc-head h3{margin:0;font-size:16px;color:var(--tx)}.dc-status{font-size:11px;color:var(--tx3)}
+      .dc-add,.dc-delete{border:1px solid var(--bdr2);border-radius:6px;background:var(--sur2);color:var(--tx2);cursor:pointer}
+      .dc-table-wrap{overflow-x:auto}.dc-auto-table{width:100%;border-collapse:collapse;font-size:12px;min-width:620px}
+      .dc-auto-table th,.dc-auto-table td{border-bottom:1px solid var(--bdr);padding:9px 10px;text-align:right}.dc-auto-table th:first-child{text-align:left}
+      .dc-auto-table thead th{color:var(--tx3);background:var(--sur2)}.dc-auto-table td{font-weight:700;color:var(--tx)}
+      .dc-auto-table small{display:block;color:var(--tx3);font-weight:400;margin-top:2px}
+      .dc-list-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:14px}.dc-list-box{border:1px solid var(--bdr);border-radius:9px;padding:11px;background:var(--sur2)}
+      .dc-list-head{display:flex;justify-content:space-between;gap:8px;font-size:12px;margin-bottom:8px}.dc-list-head span{color:var(--tx3)}
+      .dc-list-row{display:grid;grid-template-columns:minmax(100px,1fr) 110px 28px;gap:6px;margin-top:6px}.dc-list-row input,.dc-manual input,.dc-note{background:var(--sur);color:var(--tx);border:1px solid var(--bdr2);border-radius:6px;padding:7px 8px;min-width:0}
+      .dc-list-row input[type=number]{text-align:right}.dc-delete{font-size:18px;color:#d66}.dc-add{margin-top:8px;padding:5px 9px;font-size:11px}.dc-empty{font-size:11px;color:var(--tx3);padding:7px 0}
+      .dc-manual{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:14px;align-items:end}.dc-field{display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--tx2)}.dc-field small{color:var(--tx3)}
+      .dc-note-wrap{margin-top:12px}.dc-note-head{display:flex;align-items:center;justify-content:space-between;gap:8px}.dc-copy-btn{border:1px solid var(--bdr2);border-radius:6px;background:var(--sur2);color:var(--tx2);cursor:pointer;padding:4px 8px;font-size:11px}.dc-note{width:100%;box-sizing:border-box;resize:vertical;min-height:72px}
+      .dc-results{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin-top:14px}.dc-result{background:var(--sur2);border:1px solid var(--bdr);border-radius:10px;padding:12px;text-align:center}.dc-result span,.dc-result small{display:block;color:var(--tx3);font-size:11px}.dc-result strong{display:block;font-size:20px;margin:5px 0;color:var(--tx)}
+      .dc-result.ok strong{color:var(--green)}.dc-result.plus strong{color:#6aa6e8}.dc-result.minus strong{color:#e66}.dc-warning{margin-top:8px;color:#e5a84b;font-size:12px;text-align:right}
+      @media(max-width:900px){.dc-list-grid{grid-template-columns:1fr}.dc-manual{grid-template-columns:1fr}.dc-results{grid-template-columns:repeat(2,minmax(0,1fr))}}
+      @media print{.dc-add,.dc-delete,.dc-copy-btn{display:none}.dc-list-row input,.dc-manual input,.dc-note{border:none;background:transparent}}`;
+
+/* 区画の見出し・状態・ボタン（標準とカスタム1で共通） */
+function _dailyCloseHeadHtml(readOnly, frozen, auto) {
+  return `<div class="dc-head"><div><h3>${readOnly || frozen ? '🔒' : '🔓'} 日次締め</h3><div class="dc-status">${readOnly ? '🔒 過去日の確定値（読み取り専用）' : frozen ? `🔒 ロック中（確定 ${new Date(auto.closedAt).toLocaleString('ja-JP')}）` : '🔓 未確定 — 自動集計はライブ値。締めたらロックしてください'}</div></div><div class="agg-box-actions dc-actions"><button type="button" class="dc-labels-btn" onmousedown="event.preventDefault()" onclick="dailyCloseLabelsOpen()">✏ 名称変更</button><button type="button" onmousedown="event.preventDefault()" onclick="dailyClosePrint()">🖨 印刷</button><button type="button" onmousedown="event.preventDefault()" onclick="dailyCloseExportCSV()">💾 CSV保存</button></div></div>`;
+}
+
 function _dailyCloseSectionHtml(src, agg, payrollRows, isPast) {
   const store = loadDailyClose();
   const saved = store[src.dayKey];
   if (isPast && !saved) return '';
   if (wageLockActive()) return wageLockSectionHtml('daily-close-host', '日次締め');   // 時給ロック中は案内だけ（2026-10-28）
+  if (!dailyCloseIsCustom1()) return _dailyCloseStandardSectionHtml(src, agg, payrollRows, isPast, store, saved);
   const record = _dailyCloseNormalizeRecord(saved);
   const liveAuto = _dailyCloseLiveAuto(src, agg, payrollRows);
   const auto = _dailyCloseEffectiveAuto(record, liveAuto, isPast);
@@ -25433,25 +25519,9 @@ function _dailyCloseSectionHtml(src, agg, payrollRows, isPast) {
   const coinNote = calc.coinCarry > 0 ? `${_dailyCloseLabelHtml('coinCarry', true)} ${_dailyCloseYen(calc.coinCarry)} を除く` : '';
   return `<div id="daily-close-host" class="agg-box dc-section">
     <style>
-      .dc-section{margin-top:18px}.dc-head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px}
-      .dc-head h3{margin:0;font-size:16px;color:var(--tx)}.dc-status{font-size:11px;color:var(--tx3)}
-      .dc-add,.dc-delete{border:1px solid var(--bdr2);border-radius:6px;background:var(--sur2);color:var(--tx2);cursor:pointer}
-      .dc-table-wrap{overflow-x:auto}.dc-auto-table{width:100%;border-collapse:collapse;font-size:12px;min-width:620px}
-      .dc-auto-table th,.dc-auto-table td{border-bottom:1px solid var(--bdr);padding:9px 10px;text-align:right}.dc-auto-table th:first-child{text-align:left}
-      .dc-auto-table thead th{color:var(--tx3);background:var(--sur2)}.dc-auto-table td{font-weight:700;color:var(--tx)}
-      .dc-auto-table small{display:block;color:var(--tx3);font-weight:400;margin-top:2px}
-      .dc-list-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:14px}.dc-list-box{border:1px solid var(--bdr);border-radius:9px;padding:11px;background:var(--sur2)}
-      .dc-list-head{display:flex;justify-content:space-between;gap:8px;font-size:12px;margin-bottom:8px}.dc-list-head span{color:var(--tx3)}
-      .dc-list-row{display:grid;grid-template-columns:minmax(100px,1fr) 110px 28px;gap:6px;margin-top:6px}.dc-list-row input,.dc-manual input,.dc-note{background:var(--sur);color:var(--tx);border:1px solid var(--bdr2);border-radius:6px;padding:7px 8px;min-width:0}
-      .dc-list-row input[type=number]{text-align:right}.dc-delete{font-size:18px;color:#d66}.dc-add{margin-top:8px;padding:5px 9px;font-size:11px}.dc-empty{font-size:11px;color:var(--tx3);padding:7px 0}
-      .dc-manual{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:14px;align-items:end}.dc-field{display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--tx2)}.dc-field small{color:var(--tx3)}
-      .dc-note-wrap{margin-top:12px}.dc-note-head{display:flex;align-items:center;justify-content:space-between;gap:8px}.dc-copy-btn{border:1px solid var(--bdr2);border-radius:6px;background:var(--sur2);color:var(--tx2);cursor:pointer;padding:4px 8px;font-size:11px}.dc-note{width:100%;box-sizing:border-box;resize:vertical;min-height:72px}
-      .dc-results{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin-top:14px}.dc-result{background:var(--sur2);border:1px solid var(--bdr);border-radius:10px;padding:12px;text-align:center}.dc-result span,.dc-result small{display:block;color:var(--tx3);font-size:11px}.dc-result strong{display:block;font-size:20px;margin:5px 0;color:var(--tx)}
-      .dc-result.ok strong{color:var(--green)}.dc-result.plus strong{color:#6aa6e8}.dc-result.minus strong{color:#e66}.dc-warning{margin-top:8px;color:#e5a84b;font-size:12px;text-align:right}
-      @media(max-width:900px){.dc-list-grid{grid-template-columns:1fr}.dc-manual{grid-template-columns:1fr}.dc-results{grid-template-columns:repeat(2,minmax(0,1fr))}}
-      @media print{.dc-add,.dc-delete,.dc-copy-btn{display:none}.dc-list-row input,.dc-manual input,.dc-note{border:none;background:transparent}}
+${DAILY_CLOSE_SECTION_CSS}
     </style>
-    <div class="dc-head"><div><h3>${readOnly || frozen ? '🔒' : '🔓'} 日次締め</h3><div class="dc-status">${readOnly ? '🔒 過去日の確定値（読み取り専用）' : frozen ? `🔒 ロック中（確定 ${new Date(auto.closedAt).toLocaleString('ja-JP')}）` : '🔓 未確定 — 自動集計はライブ値。締めたらロックしてください'}</div></div><div class="agg-box-actions dc-actions"><button type="button" class="dc-labels-btn" onmousedown="event.preventDefault()" onclick="dailyCloseLabelsOpen()">✏ 名称変更</button><button type="button" onmousedown="event.preventDefault()" onclick="dailyClosePrint()">🖨 印刷</button><button type="button" onmousedown="event.preventDefault()" onclick="dailyCloseExportCSV()">💾 CSV保存</button></div></div>
+    ${_dailyCloseHeadHtml(readOnly, frozen, auto)}
     ${_dailyCloseAutoTable(auto, month)}
     <div class="dc-list-grid">
       ${_dailyCloseListHtml('staffPay', L('staffPay'), record, month, readOnly, candidates.staffPay)}
@@ -25474,6 +25544,80 @@ function _dailyCloseSectionHtml(src, agg, payrollRows, isPast) {
       ${_dailyCloseResultCard(L('profitRate'), _dailyCloseRate(calc.profitRate), _dailyCloseRate(month.profitRate), '', '当月平均')}
     </div>
     ${transferWarning ? `<div class="dc-warning">${_dailyCloseAttr(_dailyCloseTransferWarningText(tillFloat, calc.coinCarry, false))}</div>` : ''}
+  </div>`;
+}
+
+/* ================================================================
+   標準の日次締め（2026-10-31。cfg.dailyClosePreset が 'standard'）
+   レジ金の照合をしない簡単な版。出金は record.expenses に入れる（粗利益の式・経営分析の粗利は今のまま）。
+================================================================ */
+function _dailyCloseAutoTableStandard(auto) {
+  const L = _dailyCloseLabelHtml;
+  const row = (label, today, detail = '') => `<tr><th>${label}</th><td>${_dailyCloseYen(today)}${detail}</td></tr>`;
+  return `<div class="dc-table-wrap"><table class="dc-auto-table dc-auto-std">
+    <thead><tr><th>自動集計</th><th>本日</th></tr></thead><tbody>
+      ${row(L('totalSales'), auto.totalSales,
+        `<small>現金 ${_dailyCloseYen(auto.cashSales)} / カード ${_dailyCloseYen(auto.cardSales)} / 売掛 ${_dailyCloseYen(auto.urikakeSales)}</small>`)}
+      ${row(L('castPayTotal'), auto.castPayTotal)}
+      ${row(L('urikakeRepay'), auto.urikakeRepayCash + auto.urikakeRepayCard,
+        `<small>現金 ${_dailyCloseYen(auto.urikakeRepayCash)} / カード ${_dailyCloseYen(auto.urikakeRepayCard)}</small>`)}
+      ${row(L('urikakeSales'), auto.urikakeSales)}
+      <tr><th>${L('cardSlipCount')}</th><td>${auto.cardSlipCount}枚</td></tr>
+    </tbody></table></div>`;
+}
+
+/* その日の日計表で日払いが1円以上のキャスト。値は auto.castRows（未確定の日はライブの日計表、ロック後・過去日は凍結値） */
+function _dailyCloseGirlsNibaraiRows(auto) {
+  return (Array.isArray(auto.castRows) ? auto.castRows : [])
+    .filter(row => _dailyCloseNum(row.nibarai) >= 1)
+    .map(row => ({ name: String(row.castName || ''), amount: _dailyCloseNum(row.nibarai) }));
+}
+
+function _dailyCloseGirlsBoxHtml(auto, title) {
+  const rows = _dailyCloseGirlsNibaraiRows(auto);
+  const body = rows.length
+    ? rows.map(row => `<div class="dc-girl-row"><span>${_dailyCloseAttr(row.name)}</span><span>${_dailyCloseYen(row.amount)}</span></div>`).join('')
+    : '<div class="dc-empty">なし</div>';
+  return `<div class="dc-list-box">
+    <div class="dc-list-head"><strong>${title}</strong><span>本日計 ${_dailyCloseYen(auto.castNibaraiTotal)}</span></div>
+    ${body}
+  </div>`;
+}
+
+function _dailyCloseStandardSectionHtml(src, agg, payrollRows, isPast, store, saved) {
+  const record = _dailyCloseNormalizeRecord(saved);
+  const auto = _dailyCloseEffectiveAuto(record, _dailyCloseLiveAuto(src, agg, payrollRows), isPast);
+  const readOnly = !!isPast;
+  const frozen = auto.closedAt > 0;
+  const calc = dailyCloseStandardCalc(record, auto);
+  const L = _dailyCloseLabelHtml;
+  const staffCandidates = _dailyCloseCandidates(cfg.staffNames, _dailyCloseHistoryNames(store, 'staffPay'));
+  const payoutCandidates = _dailyCloseCandidates([...(cfg.expenseLabels || []), ...(cfg.hqOutLabels || [])], _dailyCloseHistoryNames(store, 'expenses'));
+  const disabled = readOnly ? ' disabled' : '';
+  const payAll = calc.payoutTotal + calc.staffPayTotal + calc.girlsNibaraiTotal;
+  const remainNote = `現金売上 ${_dailyCloseYen(auto.cashSales)} ＋ 売掛回収（現金）${_dailyCloseYen(auto.urikakeRepayCash)} − 出金・日払い ${_dailyCloseYen(payAll)}`;
+  return `<div id="daily-close-host" class="agg-box dc-section">
+    <style>
+${DAILY_CLOSE_SECTION_CSS}
+      .dc-auto-std{min-width:0}.dc-wide{margin-top:12px}.dc-girl-row{display:flex;justify-content:space-between;gap:8px;font-size:13px;padding:7px 0;border-bottom:1px solid var(--bdr);color:var(--tx)}
+      .dc-results.dc-results-std{grid-template-columns:repeat(3,minmax(0,1fr))}
+      @media(max-width:600px){.dc-results.dc-results-std{grid-template-columns:1fr}}
+    </style>
+    ${_dailyCloseHeadHtml(readOnly, frozen, auto)}
+    ${_dailyCloseAutoTableStandard(auto)}
+    <div class="dc-list-grid">
+      ${_dailyCloseListHtml('staffPay', L('staffPay'), record, null, readOnly, staffCandidates, `本日計 ${_dailyCloseYen(calc.staffPayTotal)}`)}
+      ${_dailyCloseGirlsBoxHtml(auto, L('girlsNibarai'))}
+    </div>
+    <div class="dc-wide">
+      ${_dailyCloseListHtml('expenses', L('payout'), record, null, readOnly, payoutCandidates, `本日計 ${_dailyCloseYen(calc.payoutTotal)}`)}
+    </div>
+    <div class="dc-field dc-note-wrap"><div class="dc-note-head"><span>${L('note')}</span><button type="button" class="dc-copy-btn" onmousedown="event.preventDefault()" onclick="dailyCloseCopyMonthNotes('${_dailyCloseAttr(src.dayKey)}')">📋 当月まとめをコピー</button></div><textarea class="dc-note" onchange="dailyCloseSetField('note',this.value)"${disabled}>${_dailyCloseAttr(record.note)}</textarea></div>
+    <div class="dc-results dc-results-std">
+      ${_dailyCloseResultCard(L('cashRemain'), _dailyCloseYen(calc.cashRemain), null, calc.cashRemain < 0 ? 'minus' : '', '', '', remainNote)}
+      ${_dailyCloseResultCard(L('grossProfit'), _dailyCloseYen(calc.grossProfit), null)}
+      ${_dailyCloseResultCard(L('profitRate'), _dailyCloseRate(calc.profitRate), null)}
+    </div>
   </div>`;
 }
 
@@ -25559,6 +25703,58 @@ function _dailyCloseReportModel(src) {
     return row;
   });
   return { src, isPast, record, auto, calc, month, tillFloat, agg, castRows, castTotal };
+}
+
+/* 標準の日報の上段4つの枠（売上／入出金／現金／損益）。標準の画面と同じ中身・同じ名前で、1日分だけ */
+function _dailyCloseStandardPrintBoxes(model) {
+  const { record, auto } = model;
+  const esc = _dailyCloseAttr;
+  const yen = _dailyCloseYen;
+  const L = key => _dailyCloseLabelHtml(key, true);
+  const num = value => (Number(value) || 0).toLocaleString('ja-JP');
+  const kv = (label, value, cls = '') => '<div class="kv' + (cls ? ' ' + cls : '') + '"><span>' + label + '</span><b>' + value + '</b></div>';
+  const calc = dailyCloseStandardCalc(record, auto);
+  const salesBox = '<section class="box"><h2>売上</h2>'
+    + '<div class="hero"><span>' + L('totalSales') + '</span><b>' + yen(auto.totalSales) + '</b></div>'
+    + kv('現金', yen(auto.cashSales), 'sub') + kv('カード', yen(auto.cardSales), 'sub') + kv('売掛', yen(auto.urikakeSales), 'sub')
+    + kv(L('urikakeRepay'), yen(auto.urikakeRepayCash + auto.urikakeRepayCard), 'gap')
+    + kv('現金', yen(auto.urikakeRepayCash), 'sub') + kv('カード', yen(auto.urikakeRepayCard), 'sub')
+    + kv(L('urikakeSales'), yen(auto.urikakeSales), 'gap')
+    + kv(L('cardSlipCount'), num(auto.cardSlipCount) + '枚')
+    + '</section>';
+  const group = (title, total, items) => '<tr class="grp"><th>' + title + '</th><td>' + yen(total) + '</td></tr>'
+    + (items.length
+      ? items.map(item => '<tr class="item"><th>' + (String(item.name || '').trim() ? esc(String(item.name).trim()) : '—') + '</th><td>' + yen(item.amount) + '</td></tr>').join('')
+      : '<tr class="item"><th>—</th><td></td></tr>');
+  // 出金は行が多くなりやすいので1列を丸ごと使う。社員日払い・女子日払いは現金残りの枠に置く（A4横1枚に収めるため）
+  const flowBox = '<section class="box"><h2>' + L('payout') + '</h2><table class="ledger"><tbody>'
+    + group(L('payout'), calc.payoutTotal, record.expenses.map(item => ({ name: item.label, amount: item.amount })))
+    + '</tbody></table></section>';
+  const cashBox = '<section class="box"><h2>現金</h2>'
+    + kv(L('cashRemain'), yen(calc.cashRemain), 'em')
+    + '<div class="formula">＝ 現金売上 ' + yen(auto.cashSales)
+    + ' ＋ 売掛回収（現金） ' + yen(auto.urikakeRepayCash)
+    + ' − ' + L('payout') + ' ' + yen(calc.payoutTotal)
+    + ' − ' + L('staffPay') + ' ' + yen(calc.staffPayTotal)
+    + ' − ' + L('girlsNibarai') + ' ' + yen(calc.girlsNibaraiTotal) + '</div>'
+    + '<table class="ledger"><tbody>'
+    + group(L('staffPay'), calc.staffPayTotal, record.staffPay.map(item => ({ name: item.name, amount: item.amount })))
+    // 女子日払いは合計だけ（1人ずつの額は下のキャストの表の「日払い」の列にある）
+    + '<tr class="grp"><th>' + L('girlsNibarai') + '</th><td>' + yen(calc.girlsNibaraiTotal) + '</td></tr>'
+    + '<tr class="item"><th><small>内訳はキャストの表の日払い</small></th><td></td></tr>'
+    + '</tbody></table>'
+    + '</section>';
+  const plBox = '<section class="box"><h2>損益</h2>'
+    + '<table class="pl"><thead><tr><th></th><th>本日</th></tr></thead><tbody>'
+    + '<tr><th>' + L('totalSales') + '</th><td>' + yen(auto.totalSales) + '</td></tr>'
+    + '<tr><th>' + L('castPayTotal') + '</th><td>' + yen(auto.castPayTotal) + '</td></tr>'
+    + '<tr><th>' + L('payout') + '</th><td>' + yen(calc.payoutTotal) + '</td></tr>'
+    + '<tr class="em"><th>' + L('grossProfit') + '</th><td>' + yen(calc.grossProfit) + '</td></tr>'
+    + '<tr class="em"><th>' + L('profitRate') + '</th><td>' + _dailyCloseRate(calc.profitRate) + '</td></tr>'
+    + '</tbody></table>'
+    + '<div class="formula">' + L('grossProfit') + ' ＝ ' + L('totalSales') + ' − ' + L('castPayTotal') + ' − ' + L('payout') + '</div>'
+    + '</section>';
+  return salesBox + flowBox + cashBox + plBox;
 }
 
 /* A4横・白黒の日報。上段に 売上／入出金／現金／損益 を4列、中段にキャストの表、下段に営業報告と確認欄。
@@ -25743,7 +25939,7 @@ function _dailyClosePrintDocument(model, now = new Date()) {
     + '<body' + (density ? ' class="' + density + '"' : '') + '>'
     + '<header class="head"><div class="shop">' + esc(shopName) + '</div><h1>日報</h1>'
     + '<div class="date"><b>' + esc(bizKeyToLabel(src.dayKey)) + '</b><span>' + status + '</span></div></header>'
-    + '<div class="grid">' + salesBox + flowBox + cashBox + plBox + '</div>'
+    + '<div class="grid">' + (dailyCloseIsCustom1() ? salesBox + flowBox + cashBox + plBox : _dailyCloseStandardPrintBoxes(model)) + '</div>'
     + castSection
     + foot
     + '<script>window.onafterprint=()=>setTimeout(()=>window.close(),100);window.onload=()=>window.print()<\/script>' // 印刷後に窓を閉じる（レシート印刷と同じ）
@@ -25769,6 +25965,7 @@ function _dailyClosePrintWindow(doc) {
 /* CSVの本文（BOMは保存時に付ける）。「区分,項目,金額,当月累計」の縦の表 → 空行 → キャストの表 → 空行 → 営業報告1行。
    金額は数字のまま（¥・桁区切りなし）、無い値は空欄。日計表のCSVと同じく全部の欄を "" で囲む */
 function _dailyCloseCsvText(model) {
+  if (!dailyCloseIsCustom1()) return _dailyCloseStandardCsvText(model);
   const { src, record, auto, calc, month, tillFloat, agg, castRows, castTotal } = model;
   const blank = value => (value === null || value === undefined) ? '' : value;
   const rate = value => value === null ? '' : (value * 100).toFixed(1);
@@ -25825,6 +26022,51 @@ function _dailyCloseCsvText(model) {
   return rows.map(row => row.map(v => '"' + String(v).replace(/"/g, '""') + '"').join(',')).join('\r\n');
 }
 
+/* 標準のCSV。項目名は標準の画面・印刷と同じ。当月累計の列なし、キャストの表・営業報告は今と同じ */
+function _dailyCloseStandardCsvText(model) {
+  const { src, record, auto, castRows, castTotal } = model;
+  const blank = value => (value === null || value === undefined) ? '' : value;
+  const L = key => dailyCloseLabel(key, true);
+  const calc = dailyCloseStandardCalc(record, auto);
+  const rows = [
+    ['店名', String(cfg.shopName || '').trim()],
+    ['営業日', bizKeyToLabel(src.dayKey)],
+    ['状態', auto.closedAt > 0 ? '確定 ' + _dailyCloseStamp(auto.closedAt) : '未確定（保存時点の値）'],
+    [],
+    ['区分', '項目', '金額'],
+  ];
+  const add = (section, item, value) => rows.push([section, item, blank(value)]);
+  add('売上', L('totalSales'), auto.totalSales);
+  add('売上', '現金', auto.cashSales);
+  add('売上', 'カード', auto.cardSales);
+  add('売上', '売掛', auto.urikakeSales);
+  add('売上', L('urikakeRepay'), auto.urikakeRepayCash + auto.urikakeRepayCard);
+  add('売上', L('urikakeRepay') + '（現金）', auto.urikakeRepayCash);
+  add('売上', L('urikakeRepay') + '（カード）', auto.urikakeRepayCard);
+  add('売上', L('urikakeSales'), auto.urikakeSales);
+  add('売上', L('cardSlipCount'), auto.cardSlipCount);
+  const list = (title, items, total) => {
+    items.forEach(item => add('入出金', title + '：' + (String(item.name || '').trim() || '—'), item.amount));
+    add('入出金', title + ' 計', total);
+  };
+  list(L('staffPay'), record.staffPay.map(item => ({ name: item.name, amount: item.amount })), calc.staffPayTotal);
+  list(L('girlsNibarai'), _dailyCloseGirlsNibaraiRows(auto), calc.girlsNibaraiTotal);
+  list(L('payout'), record.expenses.map(item => ({ name: item.label, amount: item.amount })), calc.payoutTotal);
+  add('現金', L('cashRemain'), calc.cashRemain);
+  add('損益', L('castPayTotal'), auto.castPayTotal);
+  add('損益', L('grossProfit'), calc.grossProfit);
+  add('損益', L('profitRate') + '(%)', calc.profitRate === null ? '' : (calc.profitRate * 100).toFixed(1));
+  rows.push([]);
+  rows.push(['社交名', '出勤', '退勤', '勤務時間(分)', '指名売上', '本指名', '同伴', '場内', 'バック合計', '日給', '日払い', '控除計', '差引支給']);
+  castRows.forEach(r => rows.push([r.castName, r.clockIn, r.clockOut, r.workMinutes, r.sales, r.honshimei, r.douhan, r.jonai,
+    r.backTotal, blank(r.dailyPay), r.nibarai, blank(r.deductionTotal), blank(r.netPay)]));
+  rows.push(['合計（' + castRows.length + '人）', '', '', '', castTotal.sales, castTotal.honshimei, castTotal.douhan, castTotal.jonai,
+    castTotal.backTotal, castTotal.dailyPay, castTotal.nibarai, castTotal.deductionTotal, castTotal.netPay]);
+  rows.push([]);
+  rows.push([L('note'), String(record.note || '').replace(/\r\n|\r|\n/g, ' ')]);
+  return rows.map(row => row.map(v => '"' + String(v).replace(/"/g, '""') + '"').join(',')).join('\r\n');
+}
+
 /* 💾 CSV保存: 日計表のCSV（exportPayrollCSV）と同じ保存の仕方。UTF-8 BOM付き */
 function dailyCloseExportCSV() {
   _dailyCloseFlushInput();
@@ -25849,8 +26091,9 @@ let _dailyCloseLabelDialog = null; // 開いている名称変更ダイアログ
 function _dailyCloseLabelsDialogHtml() {
   const esc = _dailyCloseAttr;
   const current = normalizeDailyCloseLabels(cfg.dailyCloseLabels);
+  const items = _dailyCloseLabelItemsNow();
   const groups = DAILY_CLOSE_LABEL_GROUPS.map(group => {
-    const rows = DAILY_CLOSE_LABEL_ITEMS.filter(item => item.group === group).map(item => `<div class="dc-label-row">
+    const rows = items.filter(item => item.group === group).map(item => `<div class="dc-label-row">
         <label class="dc-label-def" for="dc-label-${item.key}">${esc(item.screen)}${item.print ? `<small>印刷: ${esc(item.print)}</small>` : ''}</label>
         <input id="dc-label-${item.key}" class="dc-label-input" type="text" maxlength="30" autocomplete="off" data-dc-label="${item.key}" value="${esc(current[item.key] || '')}" placeholder="${esc(item.screen)}">
       </div>`).join('');
@@ -25971,11 +26214,16 @@ function dailyCloseLabelsSave() {
   const picked = {};
   _dailyCloseLabelsInputs().forEach(input => {
     const key = input.dataset && input.dataset.dcLabel;
-    const item = DAILY_CLOSE_LABEL_ITEMS.find(entry => entry.key === key);
+    const item = _dailyCloseLabelItemsNow().find(entry => entry.key === key);
     const name = String(input.value || '').trim();
     if (item && name && name !== item.screen) picked[key] = name;
   });
-  cfg.dailyCloseLabels = normalizeDailyCloseLabels(picked);
+  // いまの形式に出ない項目（もう一方の形式だけの名前）は消さずに残す
+  const shown = new Set(_dailyCloseLabelItemsNow().map(item => item.key));
+  const known = new Set([...DAILY_CLOSE_LABEL_ITEMS, ...DAILY_CLOSE_STD_LABEL_ITEMS].map(item => item.key));
+  const kept = {};
+  Object.entries(normalizeDailyCloseLabels(cfg.dailyCloseLabels)).forEach(([key, name]) => { if (known.has(key) && !shown.has(key)) kept[key] = name; });
+  cfg.dailyCloseLabels = normalizeDailyCloseLabels({ ...kept, ...picked });
   saveCfg();
   _dailyCloseRerender();
   _dailyCloseLabelsClose();
@@ -30991,20 +31239,27 @@ function renderSettingsPanel() {
     <!-- 日次締め項目 -->
     <div class="settings-section" data-setcat="slip">
       <div class="settings-section-header"><span class="settings-section-title">📒 日次締め項目</span></div>
-      <div class="settings-section-body">
+      <div class="settings-section-body" id="cfg-dailyClose-body" data-dc-preset="${cfg.dailyClosePreset === 'custom1' ? 'custom1' : 'standard'}">
         <div class="settings-row">
+          <div class="settings-label"><label for="cfg-dailyClosePreset">日次締めの形式</label><div class="settings-sub">標準は、レジ金の照合をしない簡単な形です。カスタム1は、レジ金（実際現金・計算上現金・現金誤差・振込現金）の照合つきです。切り替えても入力済みの内容は消えません</div></div>
+          <select class="settings-input" id="cfg-dailyClosePreset" style="width:280px" onchange="settingsDailyClosePresetChanged(this.value)">
+            <option value="standard" ${cfg.dailyClosePreset !== 'custom1' ? 'selected' : ''}>標準</option>
+            <option value="custom1" ${cfg.dailyClosePreset === 'custom1' ? 'selected' : ''}>カスタム1（レジ金の照合あり）</option>
+          </select>
+        </div>
+        <div class="settings-row" data-dc-only="custom1"${cfg.dailyClosePreset === 'custom1' ? '' : ' style="display:none"'}>
           <div class="settings-label">レジ常備金<div class="settings-sub">日次締めで、レジに残しておく釣り銭・準備金の金額</div></div>
           <input type="number" class="settings-input" id="cfg-tillFloat" value="${cfg.tillFloat ?? 60000}" min="0" step="1000"> 円
         </div>
         <div class="settings-row">
-          <div class="settings-label">雑費の項目<div class="settings-sub">当日の粗利に関係する支払い（粗利益から引きます）。例: おしぼり・氷・消耗品。Enterで追加、✕で削除。日次締めの内容候補に出ます</div></div>
+          <div class="settings-label"><span data-dc-expense-title>${cfg.dailyClosePreset === 'custom1' ? '雑費の項目' : '出金の項目'}</span><div class="settings-sub" data-dc-expense-sub>${cfg.dailyClosePreset === 'custom1' ? '当日の粗利に関係する支払い（粗利益から引きます）。例: おしぼり・氷・消耗品。Enterで追加、✕で削除。日次締めの内容候補に出ます' : '日次締めの出金の内容候補に出ます。粗利益から引きます'}</div></div>
           ${tagEditor('expenseLabels', cfg.expenseLabels || [])}
         </div>
-        <div class="settings-row">
+        <div class="settings-row" data-dc-only="custom1"${cfg.dailyClosePreset === 'custom1' ? '' : ' style="display:none"'}>
           <div class="settings-label">特別出金の項目<div class="settings-sub">当日の粗利に関係しない出費（粗利益から引きません）。例: 家賃・本部への入金。Enterで追加、✕で削除。日次締めの内容候補に出ます</div></div>
           ${tagEditor('hqOutLabels', cfg.hqOutLabels || [])}
         </div>
-        <div class="settings-row">
+        <div class="settings-row" data-dc-only="custom1"${cfg.dailyClosePreset === 'custom1' ? '' : ' style="display:none"'}>
           <div class="settings-label">特別入金の項目<div class="settings-sub">Enterで追加、✕で削除。日次締めの内容候補に出ます</div></div>
           ${tagEditor('specialInLabels', cfg.specialInLabels || [])}
         </div>
@@ -32252,6 +32507,7 @@ async function applySettings() {
   const cardFeeRound    = parseInt(get('cfg-cardFeeRound')?.value)    || cfg.cardFeeRound;
   const advanceFeeCredit = get('cfg-advanceFeeCredit') ? !!get('cfg-advanceFeeCredit').checked : (cfg.advanceFeeCredit !== false);
   const tillFloat       = Math.max(0, parseInt(get('cfg-tillFloat')?.value) || 0);
+  const dailyClosePreset = (get('cfg-dailyClosePreset')?.value ?? cfg.dailyClosePreset) === 'custom1' ? 'custom1' : 'standard';
   const posKeepTableAfterCheckout = get('cfg-posKeepTableAfterCheckout') ? !!get('cfg-posKeepTableAfterCheckout').checked : (cfg.posKeepTableAfterCheckout === true);
   const discountAfterTax = !!(get('cfg-discountAfterTax')?.checked);
   // 延長・課金の店ルール
@@ -32431,7 +32687,7 @@ async function applySettings() {
     extFeeHonshimeiAmts, extFeeJounaiAmts, extFeeEnchoshimeiAmts,
     extFeeOnHonshimei, extFeeOnJounai, extFeeOnEnchoshimei, extPrices, extPosHiddenRows, extPosByRow, extNames,
     extAutoShimeiFee, extBasePerSeat, extFeePerSeat, doubanAsHonshimeiExt, modoriHonshimeiAgg, modoriEnchoshimeiAgg,
-    taxRate, taxRound, discountAfterTax, cardFeeRate, cardFeeRound, advanceFeeCredit, tillFloat,
+    taxRate, taxRound, discountAfterTax, cardFeeRate, cardFeeRound, advanceFeeCredit, tillFloat, dailyClosePreset,
     posKeepTableAfterCheckout,
     receiptPrinterOff, receiptPaperWidth, screenSlipTotalOnly,
     showCountdown, fullscreenOnBoot, monitorEnabled, monitorEndpoint, monitorWriteToken, monitorReadToken, monitorOpsToken,
@@ -32808,6 +33064,21 @@ async function payrollDeductionDel(btn) {
   const row = btn.closest('tr');
   _payrollDeductionEditorMarkDirty(row);
   row?.remove();
+}
+
+/* 日次締めの形式を切り替えたとき、設定画面の行の出し分けだけ行う（値は消さない。保存は設定の保存ボタン） */
+function settingsDailyClosePresetChanged(value) {
+  const custom1 = value === 'custom1';
+  const body = document.getElementById('cfg-dailyClose-body');
+  if (!body) return;
+  body.dataset.dcPreset = custom1 ? 'custom1' : 'standard';
+  body.querySelectorAll('[data-dc-only="custom1"]').forEach(row => { row.style.display = custom1 ? '' : 'none'; });
+  const title = body.querySelector('[data-dc-expense-title]');
+  const sub = body.querySelector('[data-dc-expense-sub]');
+  if (title) title.textContent = custom1 ? '雑費の項目' : '出金の項目';
+  if (sub) sub.textContent = custom1
+    ? '当日の粗利に関係する支払い（粗利益から引きます）。例: おしぼり・氷・消耗品。Enterで追加、✕で削除。日次締めの内容候補に出ます'
+    : '日次締めの出金の内容候補に出ます。粗利益から引きます';
 }
 /* 延長自動追加の設定。cfgへ保存するまで全操作は下書きに閉じる。 */
 let _extMappingEditor = null;
@@ -35273,6 +35544,7 @@ function importableData(data) {
    次の起動で移し替えが走らなくなる（2026-10-02 Fableレビュー） */
 function reloadAfterImport() {
   loadCfg();
+  migrateDailyClosePreset();
   loadState();
   migrateShimeiExtModel();
   ensureShopId();
@@ -35383,7 +35655,7 @@ function onImportFileSelected(input) {
         saveState();
         if (legacyBackups)  saveBackups(legacyBackups);
         if (legacyCust)     saveCustomers(legacyCust);
-        if (legacySettings) { cfg = mergeCfgDefaults(legacySettings); saveCfg(); }
+        if (legacySettings) { cfg = mergeCfgDefaults({ dailyClosePreset: cfg.dailyClosePreset, ...legacySettings }); saveCfg(); }  // 旧形式には日次締めの形式が無いので、端末の今の形式を引き継ぐ
         ensureStableIds();
       }
 
@@ -35656,6 +35928,7 @@ async function __boot() {
   _purgeStaleDevTime();
 
   loadCfg();
+  migrateDailyClosePreset();   // 設定の読込直後・店舗IDの保存より前（先に保存すると標準が書かれてしまう）
   loadState();
   migrateShimeiExtModel();
   try { repairShotStoreSpBacks(); } catch (e) { console.error('[init] shot SP repair failed:', e); }
