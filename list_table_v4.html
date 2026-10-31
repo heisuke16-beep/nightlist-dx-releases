@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.111">
+<meta name="app-version" content="1.1.112">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -1497,6 +1497,7 @@ body[data-tab-slide="prev"] > div:not(.hidden)[id$="-panel"] { animation: tab-sl
   line-height: 1.3;
 }
 .pos-slip-timer-wrap { text-align: right; cursor: pointer; }
+.pos-slip-timer-wrap.static { cursor: default; }
 .pos-slip-header-right { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; max-width: 60%; }
 .pos-slip-advance-mini { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; text-align: right; }
 .pos-slip-advance-badge {
@@ -4754,6 +4755,18 @@ html[data-display="tablet"] #list-table .col-ctrl-btn { min-width: 32px; min-hei
   border-radius: 8px;
   background: rgba(77,184,255,.08);
 }
+/* 時間を巻く（2026-10-30 chuchu）: 残り時間の両側に「−1分」「＋1分」。330pxの伝票に収めるため、見出しの2行目に置く */
+#pos-panel .pos-order-slip-timerrow { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; }
+#pos-panel .pos-order-slip-remainwrap { display: flex; flex-direction: column; align-items: center; flex: 1 1 auto; min-width: 0; }
+#pos-panel .pos-order-slip-timerrow .pos-order-slip-remain { margin: 0; align-items: center; }
+#pos-panel .pos-order-slip-windbtn {
+  flex: 0 0 auto; min-width: 74px; min-height: 46px; padding: 4px 12px;
+  background: var(--pos-panel2); border: 1px solid var(--pos-line); border-radius: 9px;
+  color: var(--pos-tx); font: inherit; font-size: 15px; font-weight: 700; letter-spacing: .02em; cursor: pointer;
+}
+#pos-panel .pos-order-slip-windbtn:active { border-color: var(--pos-amber); }
+#pos-panel .pos-order-slip-windbtn:disabled { opacity: .35; cursor: default; }
+#pos-panel .pos-order-slip-windnote { margin-top: 1px; color: var(--pos-amber); font-size: 10px; font-weight: 700; letter-spacing: .04em; }
 #pos-panel .pos-order-slip-meta {
   display: flex;
   flex-wrap: wrap;
@@ -10188,7 +10201,7 @@ const CFG_DEFAULTS = {
   payrollBottleSpRate:           0.2,   // SP参考値の率（ボトル小計×rate）。最終額は手入力優先。
   payrollSpMode:                 'percent', // 店標準SP。既存データは従来の率を維持。
   payrollSpFixed:                0, // 円モードの1本あたり額。率とは別に保持。
-  payrollSplitRoundUnit:         1, // キャスト折半の1人分の端数単位（1 | 10 | 100）。1=人数割りで合計をバック額にそろえる。10/100=その単位未満を切り捨て、残りは店の取り分（2026-10-30 chuchu）
+  payrollSplitRoundUnit:         1, // バックの端数（画面の名前）。率（%）で決まるバックの1人分の端数単位（1 | 10 | 100）。1=今まで通り（折半は人数割りで合計をバック額にそろえる）。10/100=その単位未満を切り捨て、残りは店の取り分。対象: キャスト折半の1人分・本指名/同伴の小計×率・ボトル/ショットの店標準SP%/個別SP%（2026-10-30 chuchu）
   defaultWage:                   0,     // 店標準時給（円/時）。キャスト個別の時給が空欄のときに適用。既定0=なしなので店が設定しない限り挙動不変。
   // --- ポイント設定（キャスト評価用。給与計算とは独立） ---
   pointsEnabled: false,
@@ -10257,7 +10270,7 @@ function normalizePayrollDeductionDisplayField(value) {
   return value === 'nominatedSales' ? 'nominatedSales' : 'dailyPay';
 }
 
-/* キャスト折半の端数単位（2026-10-30）。1・10・100 以外（壊れた保存値）は 1（今まで通り）に戻す */
+/* バックの端数単位（2026-10-30。キー名は payrollSplitRoundUnit のまま）。1・10・100 以外（壊れた保存値）は 1（今まで通り）に戻す */
 function normalizePayrollSplitRoundUnit(value) {
   const n = Number(value);
   return n === 10 || n === 100 ? n : 1;
@@ -11730,7 +11743,20 @@ function normalizeRow(row, ctx) {
 /* ================================================================
    CALC END TIME
 ================================================================ */
-function calcEndMin(row, rows = []) {
+/* 伝票を「巻いた」分（分。2026-10-30 chuchu）。組の先頭の行 posWindMin に持ち、同じ組の全員に効く。
+   巻いた時刻・回数・操作者は残さない。先頭以外の行は、渡された rows から同じ組の先頭の行を探す
+   （_indivTime の行も組の先頭の行の値を使う）。見つからなければ巻いていない扱い。 */
+function posWindMinOf(row, rows = []) {
+  if (!row) return 0;
+  const first = row.isFirst ? row
+    : ((Array.isArray(rows) ? rows : []).find(r => r.gid === row.gid && r.isFirst) || null);
+  if (!first) return 0;
+  const value = Math.floor(Number(first.posWindMin));
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+/* 巻く前の終了時刻（セット＋延長）。巻ける上限は、これと開始時刻の差 */
+function calcEndMinUnwound(row, rows = []) {
   // SETは追加順の先頭が最新。人数・単価ではなく、明細の開始〜終了を基本時間に使う。
   // 子行のSET明細は先頭行に集約されているため、呼出元の同じ営業日から参照する。
   const owner = !row.isFirst && !row._indivTime
@@ -11743,6 +11769,13 @@ function calcEndMin(row, rows = []) {
   const base = set ? set.endMin - set.startMin : (row.mainType === 'douban' ? (cfg.dohanStay || 60) : getDefStay());
   const ext = row.extensions.reduce((s, v) => s + (parseInt(v) || 0), 0);
   return Math.min(getTimeMax(), row.startMin + base + ext);
+}
+
+function calcEndMin(row, rows = []) {
+  const end = calcEndMinUnwound(row, rows);
+  // 巻いた分だけ終了時刻を早める（料金は変えない）。開始時刻より前にはならない。巻いていなければ今までと同じ
+  const wind = posWindMinOf(row, rows);
+  return wind > 0 ? Math.max(row.startMin, end - wind) : end;
 }
 
 /* ================================================================
@@ -11883,7 +11916,12 @@ function updateRowIndivTime(id, field, value) {
   if (field === 'startMin') {
     // 開始変更時は終了も追従（延長なければ）
     const ext = row.extensions.reduce((s,v)=>s+(parseInt(v)||0),0);
-    if (ext === 0) row.endMin = Math.min(getTimeMax(), value + getDefStay());
+    if (ext === 0) {
+      row.endMin = Math.min(getTimeMax(), value + getDefStay());
+      // 組を巻いている（posWindMin）ときは、個別の時刻の行にも同じだけ効く（2026-10-30）
+      const wind = posWindMinOf(row, state.rows);
+      if (wind > 0) row.endMin = Math.max(value, row.endMin - wind);
+    }
   }
   _syncPosSetTimes(row);
   renderTable(); saveState();
@@ -12648,7 +12686,9 @@ function castSpBackConfig(name) {
 function castSpBackYen(name, amount, category) {
   if (!['bottle', 'shot'].includes(category)) return null;
   const setting = castSpBackConfig(name);
-  return setting ? Math.round(setting.mode === 'yen' ? setting.value : (Number(amount) || 0) * setting.value / 100) : null;
+  if (!setting) return null;
+  // 円で決めた額はそのまま。%のときは「バックの端数」の設定で1人分を切り捨てる（2026-10-30 chuchu。単位1なら今までの四捨五入）
+  return setting.mode === 'yen' ? Math.round(setting.value) : payrollRateBackAmount((Number(amount) || 0) * setting.value / 100);
 }
 function setCastSpBack(name, value) {
   const mode = castSpBackMode(name);
@@ -15781,7 +15821,7 @@ function resolvePosCatLayout(settings) {
   });
   return resolved;
 }
-let posBetaState = { selectedGid: null, category: 'set', sort: 'reg', viewMode: 'slip', slipView: 'floor', assignCast: null, assignShowtime: false };
+let posBetaState = { selectedGid: null, category: 'set', sort: 'reg', viewMode: 'slip', slipView: 'floor', assignCast: null, assignShowtime: false, windOpenGid: null };
 const POS_SHOWTIME_DRAG_TYPE = 'application/x-nightlist-showtime';
 
 function posMoney(n) { return (Number(n)||0).toLocaleString('ja-JP'); }
@@ -16730,7 +16770,8 @@ function _posSeatLineItems(row, side) {
   })();
   // SETオーダーがある場合はオーダー側で表示するため、SET基本ラインは出さない
   const _hasSetOrder = Array.isArray(row.posOrders) && row.posOrders.some(o => o.category === 'set');
-  const items = (_hasSetOrder || row.posManaged) ? [] : [{ label: posItemLabel('set') + ':' + minToHHMM(row.startMin) + '-' + minToHHMM(row.endMin), amount: baseSet }];
+  // labelNoTime: 時刻を付けない名前。時間を巻いた伝票は、印刷する会計伝票（とお客様に見せる画面）にセットの時刻を出さない（2026-10-30。_receiptDetailRows）
+  const items = (_hasSetOrder || row.posManaged) ? [] : [{ label: posItemLabel('set') + ':' + minToHHMM(row.startMin) + '-' + minToHHMM(row.endMin), amount: baseSet, labelNoTime: posItemLabel('set') }];
   // 指名明細がオーダーにある場合、mainType由来の指名ラインは重複表示しない
   const _groupOrderRow = state.rows.find(r => r.gid === row.gid && r.isFirst) || row;
   const _mainCat = { honshimei:'nominate', douban:'dohan', jounai:'jonai' }[row.mainType];
@@ -17157,7 +17198,11 @@ function _posTimerBlockHtml(t) {
 function _posSlipTimerBlock(row) {
   const t = _posSlipTimerText(row);
   if (!t.text) return '';
-  return '<div class="pos-slip-timer-wrap" data-gid="' + row.gid + '" onclick="event.stopPropagation();posToggleWait()">'
+  // 残り時間を押しても待機にならない（2026-10-30。時間を巻く機能に置き換え）。押しても何も起きない（カードの遷移にも化けない）。
+  // 更新前から待機中（posWaitStart）の伝票だけ、今までどおり「待機中」と出して、押すと再開する。
+  const waiting = !!row.posWaitStart;
+  return '<div class="pos-slip-timer-wrap' + (waiting ? '' : ' static') + '" data-gid="' + row.gid + '"'
+       + ' onclick="event.stopPropagation();' + (waiting ? 'posToggleWait(' + row.gid + ')' : '') + '">'
        + _posTimerBlockHtml(t) + '</div>';
 }
 
@@ -17228,8 +17273,9 @@ function _posTimerTick() {
     const t = _posSlipTimerText(row);
     const status = _posFloorStatus(t);
     el.className = 'pos-order-slip-remain status-' + status;
+    // 待機中の伝票は押すと再開。ふつうの伝票は押すと「−1分」「＋1分」を出し入れする（2026-10-30）
     el.disabled = false;
-    el.setAttribute('onclick', 'posToggleWait()');
+    el.setAttribute('onclick', (row.posWaitStart ? 'posToggleWait(' : 'posWindToggle(') + row.gid + ')');
     el.innerHTML = _posOrderTimerHtml(t);
   });
 }
@@ -17242,29 +17288,68 @@ function _posStopTimer() {
   if (_posTimerInterval) { clearInterval(_posTimerInterval); _posTimerInterval = null; }
 }
 
-/* 待機モード切替。
+/* 待機中の伝票を再開する。
+   2026-10-30: 残り時間を押して新しく待機に入る操作はやめた（時間を巻く機能 posWindAdjust に置き換え。オーナー指示）。
+   更新の時点で待機中（posWaitStart あり）の伝票が動かせなくならないよう、再開の処理だけ残している。待機中でない伝票には何もしない。
+   gid を渡すとその伝票を、渡さなければ選択中の伝票を再開する。
    再開時は止めていた分だけSET明細の終了時刻を後ろへずらす。こうすると calcEndMin の基本時間が伸び、
    卓カードの残り・リスト表の終了時刻・延長料金のご案内・精算がすべて同じ終了時刻で揃う
    （従来は残り時間にだけ足していたため表示と食い違い、セット入れ直しでも消えなかった。2026-09-19 オーナー報告）。 */
-function posToggleWait() {
-  const row = posSelectedRow(); if (!row) return;
+function posToggleWait(gid) {
+  const row = gid != null
+    ? state.rows.find(r => r.isFirst && String(r.gid) === String(gid))
+    : posSelectedRow();
+  if (!row || !row.posWaitStart) return;
   pushUndo();
-  if (row.posWaitStart) {
-    const pausedMs = Math.max(0, Date.now() - row.posWaitStart);
-    row.posTotalWaitMs = (row.posTotalWaitMs || 0) + pausedMs;
-    row.posWaitStart = 0;
-    const pausedMin = Math.round(pausedMs / 60000);
-    if (pausedMin > 0) {
-      const set = posOrders(row).find(o => o.category === 'set'
-        && Number.isFinite(o.startMin) && Number.isFinite(o.endMin) && o.endMin > o.startMin);
-      if (set) set.endMin += pausedMin;
-      state.rows.filter(r => r.gid === row.gid).forEach(r => { r.endMin = calcEndMin(r, state.rows); });
-    }
-  } else {
-    row.posWaitStart = Date.now();
+  const pausedMs = Math.max(0, Date.now() - row.posWaitStart);
+  row.posTotalWaitMs = (row.posTotalWaitMs || 0) + pausedMs;
+  row.posWaitStart = 0;
+  const pausedMin = Math.round(pausedMs / 60000);
+  if (pausedMin > 0) {
+    const set = posOrders(row).find(o => o.category === 'set'
+      && Number.isFinite(o.startMin) && Number.isFinite(o.endMin) && o.endMin > o.startMin);
+    if (set) set.endMin += pausedMin;
+    state.rows.filter(r => r.gid === row.gid).forEach(r => { r.endMin = calcEndMin(r, state.rows); });
   }
   saveState();
   renderTable();
+  renderPOSPanel();
+}
+
+/* 時間を巻く（2026-10-30 chuchu）。卓の終了時刻だけを1分ずつ早める。料金は変えない（延長の数・セット料金・税サはそのまま）。
+   巻いた分（分）は伝票の先頭の行 posWindMin に持つ（巻いた時刻・回数・操作者は残さない）。終了時刻は calcEndMin が
+   「セット＋延長 − 巻いた分」で出すので、卓カードの残り・リスト表の終了時刻・モニターが同じ時刻で揃う。
+   delta が正＝「−1分」ボタン（1分巻く）、負＝「＋1分」ボタン（1分戻す）。0未満にも、巻く前の終了時刻−開始時刻（上限）超えにもならない。
+   「元に戻す（↩）」の履歴には積まない（＋1分が戻す操作）。待機中でも押せる。 */
+function posWindLimit(row) {
+  return Math.max(0, calcEndMinUnwound(row, state.rows) - (Number(row.startMin) || 0));
+}
+function posWindAdjust(delta, gid) {
+  const row = gid != null
+    ? state.rows.find(r => r.isFirst && String(r.gid) === String(gid))
+    : posSelectedRow();
+  if (!row || !_posSlipTimerText(row).text) return;   // 残り時間が出ていない伝票（SETがまだ無い伝票）は巻けない
+  const limit = posWindLimit(row);
+  const stored = posWindMinOf(row);
+  const current = Math.min(stored, limit);   // 延長を消して上限が縮んでいても、押した分が見た目に効くよう上限にそろえる
+  const next = Math.min(limit, Math.max(0, current + (Number(delta) > 0 ? 1 : -1)));
+  if (next === stored) return;
+  const step = next - stored;
+  row.posWindMin = next;
+  // 組の全員の終了時刻を計算し直す。先頭の行を基準に揃える（延長の追加・削除と同じ）。
+  // 個別に時刻を直した行（_indivTime）だけは、直した終了時刻を失わないよう巻いた分だけずらす。
+  const newEnd = calcEndMin(row, state.rows);
+  state.rows.filter(r => r.gid === row.gid).forEach(r => {
+    r.endMin = (r._indivTime && !r.isFirst) ? Math.max(Number(r.startMin) || 0, (Number(r.endMin) || 0) - step) : newEnd;
+  });
+  saveState();
+  renderTable();
+  renderPOSPanel();
+}
+/* 注文画面の残り時間を押すと「−1分」「＋1分」を出し、もう一度押すと閉じる（2026-10-30 オーナー指示）。既定は閉じている。
+   開くのは選んでいる伝票1枚だけで、伝票を選び直すと閉じる。画面だけの状態なので保存しない。 */
+function posWindToggle(gid) {
+  posBetaState.windOpenGid = String(posBetaState.windOpenGid) === String(gid) ? null : gid;
   renderPOSPanel();
 }
 
@@ -17427,6 +17512,33 @@ function renderPOSSlipSheetView(firsts, selected) {
   return '<div class="pos-slip-sheet-wrap">' + cards + '</div>';
 }
 
+/* 注文画面の伝票の見出しの、残り時間と時間を巻くボタン（2026-10-30 chuchu）。
+   残り時間の両側に「−1分」（終了時刻を1分早める＝巻く）と「＋1分」（巻いた分を1分戻す）を置く。押しやすい大きさ。
+   巻いている間は残り時間の下に「巻き 5分」を小さく出す（店内の画面だけ。印刷物には出さない）。
+   SETがまだ無い伝票（残り時間が出ない伝票）には何も出さない。
+   残り時間そのものは押しても何も起きない。更新前から待機中の伝票だけ、押すと再開する。 */
+function _posOrderTimerRowHtml(r, timer, status) {
+  if (!timer || !timer.text) return '';
+  const limit = posWindLimit(r);
+  const wind = Math.min(posWindMinOf(r), limit);
+  const waiting = !!r.posWaitStart;
+  // 残り時間を押すと「−1分」「＋1分」が出て、もう一度押すと閉じる（既定は閉じている）。待機中の伝票は押すと再開
+  const open = String(posBetaState.windOpenGid) === String(r.gid);
+  return '<div class="pos-order-slip-timerrow">'
+    + (open ? '<button type="button" class="pos-order-slip-windbtn" onclick="posWindAdjust(1,' + r.gid + ')"' + (wind >= limit ? ' disabled' : '')
+    +   ' aria-label="終了時刻を1分早める" title="終了時刻を1分早める（料金は変わりません）">−1分</button>' : '')
+    + '<div class="pos-order-slip-remainwrap">'
+    +   '<button type="button" class="pos-order-slip-remain status-' + status + '" data-gid="' + r.gid + '"'
+    +   ' onclick="' + (waiting ? 'posToggleWait(' : 'posWindToggle(') + r.gid + ')"'
+    +   (waiting ? '' : ' aria-expanded="' + open + '" title="押すと時間を巻くボタンを' + (open ? '閉じます' : '出します') + '"')
+    +   '>' + _posOrderTimerHtml(timer) + '</button>'
+    +   (wind > 0 ? '<small class="pos-order-slip-windnote">巻き ' + wind + '分</small>' : '')
+    + '</div>'
+    + (open ? '<button type="button" class="pos-order-slip-windbtn" onclick="posWindAdjust(-1,' + r.gid + ')"' + (wind <= 0 ? ' disabled' : '')
+    +   ' aria-label="巻いた分を1分戻す" title="巻いた分を1分戻す">＋1分</button>' : '')
+    + '</div>';
+}
+
 function _posOrderSlipPanel(r) {
   const orders = posOrders(r);
   const seatBill = calcBill(r);
@@ -17493,8 +17605,8 @@ function _posOrderSlipPanel(r) {
     + '<div class="pos-order-slip-headrow"><span class="pos-order-slip-table">' + tableHTML + '</span>'
     + '<button type="button" class="pos-order-slip-people" onclick="posOpenDepartedModal()" aria-label="人数を調整" title="いま卓にいる人数（入店記録は人数の調整で確認できます）"><small>人数 ±</small><b>' + escHtml(String(_posCurrentGuests(r))) + '名</b></button>'
     + '<span class="pos-order-slip-elapsed"><small>経過</small><b data-pos-elapsed-gid="' + r.gid + '">' + _posElapsedText(r) + '</b></span>'
-    + (timer.text ? '<button class="pos-order-slip-remain status-' + status + '" data-gid="' + r.gid + '" onclick="posToggleWait()">' + _posOrderTimerHtml(timer) + '</button>' : '')
     + '</div>'
+    + _posOrderTimerRowHtml(r, timer, status)
     + '<div class="pos-order-slip-meta"><span>来店 ' + escHtml(source) + '</span></div>'
     + '<div class="pos-order-slip-casts">' + casts + '</div>'
     + castHistory
@@ -18432,6 +18544,7 @@ function posOpenSlipOrder(gid) {
 
 function posSlipSelect(gid) {
   posBetaState.selectedGid = gid;
+  posBetaState.windOpenGid = null;   // 伝票を選び直したら巻くボタンは閉じる
   renderPOSPanel();
 }
 async function posDeleteSlip() {
@@ -22814,7 +22927,9 @@ function _aggPercentBackRate(role, subtotal) {
 /* 伝票ごとの率バックを指名者へ分ける。対象額 base ＝ max(小計 − 指名者のドリンク代 − 折半の品の代金, 0)。
    役割ごとの設定（本指名 payrollHonshimeiBackBase／同伴 payrollDouhanBackBase）が 'subtotal' なら何も引かず base ＝ 小計（2026-10-29）。
    指名者が複数なら指名売上（nameGroups）と同じ重み（nominateShares・卓をまとめた組）で base を分ける。
-   1伝票分のバック ＝ round(分けた base × 率 / 100)。 */
+   1伝票分のバック ＝ round(分けた base × 率 / 100)。
+   「バックの端数」（cfg.payrollSplitRoundUnit）が10・100なら、四捨五入のかわりに1人分（分けたあとの base × 率）を単位未満で切り捨てる
+   （切り捨てた分は店の取り分。2026-10-30 chuchu。payrollRateBackAmount）。日給内訳に出す金額（amount）もこの切り捨て後。 */
 function _aggPercentBackByCast(settled, slipInfo, nominateGroupRows, shimeiNominateTypes) {
   const result = {};
   (settled || []).forEach(r => {
@@ -22841,7 +22956,7 @@ function _aggPercentBackByCast(settled, slipInfo, nominateGroupRows, shimeiNomin
       (result[cast] = result[cast] || []).push({
         rowId: r.id, slipLabel: slipNoLabel(r), role,
         subtotal: info.subtotal, nomDrinkAmt: info.nomDrinkAmt, marginAmt: info.marginAmt,
-        base, share, rate, amount: Math.round(share * rate / 100),
+        base, share, rate, amount: payrollRateBackAmount(share * rate / 100),
       });
     });
   });
@@ -27152,6 +27267,10 @@ function _receiptDetailRows(row, minRows, showSetTime = true) {
   const orders = posOrders(row);
   const orderPricing = posOrderPricing(row, 0);
   const itemRows = [];
+  // 時間を巻いた伝票（posWindMin > 0）は、設定「セット時間帯を表示」がオンでもセットの時刻を出さない（2026-10-30 chuchu）。
+  // 項目（セットの行と金額）は残す。印刷と、お客様に見せる画面（35c-screen-sheet.js）の両方がこの関数を通る。端末の店内の画面（注文画面・伝票カード）は消さない
+  const wound = posWindMinOf(row) > 0;
+  if (wound) showSetTime = false;
   // merged: 同じ商品をまとめた行（数と金額はまとめた合計）。SETは時間が違うので1件ずつ出す
   const orderTr = (o, merged) => {
     let label = escHtml(o.name);
@@ -27171,7 +27290,9 @@ function _receiptDetailRows(row, minRows, showSetTime = true) {
       const q = Number(item.qty) || 1;
       // extra: 空場内の繰延上乗せ（延長ラウンド単位の定額）。qtyに掛けず金額へ直接加算する。
       const lineTotal = (Number(item.amount) || 0) * q + (Number(item.extra) || 0);
-      out.push('<tr><td>' + escHtml(item.label) + '</td><td class="q">' + q + '</td><td class="a">' + lineTotal.toLocaleString() + '</td></tr>');
+      // POSで作っていない旧形式の伝票のセットの行（SET:20:00-20:40）も、巻いた伝票は時刻を付けない
+      const label = wound && item.labelNoTime ? item.labelNoTime : item.label;
+      out.push('<tr><td>' + escHtml(label) + '</td><td class="q">' + q + '</td><td class="a">' + lineTotal.toLocaleString() + '</td></tr>');
     });
     _receiptMergedOrderLines(list.filter(o => o.category !== 'set' && o.category !== 'jonai_empty'), orderPricing)
       .forEach(line => out.push(orderTr(line.order, line)));
@@ -27721,8 +27842,10 @@ async function posAddItem(name, amount, category, spShares) {
   // キャスト1人に付けたボトルは、個別SPもメニューのバック額も無ければ店標準SPを使う。
   // 以前は折半の時だけ店標準SPを使い、1人に付けるとバック0円だった（2026-09-29 オーナー決定・ギャルサークル報告）。
   // ショットは対象外。バックの無いショットは指D/Dの本数で払う店があり、v1.1.53で含めたら本数から外れた（2026-09-30 修正）
+  // 率（%）で決まる1人分（店標準SP%・個別SP%）は「バックの端数」の設定で切り捨てる（2026-10-30 chuchu。calcStoreSpForOneCast・castSpBackYen）。
+  // 折半のバック額（calcSpReference）はここでは使わない
   const storeSpBack = personalBack == null && !spShares && !isSpecial && cast && state.allCasts.includes(cast)
-    && category === 'bottle' && String(backValue ?? '').trim() === '' ? calcSpReference(amt) : null;
+    && category === 'bottle' && String(backValue ?? '').trim() === '' ? calcStoreSpForOneCast(amt) : null;
   // 折半バック（メニューで「折半」にした品をキャストに付けた時）は個人SP・店SP・メニューのバック欄より優先する（2026-10-23）
   const marginBackYen = !spShares && !isSpecial && cast && state.allCasts.includes(cast) ? posMarginBackYen(item, amt) : null;
   const castBack = marginBackYen != null ? marginBackYen : (personalBack != null ? personalBack : storeSpBack);
@@ -32961,7 +33084,7 @@ function _payrollSettingsModalHtml() {
             <span data-sp-value="yen" ${cfg.payrollSpMode === 'yen' ? '' : 'hidden'}>${num('payrollSpFixed','店標準SP額',0,0,null,1)}</span>
             <div role="group" aria-label="店標準SPの単位" class="back-unit-toggle"><button type="button" aria-label="店標準SPの単位: %" aria-pressed="${cfg.payrollSpMode !== 'yen'}" onclick="payrollSpModeSelect('percent')">%</button><button type="button" aria-label="店標準SPの単位: 円" aria-pressed="${cfg.payrollSpMode === 'yen'}" onclick="payrollSpModeSelect('yen')">円</button></div>
           </div></div>
-          <div class="pay-settings-row"><div><label for="cfg-payrollSplitRoundUnit">キャスト折半の端数</label><p>ボトル・ショットのキャスト折半で、1人分の初期値の端数をどうするか。切り捨てにすると、金額は1人ずつ自由に直せ、バック額に足りない分は店の取り分になります。</p></div><div class="pay-settings-inputs"><select id="cfg-payrollSplitRoundUnit" class="settings-input">${options([[1,'1円単位まで配る（合計をバック額にそろえる）'],[10,'10円未満を切り捨て（残りは店の取り分）'],[100,'100円未満を切り捨て（残りは店の取り分）']], normalizePayrollSplitRoundUnit(cfg.payrollSplitRoundUnit))}</select></div></div>
+          <div class="pay-settings-row"><div><label for="cfg-payrollSplitRoundUnit">バックの端数</label><p>率（%）で計算するバックの、1人分の端数をどうするか。対象は、キャスト折半の1人分、本指名・同伴の小計×率（指名が複数のときは分けたあとの1人分）、ボトル・ショットの店標準SP・個別SP（%のとき）。本数×単価や円で決めたバックはそのままです。切り捨てた分は店の取り分です。キャスト折半の金額は1人ずつ自由に直せます。</p></div><div class="pay-settings-inputs"><select id="cfg-payrollSplitRoundUnit" class="settings-input">${options([[1,'1円単位（今まで通り）'],[10,'10円未満を切り捨て（残りは店の取り分）'],[100,'100円未満を切り捨て（残りは店の取り分）']], normalizePayrollSplitRoundUnit(cfg.payrollSplitRoundUnit))}</select></div></div>
           <details class="pay-settings-details"><summary>バックの計算を確認</summary><p>バック ＝ 伝票から集計した本数 × 単価 ＋ SP（「SPを日給に含める」がONのとき）。単価はキャスト個別設定を優先し、空欄なら既定バックを使います。本数は日計表で修正できます。</p><p>SPは、日計表で手入力した額・キャスト折半の分・注文に付いたバック（ボトル・ショットやメニューのバック額）の合計です。キャスト1人に付けたボトルは、個別SP → メニューのバック額 → 店標準SP の順で決まります。ショットはメニューにバック額がある時だけSPになり、無ければ指D/Dの本数で数えます。</p><p>給率 ＝ 日給 ÷ キャストの帰属売上 × 100（参考値）。</p></details>
         </section>
         <section id="pay-settings-group-deductions" role="tabpanel" aria-labelledby="pay-settings-tab-deductions" data-pay-group="deductions" hidden>
@@ -33216,7 +33339,7 @@ function _collectPayrollSettings(overlay) {
     const value = el.value === '' ? Number(el.dataset.fallback) : Number(el.value);
     result[key] = Number.isFinite(value) ? Math.max(0, value) : (Number(el.dataset.fallback) || 0);
   });
-  // キャスト折半の端数単位（2026-10-30）。入力欄が無い画面では今の設定のまま
+  // バックの端数単位（2026-10-30。画面の名前は「バックの端数」）。入力欄が無い画面では今の設定のまま
   result.payrollSplitRoundUnit = normalizePayrollSplitRoundUnit(get('payrollSplitRoundUnit') ? get('payrollSplitRoundUnit').value : cfg.payrollSplitRoundUnit);
   result.payrollCustomBacks = _collectPayrollCustomBacks(overlay);
   result.payrollMergeDrinks = get('payrollMergeDrinks')?.checked === true;
@@ -36573,6 +36696,24 @@ function calcSpReference(bottleSubtotal, opts) {
   if (opts?.spRate == null && cfg.payrollSpMode === 'yen') return Math.max(0, Math.round(Number(cfg.payrollSpFixed) || 0));
   const sub = Number(bottleSubtotal) || 0;
   return Math.round(sub * c.spRate);
+}
+
+/* 率（%）で決まるバックの1人分を、端数の設定（cfg.payrollSplitRoundUnit。画面では「バックの端数」）で整える（2026-10-30 chuchu）。
+   1（既定）＝今までどおり四捨五入。10・100＝その単位未満を切り捨て（切り捨てた分は店の取り分で、どこにも記録しない）。
+   切り捨て方はキャスト折半の1人分（_castSplitFloorShare）と同じ。使う所:
+   本指名・同伴の小計×率のバック（_aggPercentBackByCast）と、ボトル・ショットを1人に付けたときの店標準SP%・個別SP%（posAddItem）。
+   折半のバック額（calcSpReference＝backTotal）はここを通さない。円で決めた額・本数×単価・メニューのバック額・控除・時給も対象外。 */
+function payrollRateBackAmount(rawYen) {
+  const value = Number(rawYen) || 0;
+  const unit = normalizePayrollSplitRoundUnit(cfg.payrollSplitRoundUnit);
+  return unit > 1 ? Math.floor(Number((value / unit).toPrecision(12))) * unit : Math.round(value);
+}
+
+/* ボトルをキャスト1人に付けたときの店標準SP。円（payrollSpMode:'yen'）はそのまま、%は上の端数の設定で切り捨てる。
+   calcSpReference は折半のバック額（backTotal）にも使うので変えず、1人分が決まるここで切る。 */
+function calcStoreSpForOneCast(bottleSubtotal) {
+  if (cfg.payrollSpMode === 'yen') return calcSpReference(bottleSubtotal);
+  return payrollRateBackAmount((Number(bottleSubtotal) || 0) * _payrollCfg().spRate);
 }
 
 /* ================================================================
