@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.113">
+<meta name="app-version" content="1.1.114">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -8150,6 +8150,7 @@ function _isAppModalOrOverlayOpen() {
 async function _confirmAppExit() {
   const ok = await appConfirm('NightListを終了しますか？', { danger: true });
   if (!ok) return;
+  if (typeof flushCustomerSync === 'function') flushCustomerSync();   // 精算のあと待っている顧客の再集計を済ませてから閉じる（39）
   saveState();
   await UsbStore.flush();   // 非USBモード・デモモード中はflush内部で自動的にno-op
   _appExitIntent = true;
@@ -10642,6 +10643,7 @@ async function demoModeStart() {
   if (typeof _settingsResolveDirtyBeforeRerender === 'function') await _settingsResolveDirtyBeforeRerender();
   const ok = await appConfirm('デモモードを開始します。デモ中の伝票・リスト表の操作（作成・編集・精算など）は保存されず、終了するとデモ開始前の状態に戻ります。設定タブで「保存する」を押した内容（料金・メニュー・店ルールなど）はデモ中でも保存されます。ただし、キャストの単価・料金マスターのバック列・キャスト名簿の変更は、終了すると元に戻ります。');
   if (!ok) return;
+  if (typeof flushCustomerSync === 'function') flushCustomerSync();   // 待っている顧客の再集計はデモに入る前に済ませる（デモ中に走ると保存されない。39）
   saveState();
   await UsbStore.flush();
   if (UsbStore._dirty.size > 0) {
@@ -11009,12 +11011,29 @@ function startAutoSave() {
     autoSave();
   }, 120000); // 2分ごと（従来10分）
 }
+/* 前回の自動保存で書いた今日の中身（保存時刻を除く）と、その直後の控えの目印。
+   自動保存は全営業日の控えを読み直して書き直すので、データの多い店ではそのたびにメモリを一時的に大きく使う。
+   今日の中身が前回から変わっておらず、控えも誰にも書き換えられていなければ、読みも書きもしない
+   （2026-11-01 アンベリールの「Out of Memory」）。
+   目印は、保存先の入れ物・控えの書き込み回数・控えの長さ。ほかの処理が控えを書き換えた時や、保存先を読み直した時は変わるので、保存し直す。
+   控えの文字列そのものは持たない（書き換えられた後も古い控えがメモリに残ってしまうため）。 */
+let _autoSaveLast = null;
+const _autoSaveStoreIds = new WeakMap();
+let _autoSaveNextStoreId = 0;
+function _backupsStoreMark() {
+  if (typeof UsbStore === 'undefined' || !UsbStore || !UsbStore.cache || typeof UsbStore.readSync !== 'function') return null;
+  const raw = UsbStore.readSync('backups');
+  if (typeof raw !== 'string') return null;
+  let id = _autoSaveStoreIds.get(UsbStore.cache);
+  if (!id) { id = ++_autoSaveNextStoreId; _autoSaveStoreIds.set(UsbStore.cache, id); }
+  return id + ':' + ((UsbStore._rev || {}).backups || 0) + ':' + raw.length;
+}
 function autoSave() {
   const dayKey = state._restoredFromKey || getBizDayKey();
   const guests = state.rows.length;
   const sales  = state.rows.filter(r => r.isFirst && r.settled)
     .reduce((s,r) => s + rowSales(r), 0);
-  const snap = {
+  const body = {
     dayKey,
     rows: state.rows, nextGid: state.nextGid, nextGuest: state.nextGuest,
     rotCols: state.rotCols, extCols: state.extCols,
@@ -11023,10 +11042,16 @@ function autoSave() {
     // 手動保存と同じく出退勤の記録も入れる。以前は入れていなかったため、2分ごとにその日のバックアップから
     // 出退勤が消え、その日を過去日として開くと時間給が0円になっていた（2026-09-28 総点検 B4）
     timetableSnap: loadTimetableState(),
-    ...savedStamp('savedAt'),
-    guests, sales,
   };
+  const content = JSON.stringify([body, guests, sales]);
+  const mark = _backupsStoreMark();
+  if (_autoSaveLast && mark && _autoSaveLast.content === content && _autoSaveLast.mark === mark) {
+    _unsavedChanges = false;   // 控えは今の中身と同じ
+    return;
+  }
+  const snap = { ...body, ...savedStamp('savedAt'), guests, sales };
   const backups = loadBackups();
+  const before = backups.slice();   // 書き換える前の控え。退避の判定に使い、読み直さない
   const existing = backups.findIndex(b => b.dayKey === dayKey);
   if (existing >= 0) {
     backups[existing] = snap;
@@ -11035,11 +11060,12 @@ function autoSave() {
     while (backups.length > BACKUP_MAX) backups.pop();
   }
   backups.sort((a,b) => (b.dayKey||'').localeCompare(a.dayKey||''));
-  const saved = saveBackups(backups);
+  const saved = saveBackups(backups, before);
   if (saved) {
     _unsavedChanges = false;
+    _autoSaveLast = { content, mark: _backupsStoreMark() };
   } else {
-    _notifySaveFailure('自動保存');
+    _notifySaveFailure('自動保存');   // 前回の目印は成功した時のままなので、次の自動保存でもう一度保存する
   }
 }
 startAutoSave();
@@ -11125,10 +11151,12 @@ function loadBackupsStrict() {
   const result = _readBackups();
   return result.ok ? (result.data || []) : null;
 }
-function saveBackups(arr) {
+/* before: 書き換える前の控え（loadBackups() で読んだ配列の写し）。渡せば読み直さない。
+   全営業日の控えを読み直すのは重いので、直前に読んだ呼び出し側は渡す（2026-11-01 自動保存）。 */
+function saveBackups(arr, before) {
   // データ復旧：上書き・削除で消える「中身のある」営業日を退避してから書き込む。
   // 万一バグや誤操作でバックアップが空に化けても、ボーイが🛟ボタンから戻せる安全網。
-  try { _archiveLostSnaps(loadBackups(), arr); } catch (_) {}
+  try { _archiveLostSnaps(Array.isArray(before) ? before : loadBackups(), arr); } catch (_) {}
   return Persist.write('backups', arr);
 }
 
@@ -12433,8 +12461,8 @@ async function settle(id) {
   if (typeof posMarkFloorStay === 'function') posMarkFloorStay(row);
   renderTable(); saveState();
   if (typeof renderReportPanel === 'function') renderReportPanel();   // 集計(キャスト別指名売上等)を即更新
-  // 顧客タブを開いた時に最新が見えるよう、精算と同時に再集計
-  syncCustomers();
+  // 顧客の再集計は15秒後にまとめて行う（顧客タブを開けばその場で行う。39 scheduleCustomerSync）
+  scheduleCustomerSync();
 }
 function cancelSettle(id) {
   const row = state.rows.find(r => r.id === id);
@@ -12454,8 +12482,8 @@ function cancelSettle(id) {
   if (typeof posRestorePreSettle === 'function') posRestorePreSettle(state.rows.find(r => r.gid === row.gid && r.isFirst) || row);
   renderTable(); saveState();
   if (typeof renderReportPanel === 'function') renderReportPanel();   // 集計を即更新
-  // 取消も顧客集計から除外する必要があるため再集計
-  syncCustomers();
+  // 取消も顧客集計から除外する必要があるため再集計（15秒後にまとめて。39 scheduleCustomerSync）
+  scheduleCustomerSync();
 }
 window._cancelSettle = btn => cancelSettle(btn.getAttribute('data-rid'));
 
@@ -13491,6 +13519,27 @@ function clearAttendanceForNewBizDay() {
 /* ================================================================
    HTML HELPERS
 ================================================================ */
+/* 会計伝票・延長案内・領収書などの印刷用の小窓を開く（2026-11-01 アンベリールの「Out of Memory」）。
+   小窓は印刷かキャンセルのあと自分で閉じるが、印刷の画面を出したまま後ろに回ると開いたまま残る。
+   小窓は本体と同じメモリを使うので、残った窓が溜まらないよう、次の小窓を開く時に3分以上前から開いたままの印刷用の小窓を閉じる。
+   3分より新しい窓は、まだ印刷の途中かもしれないので閉じない。 */
+const PRINT_POPUP_STALE_MS = 3 * 60 * 1000;
+let _printPopups = [];
+function openPrintPopup(features) {
+  const now = Date.now();
+  _printPopups = _printPopups.filter(p => {
+    let open = false;
+    try { open = !!p.win && !p.win.closed; } catch (_) { open = false; }
+    if (!open) return false;
+    if (now - p.openedAt < PRINT_POPUP_STALE_MS) return true;
+    try { p.win.close(); } catch (_) {}
+    return false;
+  });
+  const w = window.open('', '_blank', features);
+  if (w) _printPopups.push({ win: w, openedAt: now });
+  return w;
+}
+
 /* 「実際に出勤済み」のキャスト一覧を返す
    ルール:
    - checkouts あり → 退勤済みなので除外
@@ -20728,6 +20777,7 @@ const CUSTOMER_BACKUP_VISIT_FIELDS = ['bizKey', 'slipNo', 'amount', 'stayMin', '
 // 戻した顧客の土台（restoredBase。39-customer-management.js）に入れる項目。顧客の控えにも入れる（中身も同じ入れる項目の範囲だけ）
 const CUSTOMER_BASE_SCALARS = ['visits', 'totalSpend', 'avgStayMin', 'firstVisit', 'lastVisit', 'sinceDay'];
 const CUSTOMER_BASE_STRING_LISTS = ['dates', 'recentDates', 'autoMergeSources'];
+const OWNER_IDLE_RECHECK_MS = 600000;        // 材料が変わっていなくても、顧客一覧と過去の営業日をこの間隔で見直す（取りこぼし対策）
 const CUSTOMER_BACKUP_INTERVAL_MS = 600000;   // 顧客の控えを送る間隔の下限（顧客は精算のたびに変わるので、送る量が倍にならないように）
 
 function _customerBackupPick(value, allowed) {
@@ -20809,6 +20859,30 @@ const OwnerExport = (() => {
   let pausedUntil = { settings:0, customerBackup:0 };              // 401 で断られた控えを、この時刻まで送らない
   let lastCustomerBackupAt = 0;   // 顧客の控えを最後に送ろうとした時刻。起動して最初の1回は待たない
   let backupHashCache = new Map();
+  // 顧客と過去の営業日を全部見直して「送るものが無い」と分かった時の材料の目印と時刻（下の idleKey）
+  let idleCheckedKey = '';
+  let idleCheckedAt = 0;
+  const storeIds = new WeakMap();
+  let nextStoreId = 0;
+
+  /* 顧客と過去の営業日の見直しに使う材料の目印。保存（顧客・過去の営業日・日次締め）の書き込み回数、
+     受け側が持っている控え、送らないと決めた日、顧客の保留、店の情報、今の営業日のどれかが変われば違う値になる。
+     保存先を読み直して中身が丸ごと入れ替わった時も、入れ物が変わるので違う値になる。 */
+  function idleKey(currentDay, ctx) {
+    let store = 'none';
+    if (typeof UsbStore !== 'undefined' && UsbStore && UsbStore.cache) {
+      let id = storeIds.get(UsbStore.cache);
+      if (!id) { id = ++nextStoreId; storeIds.set(UsbStore.cache, id); }
+      const rev = UsbStore._rev || {};
+      store = id + ':' + (rev.customers || 0) + ':' + (rev.backups || 0) + ':' + (rev.dailyclose || 0);
+    }
+    // 顧客一覧の保留は期限の時刻が来たら解くので、期限を過ぎたかどうかも目印に入れる
+    const holdUntil = Number(cfg.ownerCustomersHoldUntil) || 0;
+    return JSON.stringify([
+      store, currentDay, ctx, synced, [...skippedDays].sort(), skippedCustomers,
+      cfg.ownerCustomersHoldRows || 0, holdUntil, holdUntil > 0 && Date.now() >= holdUntil, [...Persist.failedReads].sort(),
+    ]);
+  }
 
   function context() {
     return {
@@ -20887,10 +20961,13 @@ const OwnerExport = (() => {
       if (dataset.hash !== synced.settings && await send({ kind:'settings', dataset })) return true;
     }
     // 顧客の控え: 中身が変わったときだけ、前回から10分以上あけて送る（読めていない・0件のときは作られない）。失敗しても先へ進む
-    if (!skippedCustomerBackup && Date.now() >= pausedUntil.customerBackup && Date.now() - lastCustomerBackupAt >= CUSTOMER_BACKUP_INTERVAL_MS) {
+    // 組み立ても全顧客を読み直すので重い。中身が同じで送らなかった時も、組み立てた時刻から10分は組み立てない（2026-11-01）。
+    // 時計が戻って経過がマイナスになった時は、10分たったものとして扱う
+    const sinceCustomerBackup = Date.now() - lastCustomerBackupAt;
+    if (!skippedCustomerBackup && Date.now() >= pausedUntil.customerBackup && (sinceCustomerBackup < 0 || sinceCustomerBackup >= CUSTOMER_BACKUP_INTERVAL_MS)) {
       const dataset = buildCustomerBackupDataset(ctx);
+      lastCustomerBackupAt = Date.now();
       if (dataset && dataset.hash !== synced.customerBackup) {
-        lastCustomerBackupAt = Date.now();
         if (await send({ kind:'customerBackup', dataset })) return true;
       }
     }
@@ -20909,8 +20986,18 @@ const OwnerExport = (() => {
       if (dataset.hash !== synced.days[currentDay]) return send({ kind:'day', day:currentDay, dataset });
     }
 
-    if (!skippedCustomers) {
-      const customers = loadCustomers();
+    // ここから先（顧客一覧と過去の営業日）は、全顧客と全営業日の控えを読み直して作り直すので重い。
+    // 店のデータが多いと1回で数十MBのメモリを一時的に使い、30秒ごとに繰り返すとメモリの少ない端末で落ちる原因になる。
+    // 前回すべて見直して送るものが無かった時から材料が何も変わっていなければ、見直さない。
+    // 取りこぼしに備えて、10分たったら変わっていなくても見直す（2026-11-01 アンベリールの「Out of Memory」）
+    const key = idleKey(currentDay, ctx);
+    const idleAge = Date.now() - idleCheckedAt;   // 時計が戻ってマイナスになった時は見直す
+    if (key === idleCheckedKey && idleAge >= 0 && idleAge < OWNER_IDLE_RECHECK_MS) return false;
+
+    // 顧客データが壊れて読めない時は、顧客一覧を送らない（読めない顧客は0件として返るので、送るとダッシュボードの顧客一覧が空で上書きされる）。
+    // 読めずに止めている間は読み直さない（読むたびに警告と壊れたデータの退避コピーが増える）。直して読めたら、次の周期から今までどおり送る（2026-11-01）
+    const customers = !skippedCustomers && !Persist.failedReads.has('customers') ? loadCustomers() : null;
+    if (customers && !Persist.failedReads.has('customers')) {
       // 設定の控えから戻した直後は、この端末の顧客がクラウドの顧客一覧の件数に追いつくまで送らない
       // （空に近い顧客一覧でダッシュボードの顧客一覧を上書きしない）。追いついたら保留をやめて、以後は今までどおり送る
       // 保留は最長30日（ownerCustomersHoldUntil）。期限が来たら件数が足りなくても解く
@@ -20937,6 +21024,7 @@ const OwnerExport = (() => {
       .filter(backup => /^\d{8}$/.test(backup.day) && backup.day !== currentDay && backup.rows.length)
       .sort((a, b) => b.day.localeCompare(a.day));
     let calculated = 0;
+    let complete = true;   // 途中で打ち切った（10日ぶん作り直した）時は、見直し済みの目印を残さない
     for (const backup of backups) {
       if (skippedDays.has(backup.day)) continue;
       const frozen = frozenOf(backup.day);
@@ -20954,7 +21042,7 @@ const OwnerExport = (() => {
       if (cached && cached.savedAt === savedAt) {
         hash = cached.hash;
       } else {
-        if (calculated >= 10) break;
+        if (calculated >= 10) { complete = false; break; }
         dataset = buildOwnerDayDataset(backup.rows, backup.day, dayCtx);
         hash = dataset.hash;
         backupHashCache.set(backup.day, { savedAt, hash });
@@ -20965,10 +21053,13 @@ const OwnerExport = (() => {
         return send({ kind:'day', day:backup.day, dataset });
       }
     }
+    if (complete) { idleCheckedKey = key; idleCheckedAt = Date.now(); }
     return false;
   }
 
   function reset() {
+    idleCheckedKey = '';
+    idleCheckedAt = 0;
     synced = { days:{}, customers:null, settings:null, customerBackup:null };
     skippedDays = new Set();
     skippedCustomers = false;
@@ -21463,7 +21554,9 @@ function posExecCheckout(method, urikakePayment, cardAmounts) {
   posBetaState.viewMode = 'slip';
   renderPOSPanel();
   if (typeof renderReportPanel === 'function') renderReportPanel();   // 集計(キャスト別指名売上等)を即更新
-  if (typeof syncCustomers === 'function') syncCustomers();
+  // 顧客の再集計は15秒後にまとめて行う（会計伝票の印刷と重ねない。39 scheduleCustomerSync）
+  if (typeof scheduleCustomerSync === 'function') scheduleCustomerSync();
+  else if (typeof syncCustomers === 'function') syncCustomers();
   showToast('精算完了：' + _posBreakdownLabel(bd));
 }
 
@@ -24073,7 +24166,7 @@ function _payrollPrintReceipt(castName, src) {
   return _payrollPrintReceiptRow(row, model.src, model.countCols);
 }
 function _payrollPrintReceiptRow(row, src, countCols) {
-  const w = window.open('', '_blank', 'width=320,height=820');
+  const w = openPrintPopup('width=320,height=820');
   if (!w) { if (typeof showToast === 'function') showToast('ポップアップがブロックされました'); return false; }
   w.document.write(_payrollBreakdownPrintDocument(row, src, countCols));
   w.document.close();
@@ -24728,7 +24821,9 @@ async function posReportRestore(gid) {
   renderTable();
   renderPOSPanel();
   renderReportPanel();
-  if (typeof syncCustomers === 'function') syncCustomers();   // 取消した来店を顧客の集計から外す（リスト表の取消と同じ）
+  // 取消した来店を顧客の集計から外す（リスト表の取消と同じく15秒後にまとめて。39 scheduleCustomerSync）
+  if (typeof scheduleCustomerSync === 'function') scheduleCustomerSync();
+  else if (typeof syncCustomers === 'function') syncCustomers();
   showToast(`No.${slipNoLabel(row)} を復元しました`);
 }
 
@@ -27807,7 +27902,7 @@ function posPrintReceiptDirect(row) {
   if (!row) { showToast('伝票を選択してください'); return; }
   if (receiptPrinterOff()) { customerSlipOpen(row); return; }
 
-  const w = window.open('', '_blank', 'width=320,height=760');
+  const w = openPrintPopup('width=320,height=760');
   if (!w) { showToast('ポップアップがブロックされました'); return; }
   const scaleCss = _printScaleCss(cfg.receiptScale);
   // 店舗ロゴ：設定(cfg.shopLogo)が無ければロゴ無し扱い（下の分岐で店名の見出しに自動フォールバック）。
@@ -27866,7 +27961,7 @@ function posPrintExtTrial(row, comparison) {
 
   if (receiptPrinterOff()) { customerExtGuideOpen(row, comparison); return; }
 
-  const w = window.open('', '_blank', 'width=320,height=820');
+  const w = openPrintPopup('width=320,height=820');
   if (!w) { showToast('ポップアップがブロックされました'); return; }
   const scaleCss = _printScaleCss(cfg.extTrialScale);
   w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>延長料金のご案内</title>'
@@ -33927,8 +34022,24 @@ function customerMergeRestoredBases(a, b) {
   };
 }
 
+/* 精算・精算の取消のあとの顧客の再集計は、最後の操作から15秒後に1回だけ行う（2026-11-01 アンベリールの「Out of Memory」）。
+   再集計は全営業日の控えと全顧客を読み直すため、店のデータが多いと1回で百MB前後のメモリを一時的に使う。
+   精算のたびにすぐ行うと、会計伝票の印刷（同じ画面のメモリを使う）と重なり、続けて精算すると何度も重なる。
+   顧客タブを開いた時などに syncCustomers を直接呼べば、待っている分はそこで済む。 */
+const CUSTOMER_SYNC_DELAY_MS = 15000;
+let _customerSyncTimer = null;
+function scheduleCustomerSync() {
+  if (_customerSyncTimer) clearTimeout(_customerSyncTimer);
+  _customerSyncTimer = setTimeout(() => { _customerSyncTimer = null; syncCustomers(); }, CUSTOMER_SYNC_DELAY_MS);
+}
+/* 待っている再集計があれば今すぐ行う。アプリの終了・デモの開始の前に呼び、待っていた分を捨てない */
+function flushCustomerSync() {
+  if (_customerSyncTimer) syncCustomers();
+}
+
 /* リスト表の精算済みデータから顧客情報を集計・マージ */
 function syncCustomers() {
+  if (_customerSyncTimer) { clearTimeout(_customerSyncTimer); _customerSyncTimer = null; }   // 待っている再集計はこの1回で済む
   const backups = loadBackupsStrict();
   if (backups === null) {
     try { showToast('顧客の再集計を中止しました（バックアップ読込失敗）'); } catch (_) {}
@@ -38618,14 +38729,14 @@ function _ryoshuFramedDocumentHtml(data, { sourceOpts, scale = cfg.ryoshuScale, 
 /* 領収書HTMLを組み立てて別ウィンドウで印刷（80mmレシート向け） */
 function _receiptOpenWindow(data, template = _ryoshuOpts().template) {
   if (template === 'botanical') {
-    const botanicalWindow = window.open('', '_blank', 'width=720,height=420');
+    const botanicalWindow = openPrintPopup('width=720,height=420');
     if (!botanicalWindow) { showToast('ポップアップがブロックされました'); return; }
     botanicalWindow.document.write(_ryoshuBotanicalDocumentHtml(data));
     botanicalWindow.document.close();
     return;
   }
   if (template === 'framed') {
-    const framedWindow = window.open('', '_blank', 'width=720,height=420');
+    const framedWindow = openPrintPopup('width=720,height=420');
     if (!framedWindow) { showToast('ポップアップがブロックされました'); return; }
     framedWindow.document.write(_ryoshuFramedDocumentHtml(data));
     framedWindow.document.close();
@@ -38634,7 +38745,7 @@ function _receiptOpenWindow(data, template = _ryoshuOpts().template) {
   const opts = _ryoshuOpts();
   const scaleCss = _printScaleCss(cfg.ryoshuScale);
 
-  const w = window.open('', '_blank', 'width=720,height=420');
+  const w = openPrintPopup('width=720,height=420');
   if (!w) { showToast('ポップアップがブロックされました'); return; }
   // 横長レイアウトを作り、80mm幅レシート紙に対して時計回り90度回転して印字する。
   // → 出てきた紙を時計回りに90度回す（天が右＝紙の先端側が領収書の右上）と横長の領収書として読める。
