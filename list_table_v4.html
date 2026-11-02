@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.114">
+<meta name="app-version" content="1.1.115">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -3410,6 +3410,7 @@ body[data-active-tab="report"] { overflow:hidden; }
 .report-nav-links { display:flex; flex-direction:column; gap:4px; padding:8px; border:1px solid var(--bdr); border-radius:10px; background:var(--sur); }
 .report-nav a { display:flex; align-items:center; min-height:44px; padding:8px 10px; border-radius:7px; color:var(--tx2); text-decoration:none; font-size:12px; font-weight:700; }
 .report-nav a:hover,.report-nav a:focus-visible,.report-nav a[aria-current="true"] { color:var(--gold2); background:var(--sur2); outline:2px solid var(--gold); outline-offset:1px; }
+.report-data-notice { margin:10px 0 0; padding:8px 10px; border:1px solid var(--red); border-radius:10px; background:rgba(232,64,96,0.08); color:var(--tx); font-size:12px; line-height:1.6; }
 .report-data-tools { margin-top:10px; padding:8px; border:1px solid var(--bdr); border-radius:10px; background:var(--sur); }
 .report-data-tools summary { cursor:pointer; min-height:44px; display:flex; align-items:center; color:var(--tx2); font-size:11px; font-weight:700; }
 .report-data-actions { display:flex; flex-direction:column; gap:5px; margin-top:7px; }
@@ -7111,7 +7112,7 @@ html[data-display="desktop"] #tabs .tab-btn .tab-app-icon { width: 56px; height:
         <button onclick="showRecoveryModal()" title="消えた・0人になった日を元に戻す"
           style="font-size:12px;font-weight:700;padding:5px 10px;border-radius:6px;
           cursor:pointer;background:rgba(201,168,76,0.12);border:1px solid rgba(201,168,76,0.4);
-          color:var(--gold2)">🛟 データ復旧</button>
+          color:var(--gold2)">🔧 データ復旧</button>
       </span>
     </div>
     <div id="past-day-list"></div>
@@ -7242,6 +7243,7 @@ const STORAGE_SCHEMA_VERSION = 1;
 ================================================================ */
 const Persist = {
   failedReads: new Set(),
+  _failedRaw: new Map(),   // 読めなかったキー → { raw:その時の中身, error }。同じ中身を読み直さないための控え（raw は保存先の入れ物と同じ文字列で、余分なメモリは要らない）
   _lockAlerted: new Set(),
   writeBlockedReason: '',   // 空でなければ全データの保存を止める（新しい版のデータを古いアプリで開いたとき）
   _writeBlockAlerted: false,
@@ -7255,17 +7257,27 @@ const Persist = {
     try {
       // 本番の永続化処理はUSBゲート解決後に走り、先行するdevTime読取もゲート後に再同期される。
       raw = UsbStore.readSync(name);
+      // 読めないと分かっているキーを、同じ中身のまま読み直し続けない。2分ごとの自動保存などで、重い JSON.parse と
+      // localStorage への中身の写しが毎回走り、メモリの少ない端末に重い。中身が変わった時（取り込み・保存先の読み直し・unlock の後）は今まで通り読む。
+      // 失敗の知らせ（onError）は毎回呼ぶので、呼び出し側の失敗判定は変わらない。
+      const failedBefore = this.failedReads.has(name) ? this._failedRaw.get(name) : null;
+      if (failedBefore && failedBefore.raw === raw) {
+        if (opts.onError) { try { opts.onError(failedBefore.error); } catch(_){} }
+        return null;
+      }
       // 旧版がthemeだけをJSON化せず保存していたため、既知の旧4値に限って読み取り互換を保つ。
       const parsed = name === 'theme' && ['night', 'light', 'summer', 'aurum'].includes(raw)
         ? raw
         : JSON.parse(raw || 'null');
       this.failedReads.delete(name);
+      this._failedRaw.delete(name);
       return parsed;
     }
     catch(e) {
       this.failedReads.add(name);
       console.error(`[Persist] read('${name}') parse failed:`, e);
       if (raw !== null && raw !== '') {
+        this._failedRaw.set(name, { raw, error: e });
         try { localStorage.setItem(`nightlist__corrupt_${name}_${Date.now()}`, raw); }
         catch (archiveError) { console.error(`[Persist] archive corrupt '${name}' failed:`, archiveError); }
       }
@@ -7281,6 +7293,12 @@ const Persist = {
     if (this.failedReads.has(name)) {
       if (!this._lockAlerted.has(name)) {
         this._lockAlerted.add(name);
+        // 過去の営業日（backups）は、読み込み失敗の警告（_readBackups の appAlert）で既に知らせている。
+        // 営業終了のたびに窓が増えて OK を何度も押させないよう、ここでは出さない（console のみ）。ほかのキーは今まで通り出す
+        if (name === 'backups') {
+          console.warn(`[Persist] 『backups』の読み込みに失敗しているため、このデータの上書き保存を停止しています`);
+          return false;
+        }
         const message = `『${name}』の読み込みに失敗しているため、このデータの上書き保存を停止しています。\n\n営業はこのまま続けられます（他のデータは通常どおり保存されます）。\nバックアップの復元またはデータのインポートで復旧するか、オーナーへ連絡してください。`;
         if (typeof appAlert === 'function') {
           try {
@@ -7320,9 +7338,11 @@ const Persist = {
   },
   unlock(name) {
     this.failedReads.delete(name);
+    this._failedRaw.delete(name);
   },
   unlockAll() {
     this.failedReads.clear();
+    this._failedRaw.clear();
   },
   /* 文字列キー → 文字列値の辞書を返す（export用、parse なし）。null を含み得る */
   exportAll() {
@@ -10769,6 +10789,10 @@ function updateClock() {
    前回チェック時の営業日キーを保持。初回チェック時に現在の営業日キーで
    初期化し（null→現在キー）、ページを開いた瞬間に誤発火しないようにする。 */
 let _lastBizDayKey = null;
+/* 前の営業日の分をどこにも保存できず、自動締めを見送った時の、次に試し直してよい時刻（ms）。
+   毎秒の呼び出しで読み込みや書き込みを繰り返さないよう、間を空ける（0=見送っていない） */
+let _autoCloseRetryAt = 0;
+const AUTO_CLOSE_RETRY_MS = 10 * 60 * 1000;
 let _closeWarnedForKey = null;
 let _closeExtendedForKey = null;
 
@@ -10855,17 +10879,46 @@ function checkAutoCloseDay() {
   // 初回は現在の営業日キーで初期化するだけ（締めない）
   if (_lastBizDayKey === null) { _lastBizDayKey = curKey; return; }
   if (curKey === _lastBizDayKey) return;
+  // 見送り中に、ボーイが前日の行を手で消して空になった。守る物が無いので、リストを空にする処理・出勤のリセット・トーストはしない
+  // （すでに始まっている今日の出勤を消さない）。営業日の印を進め、前の営業日の扱い（[復元中]）を外すだけにする。
+  if (_autoCloseRetryAt > 0 && (state.rows || []).length === 0) {
+    const skippedKey = _lastBizDayKey;
+    _lastBizDayKey = curKey;
+    _autoCloseRetryAt = 0;
+    if (state._restoredFromKey === skippedKey) state._restoredFromKey = null;
+    try { saveState(); } catch (_) {}   // 保存する営業日の印を今日に戻す
+    return;
+  }
+  if (Date.now() < _autoCloseRetryAt) return;   // 保存できず見送り中。次の試し直しまで待つ
   const prevKey = _lastBizDayKey;
-  _lastBizDayKey = curKey; // 先に更新し、何があっても1回だけの実行を保証
   if (_closeExtendedForKey === prevKey) {
+    _lastBizDayKey = curKey;
     if (_closeWarnedForKey === prevKey) _closeWarnedForKey = null;
     _closeExtendedForKey = null;
     return;
   }
   // 安全策：締める前の状態を日次締めに凍結し、「締める前の営業日キー」でバックアップしてから締める。
   // → 未精算客が残っていても ♻️復元 / 過去リストから戻せる。
+  // 過去の営業日（backups）に保存できなければ「消えた営業日の控え」へ。どちらにも残せないなら、リストを空にせず黙って見送る
+  // （_lastBizDayKey を進めないので、間を空けて試し直す）。
+  const lockedBefore = dailyCloseIsLockedForKey(prevKey);
   try { dailyCloseLockForKey(prevKey); } catch (_) {}
-  try { saveBackupForKey(prevKey); } catch (_) {}
+  let saved = false;
+  try { saved = saveDayForClose(prevKey); } catch (_) {}
+  if (!saved) {
+    _autoCloseRetryAt = Date.now() + AUTO_CLOSE_RETRY_MS;
+    // 見送った時は、この処理で掛けた日次締めのロックを外す（前から掛かっていた時は残す）。前日のキーのロックは前日のキーで外す。
+    // 掛けたままだと集計のボタンが「営業終了を取り消す」だけになり、営業終了の入口が無くなる
+    if (!lockedBefore) { try { dailyCloseUnlockForKey(prevKey); } catch (_) {} }
+    // 残せなかった行を「今日」にしない。前の営業日のものとして扱う（見出しに［復元中］が出る・保存しても前日のキーのまま・次回起動でも再検出される）。
+    // 過去の日を復元して見ている最中なら、その印はそのまま
+    if (!state._restoredFromKey) state._restoredFromKey = prevKey;
+    try { saveState(); } catch (_) {}   // 前日のキーの印を保存先にも書く
+    console.warn('[AutoClose] 前の営業日の分を保存できないため、自動締めを見送りました（しばらくして試し直します）');
+    return;
+  }
+  _lastBizDayKey = curKey; // 保存できたら更新し、何があっても1回だけの実行を保証
+  _autoCloseRetryAt = 0;
   resetDayCore();
   // 出勤状態も新しい営業日のまっさらな状態へ戻す（バックアップ後なので♻️復元で戻せる）
   try {
@@ -10873,7 +10926,11 @@ function checkAutoCloseDay() {
     renderCastPanel();
     renderTimetable();
   } catch (_) {}
-  try { showToast('🕛 営業日が変わったため自動で営業終了しました（日次締めロック済み・出勤キャストもリセット）'); } catch (_) {}
+  try {
+    showToast(saved === 'recovery'
+      ? '🕛 営業日が変わったため自動で営業終了しました（前日の分は『消えた営業日の控え』に保存しました・出勤キャストもリセット）'
+      : '🕛 営業日が変わったため自動で営業終了しました（日次締めロック済み・出勤キャストもリセット）');
+  } catch (_) {}
 }
 let _lastTickMinute = -1;
 setInterval(() => {
@@ -11137,7 +11194,8 @@ function _readBackups() {
         return;
       }
       setTimeout(() => {
-        appAlert('バックアップ履歴の読み込みに失敗しました。\n\nデータが壊れている可能性があります。\n壊れたデータは端末内に退避しました。\nこのまま営業は続けられますが、過去の営業日データが表示されなくなっている場合があります。\n必ずオーナーへ連絡してください。');
+        // ボーイは警告を読まずに進める前提。慌てさせず、いつも通りで大丈夫なことを先に言う（書き込み停止の知らせはここで済ませ、Persist.write からは出さない）
+        appAlert('過去の営業日のファイルが読み込めませんでした。\n\n今日の入力と営業終了は、いつも通りで大丈夫です（今日の分は別の場所に保存されます）。\n元のファイルはそのまま残しています。\n手が空いた時にオーナーへ伝えてください。');
       }, 100);
     }
   });
@@ -11155,7 +11213,7 @@ function loadBackupsStrict() {
    全営業日の控えを読み直すのは重いので、直前に読んだ呼び出し側は渡す（2026-11-01 自動保存）。 */
 function saveBackups(arr, before) {
   // データ復旧：上書き・削除で消える「中身のある」営業日を退避してから書き込む。
-  // 万一バグや誤操作でバックアップが空に化けても、ボーイが🛟ボタンから戻せる安全網。
+  // 万一バグや誤操作でバックアップが空に化けても、ボーイが🔧データ復旧のボタンから戻せる安全網。
   try { _archiveLostSnaps(Array.isArray(before) ? before : loadBackups(), arr); } catch (_) {}
   return Persist.write('backups', arr);
 }
@@ -11179,7 +11237,7 @@ function loadRecovery()    {
     onError: () => setTimeout(() => { try { showToast('⚠ 復旧アーカイブの読込に失敗しました'); } catch (_) {} }, 100)
   }) || [];
 }
-function saveRecovery(arr) { Persist.write('recovery', arr); }
+function saveRecovery(arr) { return Persist.write('recovery', arr); }   // 成否を返す（saveDayForClose が見る）
 
 const DELETED_SLIPS_MAX = 300;
 function loadSlipCounter() {
@@ -11282,27 +11340,13 @@ async function manualSave() {
   }
 }
 
-/* 現在のstateを指定した営業日キーでバックアップ（スナップショット）保存する。
-   manualSave/autoSave と同じ営業日キー単位の上書き保存。
-   自動締め（営業日境界跨ぎ）の直前に、締める前の営業日キーで状態を残すために使う。
-   → 締め後も restoreBackup（♻️復元）/過去リストから締め前の状態を復元できる。 */
-function saveBackupForKey(dayKey) {
-  if (!dayKey) return;
-  const backups = loadBackups();
-  const existing = backups.findIndex(b => b.dayKey === dayKey);
-  // 空上書き防止：rowsが空のときは、既に保存済みの「中身のある」バックアップを潰さない。
-  // 自動締め(checkAutoCloseDay)・締め忘れ検知(checkStaleBizDay)は、手動締め後に
-  // rows=[] のまま境界をまたぐと、せっかく保存済みの当日データを空で上書きしてしまう。
-  // autoSave() と同じ「空ならスキップ」挙動に揃える（既存の中身は守る）。
-  if (state.rows.length === 0) {
-    const prev = existing >= 0 ? backups[existing] : null;
-    if (prev && (prev.rows || []).length > 0) return;   // 既存に中身あり → 守る（上書きしない）
-    return;                                              // 既存なし/既存も空 → 空保存は無意味
-  }
+/* 現在のstateを、指定した営業日キーの控え（スナップショット）にする。
+   saveBackupForKey（過去の営業日へ）と saveDayForClose（消えた営業日の控えへ）で同じ形にそろえる。 */
+function _daySnapFromState(dayKey) {
   const guests = state.rows.length;
   const sales  = state.rows.filter(r => r.isFirst && r.settled)
     .reduce((s,r) => s + rowSales(r), 0);
-  const snap = {
+  return {
     dayKey,
     rows: state.rows, nextGid: state.nextGid, nextGuest: state.nextGuest,
     rotCols: state.rotCols, extCols: state.extCols,
@@ -11312,6 +11356,25 @@ function saveBackupForKey(dayKey) {
     ...savedStamp('savedAt'),
     guests, sales,
   };
+}
+
+/* 現在のstateを指定した営業日キーでバックアップ（スナップショット）保存する。
+   manualSave/autoSave と同じ営業日キー単位の上書き保存。
+   自動締め（営業日境界跨ぎ）の直前に、締める前の営業日キーで状態を残すために使う。
+   → 締め後も restoreBackup（♻️復元）/過去リストから締め前の状態を復元できる。
+   戻り値: true=保存できた（行が空で保存する物が無い時も true）／ false=保存できなかった。
+   リストを空にしてよいかは、この戻り値（または saveDayForClose の戻り値）で決める。 */
+function saveBackupForKey(dayKey) {
+  if (!dayKey) return false;
+  const backups = loadBackups();
+  const existing = backups.findIndex(b => b.dayKey === dayKey);
+  // 空上書き防止：rowsが空のときは、既に保存済みの「中身のある」バックアップを潰さない。
+  // 自動締め(checkAutoCloseDay)・締め忘れ検知(checkStaleBizDay)は、手動締め後に
+  // rows=[] のまま境界をまたぐと、せっかく保存済みの当日データを空で上書きしてしまう。
+  // autoSave() と同じ「空ならスキップ」挙動に揃える（既存の中身は守る）。
+  // 既存に中身あり／既存なし／既存も空、いずれも守る物は無いので成功として返す。
+  if (state.rows.length === 0) return true;
+  const snap = _daySnapFromState(dayKey);
   if (existing >= 0) {
     backups[existing] = snap; // 同営業日は上書き
   } else {
@@ -11319,8 +11382,55 @@ function saveBackupForKey(dayKey) {
     while (backups.length > BACKUP_MAX) backups.pop();
   }
   backups.sort((a,b) => (b.dayKey||'').localeCompare(a.dayKey||''));
-  saveBackups(backups);
+  if (!saveBackups(backups)) return false;   // 過去の営業日が読めない・書けない（Persist が止めている）
   _unsavedChanges = false;
+  return true;
+}
+
+/* 営業終了（手動・自動締め・締め忘れ確認）でリストを空にする前に、締める営業日の中身を残す。
+   まず過去の営業日（backups）へ。書けなければ、同じ中身を「消えた営業日の控え」（recovery。🔧データ復旧から戻せる）へ入れる。
+   入れた印として reason:'backupsUnwritable' を付ける（形は _archiveLostSnaps の控えと同じ）。
+   戻り値: 'backups'=過去の営業日へ保存できた（行が空で保存する物が無い時も）／ 'recovery'=控えの方に入った／ false=どちらにも入らなかった。
+   false の時、呼び出し側はリストを空にしてはいけない。 */
+function saveDayForClose(dayKey) {
+  let saved = false;
+  try { saved = saveBackupForKey(dayKey); } catch (_) {}
+  if (saved) return 'backups';
+  if (!dayKey) return false;
+  try {
+    const rec = loadRecovery();
+    rec.unshift({ ..._daySnapFromState(dayKey), ...savedStamp('archivedAt'), reason: 'backupsUnwritable' });
+    while (rec.length > RECOVERY_MAX) rec.pop();
+    return saveRecovery(rec) ? 'recovery' : false;
+  } catch (_) { return false; }
+}
+
+/* 営業終了のとき過去の営業日に保存できず、「消えた営業日の控え」へ逃がした物（reason:'backupsUnwritable'）のうち、
+   指定の営業日のいちばん新しい控え。無ければ null。「営業終了を取り消す」と、集計の「今日」の表示が使う。
+   集計は1回描くたびに呼ぶので、控えの生の文字列（保存先の入れ物の参照）と営業日キーの組で結果を覚え、同じ中身なら読み直さない。
+   返した控えは覚えている物と同じ物なので、呼び出し側で書き換えない（戻す時は写しを取る）。 */
+let _closeRecoveryMemo = null;
+function findCloseRecoverySnap(dayKey) {
+  const raw = UsbStore.readSync('recovery');
+  if (_closeRecoveryMemo && _closeRecoveryMemo.dayKey === dayKey && _closeRecoveryMemo.raw === raw) return _closeRecoveryMemo.snap;
+  const snap = loadRecovery().find(r => r && r.dayKey === dayKey && r.reason === 'backupsUnwritable') || null;
+  _closeRecoveryMemo = { raw, dayKey, snap };
+  return snap;
+}
+/* 控えを保存した時刻（新しさの比較用）。savedAtIso があればそれ、無ければ画面用の savedAt。どちらも読めなければ 0 */
+function _snapSavedTime(snap) {
+  const iso = Date.parse(snap && snap.savedAtIso);
+  if (!Number.isNaN(iso)) return iso;
+  const label = Date.parse(snap && snap.savedAt);
+  return Number.isNaN(label) ? 0 : label;
+}
+/* 営業終了した日の中身を戻す控え。過去の営業日（backups）と「消えた営業日の控え」の両方に今日の分がある時は、新しい方。
+   同じ新しさなら過去の営業日。戻り値: { snap, fromRecovery } （どちらにも無ければ snap は null） */
+function pickClosedDaySnap(dayKey) {
+  const fromBackups = loadBackups().find(snap => snap.dayKey === dayKey) || null;
+  const fromRecovery = findCloseRecoverySnap(dayKey);
+  if (fromRecovery && (!fromBackups || _snapSavedTime(fromRecovery) > _snapSavedTime(fromBackups))) return { snap: fromRecovery, fromRecovery: true };
+  return { snap: fromBackups, fromRecovery: false };
 }
 
 function loadState() {
@@ -11336,9 +11446,16 @@ function loadState() {
   const staleHandled = checkStaleBizDay(s.bizDayKey);
   // 締め忘れ警告に入らなかった＝正常に締めて日をまたいだケース。
   // 出勤状態だけ新しい営業日のまっさらな状態へ戻す（前営業日分を退避してから）。
+  // どこにも退避できなかった時は、出勤状態に触れない（消すと前営業日の出退勤が失われる）。
   if (!staleHandled && s.bizDayKey && !state._restoredFromKey && s.bizDayKey !== getBizDayKey()) {
-    try { saveBackupForKey(s.bizDayKey); } catch (_) {}
-    try { clearAttendanceForNewBizDay(); } catch (_) {}
+    let kept = false;
+    try { kept = saveDayForClose(s.bizDayKey); } catch (_) {}
+    if (kept) { try { clearAttendanceForNewBizDay(); } catch (_) {} }
+    else {
+      // 残せなかった行を「今日」にしない。前の営業日のものとして扱う（保存しても前日のキーのまま。次回起動でも再検出される。黙って見送る）
+      state._restoredFromKey = s.bizDayKey;
+      console.warn('[Persist] 前の営業日の分を保存できないため、前の営業日のまま表示します');
+    }
   }
 }
 
@@ -11372,12 +11489,28 @@ function checkStaleBizDay(savedKey) {
       );
       if (!ok) return;               // キャンセル＝何もしない（データはそのまま表示）
       // 締める前の状態を日次締めに凍結し、「締め忘れた営業日キー」でバックアップしてから締める
+      const lockedBefore = dailyCloseIsLockedForKey(savedKey);
       try { dailyCloseLockForKey(savedKey); } catch (_) {}
-      try { saveBackupForKey(savedKey); } catch (_) {}
+      // 過去の営業日（backups）へ、書けなければ「消えた営業日の控え」へ。どちらにも残せないなら、締めを見送る（行は空にしない）
+      let saved = false;
+      try { saved = saveDayForClose(savedKey); } catch (_) {}
+      if (!saved) {
+        // 見送った時は、この操作で掛けた日次締めのロックを外す（前から掛かっていた時は残す）。
+        // 掛けたままだと集計のボタンが「営業終了を取り消す」だけになり、営業終了の入口が無くなる
+        if (!lockedBefore) { try { dailyCloseUnlockForKey(savedKey); } catch (_) {} }
+        // 残せなかった行を「今日」にしない。前の営業日のものとして扱う（保存しても前日のキーのまま。次回起動でも再検出される）
+        if (!state._restoredFromKey) state._restoredFromKey = savedKey;
+        try { showToast('保存先に書けないため、締めを見送りました。前の営業日のまま表示しています。オーナーへ連絡してください'); } catch (_) {}
+        return;
+      }
       resetDayCore();                // 19-reset.js の締め処理本体（確認ダイアログなし）
       // 出勤状態も新しい営業日のまっさらな状態へ（バックアップ後なので♻️復元で戻せる）
       try { clearAttendanceForNewBizDay(); renderCastPanel(); renderTimetable(); } catch (_) {}
-      try { showToast(`🕛 前営業日分をバックアップし、新しい営業日を開始しました（出勤キャストもリセット）`); } catch (_) {}
+      try {
+        showToast(saved === 'recovery'
+          ? `🕛 前営業日分を『消えた営業日の控え』に保存し、新しい営業日を開始しました（出勤キャストもリセット）`
+          : `🕛 前営業日分をバックアップし、新しい営業日を開始しました（出勤キャストもリセット）`);
+      } catch (_) {}
     } catch (_) {}
   }, 300);
   return true;
@@ -11404,8 +11537,16 @@ function applySnapshot(snap) {
   showToast(`${bizKeyToLabel(snap.dayKey)} のデータを復元しました`);
 }
 
+/* 過去の営業日（backups）が読めない間は、♻️復元・🔧データ復旧・新しい営業日はどれも役に立たない（読めないので書けない）。
+   押された時は案内だけ出して、backups に触れずに終える（2026-11-02）。 */
+const BACKUPS_UNREADABLE_NOTICE = '過去の営業日のファイルが読めないため、いまはここから戻せません。運営者が対応します。今日の入力と営業終了はいつも通りで大丈夫です。';
+function backupsUnreadable() { return Persist.failedReads.has('backups'); }
+async function notifyBackupsUnreadable() { await appAlert(BACKUPS_UNREADABLE_NOTICE); }
+
 async function restoreBackup() {
+  if (backupsUnreadable()) { await notifyBackupsUnreadable(); return; }   // 読めないと分かっている間は、読み直さない
   const backups = loadBackups();
+  if (backupsUnreadable()) { await notifyBackupsUnreadable(); return; }   // 今の読み込みで読めないと分かった時も、「見つかりません」とは言わない
   if (backups.length === 0) { await appAlert('保存データが見つかりません。\nまだ自動バックアップが作成されていません。しばらく待ってからもう一度お試しください。'); return; }
   showRestoreModal(backups);
 }
@@ -11600,6 +11741,7 @@ async function clearAllBackups() {
    消えた／空になった営業日を、退避アーカイブから1タップで元に戻す。
 ---------------------------------------------------------------- */
 function showRecoveryModal() {
+  if (backupsUnreadable()) { notifyBackupsUnreadable(); return; }   // 戻す先（backups）が読めない間は、戻せないので案内だけ
   const rec = loadRecovery();
   const old = document.getElementById('recovery-modal');
   if (old) old.remove();
@@ -11643,7 +11785,7 @@ function showRecoveryModal() {
       box-shadow:0 12px 50px rgba(0,0,0,0.65)">
       <div style="padding:16px 20px;border-bottom:1px solid var(--bdr);
         background:linear-gradient(135deg,#0d1118,#121a28)">
-        <div style="font-size:16px;font-weight:800;color:var(--gold2)">🛟 データ復旧</div>
+        <div style="font-size:16px;font-weight:800;color:var(--gold2)">🔧 データ復旧</div>
         <div style="font-size:12px;color:var(--tx2);margin-top:4px;line-height:1.6">
           リストが消えた・0人になってしまった日を、ここから元に戻せます。<br>
           直したい日の「<b>↩ この日を戻す</b>」を押すだけです。
@@ -11673,14 +11815,19 @@ async function restoreFromRecovery(idx) {
   const ok = await appConfirm(`${bizKeyToLabel(snap.dayKey)}（入客${guests}人）を復元しますか？\n\n` +
     `この日に今保存されているデータは、この控えで置き換わります。`, { danger: true });
   if (!ok) return;
-  const { archivedAt, archivedAtIso, ...clean } = snap;   // 退避メタは外して書き戻す
+  const { archivedAt, archivedAtIso, reason, ...clean } = snap;   // 退避メタ（退避日時・退避の理由）は外して書き戻す
   const backups  = loadBackups();
   const existing = backups.findIndex(b => b.dayKey === clean.dayKey);
   if (existing >= 0) backups[existing] = clean;
   else backups.unshift(clean);
   backups.sort((a,b) => (b.dayKey||'').localeCompare(a.dayKey||''));
   while (backups.length > BACKUP_MAX) backups.pop();
-  saveBackups(backups);   // 置換前データも自動で復旧アーカイブへ退避されるので操作は可逆
+  // 置換前データも自動で復旧アーカイブへ退避されるので操作は可逆。
+  // 書けなかった時（過去の営業日の保存が止まっている）は「復元しました」と言わず、控えは消さずに残す。
+  if (!saveBackups(backups)) {
+    await appAlert('戻せませんでした（過去の営業日の保存が止まっています）。オーナーへ連絡してください。\nこの控えは消えずに残っています。');
+    return;
+  }
   if (typeof renderPastSidebar === 'function') renderPastSidebar();
   const m = document.getElementById('recovery-modal');
   if (m) m.remove();
@@ -13494,7 +13641,9 @@ function toggleHideSettled(hide) {
 }
 
 /* 確認ダイアログを伴わない締め処理本体。
-   営業日境界をまたいだ時の自動締め（checkAutoCloseDay）から呼ぶ */
+   営業日境界をまたいだ時の自動締め（checkAutoCloseDay）から呼ぶ。
+   呼び出し側の責任: 呼ぶ前に saveDayForClose(締める営業日キー) で今日の分を残せたか確かめること。
+   どちらにも残せなかった時は呼ばない（リストが空になり、その夜の伝票が失われる。2026-11-02 アンベリール） */
 function resetDayCore() {
   pushUndo();
   commitSlipCounterOnClose();
@@ -13507,7 +13656,7 @@ function resetDayCore() {
 /* 営業日が変わったので出勤状態を新しい日のまっさらな状態へ戻す（2026-07-25 オーナー要望）。
    消すのは「その日限りの状態」＝出勤予定・出勤/退勤時刻・同伴・当欠・遅刻分だけ。
    名簿(state.allCasts)・単価(state.castProfiles)・退店者(state.retiredCasts)は残す。
-   呼び出し側の責任: 直前に saveBackupForKey(前営業日キー) を通しておくこと。
+   呼び出し側の責任: 直前に saveDayForClose(前営業日キー)（または saveBackupForKey）を通し、残せたことを確かめておくこと。
    バックアップは activeCasts と timetableSnap を含むため、♻️復元／過去のリストから元の出勤状態へ戻せる。
    手動の「営業終了」からは呼ばない（同じ夜に開き直す運用を壊さないため）。 */
 function clearAttendanceForNewBizDay() {
@@ -20156,6 +20305,38 @@ function _monitorRotationsFor(row) {
   return slots;
 }
 
+/* 店の保存データの状態（2026-11-02）。読み込みに失敗しているファイル（Persist.failedReads）と、過去の営業日を保存できず
+   「消えた営業日の控え」へ逃がした営業日（recovery の reason:'backupsUnwritable'）。Worker は店の情報に残し、運営者の画面の店のカードに赤く出す。
+   メモリの少ない端末なので、控え（recovery）は失敗しているファイルがある間だけ読み、書き込み回数と長さが変わらない間は読み直さない
+   （前回の文字列は覚えない。古い控えの文字列を残さないため）。控えに目印（'backupsUnwritable'）の文字が無ければ、パースもしない。
+   読み込みに失敗している間（recovery 自体が壊れている時を含む）は、Persist.read を通さずに直接読む（壊れたデータの退避コピーを増やさないため）。 */
+let _monitorHealthRecovery = { key: '', days: [] };
+function monitorHealth() {
+  const failedReads = [...Persist.failedReads].sort();
+  let recoveryUnsavedDays = [];
+  if (!failedReads.length) {
+    _monitorHealthRecovery = { key: '', days: [] };
+  } else if (!Persist.failedReads.has('recovery')) {
+    const raw = UsbStore.readSync('recovery');
+    const key = (UsbStore._rev?.recovery || 0) + ':' + (typeof raw === 'string' ? raw.length : -1);
+    if (key !== _monitorHealthRecovery.key) {
+      let days = [];
+      if (typeof raw === 'string' && raw.includes('backupsUnwritable')) {
+        try {
+          const list = JSON.parse(raw);
+          if (Array.isArray(list)) {
+            days = [...new Set(list.filter(entry => entry && entry.reason === 'backupsUnwritable' && /^[0-9]{8}$/.test(String(entry.dayKey || '')))
+              .map(entry => String(entry.dayKey)))].sort();
+          }
+        } catch (_) { days = []; }
+      }
+      _monitorHealthRecovery = { key, days };
+    }
+    recoveryUnsavedDays = _monitorHealthRecovery.days.slice();
+  }
+  return { failedReads, recoveryUnsavedDays };
+}
+
 function buildMonitorSnapshot() {
   const activeRows = posFirstRows();
   const activeGids = new Set(activeRows.map(row => row.gid));
@@ -20215,6 +20396,7 @@ function buildMonitorSnapshot() {
     shopName: cfg.shopName || '',
     bizDay: getBizDayKey(),
     sentAt: Date.now(),
+    health: monitorHealth(),
     tables: {
       max: cfg.tableMax,
       vipSeats,
@@ -20292,6 +20474,8 @@ const RemoteMonitor = (() => {
           shopId: cfg.monitorShopId,
           ...(shopKey ? { shopKey } : {}),
           wantHave,
+          // 指示を処理しない送信（指示を受けた直後の送り直し）には、保存データの取り寄せの指示を渡さないでもらう
+          ...(applyCommands ? {} : { noDump: true }),
           snap: buildMonitorSnapshot(),
         }),
         headers: { 'Content-Type':'text/plain' },
@@ -20311,6 +20495,11 @@ const RemoteMonitor = (() => {
         if (payload?.dataHave && typeof OwnerExport !== 'undefined') OwnerExport.setHave(payload.dataHave);
         const commands = Array.isArray(payload?.commands) ? payload.commands : [];
         if (applyCommands) commands.forEach(command => {
+          // 保存データの取り寄せ（47h）。裏で送り始めるだけで、この送信は待たせない。店の画面には何も出さない
+          if (command?.type === 'uploadStore') {
+            if (typeof StoreDump !== 'undefined') StoreDump.start(command.rid);
+            return;
+          }
           if (command?.type !== 'checkout' || !command.cast) return;
           const activeCasts = getEffectiveActiveCasts();
           if (!Array.isArray(activeCasts) || !activeCasts.includes(command.cast)) return;
@@ -21306,6 +21495,236 @@ async function _cloudRestoreRun() {
       : '顧客一覧は戻りません。ダッシュボードの顧客一覧は、この端末の顧客がそれまでの件数に追いつくまで入れ替え前のまま残します（最長30日）。'));
   return true;
 }
+/* ================================================================
+   STORE DUMP（保存データの遠隔取り寄せ。2026-11-02）
+   設計: .company/dev/specs/2026-11-02-nightlistdx-保存データの遠隔取り寄せ.md
+   運営者・店舗オーナーが /admin で依頼すると、店ごとの鍵が合った /push の返事に { type:'uploadStore', rid } が入る（47e）。
+   受けた端末は、保存データ（STORAGE_LEDGER の export:true）を1ファイルずつ小分けにして /dump へ送る。
+   - 中身は UsbStore.readSync の生の文字列（メモリにある中身）。JSON として読まない（読めなくなったファイルも、壊れたまま送る）。
+   - ログイン情報・店の鍵（export:false）は送らない。設定（settings）の中の全店共通の送信キー（monitorWriteToken）は、値だけ空にして送る（下の SETTINGS_REDACT）。
+   - メモリの少ない端末（2026-11-01 Out of Memory）のため、全部をまとめた文字列や、ファイル全体のハッシュは作らない。
+     1回に持つのは小分け1つ（最大 256K 文字）だけ。小分けごとに SHA-256 を付け、Worker が確かめる。manifest には小分けごとの SHA-256 の一覧を残す。
+   - 送っている間は、ファイルの文字列を変数に持ち続けない（小分けを送るたびに readSync から切り出す）。自動保存でそのファイルが書き直されたら、
+     最初の小分けから送り直す（1ファイル3回まで。それでも変わり続けるなら、その時点の中身を持って最後まで送り、manifest に changedWhileSending:true）。
+   - 店の画面には何も出さない（トーストもしない）。端末のコンソールにだけ記録する。
+================================================================ */
+const StoreDump = (() => {
+  const CHUNK_CHARS = 262144;                 // 小分け1つの最大文字数（256K文字）
+  const GAP_MS = 1000;                        // 送信と送信の間
+  const RETRY_WAITS_MS = [2000, 5000, 15000]; // 失敗したときの送り直し（3回まで）。待つ時間
+  const HARD_STOP = new Set([401, 403, 404, 409, 413]);   // 送り直しても通らない返事
+  const MAX_RESTARTS = 3;                     // 送っている間にファイルが書き直された時の、最初からの送り直し（1ファイルあたり）
+  // 値を空にして送る項目（ファイル名: 項目名）。全店共通の送信キー・登録コード（cfg.monitorWriteToken）は、店の外の秘密。
+  // 設定のクラウド控え（47f の buildSettingsBackupDataset）も同じ項目を除いている。ほかの cfg の項目は店ごとの値で、店の外の秘密は無い（2026-11-02 確認）
+  const REDACT = { settings:['monitorWriteToken'] };
+  // 端末が知っている今の値（空でなければ）は、そのまま文字列として探して全部消す。項目名がエスケープされていても、メモ欄に書かれていても消える。
+  // 短すぎる値は、探して消すとほかの中身まで壊すので対象にしない（本物の送信キー・登録コードは十分に長い）
+  const REDACT_SECRETS = { settings:() => [cfg.monitorWriteToken] };
+  const MIN_SECRET_CHARS = 8;
+  const seen = new Set();                     // 受けた依頼番号。同じ番号は2回送らない
+  let running = null;                         // 送信中の Promise
+  let pendingRid = '';                        // 送信中に来た次の依頼
+
+  /* 小分けの境目。256K文字ごとに切るが、サロゲートペア（絵文字など）の途中では切らない（ハッシュが元と合うように）。
+     [0, 終わり1, 終わり2, …, 全体の長さ]。空の文字列は [0] */
+  function chunkBounds(text) {
+    const bounds = [0];
+    let at = 0;
+    while (at < text.length) {
+      let end = Math.min(at + CHUNK_CHARS, text.length);
+      if (end < text.length && end - 1 > at) {
+        const last = text.charCodeAt(end - 1);
+        if (last >= 0xD800 && last <= 0xDBFF) end--;
+      }
+      bounds.push(end);
+      at = end;
+    }
+    return bounds;
+  }
+
+  /* 値を空にする。ほかの文字は、正しい JSON なら1文字も変えない。
+     1. 端末が知っている今の値（secrets）を、そのまま文字列として探して全部消す（JSON の文字列としてエスケープした形も）。
+     2. 「"名前":"値"」の値の部分だけを空にする。読める時も、読めない時（途中で切れている・壊れている）も、同じ正規表現で伏せる
+        （JSON として読み直して書き直すと、並びや書式が変わりうるため）。値として扱う文字から制御文字を外す（正しい JSON の文字列には
+        制御文字は入らない）。値が閉じていない時は、次の制御文字（NUL の並びなど）か末尾の手前までだけを伏せる */
+  const VALUE_RE = '(?:[^"\\\\\\u0000-\\u001f]|\\\\.)*';
+  function redactRaw(text, names, secrets = []) {
+    let out = text;
+    for (const secret of secrets) {
+      if (typeof secret !== 'string' || secret.length < MIN_SECRET_CHARS) continue;
+      out = out.split(secret).join('');
+      const escaped = JSON.stringify(secret).slice(1, -1);
+      if (escaped !== secret) out = out.split(escaped).join('');
+    }
+    for (const name of names) {
+      out = out.replace(new RegExp('("' + name + '"\\s*:\\s*")' + VALUE_RE + '(")', 'g'), '$1$2');
+      out = out.replace(new RegExp('("' + name + '"\\s*:\\s*")' + VALUE_RE + '\\\\?(?=[\\u0000-\\u001f]|$)', 'g'), '$1');
+    }
+    return out;
+  }
+
+  async function sha256Hex(text) {
+    if (typeof crypto === 'undefined' || !crypto.subtle) throw new Error('crypto.subtle が使えません');
+    const bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)));
+    return Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('');
+  }
+
+  /* 今も送ってよい状態か（デモモードに入った・店外モニターを止めた・店が変わった、のときは打ち切る） */
+  function allowed(shopId) {
+    return RemoteMonitor.canSend() && cfg.monitorShopId === shopId && !!monitorShopKeyForSend(shopId);
+  }
+
+  /* そのファイルの今の中身から、送る計画を作る。文字列そのものは返さない（持ち続けない）。
+     hold が true の時（何度も書き直された最後の1回）と、伏せる項目がある時だけ、送る文字列を持つ（伏せたあとの写しは readSync から切り出せない）。
+     ファイルが無ければ null */
+  function planOf(name, hold) {
+    const text = UsbStore.readSync(name);
+    if (typeof text !== 'string') return null;
+    const names = REDACT[name];
+    const held = names ? redactRaw(text, names, REDACT_SECRETS[name] ? REDACT_SECRETS[name]() : []) : (hold ? text : null);
+    return {
+      cache:UsbStore.cache, rev:UsbStore._rev[name] || 0, rawLength:text.length,   // 書き直されたかを見分ける印（入れ物・書き込み回数・長さ）
+      held, bounds:chunkBounds(held === null ? text : held), persisted:UsbStore.isPersisted(name),
+      redactedChars:names ? text.length - held.length : 0,                          // 伏せて消した文字数
+    };
+  }
+  function unchanged(name, plan) {
+    if (UsbStore.cache !== plan.cache || (UsbStore._rev[name] || 0) !== plan.rev) return false;
+    const now = UsbStore.readSync(name);
+    return typeof now === 'string' && now.length === plan.rawLength;
+  }
+
+  async function run(rid) {
+    const shopId = cfg.monitorShopId;
+    const endpoint = monitorBaseEndpoint() + '/dump';
+    // 1回の送信（失敗は3回まで間をあけて送り直す）。戻り値 { ok, status, code }。
+    // Worker が secret_in_chunk（設定に全店共通の送信キーが残っている）と断った時は、送り直しても同じなので、すぐ打ち切る
+    const post = async fields => {
+      const shopKey = monitorShopKeyForSend(shopId);
+      if (!shopKey) return { ok:false, status:0 };
+      const body = JSON.stringify({ shopId, shopKey, rid, ...fields });
+      let status = 0;
+      for (let attempt = 0; attempt <= RETRY_WAITS_MS.length; attempt++) {
+        if (attempt > 0) await api._sleep(RETRY_WAITS_MS[attempt - 1]);
+        try {
+          const response = await fetch(endpoint, { method:'POST', headers:{ 'Content-Type':'text/plain' }, body });
+          if (response.ok) return { ok:true, status:response.status };
+          status = response.status;
+          if (status === 400 && typeof response.json === 'function') {
+            let reply = null;
+            try { reply = await response.json(); } catch (_) { reply = null; }
+            if (reply && reply.error === 'secret_in_chunk') return { ok:false, status, code:'secret_in_chunk' };
+          }
+          if (HARD_STOP.has(status)) break;
+        } catch (error) {
+          status = 0;
+        }
+      }
+      return { ok:false, status };
+    };
+    const fail = async reason => {
+      console.warn('[StoreDump] stopped:', reason);
+      await post({ type:'failed', reason });
+    };
+    try {
+      const names = Object.keys(STORAGE_LEDGER).filter(name => STORAGE_LEDGER[name].export);   // export:false（ログイン情報・店の鍵）は送らない
+      // 進み具合の表示用に、送る小分けの総数を数える（文字列は読むだけ。readSync はメモリ上の文字列をそのまま返す）
+      let chunkTotal = 0;
+      for (const name of names) {
+        const plan = planOf(name, false);
+        if (plan) chunkTotal += plan.bounds.length - 1;
+      }
+      const startedAt = Date.now();
+      const entries = [];
+      let sent = 0;
+      for (const name of names) {
+        const file = STORAGE_LEDGER[name].file;
+        let restarts = 0;
+        let entry = null;
+        while (!entry) {
+          const lastTry = restarts >= MAX_RESTARTS;
+          const plan = planOf(name, lastTry);
+          if (!plan) { entry = { name, file, present:false, note:'無し', chars:0, chunks:0 }; break; }
+          const chunks = plan.bounds.length - 1;
+          const shas = [];
+          let changed = false;
+          for (let index = 0; index < chunks; index++) {
+            if (!allowed(shopId)) { console.warn('[StoreDump] aborted: monitor is no longer available'); return; }
+            if (sent > 0) await api._sleep(GAP_MS);
+            // 切り出す直前（同じ瞬間のうちに切り出す）と、ハッシュを計算している間に書き直されたら、最初から送り直す。
+            // 最後の1回（何度も書き直された）は、つかんだ文字列で最後まで送る
+            if (!lastTry && !unchanged(name, plan)) { changed = true; break; }
+            const chunk = (plan.held === null ? UsbStore.readSync(name) : plan.held).slice(plan.bounds[index], plan.bounds[index + 1]);
+            const digest = await sha256Hex(chunk);
+            if (!lastTry && !unchanged(name, plan)) { changed = true; break; }
+            const result = await post({ type:'chunk', file, index, total:chunks, chunkTotal, sha256:digest, chunk });
+            if (!result.ok) {
+              if (result.code === 'secret_in_chunk') { await fail('設定に送信キーが残っていたため中止'); return; }
+              await fail(result.status ?'送信できませんでした（HTTP ' + result.status + '）' : '送信できませんでした（通信できません）');
+              return;
+            }
+            shas.push(digest);
+            sent++;
+          }
+          if (changed) { restarts++; continue; }
+          entry = {
+            name, file, present:true, chars:(plan.held === null ? plan.rawLength : plan.held.length), chunks,
+            chunkSha256:shas,                         // 小分けごとの SHA-256（Worker が受け取る時に確かめた値と照らし合わせる）
+            persisted:plan.persisted,                 // 保存先（USBフォルダ）への書き出しが済んでいた中身か
+            ...(REDACT[name] ? { redacted:REDACT[name].slice(), redactedChars:plan.redactedChars } : {}),
+            ...(lastTry ? { changedWhileSending:true } : {}),
+          };
+        }
+        entries.push(entry);
+      }
+      if (!allowed(shopId)) { console.warn('[StoreDump] aborted: monitor is no longer available'); return; }
+      if (sent > 0) await api._sleep(GAP_MS);
+      const manifest = {
+        v:1,
+        appVersion:typeof SelfUpdate !== 'undefined' ? SelfUpdate.currentVersion() : 'unknown',
+        storage:UsbStore.active ? 'usb' : 'local',   // usb=USBフォルダ／local=端末内
+        startedAt,
+        finishedAt:Date.now(),
+        files:entries,
+        failedReads:[...Persist.failedReads].sort(),
+      };
+      const result = await post({ type:'done', manifest });
+      if (!result.ok) await fail(result.status ? '完了を伝えられませんでした（HTTP ' + result.status + '）' : '完了を伝えられませんでした（通信できません）');
+      else console.log('[StoreDump] uploaded:', entries.filter(entry => entry.present).length + ' files, ' + sent + ' chunks');
+    } catch (error) {
+      console.warn('[StoreDump] failed:', error);
+      try { await fail('端末側でエラーが起きました（' + String(error?.message || error).slice(0, 60) + '）'); } catch (_) {}
+    }
+  }
+
+  /* 指示を受けて、裏で送信を始める。/push の処理は待たせない（呼び出し側は戻り値を待たない）。
+     始めたら送信中の Promise、始めなかったら false。
+     送らない時: 依頼番号の形が違う・同じ番号を前に受けた・デモモード中や店外モニターが止まっている・鍵が無い。
+     送信中に別の依頼が来たら、今の送信が終わってから始める。 */
+  function start(rid) {
+    if (typeof rid !== 'string' || !/^[0-9a-f]{32}$/.test(rid)) return false;
+    if (seen.has(rid) || rid === pendingRid) return false;
+    if (!RemoteMonitor.canSend() || !monitorShopKeyForSend(cfg.monitorShopId)) return false;
+    if (running) { pendingRid = rid; return running; }
+    seen.add(rid);
+    if (seen.size > 20) seen.delete(seen.values().next().value);
+    running = run(rid).finally(() => {
+      running = null;
+      const next = pendingRid;
+      pendingRid = '';
+      if (next) start(next);
+    });
+    return running;
+  }
+
+  const api = {
+    start,
+    /* テスト用: 今の送信（と、続けて始まる次の送信）が終わるまで待つ */
+    async whenIdle() { while (running) await running; },
+    _sleep: ms => new Promise(resolve => setTimeout(resolve, ms)),
+  };
+  return api;
+})();
 /* ================================================================
    POS セット入力スピナー画面（オーダー画面のセットカテゴリ）
 ================================================================ */
@@ -22438,7 +22857,8 @@ function _reportClosedTodaySnap() {
   const frozen = _dailyCloseNormalizeFrozen(_dailyCloseCurrentRecord().frozen);
   if (!(frozen && frozen.closedAt > 0) || (state.rows || []).length !== 0) return null;
   const todayKey = getLoadedDayKey();
-  return loadBackups().find(snap => snap.dayKey === todayKey) || null;
+  // 過去の営業日と「消えた営業日の控え」（営業終了のとき保存できず逃がした控え）の両方に今日の分がある時は新しい方。集計の「今日」が0件にならないように
+  return pickClosedDaySnap(todayKey).snap;
 }
 /* 選択中営業日の { rows, tt, activeCasts } を返す。過去日はバックアップのスナップから（ライブ状態は壊さない）。
    dayKey を渡すとその営業日（設定の給与明細「1日ごと」が使う）。省略時は集計で選んでいる営業日。 */
@@ -24636,7 +25056,9 @@ function _reportNavHtml(period, hasDailyClose = true) {
     ? [['report-overview','売上概要'],['report-payroll','日計表'],['report-nomination','指名売上'],['report-deduction','控除票'],['daily-close-host','日次締め'],['report-slips','会計伝票'],['report-day-list','その日のリスト']]
     : [['report-range-overview','期間概要'],['report-range-days','日別一覧']];
   const items = labels.filter(([id]) => id !== 'daily-close-host' || hasDailyClose).map(([id,label]) => `<a href="#${id}" aria-label="${label}へ移動" onclick="_reportNavActivate(this,event)">${label}</a>`).join('');
-  return `<nav class="report-nav" aria-label="集計内メニュー"><div class="report-nav-links">${items}</div><details class="report-data-tools"><summary>保存データ管理</summary><div class="report-data-actions"><button type="button" onclick="restoreBackup()"><span>♻️ 復元</span><small>保存した日を選んで戻す</small></button><button type="button" onclick="showRecoveryModal()"><span>🛟 データ復旧</span><small>消えた日・空の日を戻す</small></button><button type="button" onclick="showNewDayModal()"><span>＋ 新しい営業日</span><small>過去の日付の営業日を追加</small></button></div></details></nav>`;
+  // 過去の営業日（backups）が読めない間は、下の3つのボタンは役に立たない。メニューの上に案内を出す
+  const unreadable = backupsUnreadable() ? `<p class="report-data-notice" role="status">${BACKUPS_UNREADABLE_NOTICE}</p>` : '';
+  return `<nav class="report-nav" aria-label="集計内メニュー"><div class="report-nav-links">${items}</div>${unreadable}<details class="report-data-tools"><summary>保存データ管理</summary><div class="report-data-actions"><button type="button" onclick="restoreBackup()"><span>♻️ 復元</span><small>保存した日を選んで戻す</small></button><button type="button" onclick="showRecoveryModal()"><span>🔧 データ復旧</span><small>消えた日・空の日を戻す</small></button><button type="button" onclick="showNewDayModal()"><span>＋ 新しい営業日</span><small>過去の日付の営業日を追加</small></button></div></details></nav>`;
 }
 function _reportNavActivate(link, event) {
   event?.preventDefault();
@@ -25309,6 +25731,22 @@ function dailyCloseLockForKey(dayKey) {
   return saveDailyClose(store);
 }
 
+/* 指定営業日キーの日次締めがロック中か */
+function dailyCloseIsLockedForKey(dayKey) {
+  const rec = _dailyCloseNormalizeRecord(loadDailyClose()[dayKey]);
+  return _dailyCloseNormalizeFrozen(rec.frozen).closedAt > 0;
+}
+
+/* 指定営業日キーの日次締めのロックを外す（自動締め・締め忘れ確認が、保存できずに見送った時に使う）。ロック中でなければ false */
+function dailyCloseUnlockForKey(dayKey) {
+  const store = loadDailyClose();
+  const rec = _dailyCloseNormalizeRecord(store[dayKey]);
+  if (_dailyCloseNormalizeFrozen(rec.frozen).closedAt <= 0) return false;
+  rec.frozen = { ...rec.frozen, closedAt: 0 };
+  store[dayKey] = rec;
+  return saveDailyClose(store);
+}
+
 function dailyCloseLockNow() {
   const src = _reportDaySource();
   if (src.dayKey !== getLoadedDayKey()) return false;
@@ -25353,13 +25791,30 @@ async function reportEndBusinessDay() {
     showToast('過去の営業日は締められません');
     return;
   }
-  if (!(await appConfirm('営業を終了しますか？\n・日次締めをロックします（未ロックの場合）\n・本日のリスト表を空にします\n（データは過去のリストから復元できます）', { danger: true }))) return;
+  // 過去の営業日が読めない間は「過去のリストから復元」できないので、今日の分の行き先を正しく言う（2026-11-02 シナリオ判定）
+  const whereKept = (typeof backupsUnreadable === 'function' && backupsUnreadable())
+    ? '（今日の分は「消えた営業日の控え」に保存されます）'
+    : '（データは過去のリストから復元できます）';
+  if (!(await appConfirm('営業を終了しますか？\n・日次締めをロックします（未ロックの場合）\n・本日のリスト表を空にします\n' + whereKept, { danger: true }))) return;
   const rec = _dailyCloseCurrentRecord();
-  if (_dailyCloseNormalizeFrozen(rec.frozen).closedAt <= 0) dailyCloseLockNow();
-  try { saveBackupForKey(getLoadedDayKey()); } catch (_) {}
+  const lockedBefore = _dailyCloseNormalizeFrozen(rec.frozen).closedAt > 0;
+  if (!lockedBefore) dailyCloseLockNow();   // 日次締めは別のファイルなので、先にロックする
+  // 過去の営業日（backups）へ、書けなければ「消えた営業日の控え」へ今日の分を残してから空にする。
+  // どちらにも残せない時は、リストを空にしない（ボーイの操作は変えず、保存できた時の画面・手順は今まで通り）
+  let saved = false;
+  try { saved = saveDayForClose(getLoadedDayKey()); } catch (_) {}
+  if (!saved) {
+    // 見送った時は、この操作で掛けた日次締めのロックを外す（押す前から掛かっていた時は残す）。
+    // 掛けたままだと集計のボタンが「営業終了を取り消す」だけになり、営業終了の入口が無くなる
+    if (!lockedBefore) { try { dailyCloseUnlockNow(); } catch (_) {} }
+    await appAlert('今日の分を保存できなかったので、画面はこのままにしました。\nこのまま電源を切って帰って大丈夫です。');
+    return;
+  }
   resetDayCore();
   renderReportPanel();
-  showToast('🔚 営業を終了しました（日次締めロック済み）');
+  showToast(saved === 'recovery'
+    ? '🔚 営業を終了しました（今日の分は『消えた営業日の控え』に保存しました）'
+    : '🔚 営業を終了しました（日次締めロック済み）');
 }
 
 async function reportReopenBusinessDay() {
@@ -25372,7 +25827,14 @@ async function reportReopenBusinessDay() {
     showToast('営業終了された状態ではありません');
     return;
   }
-  const snap = loadBackups().find(item => item.dayKey === getLoadedDayKey());
+  // 過去の営業日（backups）と、営業終了のとき保存できず「消えた営業日の控え」へ逃がした控えのうち、新しい方から取り消す
+  const picked = pickClosedDaySnap(getLoadedDayKey());
+  let snap = picked.snap;
+  if (snap && picked.fromRecovery) {
+    // 控えの印（退避日時・理由）は戻すデータに付けない。覚えている控えと中身を共有しないよう、写しを取る
+    const { archivedAt, archivedAtIso, reason, ...clean } = snap;
+    snap = JSON.parse(JSON.stringify(clean));
+  }
   if (!snap) {
     showToast('営業終了時点のバックアップが見つかりません');
     return;
@@ -29073,7 +29535,10 @@ function renderPastSidebar() {
   const list = document.getElementById('past-day-list');
   if (!list) return;
   if (backups.length === 0) {
-    list.innerHTML = `<div style="padding:16px;font-size:11px;color:var(--tx3);text-align:center">保存データがありません</div>`;
+    // 読めないだけの時に「保存データがありません」と出さない
+    list.innerHTML = backupsUnreadable()
+      ? `<div style="padding:16px;font-size:12px;line-height:1.6;color:var(--tx2);text-align:left">${BACKUPS_UNREADABLE_NOTICE}</div>`
+      : `<div style="padding:16px;font-size:11px;color:var(--tx3);text-align:center">保存データがありません</div>`;
     return;
   }
 
@@ -29924,6 +30389,7 @@ async function deletePastDay(dayKey) {
 }
 /* 新規営業日を追加するモーダルを表示 */
 function showNewDayModal() {
+  if (backupsUnreadable()) { notifyBackupsUnreadable(); return; }   // 過去の営業日が読めない間は、足しても保存できない
   const old = document.getElementById('new-day-modal');
   if (old) old.remove();
   const today = new Date();
@@ -35654,6 +36120,13 @@ function importableData(data) {
    店舗IDを先に保存すると、古い控え（料金の新形式が無い設定）の旧料金が既定値で上書き保存され、
    次の起動で移し替えが走らなくなる（2026-10-02 Fableレビュー） */
 function reloadAfterImport() {
+  // 営業中に読み込むと、保存できず自動締めを見送っていた状態（試し直しの待ち・前の営業日の印）が残り、
+  // 読み込んだ今日のリストが前日のキーで締められて空になる。起動直後と同じ状態から読み直す。
+  // 前の営業日の印は、自動締めの見送りが立てた時だけ外す（♻️復元で過去の日を見ている最中の印まで外すと、
+  // その日の行が「今日」になり、次の自動保存で今日の控えを上書きする。2026-11-02 監査3回目）
+  if (_autoCloseRetryAt > 0 && state._restoredFromKey === _lastBizDayKey) state._restoredFromKey = null;
+  _lastBizDayKey = null;
+  _autoCloseRetryAt = 0;
   loadCfg();
   migrateDailyClosePreset();
   loadState();
