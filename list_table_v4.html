@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.115">
+<meta name="app-version" content="1.1.117">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -2266,9 +2266,11 @@ tr.grp-drag-over td { box-shadow: inset 0 2px 0 var(--gold) !important; }
   font-size: 11px; font-weight: 700; margin-top: 2px; letter-spacing: 0.03em;
   color: var(--tx3);
 }
-.countdown-badge.warn  { color: var(--red); animation: cd-blink 1.2s step-end infinite; }
+/* 残り10分以下の点滅は、毎秒の updateCountdowns が cd-dim を付け外しして動かす。
+   CSSの無限アニメーションは表示中ずっと描画を回し続け、リスト表の負荷が約2.4倍になっていた（2026-11-03 実測） */
+.countdown-badge.warn  { color: var(--red); }
+.countdown-badge.warn.cd-dim { opacity: 0.3; }
 .countdown-badge.over  { color: var(--red); }
-@keyframes cd-blink { 50% { opacity: 0.3; } }
 
 /* 指名 */
 .desig-cell { min-width: 155px; }
@@ -8805,6 +8807,17 @@ const SelfUpdate = {
     return document.querySelector('meta[name="app-version"]')?.content || 'unknown';
   },
 
+  /* 配信先（version.json）の URL（2026-11-01）。通常版は全店共通のこの1本。別の種類の版（NightList-mini など）は、
+     自分の部品の先頭でこの関数を差し替えて、自分専用の配信先を見る。取り込み口はすべてこの関数を通す。 */
+  channelUrl() {
+    return SELF_UPDATE_URL;
+  },
+
+  /* 今開いているHTMLの種類。HTMLの <head> にある app-edition の印で決まる。印が無いHTMLは通常版（standard）。 */
+  currentEdition() {
+    return document.querySelector('meta[name="app-edition"]')?.content || 'standard';
+  },
+
   /* 端末の種類は「ページの開き方」で決める（2026-10-29）。file: で開かれた時だけ、昔の自己書き換えの道を残す。
      http://localhost:8940/ などの配信端末では、アプリは自分の本体を書き換えず、配信元の version.json も見ない
      （「今すぐ更新」がブラウザのファイル選択に落ちる事故を、サーバーの状態に関係なく起こさないため）。
@@ -8878,7 +8891,7 @@ const SelfUpdate = {
         return probe.kind;
       }
       // file: で開いた時だけ、今までどおり配信元を見て「今すぐ更新」付きのお知らせを出す
-      const versionRes = await fetch(SELF_UPDATE_URL, { cache: 'no-store' });
+      const versionRes = await fetch(this.channelUrl(), { cache: 'no-store' });
       if (!versionRes.ok) throw new Error('version.json fetch failed');
       const info = this._validateVersionInfo(await versionRes.json());
       const current = this.currentVersion();
@@ -9377,7 +9390,7 @@ const SelfUpdate = {
   async _checkAndRunCore(options = {}) {
     const onProgress = typeof options.onProgress === 'function' ? options.onProgress : () => {};
     try {
-      const updateUrl = SELF_UPDATE_URL;
+      const updateUrl = this.channelUrl();
       const served = this._isServed();
       onProgress(served ? '端末の更新の仕組みに確認しています…' : '確認中…');
       // 端末側スクリプトが更新を受け持つ端末では、ファイルの書き換えもファイル選択も行わない。
@@ -9440,6 +9453,10 @@ const SelfUpdate = {
       const nextHtml = new TextDecoder('utf-8').decode(bytes);
       if (this._extractAppVersion(nextHtml) !== info.version) {
         return this._result('error', '新版HTMLのバージョンが配信情報と一致しません');
+      }
+      // 通常版と NightList-mini が入れ替わらないよう、取り込むHTMLの種類が今のHTMLと同じかを確かめる（2026-11-01）
+      if (this._extractAppEdition(nextHtml) !== this.currentEdition()) {
+        return this._result('error', '配信先の種類が違うため更新を中止しました');
       }
 
       let appFileHandle;
@@ -9565,6 +9582,17 @@ const SelfUpdate = {
     return match ? match[1] : '';
   },
 
+  /* HTMLの種類の印（app-edition）を読む。印が無ければ通常版（standard）。<head> の中だけを見る
+     （本文の文字列やコードに同じ形の文字があっても、種類を取り違えないため）。 */
+  _extractAppEdition(html) {
+    const text = String(html || '');
+    const headEnd = text.search(/<\/head>/i);
+    const head = headEnd >= 0 ? text.slice(0, headEnd) : text;
+    const match = head.match(/<meta\s+[^>]*name=["']app-edition["'][^>]*content=["']([^"']+)["'][^>]*>/i)
+      || head.match(/<meta\s+[^>]*content=["']([^"']+)["'][^>]*name=["']app-edition["'][^>]*>/i);
+    return match ? match[1] : 'standard';
+  },
+
   /* 書き換える本体ファイルを探す。見つからない時は、ファイル選択を出さずに NO_APP_FILE で止まる（2026-10-29）。
      配信端末（file: 以外）では、本体を書き換える道そのものに入らない。 */
   async _getVerifiedAppFileHandle() {
@@ -9637,7 +9665,9 @@ const SelfUpdate = {
 
   async _verifyAppIdentity(handle) {
     const html = await (await handle.getFile()).text();
-    return this._extractAppVersion(html) === this.currentVersion();
+    // 版番号が同じでも、種類（通常版／NightList-mini）が違うHTMLは自分とみなさない（2026-11-01）
+    return this._extractAppVersion(html) === this.currentVersion()
+      && this._extractAppEdition(html) === this.currentEdition();
   },
 
   async _writeTextVerified(fileHandle, text) {
@@ -10934,12 +10964,17 @@ function checkAutoCloseDay() {
 }
 let _lastTickMinute = -1;
 setInterval(() => {
+  // POSタブの1秒ごとの更新（29-pos-panel.js）も、この時計と同じ発火で行う。別のタイマーだと発火がずれ、
+  // 画面の描き直しが1秒に2回になる（2026-11-03 PCの発熱対策）。前は別のタイマーだったので、
+  // ここで失敗しても時計・自動出勤・自動締めは止めず、時計側で失敗してもPOSの残り時間は進める。
+  // 失敗は投げ直して、前と同じく画面のエラーの知らせ（01g）に届ける
+  if (_posTimerActive) { try { _posTimerTick(); } catch (e) { setTimeout(() => { throw e; }, 0); } }
   updateClock();
   const overrideActive = _devNowMin !== null || _demoMode;
   if (!overrideActive) checkAutoActivateCasts();
   if (!overrideActive) checkAutoCloseWarn();
   if (!overrideActive) checkAutoCloseDay();
-  updateCountdowns();
+  updateCountdowns(true);
   // 分が変わった瞬間にバッジ・タイムテーブルを更新
   // （d.getSeconds()===0 だとsetIntervalの誤差で1分遅れることがある）
   const d = new Date();
@@ -14194,15 +14229,26 @@ function renderTable() {
 /* ================================================================
    COUNTDOWN（残り時間バッジ）
 ================================================================ */
-function updateCountdowns() {
+/* 毎秒呼ばれる。文字と色が変わるのは分の変わり目だけなので、変わった時だけ書き換える
+   （同じ文字を書き直しても、そのたびに画面の配置と描画がやり直しになる）。
+   残り10分以下の点滅（warn）は、1秒ごとの時計の処理から tick=true で呼ばれるたびに明暗を入れ替える
+   （壁時計の秒で決めると、タイマーの誤差で同じ明暗が続くことがある）。表の描き直しからの呼び出しは今の明暗のまま。 */
+let _cdDimPhase = false;
+function _setCountdownBadge(el, text, cls) {
+  if (el.textContent !== text) el.textContent = text;
+  if (el.className !== cls) el.className = cls;
+}
+function updateCountdowns(tick) {
+  if (tick === true) _cdDimPhase = !_cdDimPhase;
   if (!cfg.showCountdown) {
     state.rows.forEach(row => {
       const el = document.getElementById('cd_' + row.id);
-      if (el) { el.textContent = ''; el.className = 'countdown-badge'; }
+      if (el) _setCountdownBadge(el, '', 'countdown-badge');
     });
     return;
   }
   const nowMin = getNowMin();
+  const dim = _cdDimPhase;
   state.rows.forEach(row => {
     if (!row.isFirst || row.settled) return;
     const el = document.getElementById('cd_' + row.id);
@@ -14211,11 +14257,11 @@ function updateCountdowns() {
     if (rem > 0) {
       const h = Math.floor(rem / 60);
       const m = rem % 60;
-      el.textContent = h > 0 ? `残${h}h${String(m).padStart(2,'0')}m` : `残${m}分`;
-      el.className = 'countdown-badge' + (rem <= 10 ? ' warn' : '');
+      _setCountdownBadge(el,
+        h > 0 ? `残${h}h${String(m).padStart(2,'0')}m` : `残${m}分`,
+        'countdown-badge' + (rem <= 10 ? (dim ? ' warn cd-dim' : ' warn') : ''));
     } else {
-      el.textContent = `OVER ${Math.abs(rem)}分`;
-      el.className = 'countdown-badge over';
+      _setCountdownBadge(el, `OVER ${Math.abs(rem)}分`, 'countdown-badge over');
     }
   });
 }
@@ -14235,19 +14281,26 @@ function summaryStats() {
   return { guests, groups, sales, cash, card, unsettled, forecast: sales + unsettled, avg };
 }
 
+/* POSタブでは毎秒呼ばれる。値が前と同じ欄は書き直さない（同じ値でも書くたびに配置と描画がやり直しになる） */
+function _setSummaryText(id, text) {
+  const el = document.getElementById(id);
+  if (el.textContent !== text) el.textContent = text;
+}
 function updateSummary() {
   const { guests, groups, sales, cash, card, unsettled, forecast, avg } = summaryStats();
-  document.getElementById('s-guests').textContent = guests;
-  document.getElementById('s-groups').textContent = groups;
+  _setSummaryText('s-guests', String(guests));
+  _setSummaryText('s-groups', String(groups));
   const breakdown = (cash > 0 || card > 0)
     ? ` <span class="sum-sales-breakdown" style="color:var(--tx3);font-size:10px">(現 ¥${cash.toLocaleString()} / カード ¥${card.toLocaleString()})</span>`
     : '';
   const salesEl = document.getElementById('s-sales');
-  salesEl.innerHTML = '¥' + sales.toLocaleString() + breakdown;
-  salesEl.title = breakdown ? `現金 ¥${cash.toLocaleString()} / カード ¥${card.toLocaleString()}` : '';
-  document.getElementById('s-unsettled').textContent = '¥' + unsettled.toLocaleString();
-  document.getElementById('s-forecast').textContent = '¥' + forecast.toLocaleString();
-  document.getElementById('s-avg').textContent  = avg > 0 ? '¥' + avg.toLocaleString() : '—';
+  const salesHtml = '¥' + sales.toLocaleString() + breakdown;
+  if (salesEl.innerHTML !== salesHtml) salesEl.innerHTML = salesHtml;
+  const salesTitle = breakdown ? `現金 ¥${cash.toLocaleString()} / カード ¥${card.toLocaleString()}` : '';
+  if (salesEl.title !== salesTitle) salesEl.title = salesTitle;
+  _setSummaryText('s-unsettled', '¥' + unsettled.toLocaleString());
+  _setSummaryText('s-forecast', '¥' + forecast.toLocaleString());
+  _setSummaryText('s-avg', avg > 0 ? '¥' + avg.toLocaleString() : '—');
 
   // ヘッダーの店内状況バッジを更新
   updateStoreStatusBadge();
@@ -14262,7 +14315,8 @@ function storeStatusBadgeContents() {
 function updateStoreStatusBadge() {
   const badge = document.getElementById('store-status-badge');
   if (!badge) return;
-  badge.innerHTML = storeStatusBadgeContents();
+  const html = storeStatusBadgeContents();
+  if (badge.innerHTML !== html) badge.innerHTML = html;
 }
 /* ================================================================
    PRINT PAGE GENERATOR
@@ -17446,13 +17500,18 @@ function _posTimerTick() {
     if (!row) return;
     const t = _posSlipTimerText(row);
     const status = _posFloorStatus(t);
-    card.classList.remove('status-none', 'status-ok', 'status-warn', 'status-over', 'status-wait');
-    card.classList.add('status-' + status);
+    // 色の class は変わった時だけ付け替える（毎秒付け直すと、そのたびにカード全体の見た目の計算がやり直しになる）
+    const statusClass = 'status-' + status;
+    if (!card.classList.contains(statusClass) || _POS_FLOOR_STATUS_CLASSES.some(c => c !== statusClass && card.classList.contains(c))) {
+      card.classList.remove(..._POS_FLOOR_STATUS_CLASSES);
+      card.classList.add(statusClass);
+    }
     const badge = card.querySelector('.pos-floor-timer');
     if (badge) {
-      badge.className = 'pos-floor-timer status-' + status;
+      const badgeClass = 'pos-floor-timer ' + statusClass;
+      if (badge.className !== badgeClass) badge.className = badgeClass;
       badge.innerHTML = _posFloorTimerHtml(t);
-      badge.removeAttribute('onclick');
+      if (badge.hasAttribute('onclick')) badge.removeAttribute('onclick');
     }
   });
   root.querySelectorAll('[data-pos-elapsed-gid]').forEach(el => {
@@ -17475,21 +17534,21 @@ function _posTimerTick() {
     if (!row) return;
     const t = _posSlipTimerText(row);
     const status = _posFloorStatus(t);
-    el.className = 'pos-order-slip-remain status-' + status;
+    const remainClass = 'pos-order-slip-remain status-' + status;
+    if (el.className !== remainClass) el.className = remainClass;
     // 待機中の伝票は押すと再開。ふつうの伝票は押すと「−1分」「＋1分」を出し入れする（2026-10-30）
     el.disabled = false;
-    el.setAttribute('onclick', (row.posWaitStart ? 'posToggleWait(' : 'posWindToggle(') + row.gid + ')');
+    const onclick = (row.posWaitStart ? 'posToggleWait(' : 'posWindToggle(') + row.gid + ')';
+    if (el.getAttribute('onclick') !== onclick) el.setAttribute('onclick', onclick);
     el.innerHTML = _posOrderTimerHtml(t);
   });
 }
-let _posTimerInterval = null;
-function _posStartTimer() {
-  if (_posTimerInterval) return;
-  _posTimerInterval = setInterval(_posTimerTick, 1000);
-}
-function _posStopTimer() {
-  if (_posTimerInterval) { clearInterval(_posTimerInterval); _posTimerInterval = null; }
-}
+const _POS_FLOOR_STATUS_CLASSES = ['status-none', 'status-ok', 'status-warn', 'status-over', 'status-wait'];
+/* POSタブの1秒ごとの更新は、05-clock.js の1秒ごとの時計の処理から呼ぶ。
+   別のタイマーにすると時計と発火がずれ、画面の描き直しが1秒に2回になる（2026-11-03 PCの発熱対策） */
+let _posTimerActive = false;
+function _posStartTimer() { _posTimerActive = true; }
+function _posStopTimer() { _posTimerActive = false; }
 
 /* 待機中の伝票を再開する。
    2026-10-30: 残り時間を押して新しく待機に入る操作はやめた（時間を巻く機能 posWindAdjust に置き換え。オーナー指示）。
