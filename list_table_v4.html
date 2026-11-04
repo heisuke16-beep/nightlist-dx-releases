@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.117">
+<meta name="app-version" content="1.1.118">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -10962,6 +10962,18 @@ function checkAutoCloseDay() {
       : '🕛 営業日が変わったため自動で営業終了しました（日次締めロック済み・出勤キャストもリセット）');
   } catch (_) {}
 }
+/* 起動して保存データを読み込んだか（46-init.js の __boot が loadState の直後に true にする）。
+   読み込む前（保存先の選択・ログインの画面で止まっている間）は、自動出勤・自動締めをしない。
+   その間に営業日の境界を越えると、空の初期状態のまま締めて、保存済みのリスト（名簿・単価・日計表の手入力を含む）を
+   空で上書きし、前の営業日の日次締めを0円でロックしていた（2026-11-04 監査で再現）。 */
+let _bootStateLoaded = false;
+function _clockAutoChecks() {
+  if (!_bootStateLoaded) return;
+  if (_devNowMin !== null || _demoMode) return;
+  checkAutoActivateCasts();
+  checkAutoCloseWarn();
+  checkAutoCloseDay();
+}
 let _lastTickMinute = -1;
 setInterval(() => {
   // POSタブの1秒ごとの更新（29-pos-panel.js）も、この時計と同じ発火で行う。別のタイマーだと発火がずれ、
@@ -10970,10 +10982,7 @@ setInterval(() => {
   // 失敗は投げ直して、前と同じく画面のエラーの知らせ（01g）に届ける
   if (_posTimerActive) { try { _posTimerTick(); } catch (e) { setTimeout(() => { throw e; }, 0); } }
   updateClock();
-  const overrideActive = _devNowMin !== null || _demoMode;
-  if (!overrideActive) checkAutoActivateCasts();
-  if (!overrideActive) checkAutoCloseWarn();
-  if (!overrideActive) checkAutoCloseDay();
+  _clockAutoChecks();
   updateCountdowns(true);
   // 分が変わった瞬間にバッジ・タイムテーブルを更新
   // （d.getSeconds()===0 だとsetIntervalの誤差で1分遅れることがある）
@@ -11476,10 +11485,10 @@ function loadState() {
   Object.assign(state, s);
   // 旧スキーマの行を補填（cashEntries/cardEntries/linkedParentId/storeIn/storeOut 等）
   state.rows.forEach(r => normalizeRow(r, { rotCols: state.rotCols, extCols: state.extCols }));
-  // R5: 締め忘れ→翌日再起動の検知。保存営業日と現在営業日がズレ、かつ未精算客が残っていれば警告。
+  // R5: 締め忘れ→翌日再起動の検知。保存営業日と現在営業日がズレ、かつ行が残っていれば、前の営業日として締める。
   // bizDayKey は saveState() が記録。Object.assign で state.bizDayKey に入る。
   const staleHandled = checkStaleBizDay(s.bizDayKey);
-  // 締め忘れ警告に入らなかった＝正常に締めて日をまたいだケース。
+  // 締め忘れの処理に入らなかった＝行が残っていない（営業終了して日をまたいだ）ケース。
   // 出勤状態だけ新しい営業日のまっさらな状態へ戻す（前営業日分を退避してから）。
   // どこにも退避できなかった時は、出勤状態に触れない（消すと前営業日の出退勤が失われる）。
   if (!staleHandled && s.bizDayKey && !state._restoredFromKey && s.bizDayKey !== getBizDayKey()) {
@@ -11494,11 +11503,16 @@ function loadState() {
   }
 }
 
-/* R5: 起動時1回だけ実行。前営業日の締め忘れデータが残っていないか判定し、
-   残っていれば破壊的動作なしで警告（confirm）し、ユーザーの手動判断に委ねる。
-   - 過去リスト復元中(_restoredFromKey)は対象外（誤発火防止）。
-   - 自動では絶対に締めない・消さない。「はい」を選んだ時のみ締める。
-   戻り値: true = この関数が締め処理を引き受けた（呼び出し側は出勤状態に触らない）。 */
+/* R5: 起動時1回だけ実行。営業終了を押し忘れて、前の営業日の行がリストに残っていたら、
+   精算済みかどうかに関係なく、選ばせずに前の営業日として締める（2026-11-04 オーナー決定「上書きされたほうが面倒」）。
+   順は手動の営業終了と同じ: 日次締めをロック → 前の営業日に保存 → リストを空にする。そのあと出勤をリセットし、知らせを1つ出す。
+   以前は未精算があるときだけ確認を出していた。全員精算済みのときと「キャンセル」のときは前日の行が今日のリストに残り、
+   今日の分として保存・集計された（2026-11-03 chuchu）。集計版（99s）の締め方と同じ形にそろえた。
+   - 過去リスト復元中(_restoredFromKey)は対象外（誤発火防止）。行が残っていなければ締める物が無いので、呼び出し側に任せる。
+   - 締めるのは起動の続きが終わったあと（300ms後）。それまでは前の営業日のものとして扱い（自動保存が今日のキーへ書かない）、
+     先に前の営業日の保存データへ写す（締める前に閉じられても失われない）。
+   - どこにも保存できないときは締めない（行は前の営業日のものとして残し、次回起動で再検出される）。
+   戻り値: true = この関数が締め処理を引き受けた（呼び出し側は保存・出勤状態に触らない）。 */
 let _staleBizDayChecked = false;
 function checkStaleBizDay(savedKey) {
   if (_staleBizDayChecked) return false;   // 起動時1回のみ
@@ -11506,45 +11520,40 @@ function checkStaleBizDay(savedKey) {
   // 過去日を復元中は判定しない（復元元キーで保存されるのは正常な挙動）
   if (state._restoredFromKey) return false;
   if (!savedKey) return false;             // 旧データ（bizDayKey 未記録）は判定不可 → 何もしない
-  const curKey = getBizDayKey();
-  if (savedKey === curKey) return false;   // 同じ営業日 → 締め忘れではない
-  // 未精算の初回(=入店)行が残っているか
-  const hasUnsettled = state.rows.some(r => r.isFirst && !r.settled);
-  if (!hasUnsettled) return false;         // 残っているのが精算済みのみなら警告不要
-  // 確認は init シーケンスを止めないよう、描画後に遅延実行
-  setTimeout(async () => {
+  if (savedKey === getBizDayKey()) return false;   // 同じ営業日 → 締め忘れではない
+  if (!Array.isArray(state.rows) || state.rows.length === 0) return false;   // 行が残っていない＝営業終了して日をまたいだ
+  state._restoredFromKey = savedKey;
+  try { saveBackupForKey(savedKey); } catch (_) {}
+  setTimeout(() => {
     try {
-      const ok = await appConfirm(
-        `前営業日（${bizKeyToLabel(savedKey)}）の締め忘れデータが残っています。\n\n` +
-        `未精算のお客様が画面に表示されています。\n` +
-        `日次締めもロックします。\n` +
-        `今すぐ営業終了して新しい営業日（${bizKeyToLabel(curKey)}）を開始しますか？\n\n` +
-        `［OK］前営業日分をバックアップしてから営業終了\n` +
-        `［キャンセル］そのまま表示（手動で確認・精算する）`
-      );
-      if (!ok) return;               // キャンセル＝何もしない（データはそのまま表示）
-      // 締める前の状態を日次締めに凍結し、「締め忘れた営業日キー」でバックアップしてから締める
+      // 締める前の状態を日次締めに凍結し（今のリスト＝前の営業日の行から作る）、前の営業日のキーで保存してから締める
       const lockedBefore = dailyCloseIsLockedForKey(savedKey);
       try { dailyCloseLockForKey(savedKey); } catch (_) {}
       // 過去の営業日（backups）へ、書けなければ「消えた営業日の控え」へ。どちらにも残せないなら、締めを見送る（行は空にしない）
       let saved = false;
       try { saved = saveDayForClose(savedKey); } catch (_) {}
       if (!saved) {
-        // 見送った時は、この操作で掛けた日次締めのロックを外す（前から掛かっていた時は残す）。
+        // 見送った時は、この処理で掛けた日次締めのロックを外す（前から掛かっていた時は残す）。
         // 掛けたままだと集計のボタンが「営業終了を取り消す」だけになり、営業終了の入口が無くなる
         if (!lockedBefore) { try { dailyCloseUnlockForKey(savedKey); } catch (_) {} }
-        // 残せなかった行を「今日」にしない。前の営業日のものとして扱う（保存しても前日のキーのまま。次回起動でも再検出される）
-        if (!state._restoredFromKey) state._restoredFromKey = savedKey;
+        // 行は前の営業日のものとして残す（_restoredFromKey はそのまま。保存しても前日のキーのまま。次回起動でも再検出される）
         try { showToast('保存先に書けないため、締めを見送りました。前の営業日のまま表示しています。オーナーへ連絡してください'); } catch (_) {}
         return;
       }
-      resetDayCore();                // 19-reset.js の締め処理本体（確認ダイアログなし）
-      // 出勤状態も新しい営業日のまっさらな状態へ（バックアップ後なので♻️復元で戻せる）
+      const unsettled = state.rows.filter(r => r && r.isFirst && !r.settled).length;
+      resetDayCore();                // 19-reset.js の締め処理本体（行を空にし、前の営業日の印も外す）
+      // 締めは取り消せない（取り消すと前の営業日の行が今日に戻る）。履歴を空にする
+      try { undoStack.length = 0; undoLabels.length = 0; redoStack.length = 0; redoLabels.length = 0; refreshHistoryBtns(); } catch (_) {}
+      // 出勤状態も新しい営業日のまっさらな状態へ（保存後なので♻️復元で戻せる）
       try { clearAttendanceForNewBizDay(); renderCastPanel(); renderTimetable(); } catch (_) {}
+      try { if (typeof renderReportPanel === 'function') renderReportPanel(); } catch (_) {}
+      const day = Number(savedKey.slice(4, 6)) + '月' + Number(savedKey.slice(6, 8)) + '日';
+      const fromRecovery = saved === 'recovery';
       try {
-        showToast(saved === 'recovery'
-          ? `🕛 前営業日分を『消えた営業日の控え』に保存し、新しい営業日を開始しました（出勤キャストもリセット）`
-          : `🕛 前営業日分をバックアップし、新しい営業日を開始しました（出勤キャストもリセット）`);
+        appAlert('前の営業日（' + day + '）の営業終了が押されていなかったので、締めてから今日を始めました。'
+          + (fromRecovery ? '前の日の伝票は、『消えた営業日の控え』に保存しました。' : '前の日の伝票は、集計で日付を選ぶと見られます。')
+          // 未精算の直し方は店に任せない（その日のリストを直しても、締めでロックした日次締めの値は ⚖ 再集計まで変わらないため。2026-11-04 監査）
+          + (unsettled > 0 ? '\n\n未精算の伝票が' + unsettled + '件ありました。オーナーへ伝えてください。' : ''));
       } catch (_) {}
     } catch (_) {}
   }, 300);
@@ -13686,6 +13695,10 @@ function resetDayCore() {
   state.manualSort=false;   // 新しい営業日は開始時刻順の自動ソートに戻す
   state._restoredFromKey=null;   // 締め＝通常運用へ復帰。過去日キーのまま新営業日に入る事故を防ぐ
   renderTable(); saveState();
+  // POS の選んでいる伝票を外し、POS タブを開いていれば描き直す。起動時の締め忘れの締め・自動締めは POS を開いたまま締めるので、
+  // 描き直さないと締めた伝票のカードが画面に残る（新しい伝票は gid 1 から振り直すので、古い選択が別の伝票を指すこともある。2026-11-04 監査）
+  try { posBetaState.selectedGid = null; posBetaState.viewMode = 'slip'; } catch (_) {}
+  try { if (document.body.dataset.activeTab === 'pos') renderPOSPanel(); } catch (_) {}
 }
 
 /* 営業日が変わったので出勤状態を新しい日のまっさらな状態へ戻す（2026-07-25 オーナー要望）。
@@ -36573,6 +36586,7 @@ async function __boot() {
   loadCfg();
   migrateDailyClosePreset();   // 設定の読込直後・店舗IDの保存より前（先に保存すると標準が書かれてしまう）
   loadState();
+  _bootStateLoaded = true;     // ここから時計の自動出勤・自動締めを動かす（05-clock.js）
   migrateShimeiExtModel();
   try { repairShotStoreSpBacks(); } catch (e) { console.error('[init] shot SP repair failed:', e); }
   // 店舗IDの保存は設定の移し替えの後。先に保存すると、移し替え前の既定料金が入った設定が残りうる（2026-10-02 Fableレビュー）
