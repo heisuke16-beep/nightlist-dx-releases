@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.118">
+<meta name="app-version" content="1.1.119">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -23296,8 +23296,8 @@ function _payrollTd(content, className, groupStart) {
 }
 function _payrollTableColumns(countCols, deductionItems, showPoints) {
   const cols = [
-    { id:'clockin', group:'work', label:'出勤', cell:(x, start) => _payrollTd(x.plain ? formatWorkTime(x.r.roundedIn || x.r.inHHMM) : _payrollClockSelectHtml(x.r.inHHMM, roundClockIn, "payrollSetClockIn('" + x.cj + "', this.value)"), '', start), total:(x, start) => _payrollTd('', '', start) },
-    { id:'clockout', group:'work', label:'退勤', cell:(x, start) => _payrollTd(x.plain ? formatCheckoutTime(x.r.roundedOut || x.r.outHHMM) : _payrollClockSelectHtml(x.r.outHHMM, roundClockOut, "payrollSetClockOut('" + x.cj + "', this.value)", cfg.clockOutFrom, cfg.clockOutTo), '', start), total:(x, start) => _payrollTd('', '', start) },
+    { id:'clockin', group:'work', label:'出勤', cell:(x, start) => _payrollTd(x.plain ? formatWorkTime(x.r.roundedIn || x.r.inHHMM) : _payrollClockSelectHtml(x.r.inHHMM, roundClockIn, "payrollSetClockIn('" + x.cj + "', this.value)", undefined, undefined, cfg.clockInStep), '', start), total:(x, start) => _payrollTd('', '', start) },
+    { id:'clockout', group:'work', label:'退勤', cell:(x, start) => _payrollTd(x.plain ? formatCheckoutTime(x.r.roundedOut || x.r.outHHMM) : _payrollClockSelectHtml(x.r.outHHMM, roundClockOut, "payrollSetClockOut('" + x.cj + "', this.value)", cfg.clockOutFrom, cfg.clockOutTo, cfg.clockOutStep), '', start), total:(x, start) => _payrollTd('', '', start) },
     { id:'work', group:'work', label:'勤務', cell:(x, start) => _payrollTd(_payWorkLabel(x.r.workMinutes), '', start), total:(x, start) => _payrollTd('', '', start) },
     { id:'hourly', group:'work', label:'時間給', cell:(x, start) => _payrollTd(x.hasOut ? _payYen(x.r.hourlyPay) : '—', 'pay-amt' + (x.hasOut ? '' : ' pay-muted'), start), total:(x, start) => _payrollTd('', '', start) },
     ...countCols.map(([id, label]) => ({
@@ -24456,16 +24456,17 @@ function _payrollSetClock(field, castName, value) {
     _rerenderPayrollTable();
   }
 }
-/* 出退勤の30分刻みドロップダウン。fromMin〜toMin（既定は営業時間帯 getTimeMin〜getTimeMax、退勤列は
-   退勤受付範囲 cfg.clockOutFrom〜clockOutTo）を30分刻みで提示。
+/* 出退勤のドロップダウン。fromMin〜toMin（既定は営業時間帯 getTimeMin〜getTimeMax、退勤列は
+   退勤受付範囲 cfg.clockOutFrom〜clockOutTo）を stepMin 分刻みで提示（設定の出勤・退勤時刻の刻み。15か30。2026-11-04 まで30分固定）。
    現在値は丸め後(rounder)に正規化して選択＝表示と勤務計算を一致させる。値は連続表記HH:MM。
    範囲外の現在値（受付開始前の早退など）は、出勤管理の退勤セレクト(getClockOutOptions)と同じく
    現在値の行を先頭の空欄の直後に足して選択状態で表示する（選択肢に無いだけで「--:--」に見せない）。 */
-function _payrollClockSelectHtml(curHHMM, rounder, onchangeCall, fromMin = getTimeMin(), toMin = getTimeMax()) {
+function _payrollClockSelectHtml(curHHMM, rounder, onchangeCall, fromMin = getTimeMin(), toMin = getTimeMax(), stepMin = 30) {
   const cur = curHHMM ? rounder(curHHMM) : '';
+  const step = Number(stepMin) > 0 ? Number(stepMin) : 30;
   let regular = '';
   let matched = false;
-  for (let t = fromMin; t <= toMin; t += 30) {
+  for (let t = fromMin; t <= toMin; t += step) {
     const s = minToStr(t);
     const selected = s === cur;
     matched = matched || selected;
@@ -31754,34 +31755,34 @@ function renderSettingsPanel() {
     <div class="settings-section" data-setcat="cast">
       <div class="settings-section-header"><span class="settings-section-title">🕐 出勤・退勤の時刻</span></div>
       <div class="settings-section-body">
-        <div class="settings-sub" style="margin-bottom:8px">出勤キャストで選ぶ出勤・退勤時刻の選択肢です。給与の丸め（何分単位で数えるか）は「💴 給与計算ルール」で決めます。</div>
+        <div class="settings-sub" style="margin-bottom:8px">出勤キャストと日計表で選ぶ出勤・退勤時刻の選択肢です。給与の丸め（何分単位で数えるか）は「💴 給与計算ルール」で決めます。</div>
         <div class="settings-row">
           <div class="settings-label">出勤時刻・受付開始<div class="settings-sub">セレクトの一番上の時刻</div></div>
           <input type="number" class="settings-input" id="cfg-clockInFromH" value="${Math.floor((cfg.clockInFrom??1200)/60)}" min="16" max="26" style="width:52px"> 時
-          <input type="number" class="settings-input" id="cfg-clockInFromM" value="${(cfg.clockInFrom??1200)%60}" min="0" max="59" step="30" style="width:52px"> 分
+          <input type="number" class="settings-input" id="cfg-clockInFromM" value="${(cfg.clockInFrom??1200)%60}" min="0" max="59" step="15" style="width:52px"> 分
         </div>
         <div class="settings-row">
           <div class="settings-label">出勤時刻・受付終了<div class="settings-sub">セレクトの一番下の時刻</div></div>
           <input type="number" class="settings-input" id="cfg-clockInToH" value="${Math.floor((cfg.clockInTo??1410)/60)}" min="16" max="26" style="width:52px"> 時
-          <input type="number" class="settings-input" id="cfg-clockInToM" value="${(cfg.clockInTo??1410)%60}" min="0" max="59" step="30" style="width:52px"> 分
+          <input type="number" class="settings-input" id="cfg-clockInToM" value="${(cfg.clockInTo??1410)%60}" min="0" max="59" step="15" style="width:52px"> 分
         </div>
         <div class="settings-row">
-          <div class="settings-label">出勤時刻の刻み<div class="settings-sub">セレクトボックスの間隔（分）</div></div>
-          <input type="number" class="settings-input" id="cfg-clockInStep" value="${cfg.clockInStep ?? 30}" min="5" max="60" step="5"> 分刻み
+          <div class="settings-label">出勤時刻の刻み<div class="settings-sub">出勤時刻を選ぶ間隔（15分か30分）</div></div>
+          ${_clockStepSelectHtml('cfg-clockInStep', cfg.clockInStep)} 分刻み
         </div>
         <div class="settings-row">
           <div class="settings-label">退勤時刻・受付開始<div class="settings-sub">セレクトの一番上の時刻</div></div>
           <input type="number" class="settings-input" id="cfg-clockOutFromH" value="${Math.floor((cfg.clockOutFrom??1320)/60)}" min="16" max="29" style="width:52px"> 時
-          <input type="number" class="settings-input" id="cfg-clockOutFromM" value="${(cfg.clockOutFrom??1320)%60}" min="0" max="59" step="30" style="width:52px"> 分
+          <input type="number" class="settings-input" id="cfg-clockOutFromM" value="${(cfg.clockOutFrom??1320)%60}" min="0" max="59" step="15" style="width:52px"> 分
         </div>
         <div class="settings-row">
           <div class="settings-label">退勤時刻・受付終了<div class="settings-sub">セレクトの一番下の時刻</div></div>
           <input type="number" class="settings-input" id="cfg-clockOutToH" value="${Math.floor((cfg.clockOutTo??1800)/60)}" min="16" max="30" style="width:52px"> 時
-          <input type="number" class="settings-input" id="cfg-clockOutToM" value="${(cfg.clockOutTo??1800)%60}" min="0" max="59" step="30" style="width:52px"> 分
+          <input type="number" class="settings-input" id="cfg-clockOutToM" value="${(cfg.clockOutTo??1800)%60}" min="0" max="59" step="15" style="width:52px"> 分
         </div>
         <div class="settings-row">
-          <div class="settings-label">退勤時刻の刻み<div class="settings-sub">セレクトボックスの間隔（分）</div></div>
-          <input type="number" class="settings-input" id="cfg-clockOutStep" value="${cfg.clockOutStep ?? 30}" min="5" max="60" step="5"> 分刻み
+          <div class="settings-label">退勤時刻の刻み<div class="settings-sub">退勤時刻を選ぶ間隔（15分か30分）</div></div>
+          ${_clockStepSelectHtml('cfg-clockOutStep', cfg.clockOutStep)} 分刻み
         </div>
       </div>
     </div>
@@ -32207,6 +32208,17 @@ async function usbSettingsActivate() {
   } catch (e) {
     console.error('[settings] USB activate failed:', e);
   }
+}
+
+/* 出勤・退勤時刻の刻みの選択（2026-11-04 chuchu の要望「15分刻みで入力したい」、オーナー「15分30分選べるようにしたらいいね」）。
+   前は 5〜60分の数字の入力だった。15・30 以外が入っている店は、その値を「今の設定」として残して選べるようにする（保存し直しても変えない） */
+const CLOCK_STEP_CHOICES = [15, 30];
+function _clockStepSelectHtml(id, current) {
+  const cur = Number(current) || 30;
+  const keep = CLOCK_STEP_CHOICES.includes(cur) ? '' : `<option value="${cur}" selected>${cur}（今の設定）</option>`;
+  return `<select class="settings-input" id="${id}">${keep}`
+    + CLOCK_STEP_CHOICES.map(m => `<option value="${m}"${m === cur ? ' selected' : ''}>${m}</option>`).join('')
+    + `</select>`;
 }
 
 /* アプリ更新欄の「配信端末」表示（2026-10-29）。配信端末 = file: 以外で開いた画面（SelfUpdate._isServed）。
