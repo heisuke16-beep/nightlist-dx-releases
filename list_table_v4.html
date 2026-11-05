@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.120">
+<meta name="app-version" content="1.1.121">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -25957,18 +25957,101 @@ function dailyCloseToggleLock() {
   }
 }
 
+/* 設定から読み込んだ過去の日を手で営業終了した後、読み込む前の営業中の日へ戻す（2026-11-05）。
+   手動の営業終了は出勤キャスト・出退勤を消さない作り（同じ夜に開き直すため）なので、戻さないと読み込んだ日の出勤のまま「今日」が続く。
+   そのまま伝票を入れると、読み込む前に一覧へ保存した今日の分を上書きし、境い目の自動締めは読み込んだ日の出勤で今日を締めていた。
+   読み込みは名簿（allCasts）も読み込んだ日の物に置き換えるので、名簿も読み込む前の日の物に戻す（2026-11-05 監査）。
+   resetDayCore の後に呼ぶ（行は空・読み込みの印は外れている）。loadedOn: 読み込んだ時の営業日。
+   戻り値の kind: 'list'＝今日のリスト・名簿・出勤を戻した／'attendance'＝今日は営業終了済みなので名簿と出勤だけ戻した（リストは空のまま）／
+           'nocopy'＝一覧に今日の分が無いので出勤を空にした／'newday'＝読み込んでいる間に営業日が変わっていたので、出勤を空にして今日を始めた
+   prevLocked: 'newday' で、読み込む前の日をここで締めた時 true */
+function _backToLiveDayAfterLoadedClose(loadedOn) {
+  const today = getBizDayKey();
+  const copy = value => JSON.parse(JSON.stringify(value));
+  const restoreRoster = snap => { if (Array.isArray(snap && snap.allCasts)) state.allCasts = copy(snap.allCasts); };
+  if (loadedOn === today) {
+    if (!dailyCloseIsLockedForKey(today)) {
+      const snap = loadBackups().find(b => b && b.dayKey === today);
+      if (snap) {
+        try {
+          applySnapshot(copy(snap));
+        } finally {
+          // 今日の行なので、ふだんの営業中と同じ扱いにする。描画の途中で止まっても［復元中］の印を残さず、今日の行を今日として保存する
+          state._restoredFromKey = null; state._loadedPastOn = null;
+          saveState();
+        }
+        return { kind: 'list' };
+      }
+    } else {
+      // 今日は読み込む前に営業終了していた（リストは空のまま）。締めた時の控えから名簿と出勤だけ戻す
+      const { snap } = pickClosedDaySnap(today);
+      if (snap) {
+        restoreRoster(snap);
+        state.activeCasts = Array.isArray(snap.activeCasts) ? copy(snap.activeCasts) : [];
+        saveTimetableState(snap.timetableSnap ? copy(snap.timetableSnap) : { clockIns: {}, checkouts: {}, douban: [], touketsu: [], plannedClockIns: {}, chikokuMins: {} });
+        saveState();
+        renderCastPanel(); renderTimetable();
+        return { kind: 'attendance' };
+      }
+    }
+    clearAttendanceForNewBizDay();
+    renderCastPanel(); renderTimetable();
+    return { kind: 'nocopy' };
+  }
+  // 読み込んでいる間に営業日が変わっていた（境い目の自動締めが保存できず見送った時など）。
+  // 読み込む前の日は、一覧に保存してある分で締める（境い目の自動締めと同じ。営業終了済みなら何もしない）。名簿はその日の物に戻す
+  const prev = loadBackups().find(b => b && b.dayKey === loadedOn);
+  let prevLocked = false;
+  if (prev) {
+    try { prevLocked = dailyCloseLockForKey(loadedOn, prev) === true; } catch (_) {}
+    restoreRoster(prev);
+  }
+  clearAttendanceForNewBizDay();
+  renderCastPanel(); renderTimetable();
+  return { kind: 'newday', prevLocked };
+}
+
 async function reportEndBusinessDay() {
   const src = _reportDaySource();
   if (src.dayKey !== getLoadedDayKey()) {
     showToast('過去の営業日は締められません');
     return;
   }
+  const closeKey = getLoadedDayKey();
+  // 設定から過去の日を読み込んでいる最中なら、締めたあと読み込む前の日へ戻す（_backToLiveDayAfterLoadedClose）
+  const loadedOn = (state._loadedPastOn && state._loadedPastOn !== closeKey) ? state._loadedPastOn : null;
+  const today = getBizDayKey();
+  // 年が今日と違う日は年も付ける（1年前の同じ月日を読み込むと「11月5日を閉じて今日（11月5日）に戻す」になるため）
+  const md = key => (key.slice(0, 4) !== today.slice(0, 4) ? key.slice(0, 4) + '年' : '') + Number(key.slice(4, 6)) + '月' + Number(key.slice(6, 8)) + '日';
+  const dayWord = loadedOn ? md(closeKey) + 'の分' : '今日の分';
   // 過去の営業日が読めない間は集計から見られないので、今日の分の行き先を正しく言う（2026-11-02 シナリオ判定）。
   // 読める時の文は、もう無い「過去のリスト」を指していたので、実際の見方に直した（2026-11-05）
   const whereKept = (typeof backupsUnreadable === 'function' && backupsUnreadable())
-    ? '（今日の分は「消えた営業日の控え」に保存されます）'
-    : '（今日の分は保存され、集計で日付を選ぶと見られます）';
-  if (!(await appConfirm('営業を終了しますか？\n・日次締めをロックします（未ロックの場合）\n・本日のリスト表を空にします\n' + whereKept, { danger: true }))) return;
+    ? `（${dayWord}は「消えた営業日の控え」に保存されます）`
+    : `（${dayWord}は保存され、集計で日付を選ぶと見られます）`;
+  // 確認の文は、閉じたあと実際にどうなるか（_backToLiveDayAfterLoadedClose の分かれ方）に合わせる
+  const inList = key => loadedOn ? loadBackups().some(b => b && b.dayKey === key) : false;
+  const backLine = !loadedOn ? ''
+    : loadedOn !== today
+      ? `・${md(closeKey)}の分を閉じて、今日（${md(today)}）を始めます`
+        + (!dailyCloseIsLockedForKey(loadedOn) && inList(loadedOn) ? `（${md(loadedOn)}は一覧に保存してある分で締めます）` : '') + '\n'
+    : dailyCloseIsLockedForKey(today)
+      ? `・${md(closeKey)}の分を閉じて、今日（${md(today)}）の出勤キャストに戻します（今日は営業終了済みなので、リストは空のままです）\n`
+    : inList(today)
+      ? `・${md(closeKey)}の分を閉じて、今日（${md(today)}）のリストと出勤キャストに戻します\n`
+      : `・${md(closeKey)}の分を閉じます（今日の分が見つからないので、出勤キャストは空になります）\n`;
+  const question = loadedOn
+    ? `表示している${md(closeKey)}の営業を終了しますか？\n・${md(closeKey)}の日次締めをロックします（未ロックの場合）\n` + backLine + whereKept
+    : '営業を終了しますか？\n・日次締めをロックします（未ロックの場合）\n・本日のリスト表を空にします\n' + whereKept;
+  if (!(await appConfirm(question, { danger: true }))) return;
+  // 確認を出している間に営業日が変わり、自動締めが先に締めていたら、聞いた日とは違う日を締めてしまう（次の日が0円でロックされる）ので、やめる
+  if (getLoadedDayKey() !== closeKey) {
+    showToast(dailyCloseIsLockedForKey(closeKey)
+      ? `確認の間に${md(closeKey)}は自動で営業終了しました（もう一度押さなくて大丈夫です）`
+      : '確認の間に営業日が変わったので、営業終了はしませんでした', 6000);
+    try { renderReportPanel(); } catch (_) {}
+    return;
+  }
   const rec = _dailyCloseCurrentRecord();
   const lockedBefore = _dailyCloseNormalizeFrozen(rec.frozen).closedAt > 0;
   if (!lockedBefore) dailyCloseLockNow();   // 日次締めは別のファイルなので、先にロックする
@@ -25984,10 +26067,26 @@ async function reportEndBusinessDay() {
     return;
   }
   resetDayCore();
+  if (!loadedOn) {
+    renderReportPanel();
+    showToast(saved === 'recovery'
+      ? '🔚 営業を終了しました（今日の分は『消えた営業日の控え』に保存しました）'
+      : '🔚 営業を終了しました（日次締めロック済み）');
+    return;
+  }
+  let back = {};
+  try { back = _backToLiveDayAfterLoadedClose(loadedOn) || {}; } catch (_) {}
+  // ↩ で営業終了を戻すと、読み込んだ日の行が今日の出勤と組になって戻る。読み込みの時と同じく履歴を空にする
+  try { undoStack.length = 0; undoLabels.length = 0; redoStack.length = 0; redoLabels.length = 0; refreshHistoryBtns(); } catch (_) {}
   renderReportPanel();
-  showToast(saved === 'recovery'
-    ? '🔚 営業を終了しました（今日の分は『消えた営業日の控え』に保存しました）'
-    : '🔚 営業を終了しました（日次締めロック済み）');
+  try { updateClock(); } catch (_) {}   // 見出しの営業日（［復元中］）は毎秒の時計で描くので、待たずに今日へ描き直す
+  // 知らせは1行で出るので短くし、読み切れるよう長めに出す
+  const kept = saved === 'recovery' ? `（${md(closeKey)}の分は『消えた営業日の控え』へ）` : '';
+  showToast(back.kind === 'list' ? `🔚 ${md(closeKey)}の営業を終了し、今日（${md(today)}）のリストに戻しました${kept}`
+    : back.kind === 'attendance' ? `🔚 ${md(closeKey)}の営業を終了し、今日（${md(today)}）の出勤キャストに戻しました${kept}`
+    : back.kind === 'nocopy' ? `🔚 ${md(closeKey)}の営業を終了しました。今日の分が見つからず、出勤キャストは空にしました${kept}`
+    : back.kind === 'newday' ? `🔚 ${md(closeKey)}の営業を終了し、今日を始めました（${back.prevLocked ? md(loadedOn) + 'は一覧の分で締めました・' : ''}出勤キャストもリセット）${kept}`
+    : `🔚 ${md(closeKey)}の営業を終了しました${kept}`, 6000);
 }
 
 async function reportReopenBusinessDay() {
