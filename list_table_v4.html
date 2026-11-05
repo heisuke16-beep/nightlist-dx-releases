@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.119">
+<meta name="app-version" content="1.1.120">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -3414,8 +3414,7 @@ body[data-active-tab="report"] { overflow:hidden; }
 .report-nav a:hover,.report-nav a:focus-visible,.report-nav a[aria-current="true"] { color:var(--gold2); background:var(--sur2); outline:2px solid var(--gold); outline-offset:1px; }
 .report-data-notice { margin:10px 0 0; padding:8px 10px; border:1px solid var(--red); border-radius:10px; background:rgba(232,64,96,0.08); color:var(--tx); font-size:12px; line-height:1.6; }
 .report-data-tools { margin-top:10px; padding:8px; border:1px solid var(--bdr); border-radius:10px; background:var(--sur); }
-.report-data-tools summary { cursor:pointer; min-height:44px; display:flex; align-items:center; color:var(--tx2); font-size:11px; font-weight:700; }
-.report-data-actions { display:flex; flex-direction:column; gap:5px; margin-top:7px; }
+.report-data-actions { display:flex; flex-direction:column; gap:5px; }
 .report-data-actions button { min-height:44px; border:1px solid var(--bdr2); border-radius:7px; background:var(--sur2); color:var(--tx2); cursor:pointer; }
 .report-anchor-section,.report-day-list,#report-payroll,#report-deduction,#daily-close-host,#report-slips,#report-range-overview,#report-range-days { scroll-margin-top:8px; }
 .report-day-link { padding:6px 8px; border:0; border-radius:6px; background:transparent; color:var(--gold2); cursor:pointer; text-decoration:underline; font:inherit; }
@@ -6816,10 +6815,10 @@ html[data-display="desktop"] #tabs .tab-btn .tab-app-icon { width: 56px; height:
   html[data-theme="night"] #report-panel .pos-hist-stat-val { color: var(--tx); }
 
   /* ---- 集計: 左の列。押しやすい大きさにし、縦に入りきらないときは列の中でスクロールできるようにする
-     （「保存データ管理」を開くと、いちばん下のボタンがフッターの裏に隠れて押せなかった） ---- */
+     （以前、下のボタンがフッターの裏に隠れて押せなかった） ---- */
   #report-panel .report-sidebar { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
   #report-panel .report-sidebar > * { flex: 0 0 auto; }
-  /* 「保存データ管理」を開いたときは、上のメニューの枠を縮めて中でスクロールさせ、3つのボタンを全部見せる */
+  /* 縦に入りきらないときは、上のメニューの枠を縮めて中でスクロールさせ、下の2つのボタン（過去の日を入力する・消えた日を戻す）を全部見せる */
   #report-panel .report-sidebar > .report-nav { display: flex; flex-direction: column; flex: 0 1 auto; min-height: 0; }
   #report-panel .report-nav-links { flex: 0 1 auto; min-height: 104px; overflow-y: auto; overscroll-behavior: contain; }
   #report-panel .report-nav-links > a { flex: 0 0 auto; }
@@ -6830,7 +6829,6 @@ html[data-display="desktop"] #tabs .tab-btn .tab-app-icon { width: 56px; height:
   #report-panel .report-end-business-day .btn { min-height: 46px; font-size: 14px; }
   #report-panel .report-sidebar .report-period-switch .rp-btn { min-height: 44px; font-size: 14px; }
   #report-panel .report-nav a { font-size: 13px; }
-  #report-panel .report-data-tools summary { font-size: 12px; }
   #report-panel .report-data-actions button {
     display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px;
     padding: 8px 12px; text-align: left; font-family: var(--font); font-size: 13px; font-weight: 700; color: var(--tx);
@@ -10911,11 +10909,12 @@ function checkAutoCloseDay() {
   if (curKey === _lastBizDayKey) return;
   // 見送り中に、ボーイが前日の行を手で消して空になった。守る物が無いので、リストを空にする処理・出勤のリセット・トーストはしない
   // （すでに始まっている今日の出勤を消さない）。営業日の印を進め、前の営業日の扱い（[復元中]）を外すだけにする。
+  // 過去の日を読み込んだまま見送っていた時も印は外す。行が空なので守る物は無く、残すと今日の入力がその日の分として保存される（2026-11-05 監査）
   if (_autoCloseRetryAt > 0 && (state.rows || []).length === 0) {
-    const skippedKey = _lastBizDayKey;
     _lastBizDayKey = curKey;
     _autoCloseRetryAt = 0;
-    if (state._restoredFromKey === skippedKey) state._restoredFromKey = null;
+    state._restoredFromKey = null;
+    state._loadedPastOn = null;
     try { saveState(); } catch (_) {}   // 保存する営業日の印を今日に戻す
     return;
   }
@@ -10931,15 +10930,20 @@ function checkAutoCloseDay() {
   // → 未精算客が残っていても ♻️復元 / 過去リストから戻せる。
   // 過去の営業日（backups）に保存できなければ「消えた営業日の控え」へ。どちらにも残せないなら、リストを空にせず黙って見送る
   // （_lastBizDayKey を進めないので、間を空けて試し直す）。
-  const lockedBefore = dailyCloseIsLockedForKey(prevKey);
-  try { dailyCloseLockForKey(prevKey); } catch (_) {}
+  // 締めるのは「今の行が属する日」。設定から過去の日を読み込んでいる最中なら、その日（_restoredFromKey）であって前日ではない。
+  // 前日のキーで締めると、前日の控えを読み込んだ日の行で上書きし、前日の日次締めをその数字でロックしていた（2026-11-05 監査）。
+  // 見送り中（_restoredFromKey＝前日）と普段（印なし）は、今まで通り前日のキー。
+  const rowsKey = state._restoredFromKey || prevKey;
+  const closingLoadedDay = rowsKey !== prevKey;
+  const lockedBefore = dailyCloseIsLockedForKey(rowsKey);
+  try { dailyCloseLockForKey(rowsKey); } catch (_) {}
   let saved = false;
-  try { saved = saveDayForClose(prevKey); } catch (_) {}
+  try { saved = saveDayForClose(rowsKey); } catch (_) {}
   if (!saved) {
     _autoCloseRetryAt = Date.now() + AUTO_CLOSE_RETRY_MS;
-    // 見送った時は、この処理で掛けた日次締めのロックを外す（前から掛かっていた時は残す）。前日のキーのロックは前日のキーで外す。
+    // 見送った時は、この処理で掛けた日次締めのロックを外す（前から掛かっていた時は残す）。掛けたキーで外す。
     // 掛けたままだと集計のボタンが「営業終了を取り消す」だけになり、営業終了の入口が無くなる
-    if (!lockedBefore) { try { dailyCloseUnlockForKey(prevKey); } catch (_) {} }
+    if (!lockedBefore) { try { dailyCloseUnlockForKey(rowsKey); } catch (_) {} }
     // 残せなかった行を「今日」にしない。前の営業日のものとして扱う（見出しに［復元中］が出る・保存しても前日のキーのまま・次回起動でも再検出される）。
     // 過去の日を復元して見ている最中なら、その印はそのまま
     if (!state._restoredFromKey) state._restoredFromKey = prevKey;
@@ -10949,7 +10953,23 @@ function checkAutoCloseDay() {
   }
   _lastBizDayKey = curKey; // 保存できたら更新し、何があっても1回だけの実行を保証
   _autoCloseRetryAt = 0;
+  // 表示していた別の日を閉じた時、前の営業日はまだ締まっていないことがある（営業終了せずに過去の日を読み込んだ）。
+  // 読み込む前に一覧へ保存した前の営業日の中身で締める。営業終了済み（ロック済み）なら何もしない（2026-11-05 監査）
+  // 締めるのは、設定から読み込んだ時に営業していた日（_loadedPastOn）。無い時と、それが今日の時は前の営業日。
+  // 「今日だけ延長」で境い目を越えた後に締める時などは、前の営業日と食い違う
+  // （今日の時＝前の日の締めを見送っている間に読み込んだ時。見送った前の日を締める）
+  const liveKey = (state._loadedPastOn && state._loadedPastOn !== curKey) ? state._loadedPastOn : prevKey;
+  let prevLockedNow = false;
+  if (closingLoadedDay && liveKey !== curKey) {
+    try {
+      const prevSnap = loadBackups().find(b => b && b.dayKey === liveKey);
+      // 伝票が0件の日も、普段の自動締め（今の行が空でもロックする）と同じく出勤の分で締める
+      if (prevSnap) prevLockedNow = dailyCloseLockForKey(liveKey, prevSnap) === true;
+    } catch (_) {}
+  }
   resetDayCore();
+  // 締めは取り消せない（↩ で取り消すと前の営業日の行が今日に戻り、二重に数える）。起動時の締め忘れの締めと同じく履歴を空にする
+  try { undoStack.length = 0; undoLabels.length = 0; redoStack.length = 0; redoLabels.length = 0; refreshHistoryBtns(); } catch (_) {}
   // 出勤状態も新しい営業日のまっさらな状態へ戻す（バックアップ後なので♻️復元で戻せる）
   try {
     clearAttendanceForNewBizDay();
@@ -10957,9 +10977,16 @@ function checkAutoCloseDay() {
     renderTimetable();
   } catch (_) {}
   try {
-    showToast(saved === 'recovery'
-      ? '🕛 営業日が変わったため自動で営業終了しました（前日の分は『消えた営業日の控え』に保存しました・出勤キャストもリセット）'
-      : '🕛 営業日が変わったため自動で営業終了しました（日次締めロック済み・出勤キャストもリセット）');
+    if (closingLoadedDay) {
+      // 「読み込んでいた」とは言わない（締め忘れの見送りなど、読み込まずに別の日を表示している時もあるため）
+      const md = key => Number(key.slice(4, 6)) + '月' + Number(key.slice(6, 8)) + '日';
+      showToast(`🕛 営業日が変わったため、表示していた${md(rowsKey)}の分を${saved === 'recovery' ? '『消えた営業日の控え』に' : ''}保存して閉じ、今日を始めました`
+        + (prevLockedNow ? `（${md(liveKey)}は一覧に保存してあった分で締めました・出勤キャストもリセット）` : '（出勤キャストもリセット）'));
+    } else {
+      showToast(saved === 'recovery'
+        ? '🕛 営業日が変わったため自動で営業終了しました（前日の分は『消えた営業日の控え』に保存しました・出勤キャストもリセット）'
+        : '🕛 営業日が変わったため自動で営業終了しました（日次締めロック済み・出勤キャストもリセット）');
+    }
   } catch (_) {}
 }
 /* 起動して保存データを読み込んだか（46-init.js の __boot が loadState の直後に true にする）。
@@ -11007,6 +11034,8 @@ function snapRows() {
     // 復元中の過去日キーもスナップショットに含める。行だけ戻してキーが残ると、
     // 次の自動保存が過去日のバックアップを今日のデータで上書きする
     _restoredFromKey: state._restoredFromKey || null,
+    // 設定から読み込んだ時の営業日も一緒に戻す。片方だけ戻ると、開き直した時に読み込んだ日を締め忘れとして締める（2026-11-05 監査）
+    _loadedPastOn: state._loadedPastOn || null,
   });
 }
 // 記録ごとの操作名（undoStack/redoStack と同じ位置に対応）。名前なしの記録は ''。
@@ -11192,6 +11221,9 @@ function saveState() {
     // R5: 締め忘れ→翌日再起動の検知用。保存時点の営業日キーを記録する。
     // 復元中(_restoredFromKey)はその復元元キー、通常は実時計の営業日キー。
     bizDayKey: state._restoredFromKey || getBizDayKey(),
+    // 設定から過去の日を読み込んだ時の、本当の営業日（読み込み中だけ）。起動時に、同じ営業日なら読み込んだまま開き、
+    // 変わっていれば読み込んだ日を締める（loadState）。印の _restoredFromKey は締め忘れの見送りでも立つので、それと見分ける（2026-11-05）
+    _loadedPastOn: state._loadedPastOn || null,
   });
   _unsavedChanges = true; // localStorageには保存済みだがbackupにはまだ
 }
@@ -11407,8 +11439,9 @@ function _daySnapFromState(dayKey) {
    自動締め（営業日境界跨ぎ）の直前に、締める前の営業日キーで状態を残すために使う。
    → 締め後も restoreBackup（♻️復元）/過去リストから締め前の状態を復元できる。
    戻り値: true=保存できた（行が空で保存する物が無い時も true）／ false=保存できなかった。
-   リストを空にしてよいかは、この戻り値（または saveDayForClose の戻り値）で決める。 */
-function saveBackupForKey(dayKey) {
+   リストを空にしてよいかは、この戻り値（または saveDayForClose の戻り値）で決める。
+   keepEmpty=true の時は、行が空でも書く（出勤・出退勤を残すため。前の中身に行があれば _archiveLostSnaps が控えへ移す）。 */
+function saveBackupForKey(dayKey, keepEmpty) {
   if (!dayKey) return false;
   const backups = loadBackups();
   const existing = backups.findIndex(b => b.dayKey === dayKey);
@@ -11417,7 +11450,7 @@ function saveBackupForKey(dayKey) {
   // rows=[] のまま境界をまたぐと、せっかく保存済みの当日データを空で上書きしてしまう。
   // autoSave() と同じ「空ならスキップ」挙動に揃える（既存の中身は守る）。
   // 既存に中身あり／既存なし／既存も空、いずれも守る物は無いので成功として返す。
-  if (state.rows.length === 0) return true;
+  if (state.rows.length === 0 && !keepEmpty) return true;
   const snap = _daySnapFromState(dayKey);
   if (existing >= 0) {
     backups[existing] = snap; // 同営業日は上書き
@@ -11487,7 +11520,32 @@ function loadState() {
   state.rows.forEach(r => normalizeRow(r, { rotCols: state.rotCols, extCols: state.extCols }));
   // R5: 締め忘れ→翌日再起動の検知。保存営業日と現在営業日がズレ、かつ行が残っていれば、前の営業日として締める。
   // bizDayKey は saveState() が記録。Object.assign で state.bizDayKey に入る。
-  const staleHandled = checkStaleBizDay(s.bizDayKey);
+  // 設定から過去の日（bizDayKey）を読み込んだまま閉じていた時（2026-11-05 監査）:
+  //  - 同じ営業日のうちに開き直した → 読み込んだまま開く（締め忘れではない。前は営業中のリストを空にし、誤った知らせを出していた）
+  //  - 営業日が変わっていた → 読み込んだ日は下の締め忘れの締めが自分のキーで締める。読み込む前の日は一覧の控えで締める（ロック済みなら何もしない）
+  const loadedOn = s._loadedPastOn || null;
+  state._loadedPastOn = null;
+  let staleOpts = null;
+  if (loadedOn && s.bizDayKey && s.bizDayKey !== loadedOn) {
+    if (loadedOn === getBizDayKey()) {
+      state._restoredFromKey = s.bizDayKey;
+      state._loadedPastOn = loadedOn;
+      // 見出しの［復元中］だけだと、気づかずに今日のお客様を読み込んだ日へ入れてしまうので、一言知らせる
+      const day = Number(s.bizDayKey.slice(4, 6)) + '月' + Number(s.bizDayKey.slice(6, 8)) + '日';
+      setTimeout(() => { try { showToast(day + 'を読み込んだまま開きました（今日の分は、設定の「一覧を開く」で今日を読み込むと戻ります）'); } catch (_) {} }, 100);
+    } else {
+      let prevLocked = false;
+      try {
+        const prevSnap = loadBackups().find(b => b && b.dayKey === loadedOn);
+        if (prevSnap) prevLocked = dailyCloseLockForKey(loadedOn, prevSnap) === true;
+      } catch (_) {}
+      staleOpts = { loadedOn, prevLocked };
+    }
+  }
+  const staleHandled = checkStaleBizDay(s.bizDayKey, staleOpts);
+  // 読み込んだ日の締めを引き受けた時は、読み込んだ時の営業日を残す。締め終われば resetDayCore が外し、
+  // 保存できずに見送った時は次の起動で読み込む前の日の締めからやり直せる（過去の営業日が読めなかった時など）
+  if (staleHandled && staleOpts) state._loadedPastOn = staleOpts.loadedOn;
   // 締め忘れの処理に入らなかった＝行が残っていない（営業終了して日をまたいだ）ケース。
   // 出勤状態だけ新しい営業日のまっさらな状態へ戻す（前営業日分を退避してから）。
   // どこにも退避できなかった時は、出勤状態に触れない（消すと前営業日の出退勤が失われる）。
@@ -11514,7 +11572,9 @@ function loadState() {
    - どこにも保存できないときは締めない（行は前の営業日のものとして残し、次回起動で再検出される）。
    戻り値: true = この関数が締め処理を引き受けた（呼び出し側は保存・出勤状態に触らない）。 */
 let _staleBizDayChecked = false;
-function checkStaleBizDay(savedKey) {
+/* opts（loadState が渡す）: 設定から読み込んだ日を、閉じている間に営業日が変わったので締める時の { loadedOn: 読み込んだ時の営業日, prevLocked: その日を一覧の控えで締めたか }。
+   知らせの文だけに使う（締め忘れではないので「営業終了が押されていなかった」とは言わない） */
+function checkStaleBizDay(savedKey, opts) {
   if (_staleBizDayChecked) return false;   // 起動時1回のみ
   _staleBizDayChecked = true;
   // 過去日を復元中は判定しない（復元元キーで保存されるのは正常な挙動）
@@ -11547,11 +11607,17 @@ function checkStaleBizDay(savedKey) {
       // 出勤状態も新しい営業日のまっさらな状態へ（保存後なので♻️復元で戻せる）
       try { clearAttendanceForNewBizDay(); renderCastPanel(); renderTimetable(); } catch (_) {}
       try { if (typeof renderReportPanel === 'function') renderReportPanel(); } catch (_) {}
-      const day = Number(savedKey.slice(4, 6)) + '月' + Number(savedKey.slice(6, 8)) + '日';
+      const md = key => Number(key.slice(4, 6)) + '月' + Number(key.slice(6, 8)) + '日';
+      const day = md(savedKey);
       const fromRecovery = saved === 'recovery';
+      const loaded = opts && opts.loadedOn;
       try {
-        appAlert('前の営業日（' + day + '）の営業終了が押されていなかったので、締めてから今日を始めました。'
-          + (fromRecovery ? '前の日の伝票は、『消えた営業日の控え』に保存しました。' : '前の日の伝票は、集計で日付を選ぶと見られます。')
+        appAlert((loaded
+            ? '表示していた' + day + 'の分を保存して閉じ、今日を始めました。'
+              + (opts.prevLocked ? md(opts.loadedOn) + 'は一覧に保存してあった分で締めました。' : '')
+              + (fromRecovery ? day + 'の伝票は、『消えた営業日の控え』に保存しました。' : '')
+            : '前の営業日（' + day + '）の営業終了が押されていなかったので、締めてから今日を始めました。'
+              + (fromRecovery ? '前の日の伝票は、『消えた営業日の控え』に保存しました。' : '前の日の伝票は、集計で日付を選ぶと見られます。'))
           // 未精算の直し方は店に任せない（その日のリストを直しても、締めでロックした日次締めの値は ⚖ 再集計まで変わらないため。2026-11-04 監査）
           + (unsettled > 0 ? '\n\n未精算の伝票が' + unsettled + '件ありました。オーナーへ伝えてください。' : ''));
       } catch (_) {}
@@ -11563,11 +11629,16 @@ function checkStaleBizDay(savedKey) {
 function applySnapshot(snap) {
   Persist.unlockAll();
   pushUndo();
+  const prevRestoredKey = state._restoredFromKey || null;
+  const prevLoadedOn = state._loadedPastOn || null;
   Object.assign(state, snap);
   // バックアップに manualSort が無い場合は自動ソートに戻す（古いスナップ互換）
   if (snap.manualSort === undefined) state.manualSort = false;
   // 復元元のdayKeyを記憶（次の保存でその日付キーに上書きするため）
   state._restoredFromKey = snap.dayKey || null;
+  // 設定から読み込んでいる日を読み直した時（読み込んだ日で「営業終了を取り消す」など）は、読み込んだ時の営業日を残す。
+  // 別の日なら外す（設定からの読み込みなら、呼び出し側の confirmRestore が付け直す）。2026-11-05 監査
+  state._loadedPastOn = (snap.dayKey && snap.dayKey === prevRestoredKey) ? prevLoadedOn : null;
   // 旧スキーマの行を補填
   state.rows.forEach(r => normalizeRow(r, { rotCols: state.rotCols, extCols: state.extCols }));
   // タイムテーブル状態も復元（出勤キャスト管理をその日の状態に戻す）
@@ -11578,10 +11649,10 @@ function applySnapshot(snap) {
   if (typeof reportSelectedDay !== 'undefined') reportSelectedDay = null;
   renderTable(); renderCastPanel(); renderTimetable(); saveState(); refreshHistoryBtns();
   if (typeof renderReportPanel === 'function') renderReportPanel();   // 集計(キャスト別指名売上等)も復元状態へ更新
-  showToast(`${bizKeyToLabel(snap.dayKey)} のデータを復元しました`);
+  showToast(`${bizKeyToLabel(snap.dayKey)} を営業中のリストに読み込みました`);
 }
 
-/* 過去の営業日（backups）が読めない間は、♻️復元・🔧データ復旧・新しい営業日はどれも役に立たない（読めないので書けない）。
+/* 過去の営業日（backups）が読めない間は、読み込み（設定）・🔧消えた日を戻す・過去の日を入力する はどれも役に立たない（読めないので書けない）。
    押された時は案内だけ出して、backups に触れずに終える（2026-11-02）。 */
 const BACKUPS_UNREADABLE_NOTICE = '過去の営業日のファイルが読めないため、いまはここから戻せません。運営者が対応します。今日の入力と営業終了はいつも通りで大丈夫です。';
 function backupsUnreadable() { return Persist.failedReads.has('backups'); }
@@ -11636,9 +11707,9 @@ function showRestoreModal(backups) {
       display:flex;align-items:center;justify-content:space-between;
       background:linear-gradient(135deg,#0d1118 0%,#121a28 100%);">
       <div style="display:flex;align-items:center;gap:10px">
-        <span style="font-size:16px">♻️</span>
+        <span style="font-size:16px">📅</span>
         <div>
-          <div style="font-size:13px;font-weight:700;letter-spacing:0.08em;color:var(--gold2)">保存データを復元</div>
+          <div style="font-size:13px;font-weight:700;letter-spacing:0.08em;color:var(--gold2)">過去の日を営業中のリストに読み込む</div>
           <div style="font-size:10px;color:var(--tx3);margin-top:1px">営業日単位 · 最大365日 · 同日は上書き保存</div>
         </div>
         <div style="margin-left:6px;padding:2px 8px;border-radius:10px;
@@ -11652,7 +11723,7 @@ function showRestoreModal(backups) {
     <div style="padding:10px 16px;border-top:1px solid var(--bdr);
       display:flex;justify-content:space-between;align-items:center;
       background:rgba(0,0,0,0.2);">
-      <span style="font-size:10px;color:var(--tx3)">復元後に💾保存すると、その日付で上書きされます</span>
+      <span style="font-size:10px;color:var(--tx3)">読み込んだあとの入力は、その日の分として自動で保存されます</span>
       <button id="restore-clear-btn" style="font-size:10px;padding:4px 10px;border-radius:4px;cursor:pointer;
         background:rgba(232,64,96,0.08);border:1px solid rgba(232,64,96,0.3);
         color:var(--red);font-family:var(--font);transition:all 0.15s">全て削除</button>
@@ -11720,7 +11791,7 @@ function showRestoreModal(backups) {
       <button class="restore-do-btn" data-idx="${idx}" style="
         font-size:11px;padding:5px 14px;border-radius:5px;cursor:pointer;
         background:rgba(201,168,76,0.1);border:1px solid rgba(201,168,76,0.4);
-        color:var(--gold2);font-family:var(--font);white-space:nowrap;transition:all 0.15s;">復元</button>
+        color:var(--gold2);font-family:var(--font);white-space:nowrap;transition:all 0.15s;">読み込む</button>
       <button class="restore-del-btn" data-idx="${idx}" style="
         font-size:11px;padding:5px 9px;border-radius:5px;cursor:pointer;
         background:rgba(232,64,96,0.08);border:1px solid rgba(232,64,96,0.3);
@@ -11754,10 +11825,32 @@ async function confirmRestore(idx) {
   const snap = (window._restoreBackups || [])[idx];
   if (!snap) return;
   const label = bizKeyToLabel(snap.dayKey);
-  const ok = await appConfirm(`${label} のデータに復元しますか？\n\n現在のデータはUndo履歴に保存されます。\n復元後に💾保存すると ${label} の枠に上書きされます。`, { danger: true });
+  const curKey = getLoadedDayKey();
+  const curLabel = bizKeyToLabel(curKey);
+  const same = snap.dayKey === curKey;
+  // ↩（元に戻す）は伝票の行しか戻せず、出勤キャスト・出退勤は読み込んだ日のまま残る。戻した後の自動保存がそれを
+  // 今の日の控えに書いてしまうので、↩ では戻させない。置き換える前の分を一覧へ保存し、戻し方は一覧からの読み込みにする（2026-11-05 監査）
+  const ok = await appConfirm(same
+    ? `${label} を、この一覧に保存されている内容に戻しますか？\n\n保存されたあとの入力は消えます（↩ では戻せません）。`
+    : `いま営業中の ${curLabel} を、${label} の中身に置き換えますか？\n\nリスト・出勤キャスト・出退勤の記録が ${label} のものになります。\n置き換える前の ${curLabel} の分はこの一覧に残ります。戻すときは、この一覧で ${curLabel} を読み込んでください（↩ では戻せません）。\n読み込んだあとの入力は ${label} の分として自動で保存されます。`,
+    { danger: true });
   if (!ok) return;
-  document.getElementById('restore-modal').remove();
+  // 伝票が0件でも、営業終了前なら出勤・出退勤を残すために書く（開店前に出勤だけ入れた時など）。
+  // 伝票が0件で営業終了済み（ロック済み）なら、一覧には締めた時の中身があるので書かない（2026-11-05 監査）
+  const keepEmpty = (state.rows || []).length === 0 && !dailyCloseIsLockedForKey(curKey);
+  if (!same && !saveBackupForKey(curKey, keepEmpty)) {
+    await appAlert(`${curLabel} の分を保存できなかったので、読み込みをやめました。オーナーへ連絡してください。`);
+    return;
+  }
+  // 今の行の伝票番号を「使った番号」として残す。残さないと、読み込んだ日の古い番号を基準に次の番号を振り、今の日の番号と重なる（2026-11-05 監査）
+  try { commitSlipCounterOnClose(); } catch (_) {}
+  document.getElementById('restore-modal')?.remove();
   applySnapshot(snap);
+  try { undoStack.length = 0; undoLabels.length = 0; redoStack.length = 0; redoLabels.length = 0; refreshHistoryBtns(); } catch (_) {}
+  // 読み込んだ時の本当の営業日を残す（開き直した時、同じ営業日なら読み込んだまま開くため。今日の日を読み込んだ時は付けない）
+  const liveDay = getBizDayKey();
+  state._loadedPastOn = snap.dayKey === liveDay ? null : liveDay;
+  saveState();
 }
 
 async function deleteBackup(idx) {
@@ -11829,7 +11922,7 @@ function showRecoveryModal() {
       box-shadow:0 12px 50px rgba(0,0,0,0.65)">
       <div style="padding:16px 20px;border-bottom:1px solid var(--bdr);
         background:linear-gradient(135deg,#0d1118,#121a28)">
-        <div style="font-size:16px;font-weight:800;color:var(--gold2)">🔧 データ復旧</div>
+        <div style="font-size:16px;font-weight:800;color:var(--gold2)">🔧 消えた日を戻す（データ復旧）</div>
         <div style="font-size:12px;color:var(--tx2);margin-top:4px;line-height:1.6">
           リストが消えた・0人になってしまった日を、ここから元に戻せます。<br>
           直したい日の「<b>↩ この日を戻す</b>」を押すだけです。
@@ -13694,6 +13787,7 @@ function resetDayCore() {
   state.rows=[]; state.nextGid=1; state.nextGuest=1; state.rotCols=3; state.extCols=5;
   state.manualSort=false;   // 新しい営業日は開始時刻順の自動ソートに戻す
   state._restoredFromKey=null;   // 締め＝通常運用へ復帰。過去日キーのまま新営業日に入る事故を防ぐ
+  state._loadedPastOn=null;      // 設定から読み込んでいた印も外す
   renderTable(); saveState();
   // POS の選んでいる伝票を外し、POS タブを開いていれば描き直す。起動時の締め忘れの締め・自動締めは POS を開いたまま締めるので、
   // 描き直さないと締めた伝票のカードが画面に残る（新しい伝票は gid 1 から振り直すので、古い選択が別の伝票を指すこともある。2026-11-04 監査）
@@ -25129,9 +25223,11 @@ function _reportNavHtml(period, hasDailyClose = true) {
     ? [['report-overview','売上概要'],['report-payroll','日計表'],['report-nomination','指名売上'],['report-deduction','控除票'],['daily-close-host','日次締め'],['report-slips','会計伝票'],['report-day-list','その日のリスト']]
     : [['report-range-overview','期間概要'],['report-range-days','日別一覧']];
   const items = labels.filter(([id]) => id !== 'daily-close-host' || hasDailyClose).map(([id,label]) => `<a href="#${id}" aria-label="${label}へ移動" onclick="_reportNavActivate(this,event)">${label}</a>`).join('');
-  // 過去の営業日（backups）が読めない間は、下の3つのボタンは役に立たない。メニューの上に案内を出す
+  // 過去の営業日（backups）が読めない間は、下の2つのボタンは役に立たない。メニューの上に案内を出す
   const unreadable = backupsUnreadable() ? `<p class="report-data-notice" role="status">${BACKUPS_UNREADABLE_NOTICE}</p>` : '';
-  return `<nav class="report-nav" aria-label="集計内メニュー"><div class="report-nav-links">${items}</div>${unreadable}<details class="report-data-tools"><summary>保存データ管理</summary><div class="report-data-actions"><button type="button" onclick="restoreBackup()"><span>♻️ 復元</span><small>保存した日を選んで戻す</small></button><button type="button" onclick="showRecoveryModal()"><span>🔧 データ復旧</span><small>消えた日・空の日を戻す</small></button><button type="button" onclick="showNewDayModal()"><span>＋ 新しい営業日</span><small>過去の日付の営業日を追加</small></button></div></details></nav>`;
+  // 初めての人にも分かるよう、やりたいことの名前で常に見せる（2026-11-05 オーナー「初見じゃわかんない」）。
+  // 営業中のリストを過去の日で置き換える「読み込み」と削除は、設定 → データ・システムへ移した。
+  return `<nav class="report-nav" aria-label="集計内メニュー"><div class="report-nav-links">${items}</div>${unreadable}<div class="report-data-tools"><div class="report-data-actions"><button type="button" onclick="showNewDayModal()"><span>＋ 過去の日を入力する</span><small>入れ忘れた日・紙のリストを後から入れる</small></button><button type="button" onclick="showRecoveryModal()"><span>🔧 消えた日を戻す</span><small>リストが消えた・0人になった日を元に戻す（データ復旧）</small></button></div></div></nav>`;
 }
 function _reportNavActivate(link, event) {
   event?.preventDefault();
@@ -25165,7 +25261,7 @@ function _reportReadonlyListHtml(src) {
   const live = src?.dayKey === liveKey && !closedToday;
   const snap = !live && (typeof loadBackups === 'function') ? loadBackups().find(s => s.dayKey === src?.dayKey) : null;
   if (!rows.length) {
-    const action = live ? '<button type="button" class="btn" onclick="showTab(\'list\')">営業中のリストを開く</button>' : (snap ? `<button type="button" class="btn" onclick="openReportListEditor('${_reportReadonlyText(src.dayKey)}')">この日のリストを編集</button>` : '<span class="report-list-mode">保存データ管理から新しい営業日を作成してください</span>');
+    const action = live ? '<button type="button" class="btn" onclick="showTab(\'list\')">営業中のリストを開く</button>' : (snap ? `<button type="button" class="btn" onclick="openReportListEditor('${_reportReadonlyText(src.dayKey)}')">この日のリストを編集</button>` : '<span class="report-list-mode">左の「＋ 過去の日を入力する」から作成してください</span>');
     return `<section id="report-day-list" class="agg-box report-day-list"><div class="agg-box-head"><h3>その日のリスト</h3>${action}</div><p class="report-list-empty">この営業日のリストはありません</p></section>`;
   }
   const rotTotal = Math.max(Number(src.rotCols)||0, ...rows.map(r => Array.isArray(r.rotations) ? r.rotations.length : 0), ...rows.map(r => Array.isArray(r.rotations2) ? r.rotations2.length : 0), 0);
@@ -25210,7 +25306,7 @@ function _reportReadonlyListHtml(src) {
   }).join('');
   const action = live
     ? '<button type="button" class="btn" onclick="showTab(\'list\')">営業中のリストを開く</button>'
-    : (snap ? `<button type="button" class="btn" onclick="openReportListEditor('${_reportReadonlyText(src.dayKey)}')">この日のリストを編集</button>` : '<span class="report-list-mode">保存データ管理から新しい営業日を作成してください</span>');
+    : (snap ? `<button type="button" class="btn" onclick="openReportListEditor('${_reportReadonlyText(src.dayKey)}')">この日のリストを編集</button>` : '<span class="report-list-mode">左の「＋ 過去の日を入力する」から作成してください</span>');
   const closedNote = !live && snap && _reportClosedTodaySnap()?.dayKey === src.dayKey ? '<p class="report-list-mode">リストを変更しても日次締めの確定値は自動更新されません</p>' : '';
   return `<section id="report-day-list" class="agg-box report-day-list"><div class="agg-box-head"><h3>その日のリスト</h3><span class="report-list-mode">読み取り専用</span>${action}</div>${closedNote}<div class="report-list-scroll"><table class="report-list-table"><thead>${groupHead}${headRow}</thead><tbody>${body}</tbody></table></div></section>`;
 }
@@ -25790,12 +25886,15 @@ function dailyCloseSetListValue(field, index, prop, value) {
 }
 
 /* 指定営業日キーで日次締めを凍結する（自動締め用）。既に凍結済みなら false を返す。
-   ライブの state.rows / タイムテーブルから計算するため、リセット（resetDayCore）前に呼ぶこと。 */
-function dailyCloseLockForKey(dayKey) {
+   ライブの state.rows / タイムテーブルから計算するため、リセット（resetDayCore）前に呼ぶこと。
+   fromSnap を渡した時は、その控え（過去の営業日の保存データ）から計算する（再集計 dailyCloseReaggregateMonth と同じ読み方）。 */
+function dailyCloseLockForKey(dayKey, fromSnap) {
   const store = loadDailyClose();
   const rec = _dailyCloseNormalizeRecord(store[dayKey]);
   if (_dailyCloseNormalizeFrozen(rec.frozen).closedAt > 0) return false;
-  const src = { dayKey, rows: state.rows || [], tt: (typeof loadTimetableState === 'function') ? loadTimetableState() : {}, activeCasts: state.activeCasts || [] };
+  const src = fromSnap
+    ? { dayKey, rows: Array.isArray(fromSnap.rows) ? fromSnap.rows : [], tt: fromSnap.timetableSnap || {}, activeCasts: Array.isArray(fromSnap.activeCasts) ? fromSnap.activeCasts : [] }
+    : { dayKey, rows: state.rows || [], tt: (typeof loadTimetableState === 'function') ? loadTimetableState() : {}, activeCasts: state.activeCasts || [] };
   const settled = (src.rows || []).filter(r => r.isFirst && r.settled);
   const agg = computeReportAgg(settled);
   const payrollRows = computePayrollTable(settled, { dayKey, tt: src.tt, activeCasts: src.activeCasts });
@@ -25864,10 +25963,11 @@ async function reportEndBusinessDay() {
     showToast('過去の営業日は締められません');
     return;
   }
-  // 過去の営業日が読めない間は「過去のリストから復元」できないので、今日の分の行き先を正しく言う（2026-11-02 シナリオ判定）
+  // 過去の営業日が読めない間は集計から見られないので、今日の分の行き先を正しく言う（2026-11-02 シナリオ判定）。
+  // 読める時の文は、もう無い「過去のリスト」を指していたので、実際の見方に直した（2026-11-05）
   const whereKept = (typeof backupsUnreadable === 'function' && backupsUnreadable())
     ? '（今日の分は「消えた営業日の控え」に保存されます）'
-    : '（データは過去のリストから復元できます）';
+    : '（今日の分は保存され、集計で日付を選ぶと見られます）';
   if (!(await appConfirm('営業を終了しますか？\n・日次締めをロックします（未ロックの場合）\n・本日のリスト表を空にします\n' + whereKept, { danger: true }))) return;
   const rec = _dailyCloseCurrentRecord();
   const lockedBefore = _dailyCloseNormalizeFrozen(rec.frozen).closedAt > 0;
@@ -30465,16 +30565,18 @@ function showNewDayModal() {
   if (backupsUnreadable()) { notifyBackupsUnreadable(); return; }   // 過去の営業日が読めない間は、足しても保存できない
   const old = document.getElementById('new-day-modal');
   if (old) old.remove();
-  const today = new Date();
-  if (today.getHours() < getBizDayBoundaryHour()) today.setDate(today.getDate() - 1);
-  const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+  // 「過去の日」なので、前の営業日を初期値と上限にする（今日の分は営業中のリストで入れる。2026-11-05）
+  const day = new Date();
+  if (day.getHours() < getBizDayBoundaryHour()) day.setDate(day.getDate() - 1);
+  day.setDate(day.getDate() - 1);
+  const lastStr = `${day.getFullYear()}-${String(day.getMonth()+1).padStart(2,'0')}-${String(day.getDate()).padStart(2,'0')}`;
   const modal = document.createElement('div');
   modal.id = 'new-day-modal';
   modal.innerHTML = `
     <div class="new-day-box">
-      <h3>📅 新しい営業日を追加</h3>
+      <h3>📅 過去の日を入力する</h3>
       <label>営業日（紙のリスト表の日付）</label>
-      <input type="date" id="new-day-date" value="${todayStr}">
+      <input type="date" id="new-day-date" value="${lastStr}" max="${lastStr}">
       <div class="modal-btns">
         <button class="btn" onclick="document.getElementById('new-day-modal').remove()">キャンセル</button>
         <button class="btn primary" onclick="createNewPastDay()">作成</button>
@@ -31934,6 +32036,10 @@ function renderSettingsPanel() {
             <button type="button" class="btn" onclick="exportAllData()">📤 書き出し</button>
             <button type="button" class="btn" onclick="openImportDialog()">📥 読み込み</button>
           </div>
+        </div>
+        <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:8px">
+          <div class="settings-label">📅 過去の日を営業中のリストに読み込む<div class="settings-sub">保存されている営業日の一覧を開きます。選んだ日を読み込むと、いま営業中のリストと出勤キャスト・出退勤の記録が、その日のものに置き換わります（↩ では戻せません）。過去の日を見るだけなら、ここではなく集計の右上で営業日を選んでください。一覧からは保存された日の削除もできます。</div></div>
+          <div><button type="button" class="btn" onclick="restoreBackup()">一覧を開く</button></div>
         </div>
         <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:8px">
           <div class="settings-label">☁ クラウドの控えから戻す<div class="settings-sub">端末を入れ替えたときに使います。運営者から受け取った登録コードを入れると、店の設定・メニュー・料金・キャスト名簿（時給・バック）・顧客が戻ります。今日のリスト・過去の営業日は戻りません。</div></div>
@@ -36211,9 +36317,13 @@ function reloadAfterImport() {
   if (_autoCloseRetryAt > 0 && state._restoredFromKey === _lastBizDayKey) state._restoredFromKey = null;
   _lastBizDayKey = null;
   _autoCloseRetryAt = 0;
+  // 設定から過去の日を読み込んでいる最中の印は、読み込んだ時の営業日（_loadedPastOn）と組で残す。
+  // loadState は読み込んだファイルの値で付け直すので、ファイルに無いと片方だけ消え、開き直した時に読み込んだ日を締め忘れとして締める（2026-11-05 監査）
+  const keepLoadedOn = state._restoredFromKey ? (state._loadedPastOn || null) : null;
   loadCfg();
   migrateDailyClosePreset();
   loadState();
+  if (state._restoredFromKey && !state._loadedPastOn && keepLoadedOn) state._loadedPastOn = keepLoadedOn;
   migrateShimeiExtModel();
   ensureShopId();
   writeStorageMeta();
