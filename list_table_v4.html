@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.123">
+<meta name="app-version" content="1.1.124">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -20203,6 +20203,22 @@ function extMappingKeys(min, role, mapping = cfg.extAutoShimeiMapping) {
     || items.find(v => String(v.label || '').match(/(\d+)/)?.[1] === String(min));
   return item ? [item.key] : [];
 }
+/* 手入力した延指◯◯を、保存済みの「延長時の追加項目」どおりの延指として数える指定を返す（なければ null＝そのまま数える）。
+   入力時に注文へ刻印して使う。金額の合計が一致する時だけ。伝票・会計・売上は変えない（2026-11-06 オーナー決定）。 */
+function extMappingCountAs(row, category, cast, amount) {
+  const items = shimeiExtGroup('enshi');
+  const item = items.find(v => v.key === category);
+  if (!item || !cfg.extAutoShimeiFee) return null;
+  const min = (/^enshi(\d+)$/.exec(category) || String(item.label || '').match(/(\d+)/) || [])[1];
+  if (!min) return null;
+  const d = _posTableDesignations(row, true).find(v => v.cast === cast);
+  const role = d && d.role === '場内' ? 'jounai' : 'enchoshimei';
+  const stored = cfg.extAutoShimeiMapping?.[String(min)]?.[role];
+  if (!Array.isArray(stored) || !stored.length || stored.includes(category)) return null;
+  if (!stored.every(key => typeof key === 'string' && items.some(v => v.key === key))) return null;
+  const sum = stored.reduce((n, key) => n + (Number(shimeiExtItem(key)?.amount) || 0), 0);
+  return sum === (Number(amount) || 0) ? [...stored] : null;
+}
 function _extMappingEntries(row, min, mapping) {
   const entries = [];
   const missing = new Set();
@@ -24029,7 +24045,12 @@ function computeReportAgg(settled) {
         const _isModoriNominateLine = o.category === 'nominate' &&
           ((r.mainCast === cast && r.mainType === 'modori_honshimei') ||
            (r.subCasts || []).some(sc => sc.cast === cast && sc.type === 'modori_honshimei'));
-        if (!_isModoriNominateLine && !isBranchExt) _aggApplyProd(p, o.category, qty);
+        if (!_isModoriNominateLine && !isBranchExt) {
+          // 手入力の延指◯◯は、入力時に刻印した countAs（例: 延指60→延指40+延指20）の本数で数える。
+          // 刻印は入力時なので、過去の注文・後の設定変更では本数が動かない（2026-11-06 オーナー決定）。
+          const countKeys = /^enshi/.test(o.category || '') && Array.isArray(o.countAs) && o.countAs.length ? o.countAs : [o.category];
+          countKeys.forEach(key => _aggApplyProd(p, key, qty));
+        }
         if (isDrinkCat && !productBack.isProductBack && !isBranchDrink) {
           // 指D = その卓の本指名/同伴キャスト本人のドリンク。メイン枠だけでなくサブ指名・
           // 指名系オーダー由来も含む（nominators）。指名売上と同じ判定。場内・延指は対象外。
@@ -29133,11 +29154,15 @@ async function posAddItem(name, amount, category, spShares) {
   // calcBill・_posSeatLineItems・リスト表・endMin が計上するため、オーダー明細も足すと
   // 延長料が二重計上（伝票に延長が2行・金額も倍）になる。延長は下の extensions 反映のみ行う。
   if (category !== 'extension') {
+    // 手入力の延指は、保存済みの追加項目どおりに数える指定を刻印する（自動追加は対象外。2026-11-06 オーナー決定）。
+    const countAs = /^enshi/.test(category || '') && !opts?.extAutoToken && !opts?.noDesignation
+      && typeof extMappingCountAs === 'function' ? extMappingCountAs(first, category, cast, amt) : null;
     // 同じ明細（カテゴリ・名称・単価が一致）は数量をまとめる（SETは別経路のため対象外）。
     // defer（空場内の刻印額）も一致条件に含める＝jonaiFee変更を挟んで押した空場内は別行へ分ける。
     const existing = category !== 'set' && orders.find(o =>
       o.category === category && o.name === name && (Number(o.amount) || 0) === amt &&
       (o.extAutoToken || '') === (opts?.extAutoToken || '') &&
+      JSON.stringify(o.countAs || null) === JSON.stringify(countAs || null) &&
       (Number(o.back) || 0) === backYen &&
       Object.prototype.hasOwnProperty.call(o, 'backFree') === (backFreeYen !== undefined) &&
       (backFreeYen === undefined || (Number(o.backFree) || 0) === backFreeYen) &&
@@ -29158,6 +29183,7 @@ async function posAddItem(name, amount, category, spShares) {
     } else {
       const order = { id: 'po_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7), name, amount: amt, qty:1, category, createdAt: vipMv && !newAfter ? Number(vipMv.at) - 1 : Date.now() };
       if (opts?.extAutoToken) order.extAutoToken = opts.extAutoToken;
+      if (countAs) order.countAs = countAs;
       if (spShares) order.spShares = { ...spShares };
       if (backYen > 0) order.back = backYen;
       if (backFreeYen !== undefined) order.backFree = backFreeYen;
