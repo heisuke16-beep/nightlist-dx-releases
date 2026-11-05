@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.121">
+<meta name="app-version" content="1.1.122">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -6450,16 +6450,17 @@ html[data-theme="night"] #summary-bar.has-pos-actions #summary-pos-actions .pos-
 
   html[data-theme="champagne"] .pos-hist-table td { border-color: #cbb995; }
   html[data-theme="champagne"] .pos-co-amount-row { border-color: #cbb995; }
-  html[data-theme="champagne"] .pos-co-amount-row:nth-child(3) .pos-co-amount-label,
-  html[data-theme="champagne"] .pos-co-amount-row:nth-child(3) .pos-co-amount-val {
+  /* 行の位置ではなく名前で色を付ける（前金の枠が下に増えて、位置指定だと未収金とカードがずれていた） */
+  html[data-theme="champagne"] .pos-co-amount-row--cash .pos-co-amount-label,
+  html[data-theme="champagne"] .pos-co-amount-row--cash .pos-co-amount-val {
     color: #176b4c !important;
   }
-  html[data-theme="champagne"] .pos-co-amount-row:nth-child(4) .pos-co-amount-label,
-  html[data-theme="champagne"] .pos-co-amount-row:nth-child(4) .pos-co-amount-val {
+  html[data-theme="champagne"] .pos-co-amount-row--card .pos-co-amount-label,
+  html[data-theme="champagne"] .pos-co-amount-row--card .pos-co-amount-val {
     color: #23658e !important;
   }
-  html[data-theme="champagne"] .pos-co-amount-row:nth-last-child(3) .pos-co-amount-label,
-  html[data-theme="champagne"] .pos-co-amount-row:nth-last-child(3) .pos-co-amount-val {
+  html[data-theme="champagne"] .pos-co-amount-row--due .pos-co-amount-label,
+  html[data-theme="champagne"] .pos-co-amount-row--due .pos-co-amount-val {
     color: #9b3041 !important;
   }
   html[data-theme="champagne"] #pos-urikake-overlay .pos-co-amount-val {
@@ -22055,11 +22056,11 @@ function posOpenCheckoutPanel() {
     + '<div class="pos-co-body">'
     + '<div class="pos-co-amount-row"><span class="pos-co-amount-label">小計</span><span class="pos-co-amount-val">¥' + b.subtotal.toLocaleString() + '</span></div>'
     + '<div class="pos-co-amount-row"><span class="pos-co-amount-label">税サ</span><span class="pos-co-amount-val">¥' + (b.cash - b.subtotal).toLocaleString() + '</span></div>'
-    + '<div class="pos-co-amount-row"><span class="pos-co-amount-label" style="color:#fff">現金</span><span class="pos-co-amount-val" style="color:#38cc80">¥' + b.cash.toLocaleString() + '</span></div>'
-    + '<div class="pos-co-amount-row"><span class="pos-co-amount-label" style="color:#fff">カード</span><span class="pos-co-amount-val" style="color:#40b8e0">¥' + b.card.toLocaleString() + '</span></div>'
+    + '<div class="pos-co-amount-row pos-co-amount-row--cash"><span class="pos-co-amount-label" style="color:#fff">現金</span><span class="pos-co-amount-val" style="color:#38cc80">¥' + b.cash.toLocaleString() + '</span></div>'
+    + '<div class="pos-co-amount-row pos-co-amount-row--card"><span class="pos-co-amount-label" style="color:#fff">カード</span><span class="pos-co-amount-val" style="color:#40b8e0">¥' + b.card.toLocaleString() + '</span></div>'
     + (adv ? '<div class="pos-co-amount-row"><span class="pos-co-amount-label">前金</span><span class="pos-co-amount-val">−¥' + advBd.principal.toLocaleString() + '</span></div>' : '')
     + (advBd.extraFee ? '<div class="pos-co-amount-row"><span class="pos-co-amount-label">分割手数料の充当</span><span class="pos-co-amount-val">−¥' + advBd.extraFee.toLocaleString() + '</span></div>' : '')
-    + '<div class="pos-co-amount-row"><span class="pos-co-amount-label" style="color:#fff">未収金</span><span class="pos-co-amount-val" style="color:#f5dfa0">¥' + due.toLocaleString() + '</span></div>'
+    + '<div class="pos-co-amount-row pos-co-amount-row--due"><span class="pos-co-amount-label" style="color:#fff">未収金</span><span class="pos-co-amount-val" style="color:#f5dfa0">¥' + due.toLocaleString() + '</span></div>'
     + '<div style="margin:12px 0;padding:10px;border:1px solid rgba(255,255,255,.15);border-radius:8px">'
     + '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px"><b>前金</b><button class="pos-co-btn both" style="min-height:34px;padding:8px 12px" onclick="posOpenAdvanceModal()">前金を登録</button></div>'
     + '<div class="pos-co-advance-list">' + (advRows || '<div style="color:var(--tx3);font-size:12px">登録済みの前金はありません</div>') + '</div>'
