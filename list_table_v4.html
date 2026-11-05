@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.122">
+<meta name="app-version" content="1.1.123">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -7215,6 +7215,7 @@ const STORAGE_LEDGER = {
   auth:        { label:'ログイン情報', key:'nightlist__auth_v1',           file:'auth.json',          export:false, import:false },   // ログインのパスワード情報（ハッシュ）
   authRecovery:{ label:'リカバリーコード', key:'nightlist__auth_recovery_v1',  file:'authRecovery.json',  export:false, import:false },   // ログインのリカバリーコード
   meta:        { label:'保存データの版番号', key:'nightlist__meta_v1',           file:'meta.json',          export:true,  import:false },   // 保存データの版番号・店舗ID（起動時に書き直す）
+  slipPricing: { label:'精算時の料金設定の控え', key:'nightlist__slip_pricing_v1', file:'slipPricing.json', export:true, import:'raw' },   // 精算済み伝票が指す料金設定の写し（中身が同じなら1つ。伝票は番号 settledPricingId だけ持つ。足すだけで消さない）
   monitorKey:  { label:'店外モニターの鍵', key:'nightlist__monitor_key_v1',    file:'monitorKey.json',    export:false, import:false },   // 店ごとの送信鍵。この端末だけに置き、JSON書き出しに入れない（写しを読んだ別の端末が同じ店として送れないように。2026-10-04）
 };
 
@@ -10395,7 +10396,9 @@ function loadCfg() {
   }
 }
 function saveCfg() {
-  Persist.write('settings', cfg);
+  // 精算済み伝票の写しを当てている間も、保存するのは本当の設定の値（15 slipPricingWriteGuard）
+  const write = () => Persist.write('settings', cfg);
+  return typeof slipPricingWriteGuard === 'function' ? slipPricingWriteGuard(write) : write();
 }
 
 /* 店舗IDを常に持たせる（2026-10-02 SaaS下準備A3）。店外モニターで使っている店は、その店舗IDを引き継ぐので
@@ -12741,6 +12744,7 @@ async function settle(id) {
   // amountMethodに応じた実売上で0円判定（cash選択時にcard欄の残値を無視するため）
   if (rowSales(row) <= 0 && !(await appConfirm('金額が0円ですが精算しますか？'))) return;
   pushUndo();
+  if (typeof slipPricingStamp === 'function') slipPricingStamp(row);   // 精算した時の設定の写しを先頭行へ残す（15）
   row.settled   = true;
   row.settledAt = row.settledAt || Date.now();
   if (typeof posMarkFloorStay === 'function') posMarkFloorStay(row);
@@ -12764,6 +12768,7 @@ function cancelSettle(id) {
   // POSで精算した伝票は、精算が書いた金額を精算前へ戻す（31 posRestorePreSettle）。
   row.settled = false;
   row.settledAt = 0;
+  if (typeof slipPricingClear === 'function') slipPricingClear(row);
   if (typeof posRestorePreSettle === 'function') posRestorePreSettle(state.rows.find(r => r.gid === row.gid && r.isFirst) || row);
   renderTable(); saveState();
   if (typeof renderReportPanel === 'function') renderReportPanel();   // 集計を即更新
@@ -12814,7 +12819,167 @@ function rowCardCount(r) {
 /* ================================================================
    BILL AUTO-CALCULATION
 ================================================================ */
-function calcBill(row) {
+/* ================================================================
+   精算済み伝票の金額を、精算した時の設定で固定する（2026-11-05）
+   仕様: dev/specs/2026-11-05-nightlistdx-精算済み伝票の金額を精算時の設定で固定.md
+   精算した瞬間に、金額に効く設定の写しを組の先頭行 row.settledPricingId（番号）で指す。写しの中身は保存データ slipPricing の控えに「中身が同じなら1つ」で持つ。写しを持つ精算済みの伝票は、
+   計算・表示・印刷をその写しで行う（withSlipPricing が cfg の該当項目へ一時的に当てて、必ず元へ戻す）。
+   未精算の伝票と、写しを持たない古い精算済み伝票は今までどおり今の設定で計算する。
+================================================================ */
+/* 写す設定＝精算済み伝票の金額（合計・税サ・現金・カード・明細の金額）を出す経路が読んでいる cfg の項目。
+   calcBill / taxRateForRow / vip* / _posBaseTotals* / _posComputeTotals / _posExtBase* / _posSeatLineItems /
+   _emptyJonaiForRound / extShimeiFeeAmount(shimeiExtItems) / extRowIndexFor(extOptions・extNames) / _posAdvanceBreakdown / 会計伝票の組み立て を grep して洗い出した。
+   入れない: 店名・ロゴ・レシートの並びと倍率・posMenu・posItemLabels・vipFeeLabel・vipMidMoveEnabled(金額計算は読まない)・
+   extAutoShimeiFee/Mapping(延長を押した時の明細の自動追加だけ)・給与の設定。 */
+const SLIP_PRICING_CFG_KEYS = [
+  'setPrice', 'earlySetEnabled', 'earlySetFromH', 'earlySetToH', 'earlySetPrice', 'dohanIncludesSet',
+  'nominateFee', 'dohanFee', 'jonaiFee', 'enchoshimeiFee',
+  'extOptions', 'extNames', 'extPrices', 'extBasePerSeat', 'extFeePerSeat',
+  'extFeeOnHonshimei', 'extFeeOnJounai', 'extFeeOnEnchoshimei', 'shimeiExtItems', 'doubanAsHonshimeiExt',
+  'taxRate', 'taxRound', 'specialRateRound', 'discountAfterTax',
+  'vipEnabled', 'vipSeats', 'vipTaxRate', 'vipTaxRateEnabled',
+  'cardFeeRate', 'cardFeeRound', 'advanceFeeCredit',
+];
+let _slipPricingDepth = 0;       // withSlipPricing の入れ子の深さ
+let _slipPricingReal = null;     // 一番外側で当てる前の、本当の設定の値
+let _slipPricingTarget = null;   // 当てている cfg オブジェクト
+
+function _slipPricingCapture(target) {
+  const out = {};
+  SLIP_PRICING_CFG_KEYS.forEach(k => { out[k] = { has: Object.prototype.hasOwnProperty.call(target, k), v: target[k] }; });
+  return out;
+}
+function _slipPricingRestore(target, saved) {
+  SLIP_PRICING_CFG_KEYS.forEach(k => { if (saved[k].has) target[k] = saved[k].v; else delete target[k]; });
+}
+/* いまの設定の写し（配列・オブジェクトは複製。設定画面で元を書き換えても写しは変わらない） */
+function slipPricingSnapshot() {
+  const out = {};
+  SLIP_PRICING_CFG_KEYS.forEach(k => {
+    if (cfg[k] === undefined) return;
+    out[k] = JSON.parse(JSON.stringify(cfg[k]));
+  });
+  return out;
+}
+function _slipPricingFirstRow(row) {
+  if (!row) return null;
+  if (row.isFirst || row.gid == null) return row;
+  const lists = [typeof state === 'object' && state ? state.rows : null, typeof pastState !== 'undefined' && pastState ? pastState.rows : null];
+  const list = lists.find(l => Array.isArray(l) && l.includes(row));
+  return (list && list.find(r => r.gid === row.gid && r.isFirst)) || row;
+}
+/* 写しの控え（保存データ slipPricing）。{ v:1, items:{ 番号:写し } }。メモリに持ち、描画のたびに読み直さない。
+   足すだけで消さない（設定を変えた回数ぶんしか増えない）。JSON読み込み等で保存データを入れ替えた後は slipPricingReload() で読み直す。 */
+let _slipPricingLedger = null;
+function slipPricingReload() { _slipPricingLedger = null; }
+function _slipPricingItems() {
+  if (!_slipPricingLedger) {
+    let items = {};
+    try {
+      const data = typeof Persist !== 'undefined' ? Persist.read('slipPricing') : null;
+      if (data && typeof data === 'object' && data.items && typeof data.items === 'object') items = data.items;
+    } catch (e) { items = {}; }
+    // 空のうちは持たない（保存先の準備前に読んで空だった控えを、そのまま持ち続けないため）。足したとき slipPricingRegister が持つ
+    if (!Object.keys(items).length) return items;
+    Object.values(items).forEach(_slipPricingFreeze);
+    _slipPricingLedger = { v: 1, items };
+  }
+  return _slipPricingLedger.items;
+}
+/* 控えの写しは中身ごと凍結する。同じ番号の伝票は1つの写しを共有し、withSlipPricing はそれを複製せずに cfg へ当てるので、
+   包んだ中で cfg の配列などをその場で書き換えると、同じ番号の全伝票の写しが変わってしまう。凍結しておけば書き換えは
+   例外になり（アプリは strict）、テストで見つかる。 */
+function _slipPricingFreeze(o) {
+  if (o && typeof o === 'object' && !Object.isFrozen(o)) {
+    Object.freeze(o);
+    Object.values(o).forEach(_slipPricingFreeze);
+  }
+  return o;
+}
+/* 写しの中身（SLIP_PRICING_CFG_KEYS の順に並べた JSON）から決める短いハッシュ（FNV-1a 32bit） */
+function _slipPricingCanon(copy) {
+  const o = {};
+  SLIP_PRICING_CFG_KEYS.forEach(k => { if (copy[k] !== undefined) o[k] = copy[k]; });
+  return JSON.stringify(o);
+}
+function _slipPricingHash(text) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) { h ^= text.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return h.toString(16).padStart(8, '0');
+}
+/* 写しを控えに足して番号を返す。同じ中身なら同じ番号。万一同じ番号で中身が違えば番号をずらす。新しい番号の時だけ保存する */
+function slipPricingRegister(copy) {
+  const items = _slipPricingItems();
+  if (!_slipPricingLedger) _slipPricingLedger = { v: 1, items };
+  const canon = _slipPricingCanon(copy);
+  const base = _slipPricingHash(canon);
+  for (let n = 1; ; n++) {
+    const id = n === 1 ? base : base + '-' + n;
+    if (!items[id]) {
+      items[id] = _slipPricingFreeze(JSON.parse(canon));
+      try { Persist.write('slipPricing', _slipPricingLedger); } catch (e) { console.error('[slipPricing] write failed:', e); }
+      return id;
+    }
+    if (_slipPricingCanon(items[id]) === canon) return id;
+  }
+}
+/* 伝票の写し。精算済みで番号が控えにあるときだけ返す（それ以外は null＝今の設定で計算） */
+function slipPricingOf(row) {
+  if (!row || !row.settled) return null;
+  const first = _slipPricingFirstRow(row);
+  if (!first || !first.settled || !first.settledPricingId) return null;
+  const copy = _slipPricingItems()[first.settledPricingId];
+  return copy && typeof copy === 'object' ? copy : null;
+}
+/* 精算した瞬間に、組の先頭行へ写しを置く。list = その行が入っている行の配列（省略=今日の state.rows）。
+   すでに精算済みで写しを持つ伝票を精算し直すときは、最初の写しを残す。 */
+function slipPricingStamp(row, list) {
+  if (!row) return;
+  const rows = Array.isArray(list) ? list : (typeof state === 'object' && state ? state.rows : []);
+  const first = row.isFirst ? row : (rows.find(r => r.gid === row.gid && r.isFirst) || row);
+  if (first.settled && first.settledPricingId && _slipPricingItems()[first.settledPricingId]) return;
+  first.settledPricingId = slipPricingRegister(slipPricingSnapshot());
+}
+function slipPricingClear(row, list) {
+  if (!row) return;
+  const rows = Array.isArray(list) ? list : (typeof state === 'object' && state ? state.rows : []);
+  delete row.settledPricingId;   // 控えの中身は残す
+  rows.forEach(r => { if (r.gid === row.gid) delete r.settledPricingId; });
+}
+/* 写しを cfg へ一時的に当てて fn を実行し、必ず元へ戻す（入れ子・例外でも）。写しが無ければ fn をそのまま実行。
+   同期処理だけを包むこと（await をまたがない）。 */
+function withSlipPricing(row, fn) {
+  const copy = slipPricingOf(row);
+  if (!copy) return fn();
+  const target = cfg;
+  if (_slipPricingDepth === 0) { _slipPricingTarget = target; _slipPricingReal = _slipPricingCapture(target); }
+  _slipPricingDepth++;
+  const before = _slipPricingCapture(target);
+  try {
+    SLIP_PRICING_CFG_KEYS.forEach(k => {
+      if (Object.prototype.hasOwnProperty.call(copy, k)) target[k] = copy[k];
+      // 写しに無い項目（版が上がって足された項目）は、足される既定値と同じ値を当てる。既定値にも無い項目だけ消す
+      else if (typeof CFG_DEFAULTS !== 'undefined' && Object.prototype.hasOwnProperty.call(CFG_DEFAULTS, k)) target[k] = JSON.parse(JSON.stringify(CFG_DEFAULTS[k] === undefined ? null : CFG_DEFAULTS[k]));
+      else delete target[k];
+    });
+    return fn();
+  } finally {
+    _slipPricingRestore(target, before);
+    _slipPricingDepth--;
+    if (_slipPricingDepth === 0) { _slipPricingReal = null; _slipPricingTarget = null; }
+  }
+}
+/* saveCfg 用: 写しを当てている間でも、保存するのは本当の設定の値 */
+function slipPricingWriteGuard(writer) {
+  if (_slipPricingDepth === 0 || !_slipPricingReal || !_slipPricingTarget) return writer();
+  const target = _slipPricingTarget;
+  const now = _slipPricingCapture(target);
+  _slipPricingRestore(target, _slipPricingReal);
+  try { return writer(); } finally { _slipPricingRestore(target, now); }
+}
+
+function calcBill(row) { return withSlipPricing(row, () => _calcBillCore(row)); }
+function _calcBillCore(row) {
   // POSオーダーに該当明細がある場合、mainType由来の料金は二重計上しない
   const _hasOrderCat = c => Array.isArray(row.posOrders) && row.posOrders.some(o => o.category === c);
   const _castOf = n => { n = String(n||''); const i = n.indexOf(':'); return i >= 0 ? n.slice(i+1) : ''; };
@@ -16415,7 +16580,8 @@ function taxRateForRow(row, settings) {
   return vipRate;
 }
 /* 会計伝票の「税サ」に添える率の表示。VIP席の率が実際に効いていて通常の率と違うときだけ「(40%)」。それ以外は空（今までの表示のまま）。 */
-function taxRateNoteForRow(row, settings) {
+function taxRateNoteForRow(row, settings) { return withSlipPricing(row, () => taxRateNoteForRowCore(row, settings)); }   // 精算済みで写しを持つ伝票は精算時の設定で計算（15）
+function taxRateNoteForRowCore(row, settings) {
   const src = settings || cfg;
   if (vipMoveActive(row, src)) return '';   // 途中から移った伝票は、率を上下の段の税サに出す（合計欄は「税サ」だけ）
   const rate = taxRateForRow(row, src);
@@ -16688,7 +16854,8 @@ function posSpecialValue(item) {
 }
 /* 特殊項目を除いた既存会計。割合の基準を全特殊項目で共有し、順序依存・複利を防ぐ。
    row は税サ率を決める伝票（VIP席を使った伝票だけ率が変わる。taxRateForRow）。渡さなければ通常の率。 */
-function _posBaseTotals(seatSubtotal, orders, extraTaxable, row) {
+function _posBaseTotals(seatSubtotal, orders, extraTaxable, row) { return withSlipPricing(row, () => _posBaseTotalsCore(seatSubtotal, orders, extraTaxable, row)); }   // 精算済みで写しを持つ伝票は精算時の設定で計算（15）
+function _posBaseTotalsCore(seatSubtotal, orders, extraTaxable, row) {
   if (vipMoveActive(row, cfg)) return _posBaseTotalsByMove(seatSubtotal, orders, extraTaxable, row);
   const taxRound     = cfg.taxRound     || 100;
   let taxable = (seatSubtotal || 0) + (extraTaxable || 0);
@@ -16753,11 +16920,13 @@ function posOrderUnitAmount(order, baseTotals) {
 function posOrderLineAmount(order, baseTotals) {
   return posOrderUnitAmount(order, baseTotals) * (Number(order?.qty) || 1);
 }
-function posOrderPricing(row, extraTaxable) {
+function posOrderPricing(row, extraTaxable) { return withSlipPricing(row, () => posOrderPricingCore(row, extraTaxable)); }   // 精算済みで写しを持つ伝票は精算時の設定で計算（15）
+function posOrderPricingCore(row, extraTaxable) {
   return _posBaseTotals(calcBill(row).subtotal, posOrders(row), extraTaxable || 0, row);
 }
 /* row は税サ率を決める伝票（_posBaseTotals と同じ）。 */
-function _posComputeTotals(seatSubtotal, orders, extraTaxable, row) {
+function _posComputeTotals(seatSubtotal, orders, extraTaxable, row) { return withSlipPricing(row, () => _posComputeTotalsCore(seatSubtotal, orders, extraTaxable, row)); }   // 精算済みで写しを持つ伝票は精算時の設定で計算（15）
+function _posComputeTotalsCore(seatSubtotal, orders, extraTaxable, row) {
   const cardFeeRound = cfg.cardFeeRound || 100;
   const baseTotals = _posBaseTotals(seatSubtotal, orders, extraTaxable, row);
   const special = (orders || []).reduce((sum, order) => order?.category === 'special'
@@ -17061,7 +17230,8 @@ function _posAdvanceBreakdownValue(advances, cardFeeRate, cardFeeRound, feeCredi
 function _posAdvancePrincipalValue(advances, cardFeeRate, cardFeeRound) {
   return _posAdvanceBreakdownValue(advances, cardFeeRate, cardFeeRound).credit;
 }
-function _posAdvanceBreakdown(row) {
+function _posAdvanceBreakdown(row) { return withSlipPricing(row, () => _posAdvanceBreakdownCore(row)); }   // 精算済みで写しを持つ伝票は精算時の設定で計算（15）
+function _posAdvanceBreakdownCore(row) {
   return _posAdvanceBreakdownValue(
     row && Array.isArray(row.advances) ? row.advances : [],
     cfg.cardFeeRate || 0,
@@ -17122,7 +17292,8 @@ function _posExtFeeForType(type, idx) {
   return extShimeiFeeAmount(type, idx);
 }
 /* side（途中から移った伝票の会計伝票だけが渡す）: 'before'=移る前の分（SET・指名料・移る前の延長）、'after'=移った後の延長だけ。省略=全部（今までどおり）。 */
-function _posSeatLineItems(row, side) {
+function _posSeatLineItems(row, side) { return withSlipPricing(row, () => _posSeatLineItemsCore(row, side)); }   // 精算済みで写しを持つ伝票は精算時の設定で計算（15）
+function _posSeatLineItemsCore(row, side) {
   const baseSet = (() => {
     let amount = cfg.setPrice || 0;
     if (row.mainType === 'douban' && !cfg.dohanIncludesSet) return 0;
@@ -17743,7 +17914,8 @@ function _posPickUnusedColor() {
   return pool[Math.floor(Math.random() * pool.length)].hex;
 }
 
-function _posSlipCard(r, isSelected, totalCount, mode, padRows) {
+function _posSlipCard(r, isSelected, totalCount, mode, padRows) { return withSlipPricing(r, () => _posSlipCardCore(r, isSelected, totalCount, mode, padRows)); }   // 精算済みで写しを持つ伝票は精算時の設定で計算（15）
+function _posSlipCardCore(r, isSelected, totalCount, mode, padRows) {
   const BODY_ROWS = mode === 'report' ? Math.max(padRows || 0, 1) : ((totalCount || 1) > 6 ? 5 : 14);
   const orders = posOrders(r);
   // Compute combined total inline from the already-fetched orders array so body and footer are always in sync.
@@ -17909,7 +18081,8 @@ function _posOrderTimerRowHtml(r, timer, status) {
     + '</div>';
 }
 
-function _posOrderSlipPanel(r) {
+function _posOrderSlipPanel(r) { return withSlipPricing(r, () => _posOrderSlipPanelCore(r)); }   // 精算済みで写しを持つ伝票は精算時の設定で計算（15）
+function _posOrderSlipPanelCore(r) {
   const orders = posOrders(r);
   const seatBill = calcBill(r);
   const totals = _posComputeTotals(seatBill.subtotal, orders, 0, r);
@@ -20981,7 +21154,7 @@ function buildOwnerDayDataset(inputRows, dayKey, ctx = {}) {
     const orderPricing = posOrderPricing(row, 0);
     (Array.isArray(row.posOrders) ? row.posOrders : []).forEach(orderValue => {
       const order = orderValue || {};
-      const unit = posOrderUnitAmount(order, orderPricing);
+      const unit = withSlipPricing(row, () => posOrderUnitAmount(order, orderPricing));   // 精算済みは精算時の設定（15）
       const qty = Number(order.qty) || 1;
       orderRows.push({
         day: dayLabel,
@@ -22127,6 +22300,7 @@ function posExecCheckout(method, urikakePayment, cardAmounts) {
   const todayCards = method === 'card' ? (cardSplit || [todayCard]) : (todayCard > 0 ? [todayCard] : []);
   _posAssignCardCharges(row, [...advCards, ...todayCards]);
   row.amountUrikake = bd.amountUrikake ? String(bd.amountUrikake) : '';
+  if (typeof slipPricingStamp === 'function') slipPricingStamp(row);   // 精算した時の設定の写しを先頭行へ残す（15）
   row.settled = true;
   if (typeof posMarkFloorStay === 'function') posMarkFloorStay(row);   // 会計後も卓に残す設定（29-pos-panel）
   // グループ全員を精算済みに
@@ -22505,6 +22679,7 @@ function posSplitApply() {
   row.amountUrikake = '';
   // 「元に戻す」経由の再精算（分割）でも旧chargeを台帳に残さない（posExecCheckoutと同じ冪等化）
   urikakeRevokeByRowId(row.id);
+  if (typeof slipPricingStamp === 'function') slipPricingStamp(row);   // 精算した時の設定の写しを先頭行へ残す（15）
   row.settled = true;
   if (typeof posMarkFloorStay === 'function') posMarkFloorStay(row);   // 会計後も卓に残す設定（29-pos-panel）
   state.rows.filter(r => r.gid === row.gid).forEach(r => { r.settled = true; });
@@ -22581,6 +22756,7 @@ function posRestorePreSettle(row) {
     row.cardEntries = [];
   }
   delete row.preSettle;
+  delete row.settledPricingId;   // 精算時の設定の写しも消す＝未精算に戻った伝票は今の設定で計算（15）
   delete row.floorStay;   // 未精算に戻った伝票に「会計後も卓に残す」の印を残さない
 }
 
@@ -23740,7 +23916,7 @@ function computeReportAgg(settled) {
     {
       let nomDrinkAmt = 0, marginAmt = 0;
       posOrders(r).forEach(o => {
-        const amt = posOrderLineAmount(o, orderPricing);
+        const amt = withSlipPricing(r, () => posOrderLineAmount(o, orderPricing));   // 割合の特殊項目の端数は精算時の設定（15）
         if (o.marginBack === true) marginAmt += amt;
         if ((isDrinkItemKey(o.category) || o.category === 'shot') && nominators.has(_aggCastOf(o.name))) nomDrinkAmt += amt;
       });
@@ -23810,7 +23986,7 @@ function computeReportAgg(settled) {
 
     posOrders(r).forEach(o => {
       const qty = Number(o.qty)||1;
-      const lineAmt = posOrderLineAmount(o, orderPricing);
+      const lineAmt = withSlipPricing(r, () => posOrderLineAmount(o, orderPricing));
       byCategory[o.category] = (byCategory[o.category]||0) + lineAmt;
       if ((/^(enshi|honen)/.test(o.category || '') || isDrinkItemKey(o.category)) && !shimeiLabels[o.category]) {
         const stampedLabel = _aggLabelOf(o.name);
@@ -25406,7 +25582,7 @@ async function posReportRestore(gid) {
     return;
   }
   pushUndo();
-  state.rows.filter(r => r.gid === gid).forEach(r => { r.settled = false; r.settledAt = 0; });
+  state.rows.filter(r => r.gid === gid).forEach(r => { r.settled = false; r.settledAt = 0; delete r.settledPricingId; });
   // 精算が書いた金額を精算前へ戻す（延長の案内が精算時の金額で止まらないように。31 posRestorePreSettle）
   if (typeof posRestorePreSettle === 'function') posRestorePreSettle(row);
   saveState();
@@ -27677,7 +27853,8 @@ function _posOeExtLines(row) {
   });
   return out;
 }
-function _posOeRowsHtml(orders, seatSet, row) {
+function _posOeRowsHtml(orders, seatSet, row) { return withSlipPricing(row, () => _posOeRowsHtmlCore(orders, seatSet, row)); }   // 精算済みで写しを持つ伝票は精算時の設定で計算（15）
+function _posOeRowsHtmlCore(orders, seatSet, row) {
   const extLines = row ? _posOeExtLines(row) : [];
   const orderPricing = row ? posOrderPricing(row, 0) : { subtotal:0, cash:0 };
   let html = '';
@@ -28341,7 +28518,8 @@ function _receiptSectionSumTr(label, amount) {
   return '<tr class="r-sec-sum"><td>' + escHtml(label) + '</td><td class="q"></td><td class="a">' + (Number(amount) || 0).toLocaleString() + '</td></tr>';
 }
 
-function _receiptDetailRows(row, minRows, showSetTime = true) {
+function _receiptDetailRows(row, minRows, showSetTime) { return withSlipPricing(row, () => _receiptDetailRowsCore(row, minRows, showSetTime)); }   // 精算済みで写しを持つ伝票は精算時の設定で計算（15）
+function _receiptDetailRowsCore(row, minRows, showSetTime = true) {
   const orders = posOrders(row);
   const orderPricing = posOrderPricing(row, 0);
   const itemRows = [];
@@ -28405,7 +28583,8 @@ function _receiptDetailRows(row, minRows, showSetTime = true) {
   return itemRows.join('');
 }
 
-function _receiptCategoryRows(row) {
+function _receiptCategoryRows(row) { return withSlipPricing(row, () => _receiptCategoryRowsCore(row)); }   // 精算済みで写しを持つ伝票は精算時の設定で計算（15）
+function _receiptCategoryRowsCore(row) {
   const orderPricing = posOrderPricing(row, 0);
   // 種類別の行（セット・指名料・延長・延長指名料・ドリンク・その他）を、与えた注文と席の明細から作る
   const groupRows = (orderList, seatItems) => {
@@ -28475,7 +28654,8 @@ function _receiptItemsHtml(row, block) {
 
 /* 会計伝票の合計欄の行。pay=true はお客様が払う金額（現金・カード・売掛）、それ以外は内訳（合計・税サ）。
    印刷と、お客様に見せる画面の両方がこの行を使う（金額の出し方を1か所にする）。 */
-function _receiptTotalsRows(row, block) {
+function _receiptTotalsRows(row, block) { return withSlipPricing(row, () => _receiptTotalsRowsCore(row, block)); }   // 精算済みで写しを持つ伝票は精算時の設定で計算（15）
+function _receiptTotalsRowsCore(row, block) {
   if (!block.showSubtotal && !block.showTax) return [];
   const b = _posCalcTotal(row);
   const tax = b.cash - b.subtotal;
@@ -28524,7 +28704,8 @@ function _commonPrintBlockHtml(block) {
   return '';
 }
 
-function _receiptDocBodyHtml(row, blocks) {
+function _receiptDocBodyHtml(row, blocks) { return withSlipPricing(row, () => _receiptDocBodyHtmlCore(row, blocks)); }   // 精算済みで写しを持つ伝票は精算時の設定で計算（15）
+function _receiptDocBodyHtmlCore(row, blocks) {
   const normalized = (Array.isArray(blocks) ? blocks : _receiptBlocks()).map(_receiptNormalizeBlock).filter(Boolean);
   let html = '';
   for (let i = 0; i < normalized.length; i++) {
@@ -28552,7 +28733,8 @@ function _receiptDocBodyHtml(row, blocks) {
 }
 
 /* 延長の案内の金額（比較なし）。印刷と、お客様に見せる画面の両方がこれを使う。 */
-function _extTrialModel(row, block) {
+function _extTrialModel(row, block) { return withSlipPricing(row, () => _extTrialModelCore(row, block)); }   // 精算済みで写しを持つ伝票は精算時の設定で計算（15）
+function _extTrialModelCore(row, block) {
   const b = _posCalcTotal(row);
   const cardFeePct = cfg.cardFeeRate || 0;
   const cardFeeRound = cfg.cardFeeRound || 100;
@@ -29680,7 +29862,8 @@ function _customerSlipItemRows(row) {
   return block.mode === 'category' ? _receiptCategoryRows(row) : _receiptDetailRows(row, 0, block.showSetTime);
 }
 
-function customerSlipHtml(row, totalOnly) {
+function customerSlipHtml(row, totalOnly) { return withSlipPricing(row, () => customerSlipHtmlCore(row, totalOnly)); }   // 精算済みで写しを持つ伝票は精算時の設定で計算（15）
+function customerSlipHtmlCore(row, totalOnly) {
   const blocks = _receiptBlocks();
   const defaults = _receiptNormalizeBlock({ type: 'totals' });
   // 合計欄を伝票から外している店でも、見せる画面には払う金額を必ず出す
@@ -30419,6 +30602,7 @@ async function pastSettle(id) {
   if (!r) return;
   // amountMethodに応じた実売上で0円判定
   if (rowSales(r) <= 0 && !(await appConfirm('金額が0円ですが精算しますか？'))) return;
+  if (typeof slipPricingStamp === 'function') slipPricingStamp(r, pastState.rows);   // 精算した時の設定の写しを先頭行へ残す（15）
   r.settled = true;
   r.settledAt = r.settledAt || Date.now();
   renderPastTable();
@@ -30433,6 +30617,7 @@ function pastCancelSettle(id) {
   }
   r.settled = false;
   r.settledAt = 0;
+  if (typeof slipPricingClear === 'function') slipPricingClear(r, pastState.rows);
   if (typeof posRestorePreSettle === 'function') posRestorePreSettle(pastState.rows.find(x => x.gid === r.gid && x.isFirst) || r);
   renderPastTable();
 }
@@ -36420,6 +36605,7 @@ function reloadAfterImport() {
   // 設定から過去の日を読み込んでいる最中の印は、読み込んだ時の営業日（_loadedPastOn）と組で残す。
   // loadState は読み込んだファイルの値で付け直すので、ファイルに無いと片方だけ消え、開き直した時に読み込んだ日を締め忘れとして締める（2026-11-05 監査）
   const keepLoadedOn = state._restoredFromKey ? (state._loadedPastOn || null) : null;
+  if (typeof slipPricingReload === 'function') slipPricingReload();   // 精算時の料金設定の控えも入れ替わったので読み直す（15）
   loadCfg();
   migrateDailyClosePreset();
   loadState();
