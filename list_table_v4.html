@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.124">
+<meta name="app-version" content="1.1.126">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -13624,7 +13624,7 @@ function _payslipDayContext(dayKey) {
     closed,
     store: { [dayKey]: { frozen: { closedAt: 1, castRows: _dailyCloseNormalizeCastRows(model.rows) } } },
     names: model.rows.map(row => String(row.castName || '')).filter(Boolean),
-    pending: model.rows.filter(row => !checkouts[row.castName] && row.touketsu !== true).map(row => row.castName),
+    pending: model.rows.filter(row => !checkouts[row.castName] && row.touketsu !== true && row.manualOnly !== true).map(row => row.castName),
   };
 }
 
@@ -15494,8 +15494,14 @@ async function ttClockInAllPlanned() {
 /* 当欠マーク */
 /* 消去：その子の今日の出勤記録（出勤・退勤・同伴・当欠・遅刻・予定時刻）をすべて消し、出勤予定からも外す。
    記録が無くなるので出勤キャストの一覧からも消える。退勤済みの子が一覧に残り続ける・間違えて出勤させた、を片付けるため（2026-09-30 ギャルサークル要望）。
-   伝票の売上と、日計表で手入力したSP・日払い・控除は消さない。 */
+   伝票の売上と、日計表で手入力したSP・日払い・控除は消さない。
+   日払いを渡した子は消させず、先に日計表で日払いを0にしてもらう。間違えて出勤させた子なら、日払いも別の子の名前で入っている恐れがあるため（2026-11-06）。 */
 async function ttEraseCast(castName) {
+  const nibarai = getPayrollManual(getLoadedDayKey(), castName).nibarai;
+  if (nibarai >= 1) {
+    await appAlert('「' + castName + '」には今日の日払い ' + nibarai.toLocaleString() + '円が入っています。\n日計表で日払いを0にしてから消去してください。');
+    return;
+  }
   if (!(await appConfirm('「' + castName + '」の今日の出勤記録を消去しますか？\n出勤・退勤・同伴・当欠・遅刻・予定時刻がすべて消え、出勤キャストの一覧から外れます。\n日計表の出勤・退勤時刻も消えるので、時間給は0円になります。元に戻せません。', { danger: true }))) return;
   const tt = loadTimetableState();
   ['clockIns', 'checkouts', 'plannedClockIns', 'chikokuMins'].forEach(key => {
@@ -24804,6 +24810,7 @@ function _payrollBreakdownData(r, src, countCols) {
     workLabel:`${Math.floor(workMinutes / 60)}時間${workMinutes % 60}分`,
     checkoutPending:!r.outHHMM,
     touketsu:r.touketsu === true,
+    manualOnly:r.manualOnly === true,
     wage:Number(r.wage) || 0,
     hourlyPay:Number(r.hourlyPay) || 0,
     // 率バック（本指名・同伴を伝票の小計×率で払う店）は「本指名バック（小計×率）」と伝票ごとの内訳を出す。
@@ -24872,7 +24879,7 @@ function _payrollBreakdownHtml(r, src, countCols) {
         <div class="pay-bd-grid">
           <section class="pay-bd-section"><div class="pay-bd-section-head"><span class="pay-bd-section-no">01</span>勤務</div><div class="pay-bd-section-body">
             <div class="pay-bd-time-line" data-time-range="${escHtml(d.clockIn)}→${escHtml(d.clockOut)}" aria-label="${escHtml(d.clockIn)}→${escHtml(d.clockOut)}"><div class="pay-bd-time-box"><span>出勤</span><b>${escHtml(d.clockIn)}</b></div><div class="pay-bd-time-arrow">→</div><div class="pay-bd-time-box"><span>退勤</span><b>${escHtml(d.clockOut)}</b></div></div>
-            <div class="pay-bd-row"><span class="pay-bd-row-label">勤務時間</span><span class="pay-bd-row-value">${d.workLabel}</span></div><div class="pay-bd-row"><span class="pay-bd-row-label">時間給</span><span class="pay-bd-row-value">${_payYen(d.hourlyPay)}</span></div>${d.checkoutPending ? '<div class="pay-bd-note">退勤未入力のため、時間給は未確定です</div>' : ''}
+            <div class="pay-bd-row"><span class="pay-bd-row-label">勤務時間</span><span class="pay-bd-row-value">${d.workLabel}</span></div><div class="pay-bd-row"><span class="pay-bd-row-label">時間給</span><span class="pay-bd-row-value">${_payYen(d.hourlyPay)}</span></div>${(d.checkoutPending && !d.touketsu && !d.manualOnly) ? '<div class="pay-bd-note">退勤未入力のため、時間給は未確定です</div>' : ''}
           </div></section>
           <section class="pay-bd-section"><div class="pay-bd-section-head"><span class="pay-bd-section-no">02</span>バック内訳</div><div class="pay-bd-section-body">${backRows || '<div class="pay-bd-empty">本数バックはありません</div>'}${d.prodBack ? '<div class="pay-bd-row"><span class="pay-bd-row-label">商品バック</span><span class="pay-bd-row-value">' + _payYen(d.prodBack) + '</span></div>' : ''}<div class="pay-bd-row"><span class="pay-bd-row-label">SP${d.spExcluded ? '（参考）' : ''}</span><span class="pay-bd-row-value">${_payYen(d.sp)}</span></div><div class="pay-bd-row pay-bd-row-total"><span class="pay-bd-row-label">バック合計</span><span class="pay-bd-row-value">${_payYen(d.backTotal)}</span></div>${d.spExcluded ? '<div class="pay-bd-note">SPは参考表示です。日給には含まれません</div>' : ''}</div></section>
           <section class="pay-bd-section pay-bd-summary"><div class="pay-bd-section-head"><span class="pay-bd-section-no">03</span>支給計算</div><div class="pay-bd-section-body"><div class="pay-bd-equation"><div class="pay-bd-equation-part"><span>時間給</span><b>${_payYen(d.hourlyPay)}</b></div><span class="pay-bd-equation-op">＋</span><div class="pay-bd-equation-part"><span>バック</span><b>${_payYen(d.backTotal)}</b></div><span class="pay-bd-equation-op">−</span><div class="pay-bd-equation-part"><span>遅刻 ${d.lateMinutes ? `(${d.lateMinutes}分)` : ''}</span><b>${_payYen(d.lateFee)}</b></div><span class="pay-bd-equation-op">＝</span><div class="pay-bd-equation-part"><span>日給</span><b class="pay-bd-daily-value">${_payYen(d.dailyPay)}</b></div></div></div></section>
@@ -24892,7 +24899,7 @@ function _payrollBreakdownPrintDocument(r, src, countCols) {
   if (!d) return '';
   const shopName = (typeof cfg !== 'undefined' && cfg.shopName) ? String(cfg.shopName) : '';
   // 当欠はその日もう出勤しないので、退勤が無くても金額は確定している（日計表の hasOut と同じ）
-  const pending = d.checkoutPending && !d.touketsu;
+  const pending = d.checkoutPending && !d.touketsu && !d.manualOnly;
   const row = (label, value, cls) => '<div class="row' + (cls ? ' ' + cls : '') + '"><span>' + label + '</span><b>' + value + '</b></div>';
   const backLine = (label, count, amount) => '<tr><td class="nm">' + label + '</td><td class="ct">' + count + '</td><td class="am">' + amount + '</td></tr>';
   const backRows = d.backLines.map(item => backLine(escHtml(item.label), (item.percent || !item.count) ? '' : item.count.toLocaleString('ja-JP') + '本', _payYen(item.amount))
@@ -24973,7 +24980,7 @@ function _payrollDaySlipModalHtml(model) {
       + rows.map(r => {
         const name = String(r.castName || '');
         const attr = escAttr(escHtml(name));
-        const hasOut = !!checkouts[name] || r.touketsu === true;
+        const hasOut = !!checkouts[name] || r.touketsu === true || r.manualOnly === true;
         const time = (formatWorkTime(r.roundedIn) || '—') + '〜' + (formatCheckoutTime(r.roundedOut) || '—');
         return '<tr data-cast="' + attr + '"' + (hasOut ? '' : ' class="is-pending"') + '>'
           + '<td><button type="button" class="pay-ds-name" data-cast="' + attr + '" onclick="payrollShowBreakdown(this.dataset.cast)">' + escHtml(name) + _payrollTouketsuMark(r) + '</button></td>'
@@ -25067,7 +25074,7 @@ function _payrollTableInnerHtml(src, model, opts = { plain:false }) {
     const c = r.castName;
     const cj = escHtml(c).replace(/'/g, "\\'");
     // 退勤入力の有無（workMinutes=0 と区別）。当欠はその日もう出勤しないので確定扱い
-    const hasOut = !!checkouts[c] || r.touketsu === true;
+    const hasOut = !!checkouts[c] || r.touketsu === true || r.manualOnly === true;
     const manualDeductions = (typeof getPayrollManual === 'function')
       ? getPayrollManual(src.dayKey, c).deductions : {};
     // #12 バック本数は編集可能。手修正(manualCounts)があればその値、なければ自動集計値(autoCounts)を placeholder 表示。
@@ -25129,7 +25136,7 @@ function _deductionSheetInnerHtml(src, opts = { plain:false }) {
   const body = rows.map(r => {
     const c = r.castName;
     const cj = escHtml(c).replace(/'/g, "\\'");
-    const hasOut = !!checkouts[c] || r.touketsu === true;   // 当欠も確定扱い（日計表と同じ）
+    const hasOut = !!checkouts[c] || r.touketsu === true || r.manualOnly === true;   // 当欠・手入力だけの子も確定扱い（日計表と同じ）
     const manualDeductions = (typeof getPayrollManual === 'function')
       ? getPayrollManual(src.dayKey, c).deductions : {};
     const displayReady = !displayColumn.requiresCheckout || hasOut;
@@ -26014,7 +26021,7 @@ function _dailyCloseLiveAuto(src, agg, payrollRows) {
     cardSales: _dailyCloseNum(agg.cardSum),
     urikakeSales: _dailyCloseNum(agg.urikakeSum),
     totalSales: _dailyCloseNum(agg.total),
-    castPayTotal: (payrollRows || []).reduce((sum, row) => sum + (checkouts[row.castName] ? _dailyCloseNum(row.dailyPay) : 0), 0),
+    castPayTotal: (payrollRows || []).reduce((sum, row) => sum + ((checkouts[row.castName] || row.manualOnly === true) ? _dailyCloseNum(row.dailyPay) : 0), 0),
     castNibaraiTotal: (payrollRows || []).reduce((sum, row) => sum + _dailyCloseNum(row.nibarai), 0),
     urikakeRepayCash: repayments.filter(entry => entry.method === 'cash').reduce((sum, entry) => sum + _dailyCloseNum(entry.amount), 0),
     urikakeRepayCard: repayments.filter(entry => entry.method === 'card').reduce((sum, entry) => sum + _dailyCloseNum(entry.amount), 0),
@@ -26332,6 +26339,13 @@ function dailyCloseSyncNibarai() {
     rec.frozen.castRows.forEach(row => {
       if (Object.prototype.hasOwnProperty.call(nibaraiByCast, row.castName)) row.nibarai = nibaraiByCast[row.castName];
     });
+    // 控えに行の無い子（締めた後に日払いを入れた子・締めの時に日計表から外れていた子）は、日払いだけの行を足す。
+    // 本日計と内訳・給与明細の日払いをそろえるため。時給などの凍結値は足さない（2026-11-06）
+    const frozenNames = new Set(rec.frozen.castRows.map(row => row.castName));
+    const added = (payrollRows || [])
+      .filter(row => !frozenNames.has(row.castName) && _dailyCloseNum(row.nibarai) >= 1)
+      .map(row => ({ castName: row.castName, nibarai: _dailyCloseNum(row.nibarai), honshimeiSales: 0, bottleSales: 0, personalSubtotalSales: 0 }));
+    if (added.length) rec.frozen.castRows = rec.frozen.castRows.concat(_dailyCloseNormalizeCastRows(added));
     saveDailyClose(store);
   }
   _dailyCloseRerender();
@@ -26696,7 +26710,7 @@ function _dailyCloseReportModel(src) {
   const checkouts = (src.tt && src.tt.checkouts) || {};
   const castTotal = { sales:0, honshimei:0, douhan:0, jonai:0, backTotal:0, dailyPay:0, nibarai:0, deductionTotal:0, netPay:0, pending:0 };
   const castRows = (payroll.rows || []).map(r => {
-    const hasOut = !!checkouts[r.castName] || r.touketsu === true;
+    const hasOut = !!checkouts[r.castName] || r.touketsu === true || r.manualOnly === true;
     const advance = _payrollWithAdvance(r);
     const counts = r.backCounts || {};
     const row = {
@@ -38205,7 +38219,9 @@ function computePayrollForCast(castName, prodByCast, opts) {
   /* --- 控除・差引支給 --- */
   const deductionItems = (typeof cfg !== 'undefined' && cfg && Array.isArray(cfg.payrollDeductions))
     ? cfg.payrollDeductions : [];
-  const deductionResult = calcPayrollDeductions(dailyPay, deductionItems, manualRec.deductions, manualRec.deductionFlags, touketsu, !!inHHMM);
+  // 手入力だけで日計表に残った子（出勤予定・売上・出退勤が無い）は、当欠と同じく固定額の控除を自動では引かない（2026-11-06）
+  const noAutoFixed = touketsu || !!(opts.manualOnly && opts.manualOnly[castName]);
+  const deductionResult = calcPayrollDeductions(dailyPay, deductionItems, manualRec.deductions, manualRec.deductionFlags, noAutoFixed, !!inHHMM);
   const deductionTotal = deductionResult.total;
   const netPay = dailyPay - deductionTotal;
 
@@ -38240,6 +38256,7 @@ function computePayrollForCast(castName, prodByCast, opts) {
   return {
     castName,
     touketsu,
+    manualOnly: !!(opts.manualOnly && opts.manualOnly[castName]),   // 手入力だけで残った子（当欠と同じく確定扱い）
     wage, workMinutes, hourlyPay,
     inHHMM, outHHMM,
     roundedIn:  inHHMM  ? roundClockIn(inHHMM)   : '',
@@ -38264,7 +38281,7 @@ function computePayrollForCast(castName, prodByCast, opts) {
 /* ================================================================
    6. computePayrollTable(settled, opts) → 全在籍キャスト分の配列
    settled 省略時は state.rows から精算済み先頭行を抽出。
-   対象キャスト = activeCasts ∪ prodByCast/nameGroups に出現したキャスト ∪ 当欠。
+   対象キャスト = activeCasts ∪ prodByCast/nameGroups に出現したキャスト ∪ 当欠 ∪ 日払い・SP・本数・控除の手入力がある子。
 ================================================================ */
 function computePayrollTable(settled, opts) {
   opts = opts || {};
@@ -38301,6 +38318,21 @@ function computePayrollTable(settled, opts) {
   // 当欠は出勤中から外れ売上も出退勤も無いため、入れないと日計表から行ごと消えて
   // 罰金（控除）を入れる場所が無くなり、締めにも残らない（2026-09-22 ギャルサークル報告）
   (Array.isArray(tt.touketsu) ? tt.touketsu : []).forEach(n => { if (n) set[n] = true; });
+  // 日計表で日払い・SP・本数・控除を手入力した子は、売上も出退勤も無くても残す。消去や出勤予定から外す操作で行ごと消えると、
+  // 渡したお金が女子日払い・締め・給与明細から抜けるため（2026-11-06）。手入力だけで残った子は manualOnly に控える
+  // 控除は今の設定にある項目だけを見る（設定から消した項目の金額が残っていても、計算には入らないので行を足さない）
+  const manualOnly = {};
+  // ○×の方式の項目は○×だけ、それ以外は金額だけを見る（方式を変える前の古い入力だけでは足さない）
+  const deductionItems = (typeof cfg !== 'undefined' && cfg && Array.isArray(cfg.payrollDeductions)) ? cfg.payrollDeductions : [];
+  Object.keys(manual).forEach(n => {
+    const m = getPayrollManual(dayKey, n);
+    const entered = m.nibarai || m.sp || Object.values(m.counts).some(Boolean)
+      || deductionItems.some(item => {
+        const key = String(item?.key || '');
+        return isPayrollDeductionFlagMode(String(item?.mode || 'manual')) ? m.deductionFlags[key] : m.deductions[key];
+      });
+    if (n && entered && !set[n]) { set[n] = true; manualOnly[n] = true; }
+  });
 
   let casts = Object.keys(set);
   // #13 日計表は「出勤時刻(clockIns)の早い順」。出勤時刻が無い子は末尾。
@@ -38311,7 +38343,7 @@ function computePayrollTable(settled, opts) {
   else if (typeof castsSortedByClockIn === 'function') casts = castsSortedByClockIn(casts, tt);
   else if (typeof castsSortedByNo === 'function') casts = castsSortedByNo(casts);
 
-  const baseOpts = Object.assign({}, opts, { dayKey, tt, manual, nameGroups, prodBackByCast, prodPointsByCast, salesByCast, personalSubtotalByCast, percentBackByCast, rows: settled });
+  const baseOpts = Object.assign({}, opts, { dayKey, tt, manual, manualOnly, nameGroups, prodBackByCast, prodPointsByCast, salesByCast, personalSubtotalByCast, percentBackByCast, rows: settled });
   return casts.map(name => ({
     ...computePayrollForCast(name, prodByCast, baseOpts),
     firstRepeatCount: firstRepeatByCast[name] || 0,
