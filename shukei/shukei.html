@@ -4,7 +4,7 @@
 <meta name="app-edition" content="shukei">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.116">
+<meta name="app-version" content="1.1.125">
 <title>NightList-mini</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -2267,9 +2267,11 @@ tr.grp-drag-over td { box-shadow: inset 0 2px 0 var(--gold) !important; }
   font-size: 11px; font-weight: 700; margin-top: 2px; letter-spacing: 0.03em;
   color: var(--tx3);
 }
-.countdown-badge.warn  { color: var(--red); animation: cd-blink 1.2s step-end infinite; }
+/* 残り10分以下の点滅は、毎秒の updateCountdowns が cd-dim を付け外しして動かす。
+   CSSの無限アニメーションは表示中ずっと描画を回し続け、リスト表の負荷が約2.4倍になっていた（2026-11-03 実測） */
+.countdown-badge.warn  { color: var(--red); }
+.countdown-badge.warn.cd-dim { opacity: 0.3; }
 .countdown-badge.over  { color: var(--red); }
-@keyframes cd-blink { 50% { opacity: 0.3; } }
 
 /* 指名 */
 .desig-cell { min-width: 155px; }
@@ -3413,8 +3415,7 @@ body[data-active-tab="report"] { overflow:hidden; }
 .report-nav a:hover,.report-nav a:focus-visible,.report-nav a[aria-current="true"] { color:var(--gold2); background:var(--sur2); outline:2px solid var(--gold); outline-offset:1px; }
 .report-data-notice { margin:10px 0 0; padding:8px 10px; border:1px solid var(--red); border-radius:10px; background:rgba(232,64,96,0.08); color:var(--tx); font-size:12px; line-height:1.6; }
 .report-data-tools { margin-top:10px; padding:8px; border:1px solid var(--bdr); border-radius:10px; background:var(--sur); }
-.report-data-tools summary { cursor:pointer; min-height:44px; display:flex; align-items:center; color:var(--tx2); font-size:11px; font-weight:700; }
-.report-data-actions { display:flex; flex-direction:column; gap:5px; margin-top:7px; }
+.report-data-actions { display:flex; flex-direction:column; gap:5px; }
 .report-data-actions button { min-height:44px; border:1px solid var(--bdr2); border-radius:7px; background:var(--sur2); color:var(--tx2); cursor:pointer; }
 .report-anchor-section,.report-day-list,#report-payroll,#report-deduction,#daily-close-host,#report-slips,#report-range-overview,#report-range-days { scroll-margin-top:8px; }
 .report-day-link { padding:6px 8px; border:0; border-radius:6px; background:transparent; color:var(--gold2); cursor:pointer; text-decoration:underline; font:inherit; }
@@ -6450,16 +6451,17 @@ html[data-theme="night"] #summary-bar.has-pos-actions #summary-pos-actions .pos-
 
   html[data-theme="champagne"] .pos-hist-table td { border-color: #cbb995; }
   html[data-theme="champagne"] .pos-co-amount-row { border-color: #cbb995; }
-  html[data-theme="champagne"] .pos-co-amount-row:nth-child(3) .pos-co-amount-label,
-  html[data-theme="champagne"] .pos-co-amount-row:nth-child(3) .pos-co-amount-val {
+  /* 行の位置ではなく名前で色を付ける（前金の枠が下に増えて、位置指定だと未収金とカードがずれていた） */
+  html[data-theme="champagne"] .pos-co-amount-row--cash .pos-co-amount-label,
+  html[data-theme="champagne"] .pos-co-amount-row--cash .pos-co-amount-val {
     color: #176b4c !important;
   }
-  html[data-theme="champagne"] .pos-co-amount-row:nth-child(4) .pos-co-amount-label,
-  html[data-theme="champagne"] .pos-co-amount-row:nth-child(4) .pos-co-amount-val {
+  html[data-theme="champagne"] .pos-co-amount-row--card .pos-co-amount-label,
+  html[data-theme="champagne"] .pos-co-amount-row--card .pos-co-amount-val {
     color: #23658e !important;
   }
-  html[data-theme="champagne"] .pos-co-amount-row:nth-last-child(3) .pos-co-amount-label,
-  html[data-theme="champagne"] .pos-co-amount-row:nth-last-child(3) .pos-co-amount-val {
+  html[data-theme="champagne"] .pos-co-amount-row--due .pos-co-amount-label,
+  html[data-theme="champagne"] .pos-co-amount-row--due .pos-co-amount-val {
     color: #9b3041 !important;
   }
   html[data-theme="champagne"] #pos-urikake-overlay .pos-co-amount-val {
@@ -6815,10 +6817,10 @@ html[data-display="desktop"] #tabs .tab-btn .tab-app-icon { width: 56px; height:
   html[data-theme="night"] #report-panel .pos-hist-stat-val { color: var(--tx); }
 
   /* ---- 集計: 左の列。押しやすい大きさにし、縦に入りきらないときは列の中でスクロールできるようにする
-     （「保存データ管理」を開くと、いちばん下のボタンがフッターの裏に隠れて押せなかった） ---- */
+     （以前、下のボタンがフッターの裏に隠れて押せなかった） ---- */
   #report-panel .report-sidebar { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
   #report-panel .report-sidebar > * { flex: 0 0 auto; }
-  /* 「保存データ管理」を開いたときは、上のメニューの枠を縮めて中でスクロールさせ、3つのボタンを全部見せる */
+  /* 縦に入りきらないときは、上のメニューの枠を縮めて中でスクロールさせ、下の2つのボタン（過去の日を入力する・消えた日を戻す）を全部見せる */
   #report-panel .report-sidebar > .report-nav { display: flex; flex-direction: column; flex: 0 1 auto; min-height: 0; }
   #report-panel .report-nav-links { flex: 0 1 auto; min-height: 104px; overflow-y: auto; overscroll-behavior: contain; }
   #report-panel .report-nav-links > a { flex: 0 0 auto; }
@@ -6829,7 +6831,6 @@ html[data-display="desktop"] #tabs .tab-btn .tab-app-icon { width: 56px; height:
   #report-panel .report-end-business-day .btn { min-height: 46px; font-size: 14px; }
   #report-panel .report-sidebar .report-period-switch .rp-btn { min-height: 44px; font-size: 14px; }
   #report-panel .report-nav a { font-size: 13px; }
-  #report-panel .report-data-tools summary { font-size: 12px; }
   #report-panel .report-data-actions button {
     display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px;
     padding: 8px 12px; text-align: left; font-family: var(--font); font-size: 13px; font-weight: 700; color: var(--tx);
@@ -7215,6 +7216,7 @@ const STORAGE_LEDGER = {
   auth:        { label:'ログイン情報', key:'nightlist__auth_v1',           file:'auth.json',          export:false, import:false },   // ログインのパスワード情報（ハッシュ）
   authRecovery:{ label:'リカバリーコード', key:'nightlist__auth_recovery_v1',  file:'authRecovery.json',  export:false, import:false },   // ログインのリカバリーコード
   meta:        { label:'保存データの版番号', key:'nightlist__meta_v1',           file:'meta.json',          export:true,  import:false },   // 保存データの版番号・店舗ID（起動時に書き直す）
+  slipPricing: { label:'精算時の料金設定の控え', key:'nightlist__slip_pricing_v1', file:'slipPricing.json', export:true, import:'raw' },   // 精算済み伝票が指す料金設定の写し（中身が同じなら1つ。伝票は番号 settledPricingId だけ持つ。足すだけで消さない）
   monitorKey:  { label:'店外モニターの鍵', key:'nightlist__monitor_key_v1',    file:'monitorKey.json',    export:false, import:false },   // 店ごとの送信鍵。この端末だけに置き、JSON書き出しに入れない（写しを読んだ別の端末が同じ店として送れないように。2026-10-04）
 };
 
@@ -10395,7 +10397,9 @@ function loadCfg() {
   }
 }
 function saveCfg() {
-  Persist.write('settings', cfg);
+  // 精算済み伝票の写しを当てている間も、保存するのは本当の設定の値（15 slipPricingWriteGuard）
+  const write = () => Persist.write('settings', cfg);
+  return typeof slipPricingWriteGuard === 'function' ? slipPricingWriteGuard(write) : write();
 }
 
 /* 店舗IDを常に持たせる（2026-10-02 SaaS下準備A3）。店外モニターで使っている店は、その店舗IDを引き継ぐので
@@ -10910,11 +10914,12 @@ function checkAutoCloseDay() {
   if (curKey === _lastBizDayKey) return;
   // 見送り中に、ボーイが前日の行を手で消して空になった。守る物が無いので、リストを空にする処理・出勤のリセット・トーストはしない
   // （すでに始まっている今日の出勤を消さない）。営業日の印を進め、前の営業日の扱い（[復元中]）を外すだけにする。
+  // 過去の日を読み込んだまま見送っていた時も印は外す。行が空なので守る物は無く、残すと今日の入力がその日の分として保存される（2026-11-05 監査）
   if (_autoCloseRetryAt > 0 && (state.rows || []).length === 0) {
-    const skippedKey = _lastBizDayKey;
     _lastBizDayKey = curKey;
     _autoCloseRetryAt = 0;
-    if (state._restoredFromKey === skippedKey) state._restoredFromKey = null;
+    state._restoredFromKey = null;
+    state._loadedPastOn = null;
     try { saveState(); } catch (_) {}   // 保存する営業日の印を今日に戻す
     return;
   }
@@ -10930,15 +10935,20 @@ function checkAutoCloseDay() {
   // → 未精算客が残っていても ♻️復元 / 過去リストから戻せる。
   // 過去の営業日（backups）に保存できなければ「消えた営業日の控え」へ。どちらにも残せないなら、リストを空にせず黙って見送る
   // （_lastBizDayKey を進めないので、間を空けて試し直す）。
-  const lockedBefore = dailyCloseIsLockedForKey(prevKey);
-  try { dailyCloseLockForKey(prevKey); } catch (_) {}
+  // 締めるのは「今の行が属する日」。設定から過去の日を読み込んでいる最中なら、その日（_restoredFromKey）であって前日ではない。
+  // 前日のキーで締めると、前日の控えを読み込んだ日の行で上書きし、前日の日次締めをその数字でロックしていた（2026-11-05 監査）。
+  // 見送り中（_restoredFromKey＝前日）と普段（印なし）は、今まで通り前日のキー。
+  const rowsKey = state._restoredFromKey || prevKey;
+  const closingLoadedDay = rowsKey !== prevKey;
+  const lockedBefore = dailyCloseIsLockedForKey(rowsKey);
+  try { dailyCloseLockForKey(rowsKey); } catch (_) {}
   let saved = false;
-  try { saved = saveDayForClose(prevKey); } catch (_) {}
+  try { saved = saveDayForClose(rowsKey); } catch (_) {}
   if (!saved) {
     _autoCloseRetryAt = Date.now() + AUTO_CLOSE_RETRY_MS;
-    // 見送った時は、この処理で掛けた日次締めのロックを外す（前から掛かっていた時は残す）。前日のキーのロックは前日のキーで外す。
+    // 見送った時は、この処理で掛けた日次締めのロックを外す（前から掛かっていた時は残す）。掛けたキーで外す。
     // 掛けたままだと集計のボタンが「営業終了を取り消す」だけになり、営業終了の入口が無くなる
-    if (!lockedBefore) { try { dailyCloseUnlockForKey(prevKey); } catch (_) {} }
+    if (!lockedBefore) { try { dailyCloseUnlockForKey(rowsKey); } catch (_) {} }
     // 残せなかった行を「今日」にしない。前の営業日のものとして扱う（見出しに［復元中］が出る・保存しても前日のキーのまま・次回起動でも再検出される）。
     // 過去の日を復元して見ている最中なら、その印はそのまま
     if (!state._restoredFromKey) state._restoredFromKey = prevKey;
@@ -10948,7 +10958,23 @@ function checkAutoCloseDay() {
   }
   _lastBizDayKey = curKey; // 保存できたら更新し、何があっても1回だけの実行を保証
   _autoCloseRetryAt = 0;
+  // 表示していた別の日を閉じた時、前の営業日はまだ締まっていないことがある（営業終了せずに過去の日を読み込んだ）。
+  // 読み込む前に一覧へ保存した前の営業日の中身で締める。営業終了済み（ロック済み）なら何もしない（2026-11-05 監査）
+  // 締めるのは、設定から読み込んだ時に営業していた日（_loadedPastOn）。無い時と、それが今日の時は前の営業日。
+  // 「今日だけ延長」で境い目を越えた後に締める時などは、前の営業日と食い違う
+  // （今日の時＝前の日の締めを見送っている間に読み込んだ時。見送った前の日を締める）
+  const liveKey = (state._loadedPastOn && state._loadedPastOn !== curKey) ? state._loadedPastOn : prevKey;
+  let prevLockedNow = false;
+  if (closingLoadedDay && liveKey !== curKey) {
+    try {
+      const prevSnap = loadBackups().find(b => b && b.dayKey === liveKey);
+      // 伝票が0件の日も、普段の自動締め（今の行が空でもロックする）と同じく出勤の分で締める
+      if (prevSnap) prevLockedNow = dailyCloseLockForKey(liveKey, prevSnap) === true;
+    } catch (_) {}
+  }
   resetDayCore();
+  // 締めは取り消せない（↩ で取り消すと前の営業日の行が今日に戻り、二重に数える）。起動時の締め忘れの締めと同じく履歴を空にする
+  try { undoStack.length = 0; undoLabels.length = 0; redoStack.length = 0; redoLabels.length = 0; refreshHistoryBtns(); } catch (_) {}
   // 出勤状態も新しい営業日のまっさらな状態へ戻す（バックアップ後なので♻️復元で戻せる）
   try {
     clearAttendanceForNewBizDay();
@@ -10956,19 +10982,40 @@ function checkAutoCloseDay() {
     renderTimetable();
   } catch (_) {}
   try {
-    showToast(saved === 'recovery'
-      ? '🕛 営業日が変わったため自動で営業終了しました（前日の分は『消えた営業日の控え』に保存しました・出勤キャストもリセット）'
-      : '🕛 営業日が変わったため自動で営業終了しました（日次締めロック済み・出勤キャストもリセット）');
+    if (closingLoadedDay) {
+      // 「読み込んでいた」とは言わない（締め忘れの見送りなど、読み込まずに別の日を表示している時もあるため）
+      const md = key => Number(key.slice(4, 6)) + '月' + Number(key.slice(6, 8)) + '日';
+      showToast(`🕛 営業日が変わったため、表示していた${md(rowsKey)}の分を${saved === 'recovery' ? '『消えた営業日の控え』に' : ''}保存して閉じ、今日を始めました`
+        + (prevLockedNow ? `（${md(liveKey)}は一覧に保存してあった分で締めました・出勤キャストもリセット）` : '（出勤キャストもリセット）'));
+    } else {
+      showToast(saved === 'recovery'
+        ? '🕛 営業日が変わったため自動で営業終了しました（前日の分は『消えた営業日の控え』に保存しました・出勤キャストもリセット）'
+        : '🕛 営業日が変わったため自動で営業終了しました（日次締めロック済み・出勤キャストもリセット）');
+    }
   } catch (_) {}
+}
+/* 起動して保存データを読み込んだか（46-init.js の __boot が loadState の直後に true にする）。
+   読み込む前（保存先の選択・ログインの画面で止まっている間）は、自動出勤・自動締めをしない。
+   その間に営業日の境界を越えると、空の初期状態のまま締めて、保存済みのリスト（名簿・単価・日計表の手入力を含む）を
+   空で上書きし、前の営業日の日次締めを0円でロックしていた（2026-11-04 監査で再現）。 */
+let _bootStateLoaded = false;
+function _clockAutoChecks() {
+  if (!_bootStateLoaded) return;
+  if (_devNowMin !== null || _demoMode) return;
+  checkAutoActivateCasts();
+  checkAutoCloseWarn();
+  checkAutoCloseDay();
 }
 let _lastTickMinute = -1;
 setInterval(() => {
+  // POSタブの1秒ごとの更新（29-pos-panel.js）も、この時計と同じ発火で行う。別のタイマーだと発火がずれ、
+  // 画面の描き直しが1秒に2回になる（2026-11-03 PCの発熱対策）。前は別のタイマーだったので、
+  // ここで失敗しても時計・自動出勤・自動締めは止めず、時計側で失敗してもPOSの残り時間は進める。
+  // 失敗は投げ直して、前と同じく画面のエラーの知らせ（01g）に届ける
+  if (_posTimerActive) { try { _posTimerTick(); } catch (e) { setTimeout(() => { throw e; }, 0); } }
   updateClock();
-  const overrideActive = _devNowMin !== null || _demoMode;
-  if (!overrideActive) checkAutoActivateCasts();
-  if (!overrideActive) checkAutoCloseWarn();
-  if (!overrideActive) checkAutoCloseDay();
-  updateCountdowns();
+  _clockAutoChecks();
+  updateCountdowns(true);
   // 分が変わった瞬間にバッジ・タイムテーブルを更新
   // （d.getSeconds()===0 だとsetIntervalの誤差で1分遅れることがある）
   const d = new Date();
@@ -10992,6 +11039,8 @@ function snapRows() {
     // 復元中の過去日キーもスナップショットに含める。行だけ戻してキーが残ると、
     // 次の自動保存が過去日のバックアップを今日のデータで上書きする
     _restoredFromKey: state._restoredFromKey || null,
+    // 設定から読み込んだ時の営業日も一緒に戻す。片方だけ戻ると、開き直した時に読み込んだ日を締め忘れとして締める（2026-11-05 監査）
+    _loadedPastOn: state._loadedPastOn || null,
   });
 }
 // 記録ごとの操作名（undoStack/redoStack と同じ位置に対応）。名前なしの記録は ''。
@@ -11177,6 +11226,9 @@ function saveState() {
     // R5: 締め忘れ→翌日再起動の検知用。保存時点の営業日キーを記録する。
     // 復元中(_restoredFromKey)はその復元元キー、通常は実時計の営業日キー。
     bizDayKey: state._restoredFromKey || getBizDayKey(),
+    // 設定から過去の日を読み込んだ時の、本当の営業日（読み込み中だけ）。起動時に、同じ営業日なら読み込んだまま開き、
+    // 変わっていれば読み込んだ日を締める（loadState）。印の _restoredFromKey は締め忘れの見送りでも立つので、それと見分ける（2026-11-05）
+    _loadedPastOn: state._loadedPastOn || null,
   });
   _unsavedChanges = true; // localStorageには保存済みだがbackupにはまだ
 }
@@ -11392,8 +11444,9 @@ function _daySnapFromState(dayKey) {
    自動締め（営業日境界跨ぎ）の直前に、締める前の営業日キーで状態を残すために使う。
    → 締め後も restoreBackup（♻️復元）/過去リストから締め前の状態を復元できる。
    戻り値: true=保存できた（行が空で保存する物が無い時も true）／ false=保存できなかった。
-   リストを空にしてよいかは、この戻り値（または saveDayForClose の戻り値）で決める。 */
-function saveBackupForKey(dayKey) {
+   リストを空にしてよいかは、この戻り値（または saveDayForClose の戻り値）で決める。
+   keepEmpty=true の時は、行が空でも書く（出勤・出退勤を残すため。前の中身に行があれば _archiveLostSnaps が控えへ移す）。 */
+function saveBackupForKey(dayKey, keepEmpty) {
   if (!dayKey) return false;
   const backups = loadBackups();
   const existing = backups.findIndex(b => b.dayKey === dayKey);
@@ -11402,7 +11455,7 @@ function saveBackupForKey(dayKey) {
   // rows=[] のまま境界をまたぐと、せっかく保存済みの当日データを空で上書きしてしまう。
   // autoSave() と同じ「空ならスキップ」挙動に揃える（既存の中身は守る）。
   // 既存に中身あり／既存なし／既存も空、いずれも守る物は無いので成功として返す。
-  if (state.rows.length === 0) return true;
+  if (state.rows.length === 0 && !keepEmpty) return true;
   const snap = _daySnapFromState(dayKey);
   if (existing >= 0) {
     backups[existing] = snap; // 同営業日は上書き
@@ -11470,10 +11523,35 @@ function loadState() {
   Object.assign(state, s);
   // 旧スキーマの行を補填（cashEntries/cardEntries/linkedParentId/storeIn/storeOut 等）
   state.rows.forEach(r => normalizeRow(r, { rotCols: state.rotCols, extCols: state.extCols }));
-  // R5: 締め忘れ→翌日再起動の検知。保存営業日と現在営業日がズレ、かつ未精算客が残っていれば警告。
+  // R5: 締め忘れ→翌日再起動の検知。保存営業日と現在営業日がズレ、かつ行が残っていれば、前の営業日として締める。
   // bizDayKey は saveState() が記録。Object.assign で state.bizDayKey に入る。
-  const staleHandled = checkStaleBizDay(s.bizDayKey);
-  // 締め忘れ警告に入らなかった＝正常に締めて日をまたいだケース。
+  // 設定から過去の日（bizDayKey）を読み込んだまま閉じていた時（2026-11-05 監査）:
+  //  - 同じ営業日のうちに開き直した → 読み込んだまま開く（締め忘れではない。前は営業中のリストを空にし、誤った知らせを出していた）
+  //  - 営業日が変わっていた → 読み込んだ日は下の締め忘れの締めが自分のキーで締める。読み込む前の日は一覧の控えで締める（ロック済みなら何もしない）
+  const loadedOn = s._loadedPastOn || null;
+  state._loadedPastOn = null;
+  let staleOpts = null;
+  if (loadedOn && s.bizDayKey && s.bizDayKey !== loadedOn) {
+    if (loadedOn === getBizDayKey()) {
+      state._restoredFromKey = s.bizDayKey;
+      state._loadedPastOn = loadedOn;
+      // 見出しの［復元中］だけだと、気づかずに今日のお客様を読み込んだ日へ入れてしまうので、一言知らせる
+      const day = Number(s.bizDayKey.slice(4, 6)) + '月' + Number(s.bizDayKey.slice(6, 8)) + '日';
+      setTimeout(() => { try { showToast(day + 'を読み込んだまま開きました（今日の分は、設定の「一覧を開く」で今日を読み込むと戻ります）'); } catch (_) {} }, 100);
+    } else {
+      let prevLocked = false;
+      try {
+        const prevSnap = loadBackups().find(b => b && b.dayKey === loadedOn);
+        if (prevSnap) prevLocked = dailyCloseLockForKey(loadedOn, prevSnap) === true;
+      } catch (_) {}
+      staleOpts = { loadedOn, prevLocked };
+    }
+  }
+  const staleHandled = checkStaleBizDay(s.bizDayKey, staleOpts);
+  // 読み込んだ日の締めを引き受けた時は、読み込んだ時の営業日を残す。締め終われば resetDayCore が外し、
+  // 保存できずに見送った時は次の起動で読み込む前の日の締めからやり直せる（過去の営業日が読めなかった時など）
+  if (staleHandled && staleOpts) state._loadedPastOn = staleOpts.loadedOn;
+  // 締め忘れの処理に入らなかった＝行が残っていない（営業終了して日をまたいだ）ケース。
   // 出勤状態だけ新しい営業日のまっさらな状態へ戻す（前営業日分を退避してから）。
   // どこにも退避できなかった時は、出勤状態に触れない（消すと前営業日の出退勤が失われる）。
   if (!staleHandled && s.bizDayKey && !state._restoredFromKey && s.bizDayKey !== getBizDayKey()) {
@@ -11488,57 +11566,65 @@ function loadState() {
   }
 }
 
-/* R5: 起動時1回だけ実行。前営業日の締め忘れデータが残っていないか判定し、
-   残っていれば破壊的動作なしで警告（confirm）し、ユーザーの手動判断に委ねる。
-   - 過去リスト復元中(_restoredFromKey)は対象外（誤発火防止）。
-   - 自動では絶対に締めない・消さない。「はい」を選んだ時のみ締める。
-   戻り値: true = この関数が締め処理を引き受けた（呼び出し側は出勤状態に触らない）。 */
+/* R5: 起動時1回だけ実行。営業終了を押し忘れて、前の営業日の行がリストに残っていたら、
+   精算済みかどうかに関係なく、選ばせずに前の営業日として締める（2026-11-04 オーナー決定「上書きされたほうが面倒」）。
+   順は手動の営業終了と同じ: 日次締めをロック → 前の営業日に保存 → リストを空にする。そのあと出勤をリセットし、知らせを1つ出す。
+   以前は未精算があるときだけ確認を出していた。全員精算済みのときと「キャンセル」のときは前日の行が今日のリストに残り、
+   今日の分として保存・集計された（2026-11-03 chuchu）。集計版（99s）の締め方と同じ形にそろえた。
+   - 過去リスト復元中(_restoredFromKey)は対象外（誤発火防止）。行が残っていなければ締める物が無いので、呼び出し側に任せる。
+   - 締めるのは起動の続きが終わったあと（300ms後）。それまでは前の営業日のものとして扱い（自動保存が今日のキーへ書かない）、
+     先に前の営業日の保存データへ写す（締める前に閉じられても失われない）。
+   - どこにも保存できないときは締めない（行は前の営業日のものとして残し、次回起動で再検出される）。
+   戻り値: true = この関数が締め処理を引き受けた（呼び出し側は保存・出勤状態に触らない）。 */
 let _staleBizDayChecked = false;
-function checkStaleBizDay(savedKey) {
+/* opts（loadState が渡す）: 設定から読み込んだ日を、閉じている間に営業日が変わったので締める時の { loadedOn: 読み込んだ時の営業日, prevLocked: その日を一覧の控えで締めたか }。
+   知らせの文だけに使う（締め忘れではないので「営業終了が押されていなかった」とは言わない） */
+function checkStaleBizDay(savedKey, opts) {
   if (_staleBizDayChecked) return false;   // 起動時1回のみ
   _staleBizDayChecked = true;
   // 過去日を復元中は判定しない（復元元キーで保存されるのは正常な挙動）
   if (state._restoredFromKey) return false;
   if (!savedKey) return false;             // 旧データ（bizDayKey 未記録）は判定不可 → 何もしない
-  const curKey = getBizDayKey();
-  if (savedKey === curKey) return false;   // 同じ営業日 → 締め忘れではない
-  // 未精算の初回(=入店)行が残っているか
-  const hasUnsettled = state.rows.some(r => r.isFirst && !r.settled);
-  if (!hasUnsettled) return false;         // 残っているのが精算済みのみなら警告不要
-  // 確認は init シーケンスを止めないよう、描画後に遅延実行
-  setTimeout(async () => {
+  if (savedKey === getBizDayKey()) return false;   // 同じ営業日 → 締め忘れではない
+  if (!Array.isArray(state.rows) || state.rows.length === 0) return false;   // 行が残っていない＝営業終了して日をまたいだ
+  state._restoredFromKey = savedKey;
+  try { saveBackupForKey(savedKey); } catch (_) {}
+  setTimeout(() => {
     try {
-      const ok = await appConfirm(
-        `前営業日（${bizKeyToLabel(savedKey)}）の締め忘れデータが残っています。\n\n` +
-        `未精算のお客様が画面に表示されています。\n` +
-        `日次締めもロックします。\n` +
-        `今すぐ営業終了して新しい営業日（${bizKeyToLabel(curKey)}）を開始しますか？\n\n` +
-        `［OK］前営業日分をバックアップしてから営業終了\n` +
-        `［キャンセル］そのまま表示（手動で確認・精算する）`
-      );
-      if (!ok) return;               // キャンセル＝何もしない（データはそのまま表示）
-      // 締める前の状態を日次締めに凍結し、「締め忘れた営業日キー」でバックアップしてから締める
+      // 締める前の状態を日次締めに凍結し（今のリスト＝前の営業日の行から作る）、前の営業日のキーで保存してから締める
       const lockedBefore = dailyCloseIsLockedForKey(savedKey);
       try { dailyCloseLockForKey(savedKey); } catch (_) {}
       // 過去の営業日（backups）へ、書けなければ「消えた営業日の控え」へ。どちらにも残せないなら、締めを見送る（行は空にしない）
       let saved = false;
       try { saved = saveDayForClose(savedKey); } catch (_) {}
       if (!saved) {
-        // 見送った時は、この操作で掛けた日次締めのロックを外す（前から掛かっていた時は残す）。
+        // 見送った時は、この処理で掛けた日次締めのロックを外す（前から掛かっていた時は残す）。
         // 掛けたままだと集計のボタンが「営業終了を取り消す」だけになり、営業終了の入口が無くなる
         if (!lockedBefore) { try { dailyCloseUnlockForKey(savedKey); } catch (_) {} }
-        // 残せなかった行を「今日」にしない。前の営業日のものとして扱う（保存しても前日のキーのまま。次回起動でも再検出される）
-        if (!state._restoredFromKey) state._restoredFromKey = savedKey;
+        // 行は前の営業日のものとして残す（_restoredFromKey はそのまま。保存しても前日のキーのまま。次回起動でも再検出される）
         try { showToast('保存先に書けないため、締めを見送りました。前の営業日のまま表示しています。オーナーへ連絡してください'); } catch (_) {}
         return;
       }
-      resetDayCore();                // 19-reset.js の締め処理本体（確認ダイアログなし）
-      // 出勤状態も新しい営業日のまっさらな状態へ（バックアップ後なので♻️復元で戻せる）
+      const unsettled = state.rows.filter(r => r && r.isFirst && !r.settled).length;
+      resetDayCore();                // 19-reset.js の締め処理本体（行を空にし、前の営業日の印も外す）
+      // 締めは取り消せない（取り消すと前の営業日の行が今日に戻る）。履歴を空にする
+      try { undoStack.length = 0; undoLabels.length = 0; redoStack.length = 0; redoLabels.length = 0; refreshHistoryBtns(); } catch (_) {}
+      // 出勤状態も新しい営業日のまっさらな状態へ（保存後なので♻️復元で戻せる）
       try { clearAttendanceForNewBizDay(); renderCastPanel(); renderTimetable(); } catch (_) {}
+      try { if (typeof renderReportPanel === 'function') renderReportPanel(); } catch (_) {}
+      const md = key => Number(key.slice(4, 6)) + '月' + Number(key.slice(6, 8)) + '日';
+      const day = md(savedKey);
+      const fromRecovery = saved === 'recovery';
+      const loaded = opts && opts.loadedOn;
       try {
-        showToast(saved === 'recovery'
-          ? `🕛 前営業日分を『消えた営業日の控え』に保存し、新しい営業日を開始しました（出勤キャストもリセット）`
-          : `🕛 前営業日分をバックアップし、新しい営業日を開始しました（出勤キャストもリセット）`);
+        appAlert((loaded
+            ? '表示していた' + day + 'の分を保存して閉じ、今日を始めました。'
+              + (opts.prevLocked ? md(opts.loadedOn) + 'は一覧に保存してあった分で締めました。' : '')
+              + (fromRecovery ? day + 'の伝票は、『消えた営業日の控え』に保存しました。' : '')
+            : '前の営業日（' + day + '）の営業終了が押されていなかったので、締めてから今日を始めました。'
+              + (fromRecovery ? '前の日の伝票は、『消えた営業日の控え』に保存しました。' : '前の日の伝票は、集計で日付を選ぶと見られます。'))
+          // 未精算の直し方は店に任せない（その日のリストを直しても、締めでロックした日次締めの値は ⚖ 再集計まで変わらないため。2026-11-04 監査）
+          + (unsettled > 0 ? '\n\n未精算の伝票が' + unsettled + '件ありました。オーナーへ伝えてください。' : ''));
       } catch (_) {}
     } catch (_) {}
   }, 300);
@@ -11548,11 +11634,16 @@ function checkStaleBizDay(savedKey) {
 function applySnapshot(snap) {
   Persist.unlockAll();
   pushUndo();
+  const prevRestoredKey = state._restoredFromKey || null;
+  const prevLoadedOn = state._loadedPastOn || null;
   Object.assign(state, snap);
   // バックアップに manualSort が無い場合は自動ソートに戻す（古いスナップ互換）
   if (snap.manualSort === undefined) state.manualSort = false;
   // 復元元のdayKeyを記憶（次の保存でその日付キーに上書きするため）
   state._restoredFromKey = snap.dayKey || null;
+  // 設定から読み込んでいる日を読み直した時（読み込んだ日で「営業終了を取り消す」など）は、読み込んだ時の営業日を残す。
+  // 別の日なら外す（設定からの読み込みなら、呼び出し側の confirmRestore が付け直す）。2026-11-05 監査
+  state._loadedPastOn = (snap.dayKey && snap.dayKey === prevRestoredKey) ? prevLoadedOn : null;
   // 旧スキーマの行を補填
   state.rows.forEach(r => normalizeRow(r, { rotCols: state.rotCols, extCols: state.extCols }));
   // タイムテーブル状態も復元（出勤キャスト管理をその日の状態に戻す）
@@ -11563,10 +11654,10 @@ function applySnapshot(snap) {
   if (typeof reportSelectedDay !== 'undefined') reportSelectedDay = null;
   renderTable(); renderCastPanel(); renderTimetable(); saveState(); refreshHistoryBtns();
   if (typeof renderReportPanel === 'function') renderReportPanel();   // 集計(キャスト別指名売上等)も復元状態へ更新
-  showToast(`${bizKeyToLabel(snap.dayKey)} のデータを復元しました`);
+  showToast(`${bizKeyToLabel(snap.dayKey)} を営業中のリストに読み込みました`);
 }
 
-/* 過去の営業日（backups）が読めない間は、♻️復元・🔧データ復旧・新しい営業日はどれも役に立たない（読めないので書けない）。
+/* 過去の営業日（backups）が読めない間は、読み込み（設定）・🔧消えた日を戻す・過去の日を入力する はどれも役に立たない（読めないので書けない）。
    押された時は案内だけ出して、backups に触れずに終える（2026-11-02）。 */
 const BACKUPS_UNREADABLE_NOTICE = '過去の営業日のファイルが読めないため、いまはここから戻せません。運営者が対応します。今日の入力と営業終了はいつも通りで大丈夫です。';
 function backupsUnreadable() { return Persist.failedReads.has('backups'); }
@@ -11621,9 +11712,9 @@ function showRestoreModal(backups) {
       display:flex;align-items:center;justify-content:space-between;
       background:linear-gradient(135deg,#0d1118 0%,#121a28 100%);">
       <div style="display:flex;align-items:center;gap:10px">
-        <span style="font-size:16px">♻️</span>
+        <span style="font-size:16px">📅</span>
         <div>
-          <div style="font-size:13px;font-weight:700;letter-spacing:0.08em;color:var(--gold2)">保存データを復元</div>
+          <div style="font-size:13px;font-weight:700;letter-spacing:0.08em;color:var(--gold2)">過去の日を営業中のリストに読み込む</div>
           <div style="font-size:10px;color:var(--tx3);margin-top:1px">営業日単位 · 最大365日 · 同日は上書き保存</div>
         </div>
         <div style="margin-left:6px;padding:2px 8px;border-radius:10px;
@@ -11637,7 +11728,7 @@ function showRestoreModal(backups) {
     <div style="padding:10px 16px;border-top:1px solid var(--bdr);
       display:flex;justify-content:space-between;align-items:center;
       background:rgba(0,0,0,0.2);">
-      <span style="font-size:10px;color:var(--tx3)">復元後に💾保存すると、その日付で上書きされます</span>
+      <span style="font-size:10px;color:var(--tx3)">読み込んだあとの入力は、その日の分として自動で保存されます</span>
       <button id="restore-clear-btn" style="font-size:10px;padding:4px 10px;border-radius:4px;cursor:pointer;
         background:rgba(232,64,96,0.08);border:1px solid rgba(232,64,96,0.3);
         color:var(--red);font-family:var(--font);transition:all 0.15s">全て削除</button>
@@ -11705,7 +11796,7 @@ function showRestoreModal(backups) {
       <button class="restore-do-btn" data-idx="${idx}" style="
         font-size:11px;padding:5px 14px;border-radius:5px;cursor:pointer;
         background:rgba(201,168,76,0.1);border:1px solid rgba(201,168,76,0.4);
-        color:var(--gold2);font-family:var(--font);white-space:nowrap;transition:all 0.15s;">復元</button>
+        color:var(--gold2);font-family:var(--font);white-space:nowrap;transition:all 0.15s;">読み込む</button>
       <button class="restore-del-btn" data-idx="${idx}" style="
         font-size:11px;padding:5px 9px;border-radius:5px;cursor:pointer;
         background:rgba(232,64,96,0.08);border:1px solid rgba(232,64,96,0.3);
@@ -11739,10 +11830,32 @@ async function confirmRestore(idx) {
   const snap = (window._restoreBackups || [])[idx];
   if (!snap) return;
   const label = bizKeyToLabel(snap.dayKey);
-  const ok = await appConfirm(`${label} のデータに復元しますか？\n\n現在のデータはUndo履歴に保存されます。\n復元後に💾保存すると ${label} の枠に上書きされます。`, { danger: true });
+  const curKey = getLoadedDayKey();
+  const curLabel = bizKeyToLabel(curKey);
+  const same = snap.dayKey === curKey;
+  // ↩（元に戻す）は伝票の行しか戻せず、出勤キャスト・出退勤は読み込んだ日のまま残る。戻した後の自動保存がそれを
+  // 今の日の控えに書いてしまうので、↩ では戻させない。置き換える前の分を一覧へ保存し、戻し方は一覧からの読み込みにする（2026-11-05 監査）
+  const ok = await appConfirm(same
+    ? `${label} を、この一覧に保存されている内容に戻しますか？\n\n保存されたあとの入力は消えます（↩ では戻せません）。`
+    : `いま営業中の ${curLabel} を、${label} の中身に置き換えますか？\n\nリスト・出勤キャスト・出退勤の記録が ${label} のものになります。\n置き換える前の ${curLabel} の分はこの一覧に残ります。戻すときは、この一覧で ${curLabel} を読み込んでください（↩ では戻せません）。\n読み込んだあとの入力は ${label} の分として自動で保存されます。`,
+    { danger: true });
   if (!ok) return;
-  document.getElementById('restore-modal').remove();
+  // 伝票が0件でも、営業終了前なら出勤・出退勤を残すために書く（開店前に出勤だけ入れた時など）。
+  // 伝票が0件で営業終了済み（ロック済み）なら、一覧には締めた時の中身があるので書かない（2026-11-05 監査）
+  const keepEmpty = (state.rows || []).length === 0 && !dailyCloseIsLockedForKey(curKey);
+  if (!same && !saveBackupForKey(curKey, keepEmpty)) {
+    await appAlert(`${curLabel} の分を保存できなかったので、読み込みをやめました。オーナーへ連絡してください。`);
+    return;
+  }
+  // 今の行の伝票番号を「使った番号」として残す。残さないと、読み込んだ日の古い番号を基準に次の番号を振り、今の日の番号と重なる（2026-11-05 監査）
+  try { commitSlipCounterOnClose(); } catch (_) {}
+  document.getElementById('restore-modal')?.remove();
   applySnapshot(snap);
+  try { undoStack.length = 0; undoLabels.length = 0; redoStack.length = 0; redoLabels.length = 0; refreshHistoryBtns(); } catch (_) {}
+  // 読み込んだ時の本当の営業日を残す（開き直した時、同じ営業日なら読み込んだまま開くため。今日の日を読み込んだ時は付けない）
+  const liveDay = getBizDayKey();
+  state._loadedPastOn = snap.dayKey === liveDay ? null : liveDay;
+  saveState();
 }
 
 async function deleteBackup(idx) {
@@ -11814,7 +11927,7 @@ function showRecoveryModal() {
       box-shadow:0 12px 50px rgba(0,0,0,0.65)">
       <div style="padding:16px 20px;border-bottom:1px solid var(--bdr);
         background:linear-gradient(135deg,#0d1118,#121a28)">
-        <div style="font-size:16px;font-weight:800;color:var(--gold2)">🔧 データ復旧</div>
+        <div style="font-size:16px;font-weight:800;color:var(--gold2)">🔧 消えた日を戻す（データ復旧）</div>
         <div style="font-size:12px;color:var(--tx2);margin-top:4px;line-height:1.6">
           リストが消えた・0人になってしまった日を、ここから元に戻せます。<br>
           直したい日の「<b>↩ この日を戻す</b>」を押すだけです。
@@ -12632,6 +12745,7 @@ async function settle(id) {
   // amountMethodに応じた実売上で0円判定（cash選択時にcard欄の残値を無視するため）
   if (rowSales(row) <= 0 && !(await appConfirm('金額が0円ですが精算しますか？'))) return;
   pushUndo();
+  if (typeof slipPricingStamp === 'function') slipPricingStamp(row);   // 精算した時の設定の写しを先頭行へ残す（15）
   row.settled   = true;
   row.settledAt = row.settledAt || Date.now();
   if (typeof posMarkFloorStay === 'function') posMarkFloorStay(row);
@@ -12655,6 +12769,7 @@ function cancelSettle(id) {
   // POSで精算した伝票は、精算が書いた金額を精算前へ戻す（31 posRestorePreSettle）。
   row.settled = false;
   row.settledAt = 0;
+  if (typeof slipPricingClear === 'function') slipPricingClear(row);
   if (typeof posRestorePreSettle === 'function') posRestorePreSettle(state.rows.find(r => r.gid === row.gid && r.isFirst) || row);
   renderTable(); saveState();
   if (typeof renderReportPanel === 'function') renderReportPanel();   // 集計を即更新
@@ -12705,7 +12820,167 @@ function rowCardCount(r) {
 /* ================================================================
    BILL AUTO-CALCULATION
 ================================================================ */
-function calcBill(row) {
+/* ================================================================
+   精算済み伝票の金額を、精算した時の設定で固定する（2026-11-05）
+   仕様: dev/specs/2026-11-05-nightlistdx-精算済み伝票の金額を精算時の設定で固定.md
+   精算した瞬間に、金額に効く設定の写しを組の先頭行 row.settledPricingId（番号）で指す。写しの中身は保存データ slipPricing の控えに「中身が同じなら1つ」で持つ。写しを持つ精算済みの伝票は、
+   計算・表示・印刷をその写しで行う（withSlipPricing が cfg の該当項目へ一時的に当てて、必ず元へ戻す）。
+   未精算の伝票と、写しを持たない古い精算済み伝票は今までどおり今の設定で計算する。
+================================================================ */
+/* 写す設定＝精算済み伝票の金額（合計・税サ・現金・カード・明細の金額）を出す経路が読んでいる cfg の項目。
+   calcBill / taxRateForRow / vip* / _posBaseTotals* / _posComputeTotals / _posExtBase* / _posSeatLineItems /
+   _emptyJonaiForRound / extShimeiFeeAmount(shimeiExtItems) / extRowIndexFor(extOptions・extNames) / _posAdvanceBreakdown / 会計伝票の組み立て を grep して洗い出した。
+   入れない: 店名・ロゴ・レシートの並びと倍率・posMenu・posItemLabels・vipFeeLabel・vipMidMoveEnabled(金額計算は読まない)・
+   extAutoShimeiFee/Mapping(延長を押した時の明細の自動追加だけ)・給与の設定。 */
+const SLIP_PRICING_CFG_KEYS = [
+  'setPrice', 'earlySetEnabled', 'earlySetFromH', 'earlySetToH', 'earlySetPrice', 'dohanIncludesSet',
+  'nominateFee', 'dohanFee', 'jonaiFee', 'enchoshimeiFee',
+  'extOptions', 'extNames', 'extPrices', 'extBasePerSeat', 'extFeePerSeat',
+  'extFeeOnHonshimei', 'extFeeOnJounai', 'extFeeOnEnchoshimei', 'shimeiExtItems', 'doubanAsHonshimeiExt',
+  'taxRate', 'taxRound', 'specialRateRound', 'discountAfterTax',
+  'vipEnabled', 'vipSeats', 'vipTaxRate', 'vipTaxRateEnabled',
+  'cardFeeRate', 'cardFeeRound', 'advanceFeeCredit',
+];
+let _slipPricingDepth = 0;       // withSlipPricing の入れ子の深さ
+let _slipPricingReal = null;     // 一番外側で当てる前の、本当の設定の値
+let _slipPricingTarget = null;   // 当てている cfg オブジェクト
+
+function _slipPricingCapture(target) {
+  const out = {};
+  SLIP_PRICING_CFG_KEYS.forEach(k => { out[k] = { has: Object.prototype.hasOwnProperty.call(target, k), v: target[k] }; });
+  return out;
+}
+function _slipPricingRestore(target, saved) {
+  SLIP_PRICING_CFG_KEYS.forEach(k => { if (saved[k].has) target[k] = saved[k].v; else delete target[k]; });
+}
+/* いまの設定の写し（配列・オブジェクトは複製。設定画面で元を書き換えても写しは変わらない） */
+function slipPricingSnapshot() {
+  const out = {};
+  SLIP_PRICING_CFG_KEYS.forEach(k => {
+    if (cfg[k] === undefined) return;
+    out[k] = JSON.parse(JSON.stringify(cfg[k]));
+  });
+  return out;
+}
+function _slipPricingFirstRow(row) {
+  if (!row) return null;
+  if (row.isFirst || row.gid == null) return row;
+  const lists = [typeof state === 'object' && state ? state.rows : null, typeof pastState !== 'undefined' && pastState ? pastState.rows : null];
+  const list = lists.find(l => Array.isArray(l) && l.includes(row));
+  return (list && list.find(r => r.gid === row.gid && r.isFirst)) || row;
+}
+/* 写しの控え（保存データ slipPricing）。{ v:1, items:{ 番号:写し } }。メモリに持ち、描画のたびに読み直さない。
+   足すだけで消さない（設定を変えた回数ぶんしか増えない）。JSON読み込み等で保存データを入れ替えた後は slipPricingReload() で読み直す。 */
+let _slipPricingLedger = null;
+function slipPricingReload() { _slipPricingLedger = null; }
+function _slipPricingItems() {
+  if (!_slipPricingLedger) {
+    let items = {};
+    try {
+      const data = typeof Persist !== 'undefined' ? Persist.read('slipPricing') : null;
+      if (data && typeof data === 'object' && data.items && typeof data.items === 'object') items = data.items;
+    } catch (e) { items = {}; }
+    // 空のうちは持たない（保存先の準備前に読んで空だった控えを、そのまま持ち続けないため）。足したとき slipPricingRegister が持つ
+    if (!Object.keys(items).length) return items;
+    Object.values(items).forEach(_slipPricingFreeze);
+    _slipPricingLedger = { v: 1, items };
+  }
+  return _slipPricingLedger.items;
+}
+/* 控えの写しは中身ごと凍結する。同じ番号の伝票は1つの写しを共有し、withSlipPricing はそれを複製せずに cfg へ当てるので、
+   包んだ中で cfg の配列などをその場で書き換えると、同じ番号の全伝票の写しが変わってしまう。凍結しておけば書き換えは
+   例外になり（アプリは strict）、テストで見つかる。 */
+function _slipPricingFreeze(o) {
+  if (o && typeof o === 'object' && !Object.isFrozen(o)) {
+    Object.freeze(o);
+    Object.values(o).forEach(_slipPricingFreeze);
+  }
+  return o;
+}
+/* 写しの中身（SLIP_PRICING_CFG_KEYS の順に並べた JSON）から決める短いハッシュ（FNV-1a 32bit） */
+function _slipPricingCanon(copy) {
+  const o = {};
+  SLIP_PRICING_CFG_KEYS.forEach(k => { if (copy[k] !== undefined) o[k] = copy[k]; });
+  return JSON.stringify(o);
+}
+function _slipPricingHash(text) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) { h ^= text.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return h.toString(16).padStart(8, '0');
+}
+/* 写しを控えに足して番号を返す。同じ中身なら同じ番号。万一同じ番号で中身が違えば番号をずらす。新しい番号の時だけ保存する */
+function slipPricingRegister(copy) {
+  const items = _slipPricingItems();
+  if (!_slipPricingLedger) _slipPricingLedger = { v: 1, items };
+  const canon = _slipPricingCanon(copy);
+  const base = _slipPricingHash(canon);
+  for (let n = 1; ; n++) {
+    const id = n === 1 ? base : base + '-' + n;
+    if (!items[id]) {
+      items[id] = _slipPricingFreeze(JSON.parse(canon));
+      try { Persist.write('slipPricing', _slipPricingLedger); } catch (e) { console.error('[slipPricing] write failed:', e); }
+      return id;
+    }
+    if (_slipPricingCanon(items[id]) === canon) return id;
+  }
+}
+/* 伝票の写し。精算済みで番号が控えにあるときだけ返す（それ以外は null＝今の設定で計算） */
+function slipPricingOf(row) {
+  if (!row || !row.settled) return null;
+  const first = _slipPricingFirstRow(row);
+  if (!first || !first.settled || !first.settledPricingId) return null;
+  const copy = _slipPricingItems()[first.settledPricingId];
+  return copy && typeof copy === 'object' ? copy : null;
+}
+/* 精算した瞬間に、組の先頭行へ写しを置く。list = その行が入っている行の配列（省略=今日の state.rows）。
+   すでに精算済みで写しを持つ伝票を精算し直すときは、最初の写しを残す。 */
+function slipPricingStamp(row, list) {
+  if (!row) return;
+  const rows = Array.isArray(list) ? list : (typeof state === 'object' && state ? state.rows : []);
+  const first = row.isFirst ? row : (rows.find(r => r.gid === row.gid && r.isFirst) || row);
+  if (first.settled && first.settledPricingId && _slipPricingItems()[first.settledPricingId]) return;
+  first.settledPricingId = slipPricingRegister(slipPricingSnapshot());
+}
+function slipPricingClear(row, list) {
+  if (!row) return;
+  const rows = Array.isArray(list) ? list : (typeof state === 'object' && state ? state.rows : []);
+  delete row.settledPricingId;   // 控えの中身は残す
+  rows.forEach(r => { if (r.gid === row.gid) delete r.settledPricingId; });
+}
+/* 写しを cfg へ一時的に当てて fn を実行し、必ず元へ戻す（入れ子・例外でも）。写しが無ければ fn をそのまま実行。
+   同期処理だけを包むこと（await をまたがない）。 */
+function withSlipPricing(row, fn) {
+  const copy = slipPricingOf(row);
+  if (!copy) return fn();
+  const target = cfg;
+  if (_slipPricingDepth === 0) { _slipPricingTarget = target; _slipPricingReal = _slipPricingCapture(target); }
+  _slipPricingDepth++;
+  const before = _slipPricingCapture(target);
+  try {
+    SLIP_PRICING_CFG_KEYS.forEach(k => {
+      if (Object.prototype.hasOwnProperty.call(copy, k)) target[k] = copy[k];
+      // 写しに無い項目（版が上がって足された項目）は、足される既定値と同じ値を当てる。既定値にも無い項目だけ消す
+      else if (typeof CFG_DEFAULTS !== 'undefined' && Object.prototype.hasOwnProperty.call(CFG_DEFAULTS, k)) target[k] = JSON.parse(JSON.stringify(CFG_DEFAULTS[k] === undefined ? null : CFG_DEFAULTS[k]));
+      else delete target[k];
+    });
+    return fn();
+  } finally {
+    _slipPricingRestore(target, before);
+    _slipPricingDepth--;
+    if (_slipPricingDepth === 0) { _slipPricingReal = null; _slipPricingTarget = null; }
+  }
+}
+/* saveCfg 用: 写しを当てている間でも、保存するのは本当の設定の値 */
+function slipPricingWriteGuard(writer) {
+  if (_slipPricingDepth === 0 || !_slipPricingReal || !_slipPricingTarget) return writer();
+  const target = _slipPricingTarget;
+  const now = _slipPricingCapture(target);
+  _slipPricingRestore(target, _slipPricingReal);
+  try { return writer(); } finally { _slipPricingRestore(target, now); }
+}
+
+function calcBill(row) { return withSlipPricing(row, () => _calcBillCore(row)); }
+function _calcBillCore(row) {
   // POSオーダーに該当明細がある場合、mainType由来の料金は二重計上しない
   const _hasOrderCat = c => Array.isArray(row.posOrders) && row.posOrders.some(o => o.category === c);
   const _castOf = n => { n = String(n||''); const i = n.indexOf(':'); return i >= 0 ? n.slice(i+1) : ''; };
@@ -13679,7 +13954,12 @@ function resetDayCore() {
   state.rows=[]; state.nextGid=1; state.nextGuest=1; state.rotCols=3; state.extCols=5;
   state.manualSort=false;   // 新しい営業日は開始時刻順の自動ソートに戻す
   state._restoredFromKey=null;   // 締め＝通常運用へ復帰。過去日キーのまま新営業日に入る事故を防ぐ
+  state._loadedPastOn=null;      // 設定から読み込んでいた印も外す
   renderTable(); saveState();
+  // POS の選んでいる伝票を外し、POS タブを開いていれば描き直す。起動時の締め忘れの締め・自動締めは POS を開いたまま締めるので、
+  // 描き直さないと締めた伝票のカードが画面に残る（新しい伝票は gid 1 から振り直すので、古い選択が別の伝票を指すこともある。2026-11-04 監査）
+  try { posBetaState.selectedGid = null; posBetaState.viewMode = 'slip'; } catch (_) {}
+  try { if (document.body.dataset.activeTab === 'pos') renderPOSPanel(); } catch (_) {}
 }
 
 /* 営業日が変わったので出勤状態を新しい日のまっさらな状態へ戻す（2026-07-25 オーナー要望）。
@@ -14223,15 +14503,26 @@ function renderTable() {
 /* ================================================================
    COUNTDOWN（残り時間バッジ）
 ================================================================ */
-function updateCountdowns() {
+/* 毎秒呼ばれる。文字と色が変わるのは分の変わり目だけなので、変わった時だけ書き換える
+   （同じ文字を書き直しても、そのたびに画面の配置と描画がやり直しになる）。
+   残り10分以下の点滅（warn）は、1秒ごとの時計の処理から tick=true で呼ばれるたびに明暗を入れ替える
+   （壁時計の秒で決めると、タイマーの誤差で同じ明暗が続くことがある）。表の描き直しからの呼び出しは今の明暗のまま。 */
+let _cdDimPhase = false;
+function _setCountdownBadge(el, text, cls) {
+  if (el.textContent !== text) el.textContent = text;
+  if (el.className !== cls) el.className = cls;
+}
+function updateCountdowns(tick) {
+  if (tick === true) _cdDimPhase = !_cdDimPhase;
   if (!cfg.showCountdown) {
     state.rows.forEach(row => {
       const el = document.getElementById('cd_' + row.id);
-      if (el) { el.textContent = ''; el.className = 'countdown-badge'; }
+      if (el) _setCountdownBadge(el, '', 'countdown-badge');
     });
     return;
   }
   const nowMin = getNowMin();
+  const dim = _cdDimPhase;
   state.rows.forEach(row => {
     if (!row.isFirst || row.settled) return;
     const el = document.getElementById('cd_' + row.id);
@@ -14240,11 +14531,11 @@ function updateCountdowns() {
     if (rem > 0) {
       const h = Math.floor(rem / 60);
       const m = rem % 60;
-      el.textContent = h > 0 ? `残${h}h${String(m).padStart(2,'0')}m` : `残${m}分`;
-      el.className = 'countdown-badge' + (rem <= 10 ? ' warn' : '');
+      _setCountdownBadge(el,
+        h > 0 ? `残${h}h${String(m).padStart(2,'0')}m` : `残${m}分`,
+        'countdown-badge' + (rem <= 10 ? (dim ? ' warn cd-dim' : ' warn') : ''));
     } else {
-      el.textContent = `OVER ${Math.abs(rem)}分`;
-      el.className = 'countdown-badge over';
+      _setCountdownBadge(el, `OVER ${Math.abs(rem)}分`, 'countdown-badge over');
     }
   });
 }
@@ -14264,19 +14555,26 @@ function summaryStats() {
   return { guests, groups, sales, cash, card, unsettled, forecast: sales + unsettled, avg };
 }
 
+/* POSタブでは毎秒呼ばれる。値が前と同じ欄は書き直さない（同じ値でも書くたびに配置と描画がやり直しになる） */
+function _setSummaryText(id, text) {
+  const el = document.getElementById(id);
+  if (el.textContent !== text) el.textContent = text;
+}
 function updateSummary() {
   const { guests, groups, sales, cash, card, unsettled, forecast, avg } = summaryStats();
-  document.getElementById('s-guests').textContent = guests;
-  document.getElementById('s-groups').textContent = groups;
+  _setSummaryText('s-guests', String(guests));
+  _setSummaryText('s-groups', String(groups));
   const breakdown = (cash > 0 || card > 0)
     ? ` <span class="sum-sales-breakdown" style="color:var(--tx3);font-size:10px">(現 ¥${cash.toLocaleString()} / カード ¥${card.toLocaleString()})</span>`
     : '';
   const salesEl = document.getElementById('s-sales');
-  salesEl.innerHTML = '¥' + sales.toLocaleString() + breakdown;
-  salesEl.title = breakdown ? `現金 ¥${cash.toLocaleString()} / カード ¥${card.toLocaleString()}` : '';
-  document.getElementById('s-unsettled').textContent = '¥' + unsettled.toLocaleString();
-  document.getElementById('s-forecast').textContent = '¥' + forecast.toLocaleString();
-  document.getElementById('s-avg').textContent  = avg > 0 ? '¥' + avg.toLocaleString() : '—';
+  const salesHtml = '¥' + sales.toLocaleString() + breakdown;
+  if (salesEl.innerHTML !== salesHtml) salesEl.innerHTML = salesHtml;
+  const salesTitle = breakdown ? `現金 ¥${cash.toLocaleString()} / カード ¥${card.toLocaleString()}` : '';
+  if (salesEl.title !== salesTitle) salesEl.title = salesTitle;
+  _setSummaryText('s-unsettled', '¥' + unsettled.toLocaleString());
+  _setSummaryText('s-forecast', '¥' + forecast.toLocaleString());
+  _setSummaryText('s-avg', avg > 0 ? '¥' + avg.toLocaleString() : '—');
 
   // ヘッダーの店内状況バッジを更新
   updateStoreStatusBadge();
@@ -14291,7 +14589,8 @@ function storeStatusBadgeContents() {
 function updateStoreStatusBadge() {
   const badge = document.getElementById('store-status-badge');
   if (!badge) return;
-  badge.innerHTML = storeStatusBadgeContents();
+  const html = storeStatusBadgeContents();
+  if (badge.innerHTML !== html) badge.innerHTML = html;
 }
 /* ================================================================
    PRINT PAGE GENERATOR
@@ -16282,7 +16581,8 @@ function taxRateForRow(row, settings) {
   return vipRate;
 }
 /* 会計伝票の「税サ」に添える率の表示。VIP席の率が実際に効いていて通常の率と違うときだけ「(40%)」。それ以外は空（今までの表示のまま）。 */
-function taxRateNoteForRow(row, settings) {
+function taxRateNoteForRow(row, settings) { return withSlipPricing(row, () => taxRateNoteForRowCore(row, settings)); }   // 精算済みで写しを持つ伝票は精算時の設定で計算（15）
+function taxRateNoteForRowCore(row, settings) {
   const src = settings || cfg;
   if (vipMoveActive(row, src)) return '';   // 途中から移った伝票は、率を上下の段の税サに出す（合計欄は「税サ」だけ）
   const rate = taxRateForRow(row, src);
@@ -16555,7 +16855,8 @@ function posSpecialValue(item) {
 }
 /* 特殊項目を除いた既存会計。割合の基準を全特殊項目で共有し、順序依存・複利を防ぐ。
    row は税サ率を決める伝票（VIP席を使った伝票だけ率が変わる。taxRateForRow）。渡さなければ通常の率。 */
-function _posBaseTotals(seatSubtotal, orders, extraTaxable, row) {
+function _posBaseTotals(seatSubtotal, orders, extraTaxable, row) { return withSlipPricing(row, () => _posBaseTotalsCore(seatSubtotal, orders, extraTaxable, row)); }   // 精算済みで写しを持つ伝票は精算時の設定で計算（15）
+function _posBaseTotalsCore(seatSubtotal, orders, extraTaxable, row) {
   if (vipMoveActive(row, cfg)) return _posBaseTotalsByMove(seatSubtotal, orders, extraTaxable, row);
   const taxRound     = cfg.taxRound     || 100;
   let taxable = (seatSubtotal || 0) + (extraTaxable || 0);
@@ -16620,11 +16921,13 @@ function posOrderUnitAmount(order, baseTotals) {
 function posOrderLineAmount(order, baseTotals) {
   return posOrderUnitAmount(order, baseTotals) * (Number(order?.qty) || 1);
 }
-function posOrderPricing(row, extraTaxable) {
+function posOrderPricing(row, extraTaxable) { return withSlipPricing(row, () => posOrderPricingCore(row, extraTaxable)); }   // 精算済みで写しを持つ伝票は精算時の設定で計算（15）
+function posOrderPricingCore(row, extraTaxable) {
   return _posBaseTotals(calcBill(row).subtotal, posOrders(row), extraTaxable || 0, row);
 }
 /* row は税サ率を決める伝票（_posBaseTotals と同じ）。 */
-function _posComputeTotals(seatSubtotal, orders, extraTaxable, row) {
+function _posComputeTotals(seatSubtotal, orders, extraTaxable, row) { return withSlipPricing(row, () => _posComputeTotalsCore(seatSubtotal, orders, extraTaxable, row)); }   // 精算済みで写しを持つ伝票は精算時の設定で計算（15）
+function _posComputeTotalsCore(seatSubtotal, orders, extraTaxable, row) {
   const cardFeeRound = cfg.cardFeeRound || 100;
   const baseTotals = _posBaseTotals(seatSubtotal, orders, extraTaxable, row);
   const special = (orders || []).reduce((sum, order) => order?.category === 'special'
@@ -16928,7 +17231,8 @@ function _posAdvanceBreakdownValue(advances, cardFeeRate, cardFeeRound, feeCredi
 function _posAdvancePrincipalValue(advances, cardFeeRate, cardFeeRound) {
   return _posAdvanceBreakdownValue(advances, cardFeeRate, cardFeeRound).credit;
 }
-function _posAdvanceBreakdown(row) {
+function _posAdvanceBreakdown(row) { return withSlipPricing(row, () => _posAdvanceBreakdownCore(row)); }   // 精算済みで写しを持つ伝票は精算時の設定で計算（15）
+function _posAdvanceBreakdownCore(row) {
   return _posAdvanceBreakdownValue(
     row && Array.isArray(row.advances) ? row.advances : [],
     cfg.cardFeeRate || 0,
@@ -16989,7 +17293,8 @@ function _posExtFeeForType(type, idx) {
   return extShimeiFeeAmount(type, idx);
 }
 /* side（途中から移った伝票の会計伝票だけが渡す）: 'before'=移る前の分（SET・指名料・移る前の延長）、'after'=移った後の延長だけ。省略=全部（今までどおり）。 */
-function _posSeatLineItems(row, side) {
+function _posSeatLineItems(row, side) { return withSlipPricing(row, () => _posSeatLineItemsCore(row, side)); }   // 精算済みで写しを持つ伝票は精算時の設定で計算（15）
+function _posSeatLineItemsCore(row, side) {
   const baseSet = (() => {
     let amount = cfg.setPrice || 0;
     if (row.mainType === 'douban' && !cfg.dohanIncludesSet) return 0;
@@ -17475,13 +17780,18 @@ function _posTimerTick() {
     if (!row) return;
     const t = _posSlipTimerText(row);
     const status = _posFloorStatus(t);
-    card.classList.remove('status-none', 'status-ok', 'status-warn', 'status-over', 'status-wait');
-    card.classList.add('status-' + status);
+    // 色の class は変わった時だけ付け替える（毎秒付け直すと、そのたびにカード全体の見た目の計算がやり直しになる）
+    const statusClass = 'status-' + status;
+    if (!card.classList.contains(statusClass) || _POS_FLOOR_STATUS_CLASSES.some(c => c !== statusClass && card.classList.contains(c))) {
+      card.classList.remove(..._POS_FLOOR_STATUS_CLASSES);
+      card.classList.add(statusClass);
+    }
     const badge = card.querySelector('.pos-floor-timer');
     if (badge) {
-      badge.className = 'pos-floor-timer status-' + status;
+      const badgeClass = 'pos-floor-timer ' + statusClass;
+      if (badge.className !== badgeClass) badge.className = badgeClass;
       badge.innerHTML = _posFloorTimerHtml(t);
-      badge.removeAttribute('onclick');
+      if (badge.hasAttribute('onclick')) badge.removeAttribute('onclick');
     }
   });
   root.querySelectorAll('[data-pos-elapsed-gid]').forEach(el => {
@@ -17504,21 +17814,21 @@ function _posTimerTick() {
     if (!row) return;
     const t = _posSlipTimerText(row);
     const status = _posFloorStatus(t);
-    el.className = 'pos-order-slip-remain status-' + status;
+    const remainClass = 'pos-order-slip-remain status-' + status;
+    if (el.className !== remainClass) el.className = remainClass;
     // 待機中の伝票は押すと再開。ふつうの伝票は押すと「−1分」「＋1分」を出し入れする（2026-10-30）
     el.disabled = false;
-    el.setAttribute('onclick', (row.posWaitStart ? 'posToggleWait(' : 'posWindToggle(') + row.gid + ')');
+    const onclick = (row.posWaitStart ? 'posToggleWait(' : 'posWindToggle(') + row.gid + ')';
+    if (el.getAttribute('onclick') !== onclick) el.setAttribute('onclick', onclick);
     el.innerHTML = _posOrderTimerHtml(t);
   });
 }
-let _posTimerInterval = null;
-function _posStartTimer() {
-  if (_posTimerInterval) return;
-  _posTimerInterval = setInterval(_posTimerTick, 1000);
-}
-function _posStopTimer() {
-  if (_posTimerInterval) { clearInterval(_posTimerInterval); _posTimerInterval = null; }
-}
+const _POS_FLOOR_STATUS_CLASSES = ['status-none', 'status-ok', 'status-warn', 'status-over', 'status-wait'];
+/* POSタブの1秒ごとの更新は、05-clock.js の1秒ごとの時計の処理から呼ぶ。
+   別のタイマーにすると時計と発火がずれ、画面の描き直しが1秒に2回になる（2026-11-03 PCの発熱対策） */
+let _posTimerActive = false;
+function _posStartTimer() { _posTimerActive = true; }
+function _posStopTimer() { _posTimerActive = false; }
 
 /* 待機中の伝票を再開する。
    2026-10-30: 残り時間を押して新しく待機に入る操作はやめた（時間を巻く機能 posWindAdjust に置き換え。オーナー指示）。
@@ -17605,7 +17915,8 @@ function _posPickUnusedColor() {
   return pool[Math.floor(Math.random() * pool.length)].hex;
 }
 
-function _posSlipCard(r, isSelected, totalCount, mode, padRows) {
+function _posSlipCard(r, isSelected, totalCount, mode, padRows) { return withSlipPricing(r, () => _posSlipCardCore(r, isSelected, totalCount, mode, padRows)); }   // 精算済みで写しを持つ伝票は精算時の設定で計算（15）
+function _posSlipCardCore(r, isSelected, totalCount, mode, padRows) {
   const BODY_ROWS = mode === 'report' ? Math.max(padRows || 0, 1) : ((totalCount || 1) > 6 ? 5 : 14);
   const orders = posOrders(r);
   // Compute combined total inline from the already-fetched orders array so body and footer are always in sync.
@@ -17771,7 +18082,8 @@ function _posOrderTimerRowHtml(r, timer, status) {
     + '</div>';
 }
 
-function _posOrderSlipPanel(r) {
+function _posOrderSlipPanel(r) { return withSlipPricing(r, () => _posOrderSlipPanelCore(r)); }   // 精算済みで写しを持つ伝票は精算時の設定で計算（15）
+function _posOrderSlipPanelCore(r) {
   const orders = posOrders(r);
   const seatBill = calcBill(r);
   const totals = _posComputeTotals(seatBill.subtotal, orders, 0, r);
@@ -19892,6 +20204,22 @@ function extMappingKeys(min, role, mapping = cfg.extAutoShimeiMapping) {
     || items.find(v => String(v.label || '').match(/(\d+)/)?.[1] === String(min));
   return item ? [item.key] : [];
 }
+/* 手入力した延指◯◯を、保存済みの「延長時の追加項目」どおりの延指として数える指定を返す（なければ null＝そのまま数える）。
+   入力時に注文へ刻印して使う。金額の合計が一致する時だけ。伝票・会計・売上は変えない（2026-11-06 オーナー決定）。 */
+function extMappingCountAs(row, category, cast, amount) {
+  const items = shimeiExtGroup('enshi');
+  const item = items.find(v => v.key === category);
+  if (!item || !cfg.extAutoShimeiFee) return null;
+  const min = (/^enshi(\d+)$/.exec(category) || String(item.label || '').match(/(\d+)/) || [])[1];
+  if (!min) return null;
+  const d = _posTableDesignations(row, true).find(v => v.cast === cast);
+  const role = d && d.role === '場内' ? 'jounai' : 'enchoshimei';
+  const stored = cfg.extAutoShimeiMapping?.[String(min)]?.[role];
+  if (!Array.isArray(stored) || !stored.length || stored.includes(category)) return null;
+  if (!stored.every(key => typeof key === 'string' && items.some(v => v.key === key))) return null;
+  const sum = stored.reduce((n, key) => n + (Number(shimeiExtItem(key)?.amount) || 0), 0);
+  return sum === (Number(amount) || 0) ? [...stored] : null;
+}
 function _extMappingEntries(row, min, mapping) {
   const entries = [];
   const missing = new Set();
@@ -20843,7 +21171,7 @@ function buildOwnerDayDataset(inputRows, dayKey, ctx = {}) {
     const orderPricing = posOrderPricing(row, 0);
     (Array.isArray(row.posOrders) ? row.posOrders : []).forEach(orderValue => {
       const order = orderValue || {};
-      const unit = posOrderUnitAmount(order, orderPricing);
+      const unit = withSlipPricing(row, () => posOrderUnitAmount(order, orderPricing));   // 精算済みは精算時の設定（15）
       const qty = Number(order.qty) || 1;
       orderRows.push({
         day: dayLabel,
@@ -21918,11 +22246,11 @@ function posOpenCheckoutPanel() {
     + '<div class="pos-co-body">'
     + '<div class="pos-co-amount-row"><span class="pos-co-amount-label">小計</span><span class="pos-co-amount-val">¥' + b.subtotal.toLocaleString() + '</span></div>'
     + '<div class="pos-co-amount-row"><span class="pos-co-amount-label">税サ</span><span class="pos-co-amount-val">¥' + (b.cash - b.subtotal).toLocaleString() + '</span></div>'
-    + '<div class="pos-co-amount-row"><span class="pos-co-amount-label" style="color:#fff">現金</span><span class="pos-co-amount-val" style="color:#38cc80">¥' + b.cash.toLocaleString() + '</span></div>'
-    + '<div class="pos-co-amount-row"><span class="pos-co-amount-label" style="color:#fff">カード</span><span class="pos-co-amount-val" style="color:#40b8e0">¥' + b.card.toLocaleString() + '</span></div>'
+    + '<div class="pos-co-amount-row pos-co-amount-row--cash"><span class="pos-co-amount-label" style="color:#fff">現金</span><span class="pos-co-amount-val" style="color:#38cc80">¥' + b.cash.toLocaleString() + '</span></div>'
+    + '<div class="pos-co-amount-row pos-co-amount-row--card"><span class="pos-co-amount-label" style="color:#fff">カード</span><span class="pos-co-amount-val" style="color:#40b8e0">¥' + b.card.toLocaleString() + '</span></div>'
     + (adv ? '<div class="pos-co-amount-row"><span class="pos-co-amount-label">前金</span><span class="pos-co-amount-val">−¥' + advBd.principal.toLocaleString() + '</span></div>' : '')
     + (advBd.extraFee ? '<div class="pos-co-amount-row"><span class="pos-co-amount-label">分割手数料の充当</span><span class="pos-co-amount-val">−¥' + advBd.extraFee.toLocaleString() + '</span></div>' : '')
-    + '<div class="pos-co-amount-row"><span class="pos-co-amount-label" style="color:#fff">未収金</span><span class="pos-co-amount-val" style="color:#f5dfa0">¥' + due.toLocaleString() + '</span></div>'
+    + '<div class="pos-co-amount-row pos-co-amount-row--due"><span class="pos-co-amount-label" style="color:#fff">未収金</span><span class="pos-co-amount-val" style="color:#f5dfa0">¥' + due.toLocaleString() + '</span></div>'
     + '<div style="margin:12px 0;padding:10px;border:1px solid rgba(255,255,255,.15);border-radius:8px">'
     + '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px"><b>前金</b><button class="pos-co-btn both" style="min-height:34px;padding:8px 12px" onclick="posOpenAdvanceModal()">前金を登録</button></div>'
     + '<div class="pos-co-advance-list">' + (advRows || '<div style="color:var(--tx3);font-size:12px">登録済みの前金はありません</div>') + '</div>'
@@ -21989,6 +22317,7 @@ function posExecCheckout(method, urikakePayment, cardAmounts) {
   const todayCards = method === 'card' ? (cardSplit || [todayCard]) : (todayCard > 0 ? [todayCard] : []);
   _posAssignCardCharges(row, [...advCards, ...todayCards]);
   row.amountUrikake = bd.amountUrikake ? String(bd.amountUrikake) : '';
+  if (typeof slipPricingStamp === 'function') slipPricingStamp(row);   // 精算した時の設定の写しを先頭行へ残す（15）
   row.settled = true;
   if (typeof posMarkFloorStay === 'function') posMarkFloorStay(row);   // 会計後も卓に残す設定（29-pos-panel）
   // グループ全員を精算済みに
@@ -22367,6 +22696,7 @@ function posSplitApply() {
   row.amountUrikake = '';
   // 「元に戻す」経由の再精算（分割）でも旧chargeを台帳に残さない（posExecCheckoutと同じ冪等化）
   urikakeRevokeByRowId(row.id);
+  if (typeof slipPricingStamp === 'function') slipPricingStamp(row);   // 精算した時の設定の写しを先頭行へ残す（15）
   row.settled = true;
   if (typeof posMarkFloorStay === 'function') posMarkFloorStay(row);   // 会計後も卓に残す設定（29-pos-panel）
   state.rows.filter(r => r.gid === row.gid).forEach(r => { r.settled = true; });
@@ -22443,6 +22773,7 @@ function posRestorePreSettle(row) {
     row.cardEntries = [];
   }
   delete row.preSettle;
+  delete row.settledPricingId;   // 精算時の設定の写しも消す＝未精算に戻った伝票は今の設定で計算（15）
   delete row.floorStay;   // 未精算に戻った伝票に「会計後も卓に残す」の印を残さない
 }
 
@@ -23253,8 +23584,8 @@ function _payrollTd(content, className, groupStart) {
 }
 function _payrollTableColumns(countCols, deductionItems, showPoints) {
   const cols = [
-    { id:'clockin', group:'work', label:'出勤', cell:(x, start) => _payrollTd(x.plain ? formatWorkTime(x.r.roundedIn || x.r.inHHMM) : _payrollClockSelectHtml(x.r.inHHMM, roundClockIn, "payrollSetClockIn('" + x.cj + "', this.value)"), '', start), total:(x, start) => _payrollTd('', '', start) },
-    { id:'clockout', group:'work', label:'退勤', cell:(x, start) => _payrollTd(x.plain ? formatCheckoutTime(x.r.roundedOut || x.r.outHHMM) : _payrollClockSelectHtml(x.r.outHHMM, roundClockOut, "payrollSetClockOut('" + x.cj + "', this.value)", cfg.clockOutFrom, cfg.clockOutTo), '', start), total:(x, start) => _payrollTd('', '', start) },
+    { id:'clockin', group:'work', label:'出勤', cell:(x, start) => _payrollTd(x.plain ? formatWorkTime(x.r.roundedIn || x.r.inHHMM) : _payrollClockSelectHtml(x.r.inHHMM, roundClockIn, "payrollSetClockIn('" + x.cj + "', this.value)", undefined, undefined, cfg.clockInStep), '', start), total:(x, start) => _payrollTd('', '', start) },
+    { id:'clockout', group:'work', label:'退勤', cell:(x, start) => _payrollTd(x.plain ? formatCheckoutTime(x.r.roundedOut || x.r.outHHMM) : _payrollClockSelectHtml(x.r.outHHMM, roundClockOut, "payrollSetClockOut('" + x.cj + "', this.value)", cfg.clockOutFrom, cfg.clockOutTo, cfg.clockOutStep), '', start), total:(x, start) => _payrollTd('', '', start) },
     { id:'work', group:'work', label:'勤務', cell:(x, start) => _payrollTd(_payWorkLabel(x.r.workMinutes), '', start), total:(x, start) => _payrollTd('', '', start) },
     { id:'hourly', group:'work', label:'時間給', cell:(x, start) => _payrollTd(x.hasOut ? _payYen(x.r.hourlyPay) : '—', 'pay-amt' + (x.hasOut ? '' : ' pay-muted'), start), total:(x, start) => _payrollTd('', '', start) },
     ...countCols.map(([id, label]) => ({
@@ -23602,7 +23933,7 @@ function computeReportAgg(settled) {
     {
       let nomDrinkAmt = 0, marginAmt = 0;
       posOrders(r).forEach(o => {
-        const amt = posOrderLineAmount(o, orderPricing);
+        const amt = withSlipPricing(r, () => posOrderLineAmount(o, orderPricing));   // 割合の特殊項目の端数は精算時の設定（15）
         if (o.marginBack === true) marginAmt += amt;
         if ((isDrinkItemKey(o.category) || o.category === 'shot') && nominators.has(_aggCastOf(o.name))) nomDrinkAmt += amt;
       });
@@ -23672,7 +24003,7 @@ function computeReportAgg(settled) {
 
     posOrders(r).forEach(o => {
       const qty = Number(o.qty)||1;
-      const lineAmt = posOrderLineAmount(o, orderPricing);
+      const lineAmt = withSlipPricing(r, () => posOrderLineAmount(o, orderPricing));
       byCategory[o.category] = (byCategory[o.category]||0) + lineAmt;
       if ((/^(enshi|honen)/.test(o.category || '') || isDrinkItemKey(o.category)) && !shimeiLabels[o.category]) {
         const stampedLabel = _aggLabelOf(o.name);
@@ -23715,7 +24046,12 @@ function computeReportAgg(settled) {
         const _isModoriNominateLine = o.category === 'nominate' &&
           ((r.mainCast === cast && r.mainType === 'modori_honshimei') ||
            (r.subCasts || []).some(sc => sc.cast === cast && sc.type === 'modori_honshimei'));
-        if (!_isModoriNominateLine && !isBranchExt) _aggApplyProd(p, o.category, qty);
+        if (!_isModoriNominateLine && !isBranchExt) {
+          // 手入力の延指◯◯は、入力時に刻印した countAs（例: 延指60→延指40+延指20）の本数で数える。
+          // 刻印は入力時なので、過去の注文・後の設定変更では本数が動かない（2026-11-06 オーナー決定）。
+          const countKeys = /^enshi/.test(o.category || '') && Array.isArray(o.countAs) && o.countAs.length ? o.countAs : [o.category];
+          countKeys.forEach(key => _aggApplyProd(p, key, qty));
+        }
         if (isDrinkCat && !productBack.isProductBack && !isBranchDrink) {
           // 指D = その卓の本指名/同伴キャスト本人のドリンク。メイン枠だけでなくサブ指名・
           // 指名系オーダー由来も含む（nominators）。指名売上と同じ判定。場内・延指は対象外。
@@ -24413,16 +24749,17 @@ function _payrollSetClock(field, castName, value) {
     _rerenderPayrollTable();
   }
 }
-/* 出退勤の30分刻みドロップダウン。fromMin〜toMin（既定は営業時間帯 getTimeMin〜getTimeMax、退勤列は
-   退勤受付範囲 cfg.clockOutFrom〜clockOutTo）を30分刻みで提示。
+/* 出退勤のドロップダウン。fromMin〜toMin（既定は営業時間帯 getTimeMin〜getTimeMax、退勤列は
+   退勤受付範囲 cfg.clockOutFrom〜clockOutTo）を stepMin 分刻みで提示（設定の出勤・退勤時刻の刻み。15か30。2026-11-04 まで30分固定）。
    現在値は丸め後(rounder)に正規化して選択＝表示と勤務計算を一致させる。値は連続表記HH:MM。
    範囲外の現在値（受付開始前の早退など）は、出勤管理の退勤セレクト(getClockOutOptions)と同じく
    現在値の行を先頭の空欄の直後に足して選択状態で表示する（選択肢に無いだけで「--:--」に見せない）。 */
-function _payrollClockSelectHtml(curHHMM, rounder, onchangeCall, fromMin = getTimeMin(), toMin = getTimeMax()) {
+function _payrollClockSelectHtml(curHHMM, rounder, onchangeCall, fromMin = getTimeMin(), toMin = getTimeMax(), stepMin = 30) {
   const cur = curHHMM ? rounder(curHHMM) : '';
+  const step = Number(stepMin) > 0 ? Number(stepMin) : 30;
   let regular = '';
   let matched = false;
-  for (let t = fromMin; t <= toMin; t += 30) {
+  for (let t = fromMin; t <= toMin; t += step) {
     const s = minToStr(t);
     const selected = s === cur;
     matched = matched || selected;
@@ -25085,9 +25422,11 @@ function _reportNavHtml(period, hasDailyClose = true) {
     ? [['report-overview','売上概要'],['report-payroll','日計表'],['report-nomination','指名売上'],['report-deduction','控除票'],['daily-close-host','日次締め'],['report-slips','会計伝票'],['report-day-list','その日のリスト']]
     : [['report-range-overview','期間概要'],['report-range-days','日別一覧']];
   const items = labels.filter(([id]) => id !== 'daily-close-host' || hasDailyClose).map(([id,label]) => `<a href="#${id}" aria-label="${label}へ移動" onclick="_reportNavActivate(this,event)">${label}</a>`).join('');
-  // 過去の営業日（backups）が読めない間は、下の3つのボタンは役に立たない。メニューの上に案内を出す
+  // 過去の営業日（backups）が読めない間は、下の2つのボタンは役に立たない。メニューの上に案内を出す
   const unreadable = backupsUnreadable() ? `<p class="report-data-notice" role="status">${BACKUPS_UNREADABLE_NOTICE}</p>` : '';
-  return `<nav class="report-nav" aria-label="集計内メニュー"><div class="report-nav-links">${items}</div>${unreadable}<details class="report-data-tools"><summary>保存データ管理</summary><div class="report-data-actions"><button type="button" onclick="restoreBackup()"><span>♻️ 復元</span><small>保存した日を選んで戻す</small></button><button type="button" onclick="showRecoveryModal()"><span>🔧 データ復旧</span><small>消えた日・空の日を戻す</small></button><button type="button" onclick="showNewDayModal()"><span>＋ 新しい営業日</span><small>過去の日付の営業日を追加</small></button></div></details></nav>`;
+  // 初めての人にも分かるよう、やりたいことの名前で常に見せる（2026-11-05 オーナー「初見じゃわかんない」）。
+  // 営業中のリストを過去の日で置き換える「読み込み」と削除は、設定 → データ・システムへ移した。
+  return `<nav class="report-nav" aria-label="集計内メニュー"><div class="report-nav-links">${items}</div>${unreadable}<div class="report-data-tools"><div class="report-data-actions"><button type="button" onclick="showNewDayModal()"><span>＋ 過去の日を入力する</span><small>入れ忘れた日・紙のリストを後から入れる</small></button><button type="button" onclick="showRecoveryModal()"><span>🔧 消えた日を戻す</span><small>リストが消えた・0人になった日を元に戻す（データ復旧）</small></button></div></div></nav>`;
 }
 function _reportNavActivate(link, event) {
   event?.preventDefault();
@@ -25121,7 +25460,7 @@ function _reportReadonlyListHtml(src) {
   const live = src?.dayKey === liveKey && !closedToday;
   const snap = !live && (typeof loadBackups === 'function') ? loadBackups().find(s => s.dayKey === src?.dayKey) : null;
   if (!rows.length) {
-    const action = live ? '<button type="button" class="btn" onclick="showTab(\'list\')">営業中のリストを開く</button>' : (snap ? `<button type="button" class="btn" onclick="openReportListEditor('${_reportReadonlyText(src.dayKey)}')">この日のリストを編集</button>` : '<span class="report-list-mode">保存データ管理から新しい営業日を作成してください</span>');
+    const action = live ? '<button type="button" class="btn" onclick="showTab(\'list\')">営業中のリストを開く</button>' : (snap ? `<button type="button" class="btn" onclick="openReportListEditor('${_reportReadonlyText(src.dayKey)}')">この日のリストを編集</button>` : '<span class="report-list-mode">左の「＋ 過去の日を入力する」から作成してください</span>');
     return `<section id="report-day-list" class="agg-box report-day-list"><div class="agg-box-head"><h3>その日のリスト</h3>${action}</div><p class="report-list-empty">この営業日のリストはありません</p></section>`;
   }
   const rotTotal = Math.max(Number(src.rotCols)||0, ...rows.map(r => Array.isArray(r.rotations) ? r.rotations.length : 0), ...rows.map(r => Array.isArray(r.rotations2) ? r.rotations2.length : 0), 0);
@@ -25166,7 +25505,7 @@ function _reportReadonlyListHtml(src) {
   }).join('');
   const action = live
     ? '<button type="button" class="btn" onclick="showTab(\'list\')">営業中のリストを開く</button>'
-    : (snap ? `<button type="button" class="btn" onclick="openReportListEditor('${_reportReadonlyText(src.dayKey)}')">この日のリストを編集</button>` : '<span class="report-list-mode">保存データ管理から新しい営業日を作成してください</span>');
+    : (snap ? `<button type="button" class="btn" onclick="openReportListEditor('${_reportReadonlyText(src.dayKey)}')">この日のリストを編集</button>` : '<span class="report-list-mode">左の「＋ 過去の日を入力する」から作成してください</span>');
   const closedNote = !live && snap && _reportClosedTodaySnap()?.dayKey === src.dayKey ? '<p class="report-list-mode">リストを変更しても日次締めの確定値は自動更新されません</p>' : '';
   return `<section id="report-day-list" class="agg-box report-day-list"><div class="agg-box-head"><h3>その日のリスト</h3><span class="report-list-mode">読み取り専用</span>${action}</div>${closedNote}<div class="report-list-scroll"><table class="report-list-table"><thead>${groupHead}${headRow}</thead><tbody>${body}</tbody></table></div></section>`;
 }
@@ -25265,7 +25604,7 @@ async function posReportRestore(gid) {
     return;
   }
   pushUndo();
-  state.rows.filter(r => r.gid === gid).forEach(r => { r.settled = false; r.settledAt = 0; });
+  state.rows.filter(r => r.gid === gid).forEach(r => { r.settled = false; r.settledAt = 0; delete r.settledPricingId; });
   // 精算が書いた金額を精算前へ戻す（延長の案内が精算時の金額で止まらないように。31 posRestorePreSettle）
   if (typeof posRestorePreSettle === 'function') posRestorePreSettle(row);
   saveState();
@@ -25746,12 +26085,15 @@ function dailyCloseSetListValue(field, index, prop, value) {
 }
 
 /* 指定営業日キーで日次締めを凍結する（自動締め用）。既に凍結済みなら false を返す。
-   ライブの state.rows / タイムテーブルから計算するため、リセット（resetDayCore）前に呼ぶこと。 */
-function dailyCloseLockForKey(dayKey) {
+   ライブの state.rows / タイムテーブルから計算するため、リセット（resetDayCore）前に呼ぶこと。
+   fromSnap を渡した時は、その控え（過去の営業日の保存データ）から計算する（再集計 dailyCloseReaggregateMonth と同じ読み方）。 */
+function dailyCloseLockForKey(dayKey, fromSnap) {
   const store = loadDailyClose();
   const rec = _dailyCloseNormalizeRecord(store[dayKey]);
   if (_dailyCloseNormalizeFrozen(rec.frozen).closedAt > 0) return false;
-  const src = { dayKey, rows: state.rows || [], tt: (typeof loadTimetableState === 'function') ? loadTimetableState() : {}, activeCasts: state.activeCasts || [] };
+  const src = fromSnap
+    ? { dayKey, rows: Array.isArray(fromSnap.rows) ? fromSnap.rows : [], tt: fromSnap.timetableSnap || {}, activeCasts: Array.isArray(fromSnap.activeCasts) ? fromSnap.activeCasts : [] }
+    : { dayKey, rows: state.rows || [], tt: (typeof loadTimetableState === 'function') ? loadTimetableState() : {}, activeCasts: state.activeCasts || [] };
   const settled = (src.rows || []).filter(r => r.isFirst && r.settled);
   const agg = computeReportAgg(settled);
   const payrollRows = computePayrollTable(settled, { dayKey, tt: src.tt, activeCasts: src.activeCasts });
@@ -25814,17 +26156,101 @@ function dailyCloseToggleLock() {
   }
 }
 
+/* 設定から読み込んだ過去の日を手で営業終了した後、読み込む前の営業中の日へ戻す（2026-11-05）。
+   手動の営業終了は出勤キャスト・出退勤を消さない作り（同じ夜に開き直すため）なので、戻さないと読み込んだ日の出勤のまま「今日」が続く。
+   そのまま伝票を入れると、読み込む前に一覧へ保存した今日の分を上書きし、境い目の自動締めは読み込んだ日の出勤で今日を締めていた。
+   読み込みは名簿（allCasts）も読み込んだ日の物に置き換えるので、名簿も読み込む前の日の物に戻す（2026-11-05 監査）。
+   resetDayCore の後に呼ぶ（行は空・読み込みの印は外れている）。loadedOn: 読み込んだ時の営業日。
+   戻り値の kind: 'list'＝今日のリスト・名簿・出勤を戻した／'attendance'＝今日は営業終了済みなので名簿と出勤だけ戻した（リストは空のまま）／
+           'nocopy'＝一覧に今日の分が無いので出勤を空にした／'newday'＝読み込んでいる間に営業日が変わっていたので、出勤を空にして今日を始めた
+   prevLocked: 'newday' で、読み込む前の日をここで締めた時 true */
+function _backToLiveDayAfterLoadedClose(loadedOn) {
+  const today = getBizDayKey();
+  const copy = value => JSON.parse(JSON.stringify(value));
+  const restoreRoster = snap => { if (Array.isArray(snap && snap.allCasts)) state.allCasts = copy(snap.allCasts); };
+  if (loadedOn === today) {
+    if (!dailyCloseIsLockedForKey(today)) {
+      const snap = loadBackups().find(b => b && b.dayKey === today);
+      if (snap) {
+        try {
+          applySnapshot(copy(snap));
+        } finally {
+          // 今日の行なので、ふだんの営業中と同じ扱いにする。描画の途中で止まっても［復元中］の印を残さず、今日の行を今日として保存する
+          state._restoredFromKey = null; state._loadedPastOn = null;
+          saveState();
+        }
+        return { kind: 'list' };
+      }
+    } else {
+      // 今日は読み込む前に営業終了していた（リストは空のまま）。締めた時の控えから名簿と出勤だけ戻す
+      const { snap } = pickClosedDaySnap(today);
+      if (snap) {
+        restoreRoster(snap);
+        state.activeCasts = Array.isArray(snap.activeCasts) ? copy(snap.activeCasts) : [];
+        saveTimetableState(snap.timetableSnap ? copy(snap.timetableSnap) : { clockIns: {}, checkouts: {}, douban: [], touketsu: [], plannedClockIns: {}, chikokuMins: {} });
+        saveState();
+        renderCastPanel(); renderTimetable();
+        return { kind: 'attendance' };
+      }
+    }
+    clearAttendanceForNewBizDay();
+    renderCastPanel(); renderTimetable();
+    return { kind: 'nocopy' };
+  }
+  // 読み込んでいる間に営業日が変わっていた（境い目の自動締めが保存できず見送った時など）。
+  // 読み込む前の日は、一覧に保存してある分で締める（境い目の自動締めと同じ。営業終了済みなら何もしない）。名簿はその日の物に戻す
+  const prev = loadBackups().find(b => b && b.dayKey === loadedOn);
+  let prevLocked = false;
+  if (prev) {
+    try { prevLocked = dailyCloseLockForKey(loadedOn, prev) === true; } catch (_) {}
+    restoreRoster(prev);
+  }
+  clearAttendanceForNewBizDay();
+  renderCastPanel(); renderTimetable();
+  return { kind: 'newday', prevLocked };
+}
+
 async function reportEndBusinessDay() {
   const src = _reportDaySource();
   if (src.dayKey !== getLoadedDayKey()) {
     showToast('過去の営業日は締められません');
     return;
   }
-  // 過去の営業日が読めない間は「過去のリストから復元」できないので、今日の分の行き先を正しく言う（2026-11-02 シナリオ判定）
+  const closeKey = getLoadedDayKey();
+  // 設定から過去の日を読み込んでいる最中なら、締めたあと読み込む前の日へ戻す（_backToLiveDayAfterLoadedClose）
+  const loadedOn = (state._loadedPastOn && state._loadedPastOn !== closeKey) ? state._loadedPastOn : null;
+  const today = getBizDayKey();
+  // 年が今日と違う日は年も付ける（1年前の同じ月日を読み込むと「11月5日を閉じて今日（11月5日）に戻す」になるため）
+  const md = key => (key.slice(0, 4) !== today.slice(0, 4) ? key.slice(0, 4) + '年' : '') + Number(key.slice(4, 6)) + '月' + Number(key.slice(6, 8)) + '日';
+  const dayWord = loadedOn ? md(closeKey) + 'の分' : '今日の分';
+  // 過去の営業日が読めない間は集計から見られないので、今日の分の行き先を正しく言う（2026-11-02 シナリオ判定）。
+  // 読める時の文は、もう無い「過去のリスト」を指していたので、実際の見方に直した（2026-11-05）
   const whereKept = (typeof backupsUnreadable === 'function' && backupsUnreadable())
-    ? '（今日の分は「消えた営業日の控え」に保存されます）'
-    : '（データは過去のリストから復元できます）';
-  if (!(await appConfirm('営業を終了しますか？\n・日次締めをロックします（未ロックの場合）\n・本日のリスト表を空にします\n' + whereKept, { danger: true }))) return;
+    ? `（${dayWord}は「消えた営業日の控え」に保存されます）`
+    : `（${dayWord}は保存され、集計で日付を選ぶと見られます）`;
+  // 確認の文は、閉じたあと実際にどうなるか（_backToLiveDayAfterLoadedClose の分かれ方）に合わせる
+  const inList = key => loadedOn ? loadBackups().some(b => b && b.dayKey === key) : false;
+  const backLine = !loadedOn ? ''
+    : loadedOn !== today
+      ? `・${md(closeKey)}の分を閉じて、今日（${md(today)}）を始めます`
+        + (!dailyCloseIsLockedForKey(loadedOn) && inList(loadedOn) ? `（${md(loadedOn)}は一覧に保存してある分で締めます）` : '') + '\n'
+    : dailyCloseIsLockedForKey(today)
+      ? `・${md(closeKey)}の分を閉じて、今日（${md(today)}）の出勤キャストに戻します（今日は営業終了済みなので、リストは空のままです）\n`
+    : inList(today)
+      ? `・${md(closeKey)}の分を閉じて、今日（${md(today)}）のリストと出勤キャストに戻します\n`
+      : `・${md(closeKey)}の分を閉じます（今日の分が見つからないので、出勤キャストは空になります）\n`;
+  const question = loadedOn
+    ? `表示している${md(closeKey)}の営業を終了しますか？\n・${md(closeKey)}の日次締めをロックします（未ロックの場合）\n` + backLine + whereKept
+    : '営業を終了しますか？\n・日次締めをロックします（未ロックの場合）\n・本日のリスト表を空にします\n' + whereKept;
+  if (!(await appConfirm(question, { danger: true }))) return;
+  // 確認を出している間に営業日が変わり、自動締めが先に締めていたら、聞いた日とは違う日を締めてしまう（次の日が0円でロックされる）ので、やめる
+  if (getLoadedDayKey() !== closeKey) {
+    showToast(dailyCloseIsLockedForKey(closeKey)
+      ? `確認の間に${md(closeKey)}は自動で営業終了しました（もう一度押さなくて大丈夫です）`
+      : '確認の間に営業日が変わったので、営業終了はしませんでした', 6000);
+    try { renderReportPanel(); } catch (_) {}
+    return;
+  }
   const rec = _dailyCloseCurrentRecord();
   const lockedBefore = _dailyCloseNormalizeFrozen(rec.frozen).closedAt > 0;
   if (!lockedBefore) dailyCloseLockNow();   // 日次締めは別のファイルなので、先にロックする
@@ -25840,10 +26266,26 @@ async function reportEndBusinessDay() {
     return;
   }
   resetDayCore();
+  if (!loadedOn) {
+    renderReportPanel();
+    showToast(saved === 'recovery'
+      ? '🔚 営業を終了しました（今日の分は『消えた営業日の控え』に保存しました）'
+      : '🔚 営業を終了しました（日次締めロック済み）');
+    return;
+  }
+  let back = {};
+  try { back = _backToLiveDayAfterLoadedClose(loadedOn) || {}; } catch (_) {}
+  // ↩ で営業終了を戻すと、読み込んだ日の行が今日の出勤と組になって戻る。読み込みの時と同じく履歴を空にする
+  try { undoStack.length = 0; undoLabels.length = 0; redoStack.length = 0; redoLabels.length = 0; refreshHistoryBtns(); } catch (_) {}
   renderReportPanel();
-  showToast(saved === 'recovery'
-    ? '🔚 営業を終了しました（今日の分は『消えた営業日の控え』に保存しました）'
-    : '🔚 営業を終了しました（日次締めロック済み）');
+  try { updateClock(); } catch (_) {}   // 見出しの営業日（［復元中］）は毎秒の時計で描くので、待たずに今日へ描き直す
+  // 知らせは1行で出るので短くし、読み切れるよう長めに出す
+  const kept = saved === 'recovery' ? `（${md(closeKey)}の分は『消えた営業日の控え』へ）` : '';
+  showToast(back.kind === 'list' ? `🔚 ${md(closeKey)}の営業を終了し、今日（${md(today)}）のリストに戻しました${kept}`
+    : back.kind === 'attendance' ? `🔚 ${md(closeKey)}の営業を終了し、今日（${md(today)}）の出勤キャストに戻しました${kept}`
+    : back.kind === 'nocopy' ? `🔚 ${md(closeKey)}の営業を終了しました。今日の分が見つからず、出勤キャストは空にしました${kept}`
+    : back.kind === 'newday' ? `🔚 ${md(closeKey)}の営業を終了し、今日を始めました（${back.prevLocked ? md(loadedOn) + 'は一覧の分で締めました・' : ''}出勤キャストもリセット）${kept}`
+    : `🔚 ${md(closeKey)}の営業を終了しました${kept}`, 6000);
 }
 
 async function reportReopenBusinessDay() {
@@ -27433,7 +27875,8 @@ function _posOeExtLines(row) {
   });
   return out;
 }
-function _posOeRowsHtml(orders, seatSet, row) {
+function _posOeRowsHtml(orders, seatSet, row) { return withSlipPricing(row, () => _posOeRowsHtmlCore(orders, seatSet, row)); }   // 精算済みで写しを持つ伝票は精算時の設定で計算（15）
+function _posOeRowsHtmlCore(orders, seatSet, row) {
   const extLines = row ? _posOeExtLines(row) : [];
   const orderPricing = row ? posOrderPricing(row, 0) : { subtotal:0, cash:0 };
   let html = '';
@@ -28097,7 +28540,8 @@ function _receiptSectionSumTr(label, amount) {
   return '<tr class="r-sec-sum"><td>' + escHtml(label) + '</td><td class="q"></td><td class="a">' + (Number(amount) || 0).toLocaleString() + '</td></tr>';
 }
 
-function _receiptDetailRows(row, minRows, showSetTime = true) {
+function _receiptDetailRows(row, minRows, showSetTime) { return withSlipPricing(row, () => _receiptDetailRowsCore(row, minRows, showSetTime)); }   // 精算済みで写しを持つ伝票は精算時の設定で計算（15）
+function _receiptDetailRowsCore(row, minRows, showSetTime = true) {
   const orders = posOrders(row);
   const orderPricing = posOrderPricing(row, 0);
   const itemRows = [];
@@ -28161,7 +28605,8 @@ function _receiptDetailRows(row, minRows, showSetTime = true) {
   return itemRows.join('');
 }
 
-function _receiptCategoryRows(row) {
+function _receiptCategoryRows(row) { return withSlipPricing(row, () => _receiptCategoryRowsCore(row)); }   // 精算済みで写しを持つ伝票は精算時の設定で計算（15）
+function _receiptCategoryRowsCore(row) {
   const orderPricing = posOrderPricing(row, 0);
   // 種類別の行（セット・指名料・延長・延長指名料・ドリンク・その他）を、与えた注文と席の明細から作る
   const groupRows = (orderList, seatItems) => {
@@ -28231,7 +28676,8 @@ function _receiptItemsHtml(row, block) {
 
 /* 会計伝票の合計欄の行。pay=true はお客様が払う金額（現金・カード・売掛）、それ以外は内訳（合計・税サ）。
    印刷と、お客様に見せる画面の両方がこの行を使う（金額の出し方を1か所にする）。 */
-function _receiptTotalsRows(row, block) {
+function _receiptTotalsRows(row, block) { return withSlipPricing(row, () => _receiptTotalsRowsCore(row, block)); }   // 精算済みで写しを持つ伝票は精算時の設定で計算（15）
+function _receiptTotalsRowsCore(row, block) {
   if (!block.showSubtotal && !block.showTax) return [];
   const b = _posCalcTotal(row);
   const tax = b.cash - b.subtotal;
@@ -28280,7 +28726,8 @@ function _commonPrintBlockHtml(block) {
   return '';
 }
 
-function _receiptDocBodyHtml(row, blocks) {
+function _receiptDocBodyHtml(row, blocks) { return withSlipPricing(row, () => _receiptDocBodyHtmlCore(row, blocks)); }   // 精算済みで写しを持つ伝票は精算時の設定で計算（15）
+function _receiptDocBodyHtmlCore(row, blocks) {
   const normalized = (Array.isArray(blocks) ? blocks : _receiptBlocks()).map(_receiptNormalizeBlock).filter(Boolean);
   let html = '';
   for (let i = 0; i < normalized.length; i++) {
@@ -28308,7 +28755,8 @@ function _receiptDocBodyHtml(row, blocks) {
 }
 
 /* 延長の案内の金額（比較なし）。印刷と、お客様に見せる画面の両方がこれを使う。 */
-function _extTrialModel(row, block) {
+function _extTrialModel(row, block) { return withSlipPricing(row, () => _extTrialModelCore(row, block)); }   // 精算済みで写しを持つ伝票は精算時の設定で計算（15）
+function _extTrialModelCore(row, block) {
   const b = _posCalcTotal(row);
   const cardFeePct = cfg.cardFeeRate || 0;
   const cardFeeRound = cfg.cardFeeRound || 100;
@@ -28707,11 +29155,15 @@ async function posAddItem(name, amount, category, spShares) {
   // calcBill・_posSeatLineItems・リスト表・endMin が計上するため、オーダー明細も足すと
   // 延長料が二重計上（伝票に延長が2行・金額も倍）になる。延長は下の extensions 反映のみ行う。
   if (category !== 'extension') {
+    // 手入力の延指は、保存済みの追加項目どおりに数える指定を刻印する（自動追加は対象外。2026-11-06 オーナー決定）。
+    const countAs = /^enshi/.test(category || '') && !opts?.extAutoToken && !opts?.noDesignation
+      && typeof extMappingCountAs === 'function' ? extMappingCountAs(first, category, cast, amt) : null;
     // 同じ明細（カテゴリ・名称・単価が一致）は数量をまとめる（SETは別経路のため対象外）。
     // defer（空場内の刻印額）も一致条件に含める＝jonaiFee変更を挟んで押した空場内は別行へ分ける。
     const existing = category !== 'set' && orders.find(o =>
       o.category === category && o.name === name && (Number(o.amount) || 0) === amt &&
       (o.extAutoToken || '') === (opts?.extAutoToken || '') &&
+      JSON.stringify(o.countAs || null) === JSON.stringify(countAs || null) &&
       (Number(o.back) || 0) === backYen &&
       Object.prototype.hasOwnProperty.call(o, 'backFree') === (backFreeYen !== undefined) &&
       (backFreeYen === undefined || (Number(o.backFree) || 0) === backFreeYen) &&
@@ -28732,6 +29184,7 @@ async function posAddItem(name, amount, category, spShares) {
     } else {
       const order = { id: 'po_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7), name, amount: amt, qty:1, category, createdAt: vipMv && !newAfter ? Number(vipMv.at) - 1 : Date.now() };
       if (opts?.extAutoToken) order.extAutoToken = opts.extAutoToken;
+      if (countAs) order.countAs = countAs;
       if (spShares) order.spShares = { ...spShares };
       if (backYen > 0) order.back = backYen;
       if (backFreeYen !== undefined) order.backFree = backFreeYen;
@@ -29436,7 +29889,8 @@ function _customerSlipItemRows(row) {
   return block.mode === 'category' ? _receiptCategoryRows(row) : _receiptDetailRows(row, 0, block.showSetTime);
 }
 
-function customerSlipHtml(row, totalOnly) {
+function customerSlipHtml(row, totalOnly) { return withSlipPricing(row, () => customerSlipHtmlCore(row, totalOnly)); }   // 精算済みで写しを持つ伝票は精算時の設定で計算（15）
+function customerSlipHtmlCore(row, totalOnly) {
   const blocks = _receiptBlocks();
   const defaults = _receiptNormalizeBlock({ type: 'totals' });
   // 合計欄を伝票から外している店でも、見せる画面には払う金額を必ず出す
@@ -30175,6 +30629,7 @@ async function pastSettle(id) {
   if (!r) return;
   // amountMethodに応じた実売上で0円判定
   if (rowSales(r) <= 0 && !(await appConfirm('金額が0円ですが精算しますか？'))) return;
+  if (typeof slipPricingStamp === 'function') slipPricingStamp(r, pastState.rows);   // 精算した時の設定の写しを先頭行へ残す（15）
   r.settled = true;
   r.settledAt = r.settledAt || Date.now();
   renderPastTable();
@@ -30189,6 +30644,7 @@ function pastCancelSettle(id) {
   }
   r.settled = false;
   r.settledAt = 0;
+  if (typeof slipPricingClear === 'function') slipPricingClear(r, pastState.rows);
   if (typeof posRestorePreSettle === 'function') posRestorePreSettle(pastState.rows.find(x => x.gid === r.gid && x.isFirst) || r);
   renderPastTable();
 }
@@ -30421,16 +30877,18 @@ function showNewDayModal() {
   if (backupsUnreadable()) { notifyBackupsUnreadable(); return; }   // 過去の営業日が読めない間は、足しても保存できない
   const old = document.getElementById('new-day-modal');
   if (old) old.remove();
-  const today = new Date();
-  if (today.getHours() < getBizDayBoundaryHour()) today.setDate(today.getDate() - 1);
-  const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+  // 「過去の日」なので、前の営業日を初期値と上限にする（今日の分は営業中のリストで入れる。2026-11-05）
+  const day = new Date();
+  if (day.getHours() < getBizDayBoundaryHour()) day.setDate(day.getDate() - 1);
+  day.setDate(day.getDate() - 1);
+  const lastStr = `${day.getFullYear()}-${String(day.getMonth()+1).padStart(2,'0')}-${String(day.getDate()).padStart(2,'0')}`;
   const modal = document.createElement('div');
   modal.id = 'new-day-modal';
   modal.innerHTML = `
     <div class="new-day-box">
-      <h3>📅 新しい営業日を追加</h3>
+      <h3>📅 過去の日を入力する</h3>
       <label>営業日（紙のリスト表の日付）</label>
-      <input type="date" id="new-day-date" value="${todayStr}">
+      <input type="date" id="new-day-date" value="${lastStr}" max="${lastStr}">
       <div class="modal-btns">
         <button class="btn" onclick="document.getElementById('new-day-modal').remove()">キャンセル</button>
         <button class="btn primary" onclick="createNewPastDay()">作成</button>
@@ -31711,34 +32169,34 @@ function renderSettingsPanel() {
     <div class="settings-section" data-setcat="cast">
       <div class="settings-section-header"><span class="settings-section-title">🕐 出勤・退勤の時刻</span></div>
       <div class="settings-section-body">
-        <div class="settings-sub" style="margin-bottom:8px">出勤キャストで選ぶ出勤・退勤時刻の選択肢です。給与の丸め（何分単位で数えるか）は「💴 給与計算ルール」で決めます。</div>
+        <div class="settings-sub" style="margin-bottom:8px">出勤キャストと日計表で選ぶ出勤・退勤時刻の選択肢です。給与の丸め（何分単位で数えるか）は「💴 給与計算ルール」で決めます。</div>
         <div class="settings-row">
           <div class="settings-label">出勤時刻・受付開始<div class="settings-sub">セレクトの一番上の時刻</div></div>
           <input type="number" class="settings-input" id="cfg-clockInFromH" value="${Math.floor((cfg.clockInFrom??1200)/60)}" min="16" max="26" style="width:52px"> 時
-          <input type="number" class="settings-input" id="cfg-clockInFromM" value="${(cfg.clockInFrom??1200)%60}" min="0" max="59" step="30" style="width:52px"> 分
+          <input type="number" class="settings-input" id="cfg-clockInFromM" value="${(cfg.clockInFrom??1200)%60}" min="0" max="59" step="15" style="width:52px"> 分
         </div>
         <div class="settings-row">
           <div class="settings-label">出勤時刻・受付終了<div class="settings-sub">セレクトの一番下の時刻</div></div>
           <input type="number" class="settings-input" id="cfg-clockInToH" value="${Math.floor((cfg.clockInTo??1410)/60)}" min="16" max="26" style="width:52px"> 時
-          <input type="number" class="settings-input" id="cfg-clockInToM" value="${(cfg.clockInTo??1410)%60}" min="0" max="59" step="30" style="width:52px"> 分
+          <input type="number" class="settings-input" id="cfg-clockInToM" value="${(cfg.clockInTo??1410)%60}" min="0" max="59" step="15" style="width:52px"> 分
         </div>
         <div class="settings-row">
-          <div class="settings-label">出勤時刻の刻み<div class="settings-sub">セレクトボックスの間隔（分）</div></div>
-          <input type="number" class="settings-input" id="cfg-clockInStep" value="${cfg.clockInStep ?? 30}" min="5" max="60" step="5"> 分刻み
+          <div class="settings-label">出勤時刻の刻み<div class="settings-sub">出勤時刻を選ぶ間隔（15分か30分）</div></div>
+          ${_clockStepSelectHtml('cfg-clockInStep', cfg.clockInStep)} 分刻み
         </div>
         <div class="settings-row">
           <div class="settings-label">退勤時刻・受付開始<div class="settings-sub">セレクトの一番上の時刻</div></div>
           <input type="number" class="settings-input" id="cfg-clockOutFromH" value="${Math.floor((cfg.clockOutFrom??1320)/60)}" min="16" max="29" style="width:52px"> 時
-          <input type="number" class="settings-input" id="cfg-clockOutFromM" value="${(cfg.clockOutFrom??1320)%60}" min="0" max="59" step="30" style="width:52px"> 分
+          <input type="number" class="settings-input" id="cfg-clockOutFromM" value="${(cfg.clockOutFrom??1320)%60}" min="0" max="59" step="15" style="width:52px"> 分
         </div>
         <div class="settings-row">
           <div class="settings-label">退勤時刻・受付終了<div class="settings-sub">セレクトの一番下の時刻</div></div>
           <input type="number" class="settings-input" id="cfg-clockOutToH" value="${Math.floor((cfg.clockOutTo??1800)/60)}" min="16" max="30" style="width:52px"> 時
-          <input type="number" class="settings-input" id="cfg-clockOutToM" value="${(cfg.clockOutTo??1800)%60}" min="0" max="59" step="30" style="width:52px"> 分
+          <input type="number" class="settings-input" id="cfg-clockOutToM" value="${(cfg.clockOutTo??1800)%60}" min="0" max="59" step="15" style="width:52px"> 分
         </div>
         <div class="settings-row">
-          <div class="settings-label">退勤時刻の刻み<div class="settings-sub">セレクトボックスの間隔（分）</div></div>
-          <input type="number" class="settings-input" id="cfg-clockOutStep" value="${cfg.clockOutStep ?? 30}" min="5" max="60" step="5"> 分刻み
+          <div class="settings-label">退勤時刻の刻み<div class="settings-sub">退勤時刻を選ぶ間隔（15分か30分）</div></div>
+          ${_clockStepSelectHtml('cfg-clockOutStep', cfg.clockOutStep)} 分刻み
         </div>
       </div>
     </div>
@@ -31890,6 +32348,10 @@ function renderSettingsPanel() {
             <button type="button" class="btn" onclick="exportAllData()">📤 書き出し</button>
             <button type="button" class="btn" onclick="openImportDialog()">📥 読み込み</button>
           </div>
+        </div>
+        <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:8px">
+          <div class="settings-label">📅 過去の日を営業中のリストに読み込む<div class="settings-sub">保存されている営業日の一覧を開きます。選んだ日を読み込むと、いま営業中のリストと出勤キャスト・出退勤の記録が、その日のものに置き換わります（↩ では戻せません）。過去の日を見るだけなら、ここではなく集計の右上で営業日を選んでください。一覧からは保存された日の削除もできます。</div></div>
+          <div><button type="button" class="btn" onclick="restoreBackup()">一覧を開く</button></div>
         </div>
         <div class="settings-row" style="align-items:flex-start;flex-direction:column;gap:8px">
           <div class="settings-label">☁ クラウドの控えから戻す<div class="settings-sub">端末を入れ替えたときに使います。運営者から受け取った登録コードを入れると、店の設定・メニュー・料金・キャスト名簿（時給・バック）・顧客が戻ります。今日のリスト・過去の営業日は戻りません。</div></div>
@@ -32164,6 +32626,17 @@ async function usbSettingsActivate() {
   } catch (e) {
     console.error('[settings] USB activate failed:', e);
   }
+}
+
+/* 出勤・退勤時刻の刻みの選択（2026-11-04 chuchu の要望「15分刻みで入力したい」、オーナー「15分30分選べるようにしたらいいね」）。
+   前は 5〜60分の数字の入力だった。15・30 以外が入っている店は、その値を「今の設定」として残して選べるようにする（保存し直しても変えない） */
+const CLOCK_STEP_CHOICES = [15, 30];
+function _clockStepSelectHtml(id, current) {
+  const cur = Number(current) || 30;
+  const keep = CLOCK_STEP_CHOICES.includes(cur) ? '' : `<option value="${cur}" selected>${cur}（今の設定）</option>`;
+  return `<select class="settings-input" id="${id}">${keep}`
+    + CLOCK_STEP_CHOICES.map(m => `<option value="${m}"${m === cur ? ' selected' : ''}>${m}</option>`).join('')
+    + `</select>`;
 }
 
 /* アプリ更新欄の「配信端末」表示（2026-10-29）。配信端末 = file: 以外で開いた画面（SelfUpdate._isServed）。
@@ -36156,9 +36629,14 @@ function reloadAfterImport() {
   if (_autoCloseRetryAt > 0 && state._restoredFromKey === _lastBizDayKey) state._restoredFromKey = null;
   _lastBizDayKey = null;
   _autoCloseRetryAt = 0;
+  // 設定から過去の日を読み込んでいる最中の印は、読み込んだ時の営業日（_loadedPastOn）と組で残す。
+  // loadState は読み込んだファイルの値で付け直すので、ファイルに無いと片方だけ消え、開き直した時に読み込んだ日を締め忘れとして締める（2026-11-05 監査）
+  const keepLoadedOn = state._restoredFromKey ? (state._loadedPastOn || null) : null;
+  if (typeof slipPricingReload === 'function') slipPricingReload();   // 精算時の料金設定の控えも入れ替わったので読み直す（15）
   loadCfg();
   migrateDailyClosePreset();
   loadState();
+  if (state._restoredFromKey && !state._loadedPastOn && keepLoadedOn) state._loadedPastOn = keepLoadedOn;
   migrateShimeiExtModel();
   ensureShopId();
   writeStorageMeta();
@@ -36543,6 +37021,7 @@ async function __boot() {
   loadCfg();
   migrateDailyClosePreset();   // 設定の読込直後・店舗IDの保存より前（先に保存すると標準が書かれてしまう）
   loadState();
+  _bootStateLoaded = true;     // ここから時計の自動出勤・自動締めを動かす（05-clock.js）
   migrateShimeiExtModel();
   try { repairShotStoreSpBacks(); } catch (e) { console.error('[init] shot SP repair failed:', e); }
   // 店舗IDの保存は設定の移し替えの後。先に保存すると、移し替え前の既定料金が入った設定が残りうる（2026-10-02 Fableレビュー）
@@ -39307,7 +39786,7 @@ function _receiptOpenWindow(data, template = _ryoshuOpts().template) {
    NIGHTLIST_SHUKEI_EDITION — NightList-mini（集計版。2026-10-31）
    POS とリスト表を使えなくして、伝票の金額（お店のレジの伝票）から
    日計表・控除票・日次締め・給与明細を出す版。画面に出す名前は「NightList-mini」（2026-11-01 オーナー決定）。
-   仕様: .company/dev/specs/2026-10-31-nightlistdx-集計版.md ／ 自動更新: 2026-11-01-nightlistdx-集計版の更新.md ／ 指名が何人でも: 2026-11-01-nightlistdx-mini-複数指名.md ／ バックを全部入れる: 2026-11-01-nightlistdx-mini-伝票でバックを全部入れる.md ／ シャンパンをメニューから選ぶ: 2026-11-02-nightlistdx-mini-シャンパンをメニューから選ぶ.md
+   仕様: .company/dev/specs/2026-10-31-nightlistdx-集計版.md ／ 自動更新: 2026-11-01-nightlistdx-集計版の更新.md ／ 指名が何人でも: 2026-11-01-nightlistdx-mini-複数指名.md ／ バックを全部入れる: 2026-11-01-nightlistdx-mini-伝票でバックを全部入れる.md ／ シャンパンをメニューから選ぶ: 2026-11-02-nightlistdx-mini-シャンパンをメニューから選ぶ.md ／ 前の日の伝票を入れる: 2026-11-03-nightlistdx-mini-前の日の伝票を入れる.md
 
    node build.mjs --shukei のときだけ、通常版の部品がすべて並んだ後ろ（49-receipt-print.js の直後）に差し込まれる。
    通常版・DEV・デモの出力には入らない。通常版の関数は書き換えず、ここで包む・差し替える。
@@ -39424,6 +39903,14 @@ const SHUKEI_CSS = `
 .shukei-manual{color:#e5a84b;font-size:10px;margin-left:4px}
 .shukei-row-actions{display:flex;gap:6px;justify-content:flex-end}
 .shukei-empty{text-align:center;color:var(--tx3);padding:22px}
+/* 「📅 過去の日を入力する」の画面（モーダル） */
+.shukei-past-title{font-size:17px;font-weight:700;color:var(--tx);margin-bottom:14px}
+.shukei-past-casts{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:6px;max-height:34vh;overflow-y:auto}
+.shukei-past-cast{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--bdr2);border-radius:6px;background:var(--sur);color:var(--tx);font-size:14px;cursor:pointer;min-width:0}
+.shukei-past-cast input{width:18px;height:18px;flex:0 0 auto}
+.shukei-past-cast span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.shukei-past-cast:has(input:disabled){cursor:default;opacity:.85}
+.shukei-past-tag{margin-left:auto;flex:0 0 auto;font-size:11px;color:var(--tx3);white-space:nowrap}
 `;
 
 /* ----------------------------------------------------------------
@@ -39511,46 +39998,9 @@ redo = function () {
 
 /* ----------------------------------------------------------------
    1b. 営業終了を忘れて翌日に開いたとき
-   集計版の伝票はいつも精算済みなので、通常版の締め忘れの確認（未精算のお客様が残っているときだけ出る）は出ない。
-   そのままだと前日の伝票が「今日」として残り、自動保存が今日のバックアップへ写して二重に数えてしまう。
-   集計版では、前の営業日の行が1行でも残っていれば、選ばせずに必ず締める（通常版の締め忘れの確認の「はい」と同じ順）:
-   日次締めをロック → 前の営業日のバックアップ → 今日を空にする → 出勤キャストをリセット。そのあと知らせを1つ出す。
-   開いた直後に前の営業日のバックアップを先に作り、締めるまでの間は残った行を前の営業日のものとして扱う（自動保存が今日のキーへ書かない）。
-   締めるのは起動の続きが終わったあと（通常版の確認と同じ300ms後）。設定の読み込みなどが済んでから日次締めの値を作るため。
-   未精算の行が残っている場合は、通常版の確認にそのまま任せる
+   v1.1.118 から通常版の checkStaleBizDay が、前の営業日の行が残っていれば確認なしで前の営業日として締める（この版で差し替えていたのと同じ順）。
+   読み込んだ過去の日の知らせ・保存できない時の知らせ・未精算の件数も通常版にあるので、この版では差し替えずに通常版を使う（2026-11-06）
 ---------------------------------------------------------------- */
-const _shukeiCheckStaleBizDay = checkStaleBizDay;
-checkStaleBizDay = function (savedKey) {
-  const stale = !_staleBizDayChecked && !state._restoredFromKey && !!savedKey && savedKey !== getBizDayKey()
-    && Array.isArray(state.rows) && state.rows.length > 0 && !state.rows.some(row => row.isFirst && !row.settled);
-  if (!stale) return _shukeiCheckStaleBizDay.apply(this, arguments);
-  _staleBizDayChecked = true;
-  state._restoredFromKey = savedKey;   // 締めるまでの間に自動保存が走っても、前の営業日のバックアップへ書く
-  try { saveBackupForKey(savedKey); } catch (_) {}   // 通常版の loadState と同じく、前の営業日の分は先に保存データへ残す（締める前に閉じても失われない）
-  setTimeout(() => {
-    const lockedBefore = dailyCloseIsLockedForKey(savedKey);
-    try { dailyCloseLockForKey(savedKey); } catch (_) {}
-    // 過去の営業日（backups）へ、書けなければ「消えた営業日の控え」へ。どちらにも残せないなら、行を空にせず締めを見送る（行は前の営業日のものとして残る）
-    let saved = false;
-    try { saved = saveDayForClose(savedKey); } catch (_) {}
-    if (!saved) {
-      if (!lockedBefore) { try { dailyCloseUnlockForKey(savedKey); } catch (_) {} }   // この処理で掛けたロックは外す（前から掛かっていた時は残す）
-      return;
-    }
-    resetDayCore();   // 行を空にし、前の営業日のキーの印も外す
-    // 締めの操作は取り消せない（取り消すと前の営業日の行が今日に戻る）。履歴を空にする
-    try { undoStack.length = 0; undoLabels.length = 0; redoStack.length = 0; redoLabels.length = 0; refreshHistoryBtns(); } catch (_) {}
-    try { clearAttendanceForNewBizDay(); renderCastPanel(); renderTimetable(); } catch (_) {}
-    try { renderReportPanel(); } catch (_) {}
-    const day = Number(savedKey.slice(4, 6)) + '月' + Number(savedKey.slice(6, 8)) + '日';
-    try {
-      appAlert('前の営業日（' + day + '）の営業終了が押されていなかったので、締めてから今日を始めました。' + (saved === 'recovery'
-        ? '前の日の伝票は、『消えた営業日の控え』に保存しました。'
-        : '前の日の伝票は、集計で日付を選ぶと見られます。'));
-    } catch (_) {}
-  }, 300);
-  return true;   // loadState は前日のバックアップと出勤のリセットを自分では行わない
-};
 
 /* ----------------------------------------------------------------
    2. 計算の受け口
@@ -39718,6 +40168,8 @@ function _shukeiTrimSettings() {
     } else if (title === 'データ保存先（USB運用）') {
       // 「クラウドの控えから戻す」は、店外モニターを有効にした設定を書き込む（この版では店外モニターを使わない）ので出さない
       _shukeiHideEl(_shukeiRowOf(section.querySelector('#cloud-restore-endpoint')));
+      // 「過去の日を営業中のリストに読み込む」（v1.1.120）も出さない。この版にはリスト表が無く、過去の日は集計で日付を選べばそのまま直せる
+      _shukeiHideEl(_shukeiRowOf(section.querySelector('button[onclick="restoreBackup()"]')));
     } else if (title === 'キャスト管理') {
       _shukeiReword(section.querySelector('.castmgmt-hint'), 'POSで数えた本数', '伝票から数えた本数');
     }
@@ -40115,7 +40567,7 @@ async function _shukeiConfirmLockedDay(dayKey) {
   const st = _shukeiDayState(dayKey);
   if (!st.locked) return true;
   if (_shukeiIsConfirmed(st)) return true;
-  const ok = await appConfirm(_shukeiMonthDay(dayKey) + 'は営業終了で締めた日です。直すと、この日の日計表・日次締めの数字も直した内容に変わります（確定済みの給与明細は変わりません）。直しますか？',
+  const ok = await appConfirm(_shukeiMonthDay(dayKey) + 'は締めた日です。直すと、この日の日計表・日次締めの数字も直した内容に変わります（確定済みの給与明細は変わりません）。直しますか？',
     { danger: true, okLabel: '直す', cancelLabel: 'やめる' });
   if (ok) _shukeiLockedConfirmed.set(dayKey, st.closedAt);
   return !!ok;
@@ -40123,11 +40575,12 @@ async function _shukeiConfirmLockedDay(dayKey) {
 
 /* 締めた日の日次締めの確定値（frozen）を、今のその日の伝票・出退勤・日計表の手入力から作り直す。
    作り方は dailyCloseReaggregateMonth と同じ（手入力欄の出金・社員日払い・営業報告などはそのまま、frozen だけを置き換える）。
-   ただし、締めた時刻（closedAt）はそのまま残す＝ロックしたまま。日計表の手入力（本数・SP・日払い）は state.payrollManual にあり、ここでは触らない */
-function _shukeiRefreezeDay(dayKey) {
+   ただし、締めた時刻（closedAt）はそのまま残す＝ロックしたまま。日計表の手入力（本数・SP・日払い）は state.payrollManual にあり、ここでは触らない。
+   まだ締めていない日（締めた時刻が無い）には、closedAtIfOpen を締めた時刻として入れて締める（前の日を入れるとき。6b） */
+function _shukeiRefreezeDay(dayKey, closedAtIfOpen) {
   const store = loadDailyClose();
   const rec = _dailyCloseNormalizeRecord(store[dayKey]);
-  const closedAt = rec.frozen.closedAt;
+  const closedAt = rec.frozen.closedAt > 0 ? rec.frozen.closedAt : (Number(closedAtIfOpen) || 0);
   const src = _reportDaySource(dayKey);
   const settled = (src.rows || []).filter(row => row.isFirst && row.settled);
   const agg = computeReportAgg(settled);
@@ -40146,7 +40599,7 @@ function _shukeiApply(dayKey, undoLabel, mutator) {
     return false;
   }
   if (st.locked && !_shukeiIsConfirmed(st)) {   // 画面の操作は先に確認を出す。確認なしでは、締めた日を直さない
-    showToast('この日は営業終了で締めた日です。確認してから直してください');
+    showToast('この日は締めた日です。確認してから直してください');
     return false;
   }
   const refreeze = () => {
@@ -40422,9 +40875,13 @@ function _shukeiSlipSectionHtml(src) {
   const others = firsts.length - slips.length;
   let top;
   if (st.editable) {
-    top = (st.locked ? '<p class="shukei-lock">この日は営業終了で締めた日です。直そうとすると確認が出て、直すとこの日の日計表・日次締めの数字も直した内容に変わります（締めたままです。確定済みの給与明細は変わりません）。</p>' : '')
-      + _shukeiFormHtml(_shukeiDraftFor(src.dayKey));
-  } else top = '<p class="shukei-lock">この日のデータがありません。左の「保存データ管理」の「＋ 新しい営業日」で作ってください。</p>';
+    // 今の営業日より前の日を見ているとき: 何の日を入れているか、出勤・退勤と日払いの入れ場所、キャストの足し方を短く案内する
+    const pastNote = src.dayKey < getLoadedDayKey()
+      ? `<p class="shukei-note" id="shukei-past-note">${escHtml(_shukeiDayLabel(src.dayKey))}の伝票を入れています。出勤・退勤と日払いは下の日計表で入れます。出勤したキャストを足すときは「📅 過去の日を入力する」から。</p>`
+      : '';
+    // 締めた日の黄色の注意書きは出さない（入力のテンポを乱すため。2026-11-06 オーナー）。締めた日を直すときは、開き直したあとの最初の1回だけ確認が出る
+    top = pastNote + _shukeiFormHtml(_shukeiDraftFor(src.dayKey));
+  } else top = '<p class="shukei-lock">この日のデータがありません。右上の「📅 過去の日を入力する」で作ってください。</p>';
   const body = slips.map(row => {
     const entry = shukeiNormalizeEntry(row.slipEntry);
     const method = (SHUKEI_METHODS.find(([key]) => key === row.amountMethod) || ['', '—'])[1];
@@ -40444,7 +40901,7 @@ function _shukeiSlipSectionHtml(src) {
     : '<div class="shukei-empty">この日の伝票はまだありません</div>';
   const otherNote = others > 0 ? `<p class="shukei-lock">この区画で扱えない会計が${others}件あります（集計には入っています）。</p>` : '';
   return `<section id="shukei-slips" class="agg-box shukei-slips">
-    <div class="agg-box-head"><h3>伝票 <span class="payroll-note">お店のレジの伝票を1枚1行で入れます。ここに入れた金額から、日計表・日次締め・給与明細が出ます。卓についたキャスト（本指名・同伴・場内・フリー）は何人でも1行で入れます。キャストごとに飲んだ杯数と延長の回数を入れると、日計表の本数とバックに自動で入ります。外立ちは上の段の「外立ち」で、呼び込んだ子を選びます（伝票の人数ぶん入ります）。ここで入れられない本数（外立ちの項目が無い店の外立ちなど）は、日計表の本数の欄に入れます。</span></h3></div>
+    <div class="agg-box-head"><h3>伝票 <span class="payroll-note">お店のレジの伝票を1枚1行で入れます。ここに入れた金額から、日計表・日次締め・給与明細が出ます。卓についたキャスト（本指名・同伴・場内・フリー）は何人でも1行で入れます。キャストごとに飲んだ杯数と延長の回数を入れると、日計表の本数とバックに自動で入ります。外立ちは上の段の「外立ち」で、呼び込んだ子を選びます（伝票の人数ぶん入ります）。ここで入れられない本数（外立ちの項目が無い店の外立ちなど）は、日計表の本数の欄に入れます。</span></h3><div class="agg-box-actions"><button type="button" id="shukei-past-btn" onclick="shukeiPastDayOpenModal()">📅 過去の日を入力する</button></div></div>
     ${top}${otherNote}${table}
   </section>`;
 }
@@ -40646,6 +41103,258 @@ async function shukeiSlipDelete(gid) {
   showToast('No.' + slipNoLabel(first) + ' を削除しました');
   return true;
 }
+
+/* ----------------------------------------------------------------
+   6b. 前の日を入れる（2026-11-03）
+   伝票の区画の「📅 過去の日を入力する」。今の営業日より前の日を選び、その日に出勤したキャストにチェックして開く。
+   その日がまだ無ければ空の営業日を作り（「保存データ管理」の「＋ 新しい営業日」と同じ形。出勤キャストはチェックした子）、
+   もうあれば出勤キャスト（activeCasts）だけを置き換える（伝票・出退勤は触らない）。
+   出勤キャストに入れておくと、伝票に出てこない子（出勤したが卓に付かなかった子）も日計表に出て、時給・日払いを入れられる。
+   仕様: .company/dev/specs/2026-11-03-nightlistdx-mini-前の日の伝票を入れる.md
+---------------------------------------------------------------- */
+const _shukeiPad2 = n => String(n).padStart(2, '0');
+function _shukeiDayLabel(dayKey) {   // 11月1日（日）
+  const y = Number(String(dayKey).slice(0, 4)), m = Number(String(dayKey).slice(4, 6)), d = Number(String(dayKey).slice(6, 8));
+  return _shukeiMonthDay(dayKey) + '（' + WEEKDAYS[new Date(y, m - 1, d).getDay()] + '）';
+}
+// 営業日キー（YYYYMMDD）→ 日付の欄の値（YYYY-MM-DD）
+const _shukeiKeyToInput = key => String(key).slice(0, 4) + '-' + String(key).slice(4, 6) + '-' + String(key).slice(6, 8);
+// 日付の欄の値 → 営業日キー。日付として読めなければ ''
+function _shukeiInputToKey(value) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value == null ? '' : value));
+  if (!m) return '';
+  const y = Number(m[1]), mo = Number(m[2]), d = Number(m[3]);
+  const dt = new Date(y, mo - 1, d);
+  return dt.getFullYear() === y && dt.getMonth() === mo - 1 && dt.getDate() === d ? m[1] + m[2] + m[3] : '';
+}
+function _shukeiPrevDayKey(dayKey) {
+  const dt = new Date(Number(dayKey.slice(0, 4)), Number(dayKey.slice(4, 6)) - 1, Number(dayKey.slice(6, 8)) - 1);
+  return '' + dt.getFullYear() + _shukeiPad2(dt.getMonth() + 1) + _shukeiPad2(dt.getDate());
+}
+// 名簿（退店扱いの子は除く）
+function _shukeiPastRoster() {
+  const retired = Array.isArray(state.retiredCasts) ? state.retiredCasts : [];
+  return (Array.isArray(state.allCasts) ? state.allCasts : []).filter(name => name && retired.indexOf(name) < 0);
+}
+function _shukeiSameNames(a, b) {
+  const x = new Set(Array.isArray(a) ? a : []), y = new Set(Array.isArray(b) ? b : []);
+  return x.size === y.size && Array.from(x).every(name => y.has(name));
+}
+
+/* その日の出勤キャストに必ず入れる子（日計表に出る子）。名前 → 理由（伝票あり／出退勤あり／当欠／入力あり）。
+   日計表の行は「出勤キャスト＋伝票の子＋出退勤を入れた子＋当欠」（computePayrollTable）。ここに入る子を出勤キャストから外すと、
+   日計表と日次締めの確定値から行ごと消える。日計表に手入力（日払い・SP・本数・控除）だけある子は、外すと日払いが確定値から落ちて、
+   手入力の日払いだけ残る（払い過ぎに気づけない）ので、手入力のある子も外せないようにする。
+   snap はその日の保存データ（まだ無ければ null。手入力だけ見る） */
+function _shukeiPastRequired(dayKey, snap) {
+  const need = new Map();
+  const add = (name, why) => { if (name && !need.has(name)) need.set(name, why); };
+  if (snap) {
+    const settled = (Array.isArray(snap.rows) ? snap.rows : []).filter(row => row.isFirst && row.settled);
+    const agg = computeReportAgg(settled);
+    Object.keys(agg.prodByCast || {}).forEach(name => add(name, '伝票あり'));
+    Object.keys(agg.nameGroups || {}).forEach(name => add(name, '伝票あり'));
+    const tt = snap.timetableSnap || {};
+    ['clockIns', 'checkouts'].forEach(field => Object.keys(tt[field] || {}).forEach(name => { if (tt[field][name]) add(name, '出退勤あり'); }));
+    (Array.isArray(tt.touketsu) ? tt.touketsu : []).forEach(name => add(name, '当欠'));
+  }
+  Object.keys((state.payrollManual && state.payrollManual[dayKey]) || {}).forEach(name => {
+    const manual = getPayrollManual(dayKey, name);
+    if (manual.sp || manual.nibarai || Object.keys(manual.counts).length || Object.keys(manual.deductions).length || Object.keys(manual.deductionFlags).some(key => manual.deductionFlags[key])) add(name, '入力あり');
+  });
+  return need;
+}
+// 営業日キー2つの日数の差（today − dayKey）
+function _shukeiDaysBefore(dayKey, today) {
+  const at = key => new Date(Number(key.slice(0, 4)), Number(key.slice(4, 6)) - 1, Number(key.slice(6, 8)));
+  return Math.round((at(today) - at(dayKey)) / 86400000);
+}
+/* 保存データには無いが、日次締めの確定（締めた記録）か「消えた営業日の控え」が残っている日。新しく作ると、その日の締めや控えを上書き・取り違える。
+   作らずに、データ復旧から戻してもらう */
+const SHUKEI_PAST_RECOVER_NOTICE = 'この日は左の「🔧 消えた日を戻す」から戻してください';
+function _shukeiPastNeedsRecovery(dayKey) {
+  if (_dailyCloseNormalizeFrozen((loadDailyClose()[dayKey] || {}).frozen).closedAt > 0) return true;
+  return loadRecovery().some(item => item && item.dayKey === dayKey);
+}
+
+/* 本体（画面の入力欄に依存しない。試験でもそのまま使う）。返り値 { ok, error, cancelled, unreadable, created, changed, closedNow }
+   ・日付が空・今の営業日以降 → 作らず、理由を返す
+   ・過去の営業日が読めない → 作らず、今までと同じ案内（notifyBackupsUnreadable）
+   ・日次締めのファイルが読めない → 作らない（締めを作れないため）
+   ・その日が無ければ作る。あれば activeCasts だけを置き換える（伝票・出退勤は触らない）。
+     日計表に出る子（伝票・出退勤・当欠・手入力がある子）は、渡されなくても必ず出勤キャストに残す（_shukeiPastRequired）
+   ・保存データには無いが、締めの記録か「消えた営業日の控え」がある日は、作らない（データ復旧から戻す）
+   ・1か月（31日）より前の日を新しく作るときは、日付のまちがい（年のまちがいなど）がないか確認する
+   ・前の日は作った時点で締めた扱いにする（日次締めの確定値を作る）。月・期間の給与明細・日次締めの月合計・キャスト専用ページは、締めた日の確定値だけを読むため。
+     この画面を開いている間は、締めた日を直す確認を聞かない（_shukeiLockedConfirmed）。伝票・出退勤・日払いなどを直すと、既存の仕組みで確定値を作り直す
+   ・締めた日の出勤キャストを変えるときは、先に確認を出し、変えたあと確定値を作り直す
+   ・保存できたら、集計をその日を選んだ状態にする（reportSelectedDay） */
+async function _shukeiOpenPastDay(dayKey, castNames) {
+  const fail = (error, extra) => ({ ok: false, error, cancelled: false, unreadable: false, created: false, changed: false, closedNow: false, ...extra });
+  const today = getLoadedDayKey();
+  if (!/^\d{8}$/.test(dayKey || '') || _shukeiInputToKey(_shukeiKeyToInput(dayKey)) !== dayKey) return fail('日付を選んでください');
+  if (dayKey >= today) return fail('今の営業日（' + _shukeiMonthDay(today) + '）より前の日を選んでください');
+  const unreadable = async () => { await notifyBackupsUnreadable(); return fail('', { unreadable: true }); };
+  if (backupsUnreadable()) return unreadable();
+  let backups = loadBackupsStrict();
+  if (!backups) return unreadable();
+  loadDailyClose();
+  if (Persist.failedReads.has('dailyclose')) return fail('日次締めのファイルが読めないため、いまは前の日を入れられません。運営者が対応します。');
+  let snap = backups.find(item => item.dayKey === dayKey);
+  let created = !snap;
+  const gap = _shukeiDaysBefore(dayKey, today);
+  if (created && _shukeiPastNeedsRecovery(dayKey)) return fail(SHUKEI_PAST_RECOVER_NOTICE);
+  const requested = Array.from(new Set((Array.isArray(castNames) ? castNames : []).filter(name => typeof name === 'string' && name)));
+  const required = _shukeiPastRequired(dayKey, snap);
+  const names = requested.concat(Array.from(required.keys()).filter(name => requested.indexOf(name) < 0));
+  const changed = created || !_shukeiSameNames(snap.activeCasts, names);
+  // 確認（答えを待つ間に保存データが変わらないよう、答えのあとで読み直す）
+  let asked = false;
+  if (created && gap > 31) {
+    const [y, m, d] = [dayKey.slice(0, 4), Number(dayKey.slice(4, 6)), Number(dayKey.slice(6, 8))];
+    if (!(await appConfirm(y + '年' + m + '月' + d + '日は1か月以上前の日です。この日を作りますか？', { okLabel: '作る', cancelLabel: 'やめる' }))) return fail('', { cancelled: true });
+    asked = true;
+  }
+  // 締めた日の出勤キャストを変えるときだけ、今までと同じ確認を出す
+  const locked = !created && changed && _shukeiDayState(dayKey).locked;
+  if (locked) {
+    if (!(await _shukeiConfirmLockedDay(dayKey))) return fail('', { cancelled: true });
+    asked = true;
+  }
+  if (asked) {
+    backups = loadBackupsStrict();
+    if (!backups) return unreadable();
+    snap = backups.find(item => item.dayKey === dayKey);
+    if (created === !!snap) return fail('この日の保存データが変わりました。もう一度やり直してください');
+  }
+  if (changed) {
+    if (created) {
+      snap = {
+        dayKey,
+        rows: [], nextGid: 1, nextGuest: 1,
+        rotCols: 3, extCols: 5,
+        allCasts: (Array.isArray(state.allCasts) ? state.allCasts : []).slice(),
+        activeCasts: names,
+        ...savedStamp('savedAt'),
+        guests: 0, sales: 0,
+      };
+      backups.unshift(snap);
+      backups.sort((a, b) => (b.dayKey || '').localeCompare(a.dayKey || ''));
+      while (backups.length > BACKUP_MAX) backups.pop();
+      if (backups.indexOf(snap) < 0) return fail('これより古い日は入れられません（保存できるのは約1年分です）');
+    } else {
+      snap.activeCasts = names;
+      Object.assign(snap, savedStamp('savedAt'));
+    }
+    if (!saveBackups(backups)) return fail('保存できませんでした。端末の空き容量を確認し、オーナーへ連絡してください');
+  }
+  // 締めていない日（作ったばかり・締めの記録が無い保存データ）は、ここで締める。締めた日は、出勤キャストを変えたときだけ確定値を作り直す
+  const closedNow = _dailyCloseNormalizeFrozen((loadDailyClose()[dayKey] || {}).frozen).closedAt <= 0;
+  if (closedNow) {
+    const closedAt = Date.now();
+    // 保存データはできている。ここで失敗したら、もう一度「この日を開く」を押せば締めだけ作り直す
+    if (!_shukeiRefreezeDay(dayKey, closedAt)) return fail('日次締めの数字を保存できませんでした。もう一度「この日を開く」を押してください', { created, changed });
+    _shukeiLockedConfirmed.set(dayKey, closedAt);
+  } else if (changed && !_shukeiRefreezeDay(dayKey)) showToast('日次締めの数字を保存できませんでした。もう一度直すか、オーナーへ連絡してください');
+  reportSelectedDay = dayKey;
+  reportPeriod = 'day';
+  showTab('report');
+  return { ok: true, error: '', cancelled: false, unreadable: false, created, changed, closedNow };
+}
+
+/* 画面の部品。日付の欄・出勤キャストのチェックを読んで、本体へ渡す */
+let _shukeiPastBusy = false;
+function _shukeiPastHintHtml(dayKey, snap) {
+  const note = text => `<p class="shukei-note" id="shukei-past-hint">${text}</p>`;
+  if (!dayKey) return note('営業日を選んでください。');
+  if (dayKey >= getLoadedDayKey()) return note('今の営業日（' + escHtml(_shukeiMonthDay(getLoadedDayKey())) + '）より前の日を選んでください。');
+  if (!snap && _shukeiPastNeedsRecovery(dayKey)) return note(escHtml(SHUKEI_PAST_RECOVER_NOTICE) + '。');
+  if (!snap) return note('この日はまだありません。開くと、この日を新しく作ります。');
+  const slips = (Array.isArray(snap.rows) ? snap.rows : []).filter(row => row.isFirst && row.settled).length;
+  return note('この日はもう作ってあります（伝票' + slips + '枚）。伝票・出勤・退勤は変えずに、出勤したキャストだけ直します。');
+}
+/* 日付の下の中身（案内と出勤キャストのチェック）。その日がもう作ってあれば、その日の出勤キャストにチェックを入れる。無ければ今のチェックのまま。
+   日計表に出る子（伝票あり・出退勤あり・当欠・入力あり）は、チェックを入れて外せなくし、理由を小さく添える */
+function _shukeiPastBodyHtml(dayKey, current) {
+  const valid = !!dayKey && dayKey < getLoadedDayKey();   // 今日以降は、保存データにあっても「前の日」ではない
+  const snap = valid ? loadBackups().find(item => item.dayKey === dayKey) : null;
+  const saved = snap && Array.isArray(snap.activeCasts) ? snap.activeCasts : [];
+  const required = valid ? _shukeiPastRequired(dayKey, snap) : new Map();
+  const checked = new Set(snap ? saved : current);
+  const roster = _shukeiPastRoster();
+  // 名簿から外れた子も、その日の出勤に入っている・日計表に出るなら出す（黙って外さない）
+  const names = roster.concat(saved.concat(Array.from(required.keys())).filter((name, i, all) => name && roster.indexOf(name) < 0 && all.indexOf(name) === i));
+  const boxes = names.length
+    ? names.map(name => {
+      const why = required.get(name);
+      return `<label class="shukei-past-cast"><input type="checkbox" value="${_shukeiAttr(name)}"${why || checked.has(name) ? ' checked' : ''}${why ? ' disabled' : ''}><span>${escHtml(name)}</span>${why ? `<small class="shukei-past-tag">${why}</small>` : ''}</label>`;
+    }).join('')
+    : '<div class="shukei-hint">名簿にキャストがいません。先に「出勤キャスト」でキャストを入れてください。</div>';
+  return _shukeiPastHintHtml(dayKey, snap) + '<div class="shukei-group-title">この日に出勤したキャスト</div><div class="shukei-past-casts" id="shukei-past-casts">' + boxes + '</div>';
+}
+function _shukeiPastModalHtml(dayKey, loadedKey) {
+  return '<div class="pos-co-overlay" id="shukei-past-modal" onclick="if(event.target===this)shukeiPastDayClose()" onkeydown="if(event.key===\'Escape\'){event.stopPropagation();shukeiPastDayClose()}">'
+    + '<div class="pos-co-panel app-dialog-panel" role="dialog" aria-modal="true" aria-labelledby="shukei-past-title">'
+    + '<div class="pos-co-body app-dialog-body">'
+    + '<div class="shukei-past-title" id="shukei-past-title">📅 過去の日を入力する</div>'
+    + `<label class="shukei-field">営業日<input type="date" id="shukei-past-date" value="${_shukeiAttr(_shukeiKeyToInput(dayKey))}" max="${_shukeiAttr(_shukeiKeyToInput(_shukeiPrevDayKey(loadedKey)))}" onchange="shukeiPastDayChange()"></label>`
+    + `<div id="shukei-past-body">${_shukeiPastBodyHtml(dayKey, [])}</div>`
+    + '<p class="shukei-note" id="shukei-past-closed-note">過去の日は作った時点で締めた扱いになり、月の給与明細に入ります。</p>'
+    + '<div class="shukei-msg" id="shukei-past-msg" role="alert"></div>'
+    + '<div class="pos-co-actions app-dialog-actions">'
+    + '<button type="button" class="pos-co-btn cancel app-dialog-cancel" onclick="shukeiPastDayClose()">キャンセル</button>'
+    + '<button type="button" class="pos-co-btn app-dialog-ok" id="shukei-past-ok" onclick="shukeiPastDaySubmit()">この日を開く</button>'
+    + '</div></div></div></div>';
+}
+// チェックの付いた子。includeDisabled を false にすると、外せない子（日計表に出る子）は除く（日付を変えて引き継ぐとき。その日の分は付け直す）
+function _shukeiPastCheckedNames(includeDisabled = true) {
+  return Array.from(document.querySelectorAll('#shukei-past-casts input[type="checkbox"]')).filter(box => box.checked && (includeDisabled || !box.disabled)).map(box => box.value);
+}
+// 「📅 過去の日を入力する」を押したとき。初めの日付は前日（過去の日を見ているときは、その日。出勤キャストを足す使い方のため）
+async function shukeiPastDayOpenModal() {
+  if (backupsUnreadable()) { await notifyBackupsUnreadable(); return false; }   // 読めない間は、足しても保存できない
+  shukeiPastDayClose();
+  const loaded = getLoadedDayKey();
+  const viewing = reportSelectedDay && reportSelectedDay < loaded ? reportSelectedDay : '';
+  document.body.insertAdjacentHTML('beforeend', _shukeiPastModalHtml(viewing || _shukeiPrevDayKey(loaded), loaded));
+  _shukeiFocus('shukei-past-date');
+  return true;
+}
+function shukeiPastDayClose() {
+  const modal = document.getElementById('shukei-past-modal');
+  if (modal && typeof modal.remove === 'function') modal.remove();
+}
+// 日付を変えたとき: 案内とチェックを付け直す
+function shukeiPastDayChange() {
+  const body = document.getElementById('shukei-past-body');
+  if (!body) return;
+  const input = document.getElementById('shukei-past-date');
+  body.innerHTML = _shukeiPastBodyHtml(_shukeiInputToKey(input && input.value), _shukeiPastCheckedNames(false));
+  _shukeiSetText('shukei-past-msg', '');
+}
+// 「この日を開く」
+async function shukeiPastDaySubmit() {
+  if (_shukeiPastBusy) return false;
+  const input = document.getElementById('shukei-past-date');
+  const dayKey = _shukeiInputToKey(input && input.value);
+  const names = _shukeiPastCheckedNames();
+  // 伝票の入力の途中で押されても、描き直しで消えないよう下書きへ読み取る
+  if (document.getElementById('shukei-form')) _shukeiReadForm(_reportDayKey());
+  _shukeiPastBusy = true;
+  let result;
+  try { result = await _shukeiOpenPastDay(dayKey, names); } finally { _shukeiPastBusy = false; }
+  if (!result.ok) {
+    if (result.error) _shukeiSetText('shukei-past-msg', result.error);   // 画面は閉じない（確認で「やめる」・読めない案内のときは何も出さない）
+    return false;
+  }
+  shukeiPastDayClose();
+  const section = document.getElementById('shukei-slips');
+  if (section && typeof section.scrollIntoView === 'function') section.scrollIntoView({ block: 'start' });
+  showToast(_shukeiDayLabel(dayKey) + (result.created ? 'を作りました' : result.changed ? 'の出勤キャストを直しました' : 'を開きました'));
+  return true;
+}
+// 集計の左の「＋ 過去の日を入力する」（showNewDayModal）も、この画面で作る（どちらから作っても同じ動き。前の日は作った時点で締めた扱いになる）
+showNewDayModal = function () { return shukeiPastDayOpenModal(); };
 
 /* ----------------------------------------------------------------
    7. 集計タブの組み込み（日報の先頭に「伝票」、POS・リスト表前提の部分を出さない）
