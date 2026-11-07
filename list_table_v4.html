@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.126">
+<meta name="app-version" content="1.1.127">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -36831,9 +36831,10 @@ function checkAutoActivateCasts() {
       tt.clockIns = tt.clockIns || {};
       tt.clockIns[castName] = minToHHMM(plannedMin);
       changed = true;
+      // 出勤予定に入れてある子もこの時点で出勤になるので、お知らせの名前に含める
+      newCasts.push(castName);
       if (!state.activeCasts.includes(castName)) {
         state.activeCasts.push(castName);
-        newCasts.push(castName);
       }
     }
   });
