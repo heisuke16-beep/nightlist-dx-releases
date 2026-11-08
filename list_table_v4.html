@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.127">
+<meta name="app-version" content="1.1.129">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -20837,7 +20837,8 @@ const RemoteMonitor = (() => {
           ...(shopKey ? { shopKey } : {}),
           wantHave,
           // 指示を処理しない送信（指示を受けた直後の送り直し）には、保存データの取り寄せの指示を渡さないでもらう
-          ...(applyCommands ? {} : { noDump: true }),
+          // 別のタブに書き込みを譲って止まったタブ（UsbStore._fenced）も、指示を処理しない（受けても保存されないため）。モニターの送信そのものは今までどおり
+          ...(applyCommands && !(typeof UsbStore !== 'undefined' && UsbStore._fenced) ? {} : { noDump: true }),
           snap: buildMonitorSnapshot(),
         }),
         headers: { 'Content-Type':'text/plain' },
@@ -20862,6 +20863,11 @@ const RemoteMonitor = (() => {
             if (typeof StoreDump !== 'undefined') StoreDump.start(command.rid);
             return;
           }
+          // 自宅のClaudeからの設定変更（47i）。書き換えはこの中で済み、結果の返信だけが裏で送られる。店の画面には何も出さない
+          if (command?.type === 'applySettings') {
+            if (typeof RemoteSettings !== 'undefined') RemoteSettings.handle(command);
+            return;
+          }
           if (command?.type !== 'checkout' || !command.cast) return;
           const activeCasts = getEffectiveActiveCasts();
           if (!Array.isArray(activeCasts) || !activeCasts.includes(command.cast)) return;
@@ -20875,6 +20881,10 @@ const RemoteMonitor = (() => {
       sending = false;
     }
     if (sent && appliedCommand) await sendNow(false);
+    // 設定変更の待機中の指示（設定画面の未保存の編集・精算パネル）を見直す。新しい設定の控えが同じ周期で上がるよう、控えを送る前に呼ぶ
+    if (sent && applyCommands && typeof RemoteSettings !== 'undefined') {
+      try { RemoteSettings.tick(); } catch (error) { console.warn('[RemoteSettings] tick failed:', error); }   // 例外で控えの送信が飛ばされないように
+    }
     // オーナーダッシュボード用データ（客名・顧客メモ・給与を含む）は、店外モニターが有効なら送る。
     // 以前は別のスイッチ（cfg.ownerExportEnabled）があったが、2026-10-25 オーナー決定で外した。古い設定に残った値は見ない
     if (sent && applyCommands && typeof OwnerExport !== 'undefined') await OwnerExport.syncOne();
@@ -22084,6 +22094,450 @@ const StoreDump = (() => {
     /* テスト用: 今の送信（と、続けて始まる次の送信）が終わるまで待つ */
     async whenIdle() { while (running) await running; },
     _sleep: ms => new Promise(resolve => setTimeout(resolve, ms)),
+  };
+  return api;
+})();
+/* ================================================================
+   REMOTE SETTINGS（自宅のClaudeから店の設定を変える。2026-11-07）
+   設計: .company/dev/specs/2026-11-07-nightlistdx-自宅のClaudeから店の設定を変える.md
+   店ごとの鍵が合った /push の返事に { type:'applySettings', rid, changes } が入る（47e）。受けた端末は、中身を確かめて書き換え、
+   結果を /settings-result で Worker へ返す（47h の保存データの取り寄せと同じ通り道・同じ鍵）。
+   - 全部か無しか。1件でも断る理由（not_allowed・stale・type_mismatch・invalid_value）に当たれば、どれも書き換えずに「差し戻し」を返す。
+     変えてよい範囲の判定の正本はここ（Worker は形だけを確かめる）。
+   - 変えてよい項目は、設定（CFG_DEFAULTS のキーと shopLogo）と、キャストの3つの形だけ。店外モニターとのつながり・店の名乗り・この端末だけの印・
+     営業日の区切り・時給ロックは、遠隔で間違えると店が困る（またはロックの画面側の処理が要る）ので変えない。
+   - すぐ反映する。ただし、設定画面に保存していない編集がある時と、精算パネルが開いている時は、空くまで待つ（受け取って25分で諦める）。
+   - 書き換えは、設定画面の「保存する」と同じ保存（saveCfg。精算済み伝票の写しの保護も通る）と saveState。反映後に画面を描き直す。
+   - 店の画面には何も出さない（トースト・ダイアログなし）。端末のコンソールにだけ記録する。値は記録しない（料金などをログに残さない）。
+   - 処理中の指示は端末のメモリにだけ持つ。新しい保存データは作らない。
+================================================================ */
+const RemoteSettings = (() => {
+  const WAIT_LIMIT_MS = 25 * 60000;                 // 空くのを待つ上限。Worker は届けてから30分で期限切れにするので、その手前で結果を返す
+  const RETRY_WAITS_MS = [2000, 5000, 15000];       // 結果を返せなかった時の送り直し（3回まで）。待つ時間
+  const HARD_STOP = new Set([400, 401, 403, 404, 409, 413]);   // 送り直しても通らない返事
+  const PERSIST_LIMIT_MS = 20000;                   // USB への書き出しの確認を待つ上限
+  const REPORT_LIMIT_MS = 30 * 60000;               // 届かなかった結果を、受け取ってからこの時間まで送り直す（Worker の期限と同じ）
+  const MAX_CHANGES = 100;
+  const NAME_MAX = 40;                              // 新しく足すキャスト名・既定値のキーの長さの上限
+
+  // 遠隔では変えない設定のキー（理由は上の説明）
+  const DENY_CFG = new Set([
+    'monitorEnabled', 'monitorEndpoint', 'monitorWriteToken', 'monitorReadToken', 'monitorOpsToken', 'monitorShopId', 'shopId',
+    'ownerCustomersHoldRows', 'ownerCustomersHoldUntil',
+    'bizDayBoundaryHour', 'wageLockEnabled',
+  ]);
+  // 精算パネルとその中から開く分割・売掛・前金などの画面（開いている間だけ DOM に存在する。31-pos-精算パネル.js）
+  const CHECKOUT_OVERLAY_IDS = ['pos-co-overlay', 'pos-urikake-overlay', 'pos-card-split-overlay', 'pos-split-overlay', 'pos-advance-overlay'];
+
+  const seen = new Set();                           // 受けた依頼番号。同じ番号は2回処理しない
+  let job = null;                                   // 処理中（待機中を含む）の指示
+  let chain = Promise.resolve();                    // 結果の返信は順番に送る（待機中→反映済み、が入れ替わらないように）
+  let unsent = null;                                // 通信できず届かなかった最後の結果 { target, fields }。以後の tick() で送り直す
+  let resending = false;
+
+  const hasOwn = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
+  // 別の世界（テストの vm など）で作られたオブジェクトも扱えるよう、prototype ではなく文字列の型で見分ける
+  const isObject = value => Object.prototype.toString.call(value) === '[object Object]';
+  const now = () => api._now();
+
+  /* 値の種類: 有限の数・文字・真偽・配列・オブジェクト・null。それ以外（非有限の数など）は invalid */
+  function kindOf(value) {
+    if (value === null) return 'null';
+    if (Array.isArray(value)) return 'array';
+    const type = typeof value;
+    if (type === 'number') return Number.isFinite(value) ? 'number' : 'invalid';
+    if (type === 'string' || type === 'boolean') return type;
+    if (type === 'object') return isObject(value) ? 'object' : 'invalid';
+    return 'invalid';
+  }
+
+  /* キーの順番に左右されない比べ方（キーを並べてからの JSON 比較）に使う文字列 */
+  function canon(value) {
+    if (Array.isArray(value)) return '[' + value.map(canon).join(',') + ']';
+    if (value && typeof value === 'object') {
+      return '{' + Object.keys(value).filter(key => value[key] !== undefined).sort()
+        .map(key => JSON.stringify(key) + ':' + canon(value[key])).join(',') + '}';
+    }
+    return JSON.stringify(value === undefined ? null : value);
+  }
+
+  /* 新しく足す名前・キーの形。空・前後の空白・長すぎる・制御文字・__proto__ は断る */
+  function nameShapeOk(name) {
+    return typeof name === 'string' && name !== '' && name !== '__proto__' && name === name.trim()
+      && Array.from(name).length <= NAME_MAX && !/[\u0000-\u001f\u007f]/.test(name);
+  }
+
+  /* 1件ずつ判定して、全件の結果と、通った時の書き換えの計画を返す。何も書き換えない。
+     戻り値: { malformed:true }（形が壊れている）／{ results, plan }（results に1件でも ok:false があれば差し戻し） */
+  function evaluate(rawChanges) {
+    let changes;
+    try { changes = JSON.parse(JSON.stringify(rawChanges)); } catch (_) { return { malformed:true }; }   // 渡された値から切り離す
+    if (!Array.isArray(changes) || changes.length < 1 || changes.length > MAX_CHANGES) return { malformed:true };
+    for (const item of changes) {
+      if (!isObject(item) || !Array.isArray(item.path) || !item.path.every(part => typeof part === 'string')
+        || !hasOwn(item, 'before') || !hasOwn(item, 'after')) return { malformed:true };
+    }
+    const roster = Array.isArray(state.allCasts) ? state.allCasts : [];
+    const retired = Array.isArray(state.retiredCasts) ? state.retiredCasts : [];
+    const profiles = isObject(state.castProfiles) ? state.castProfiles : {};
+    const defaults = isObject(state.castDefaults) ? state.castDefaults : {};
+    // 同じ依頼で名簿に足す人。プロフィールの名前が名簿にいるかの判定に使う
+    const rosterItem = changes.find(item => item.path.length === 2 && item.path[0] === 'casts' && item.path[1] === 'allCasts');
+    const rosterAfter = new Set(rosterItem && Array.isArray(rosterItem.after) ? rosterItem.after.filter(name => typeof name === 'string') : roster);
+    const plan = { cfg:{}, allCasts:null, profiles:{}, defaults:{} };
+    const seenPaths = new Set();
+
+    const judge = item => {
+      const path = item.path;
+      const key = canon(path);
+      if (seenPaths.has(key)) return 'invalid_value';   // 同じ項目を2回入れない
+      seenPaths.add(key);
+
+      if (path.length === 2 && path[0] === 'settings') {
+        const name = path[1];
+        if (!name || DENY_CFG.has(name) || !(name === 'shopLogo' || hasOwn(CFG_DEFAULTS, name))) return 'not_allowed';
+        const present = hasOwn(cfg, name) && cfg[name] !== undefined;
+        if (canon(item.before) !== canon(present ? cfg[name] : null)) return 'stale';
+        // 種類の基準は今の値。無ければ既定値（shopLogo は文字）。基準が null（種類が決まらない項目）なら、どの種類でもよい
+        const reference = present ? cfg[name] : (name === 'shopLogo' ? '' : CFG_DEFAULTS[name]);
+        const wanted = kindOf(reference);
+        const got = kindOf(item.after);
+        if (got === 'invalid' || (wanted !== 'null' && wanted !== got)) return 'type_mismatch';
+        plan.cfg[name] = item.after;
+        return '';
+      }
+
+      if (path.length === 3 && path[0] === 'casts' && path[1] === 'castProfiles') {
+        const name = path[2];
+        if (typeof name !== 'string' || name === '' || name === '__proto__') return 'invalid_value';
+        const known = hasOwn(profiles, name);
+        if (!known && !nameShapeOk(name)) return 'invalid_value';
+        if (canon(item.before) !== canon(known ? profiles[name] : null)) return 'stale';
+        if (kindOf(item.after) !== 'object') return 'invalid_value';   // プロフィールはオブジェクト
+        // 新しく足すキャストのプロフィールに付いている id は外す（保存のときに振る。ほかのキャストと重ならないように）
+        if (!known && item.after.id !== undefined) delete item.after.id;
+        // 変わらないID（id）は置き換えで変えない。後の値に無ければ今のIDを補い、違うIDなら断る。新しいキャストのIDは保存の時に振る
+        const currentId = known && isObject(profiles[name]) ? profiles[name].id : undefined;
+        if (currentId) {
+          if (item.after.id === undefined) item.after.id = currentId;
+          else if (item.after.id !== currentId) return 'invalid_value';
+        }
+        // 名簿にいない人のプロフィールは作らない（名前の打ち間違いで、誰も使わないプロフィールが増えないように）
+        if (!known && !rosterAfter.has(name)) return 'invalid_value';
+        plan.profiles[name] = item.after;
+        return '';
+      }
+
+      if (path.length === 3 && path[0] === 'casts' && path[1] === 'castDefaults') {
+        const name = path[2];
+        if (typeof name !== 'string' || name === '' || name === '__proto__') return 'invalid_value';
+        const known = hasOwn(defaults, name);
+        if (!known && !nameShapeOk(name)) return 'invalid_value';
+        if (canon(item.before) !== canon(known ? defaults[name] : null)) return 'stale';
+        const got = kindOf(item.after);
+        if (known ? kindOf(defaults[name]) !== got : !(got === 'number' || got === 'string')) return 'type_mismatch';
+        plan.defaults[name] = item.after;
+        return '';
+      }
+
+      if (path.length === 2 && path[0] === 'casts' && path[1] === 'allCasts') {
+        if (canon(item.before) !== canon(roster)) return 'stale';
+        if (kindOf(item.after) !== 'array') return 'type_mismatch';
+        const names = item.after;
+        if (!names.every(name => typeof name === 'string' && name !== '' && name !== '__proto__')) return 'invalid_value';
+        if (new Set(names).size !== names.length) return 'invalid_value';                      // 重複
+        if (!roster.every(name => names.includes(name))) return 'invalid_value';               // 外すことはできない
+        // 退店したキャストを名簿へ戻すのは、遠隔ではしない（退店リストの更新が要るため）
+        if (names.some(name => !roster.includes(name) && (retired.includes(name) || !nameShapeOk(name)))) return 'invalid_value';
+        plan.allCasts = names;
+        return '';
+      }
+
+      return 'not_allowed';   // 4つの形以外
+    };
+
+    const results = changes.map(item => {
+      const reason = judge(item);
+      return { path:item.path, ok:reason === '', ...(reason ? { reason } : {}) };
+    });
+    // 読み込み時の整形（mergeCfgDefaults）で変更後の値と違う値になる項目は断る（頼んだ値と違う値で反映して applied を返さない）
+    if (Object.keys(plan.cfg).length) {
+      let merged = null;
+      try { merged = mergeCfgDefaults({ ...cfg, ...plan.cfg }); } catch (_) { merged = null; }
+      results.forEach(result => {
+        if (!result.ok || result.path.length !== 2 || result.path[0] !== 'settings') return;
+        const name = result.path[1];
+        if (merged && canon(merged[name]) === canon(plan.cfg[name])) return;
+        result.ok = false;
+        result.reason = 'invalid_value';
+        delete plan.cfg[name];
+      });
+    }
+    return { results, plan };
+  }
+
+  /* 今の端末の状態で、まるごと断るもの（理由を返す）。無ければ空文字 */
+  function hardReject() {
+    if (typeof _demoMode !== 'undefined' && _demoMode) return 'demo_mode';
+    if (Persist.writeBlockedReason) return 'write_blocked';
+    if (typeof UsbStore !== 'undefined' && UsbStore._fenced) return 'write_blocked';   // 別のタブに書き込みを譲って止まったタブ（保存されない）
+    if (Persist.failedReads.has('settings') || Persist.failedReads.has('listState')) return 'unreadable';
+    return '';
+  }
+
+  /* 精算パネル（と、その中から開く画面）が開いているか。DOM に出ている間だけ存在する画面と、各画面が持つ状態の両方で見る */
+  function checkoutOpen() {
+    try {
+      if (CHECKOUT_OVERLAY_IDS.some(id => document.getElementById(id))) return true;
+    } catch (_) {}
+    return [typeof _posUrikake !== 'undefined' ? _posUrikake : null, typeof _posCardSplit !== 'undefined' ? _posCardSplit : null,
+      typeof _posSplit !== 'undefined' ? _posSplit : null, typeof _posAdvance !== 'undefined' ? _posAdvance : null].some(Boolean);
+  }
+
+  /* 設定画面とは別に cfg を書き換える編集画面が開いているか。開いたまま遠隔で cfg が変わると、その画面の「保存」で遠隔の変更が消える。
+     給与計算ルール（payroll-rules-overlay）・給与の控除の設定（payroll-deduction-settings-overlay）は DOM の画面、
+     延長の自動指名の設定は _extMappingEditor（37b）、日次締めの項目名は _dailyCloseLabelDialog（32c）が、開いている間だけ値を持つ */
+  function settingsEditorOpen() {
+    try {
+      if (['payroll-rules-overlay', 'payroll-deduction-settings-overlay'].some(id => document.getElementById(id))) return true;
+    } catch (_) {}
+    return !!((typeof _extMappingEditor !== 'undefined' && _extMappingEditor) || (typeof _dailyCloseLabelDialog !== 'undefined' && _dailyCloseLabelDialog));
+  }
+
+  /* 書き換えを待つ理由（空なら今すぐ書き換えてよい） */
+  function busyReason() {
+    if (typeof _settingsDirty !== 'undefined' && _settingsDirty) return 'settings_editing';
+    if (settingsEditorOpen()) return 'settings_editing';
+    if (checkoutOpen()) return 'checkout_open';
+    return '';
+  }
+
+  /* 反映後の描き直し。JSON 読み込みの後（refreshAfterImport）と同じ画面を描き直すが、取り消し履歴は空にせず、テーマも触らない
+     （取り消し履歴は今日のリストのもので、設定の変更とは関係ない）。POS の画面はメニュー・料金を描画時に cfg から作るので、開いていれば描き直す */
+  function redraw() {
+    const steps = [
+      () => typeof renderTable === 'function' && renderTable(),
+      () => typeof renderCastPanel === 'function' && renderCastPanel(),
+      () => typeof renderTimetable === 'function' && renderTimetable(),
+      () => {   // 古い入力欄のまま「保存する」を押して上書きしないため。描き直しでスクロールが先頭に戻らないよう、位置を保つ
+        if (typeof renderSettingsPanel !== 'function') return;
+        const y = typeof window !== 'undefined' && typeof window.scrollY === 'number' ? window.scrollY : null;
+        renderSettingsPanel();
+        if (y !== null && typeof window.scrollTo === 'function') window.scrollTo(0, y);
+      },
+      () => typeof updateStoreStatusBadge === 'function' && updateStoreStatusBadge(),
+      () => typeof wageLockSyncHeader === 'function' && wageLockSyncHeader(),
+      () => {
+        const tab = document.body?.dataset?.activeTab;
+        // 顧客一覧は、開いている時だけ描き直す（顧客を読みに行くので、顧客が読めない端末で、店の画面に読み込み失敗の知らせが出ないように）
+        if (tab === 'customer' && typeof renderCustomerTable === 'function') renderCustomerTable();
+        else if (tab === 'pos' && typeof renderPOSPanel === 'function') renderPOSPanel();
+        else if (tab === 'report' && typeof renderReportPanel === 'function') renderReportPanel();
+        else if (tab === 'analytics' && typeof renderBusinessAnalyticsPanel === 'function') renderBusinessAnalyticsPanel();
+      },
+    ];
+    steps.forEach(step => { try { step(); } catch (error) { console.warn('[RemoteSettings] redraw failed:', error); } });
+  }
+
+  /* 計画どおりに書き換える。戻り値 { ok:true, hashAfter, names } または { ok:false, reason }。保存に失敗したら、その場（同期）で元へ戻す */
+  function apply(plan) {
+    const before = { cfg, allCasts:state.allCasts, castProfiles:state.castProfiles, castDefaults:state.castDefaults };
+    const hasCfg = Object.keys(plan.cfg).length > 0;
+    const hasCasts = !!plan.allCasts || Object.keys(plan.profiles).length > 0 || Object.keys(plan.defaults).length > 0;
+    const restore = () => {
+      cfg = before.cfg;
+      state.allCasts = before.allCasts;
+      state.castProfiles = before.castProfiles;
+      state.castDefaults = before.castDefaults;
+    };
+    // 書き換えと保存は、待ちを挟まずに（同期で）行う。途中で失敗したら、ここで同じように同期で元へ戻すので、スタッフの操作が間に入ることはない
+    let saved = true;
+    try {
+      if (hasCfg) cfg = mergeCfgDefaults({ ...cfg, ...plan.cfg });
+      if (hasCasts) {
+        if (plan.allCasts) state.allCasts = plan.allCasts.slice();
+        if (Object.keys(plan.profiles).length) state.castProfiles = { ...(state.castProfiles || {}), ...plan.profiles };
+        if (Object.keys(plan.defaults).length) state.castDefaults = { ...(state.castDefaults || {}), ...plan.defaults };
+        ensureCastIds();   // キャストの変わらないIDだけを補う（ensureStableIds は顧客にも触れ、顧客が読めないとトーストが出る）
+      }
+    } catch (error) {
+      console.warn('[RemoteSettings] apply failed:', error);
+      saved = false;
+    }
+    // 設定とキャストは、片方の保存の例外でもう片方の保存が飛ばされないよう、別々に保存する
+    if (saved && hasCfg) { try { if (saveCfg() === false) saved = false; } catch (error) { console.warn('[RemoteSettings] saveCfg failed:', error); saved = false; } }
+    if (saved && hasCasts) { try { saveState(); if (Persist.writeBlockedReason) saved = false; } catch (error) { console.warn('[RemoteSettings] saveState failed:', error); saved = false; } }
+    if (!saved) {
+      restore();
+      if (hasCfg) { try { saveCfg(); } catch (_) {} }
+      if (hasCasts) { try { saveState(); } catch (_) {} }
+      return { ok:false, reason:'save_failed' };
+    }
+    redraw();
+    let hashAfter = '';
+    try { hashAfter = buildSettingsBackupDataset().hash; } catch (error) { console.warn('[RemoteSettings] hash failed:', error); }
+    const names = [...(hasCfg ? ['settings'] : []), ...(hasCasts ? ['listState'] : [])];
+    return { ok:true, hashAfter, names };
+  }
+
+  /* 保存先（USB）へ書き出して、書けたことを確かめる。USB保存でない端末は、書いた時点で保存済み。
+     isPersisted は「書き込み待ちの印が残っていないか」しか見ないので、書いている最中にスタッフの操作で保存が走る（書き込みの番号 _rev が進む）と
+     false になる。番号が進んでいる間だけ flush をやり直す（3回まで）。番号が進んでいないのに書けていない時（USB が壊れている等）は、やり直さず
+     すぐ打ち切る（UsbStore の失敗の知らせが余分に出ないように）。確かめられなくても、書き換えは巻き戻さない（巻き戻すと、その間のスタッフの編集も消えるため）。
+     USB の書き込みが返ってこない時のため、20秒で打ち切る（結果を送る列全体が止まらないように）。
+     戻り値: 'ok'（確かめられた）／'unconfirmed'（確かめられなかった。USB への書き込みは UsbStore が今までどおり試し直す）／
+     'stopped'（書いている間に別のタブへ書き込みを譲って止まったタブになった。開き直すと USB の中身を読むので、この変更は残らない） */
+  async function persisted(names) {
+    const revsOf = () => names.map(name => (UsbStore._rev && UsbStore._rev[name]) || 0);
+    const attempts = async () => {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const revs = revsOf();
+        try { await UsbStore.flush(names); } catch (_) {}
+        if (UsbStore._fenced) return 'stopped';
+        if (names.every(name => UsbStore.isPersisted(name))) return 'ok';
+        const now = revsOf();
+        if (!now.some((rev, index) => rev !== revs[index])) return 'unconfirmed';   // 番号が進んでいない: やり直しても同じ
+      }
+      return 'unconfirmed';
+    };
+    return Promise.race([attempts(), api._limit(PERSIST_LIMIT_MS).then(() => 'unconfirmed')]);
+  }
+
+  /* 結果を返せる状態か。店外モニターが有効で、店が同じで、店ごとの鍵がある時。
+     デモモード・時計を動かしている間でも、受けた依頼への返事（差し戻し demo_mode など）は返す。依頼は店ごとの鍵が合った /push の返事で来たもので、
+     返す中身は状態と理由・項目の path だけ（設定の値は返さない） */
+  function reportable(shopId) {
+    return !!(cfg.monitorEnabled && cfg.monitorEndpoint && shopId && cfg.monitorShopId === shopId && monitorShopKeyForSend(shopId));
+  }
+
+  /* 結果の返信。失敗しても例外は投げない（店の動きを止めない）。3回まで間をあけて送り直す */
+  /* 戻り値: 'ok'（届いた）／'stop'（送り直しても通らない返事・返せない状態。諦める）／'retry'（通信できなかった。あとで送り直す） */
+  async function post(target, fields) {
+    const endpoint = monitorBaseEndpoint() + '/settings-result';
+    let status = 0;
+    for (let attempt = 0; attempt <= RETRY_WAITS_MS.length; attempt++) {
+      if (attempt > 0) await api._sleep(RETRY_WAITS_MS[attempt - 1]);
+      // 返せる状態でなくなった（店外モニターを止めた・店が変わった・鍵が無い）ら、打ち切る
+      if (!reportable(target.shopId)) return 'stop';
+      const shopKey = monitorShopKeyForSend(target.shopId);
+      try {
+        const response = await fetch(endpoint, {
+          method:'POST',
+          headers:{ 'Content-Type':'text/plain' },
+          body:JSON.stringify({ shopId:target.shopId, shopKey, rid:target.rid, ...fields }),
+        });
+        if (response.ok) return 'ok';
+        status = response.status;
+        if (HARD_STOP.has(status)) { console.warn('[RemoteSettings] result report refused (HTTP ' + status + ')'); return 'stop'; }
+      } catch (_) {
+        status = 0;
+      }
+    }
+    console.warn('[RemoteSettings] result report failed' + (status ? ' (HTTP ' + status + ')' : ''));
+    return 'retry';
+  }
+
+  /* 結果を順番に送る。prepare があれば送る直前に呼び、返した値を送る内容にする（保存先に書けたかの確認）。
+     届かなかった最後の結果は覚えておき、以後の tick() でも送り直す */
+  function report(target, fields, prepare) {
+    const task = chain.then(async () => {
+      let send = fields;
+      if (prepare) { try { send = (await prepare()) || fields; } catch (_) { send = fields; } }
+      const outcome = await post(target, send);
+      if (outcome === 'retry') unsent = { target, fields:send };
+      else if (unsent && unsent.target === target) unsent = null;
+      return outcome === 'ok';
+    }).catch(() => false);
+    chain = task;
+    return task;
+  }
+
+  /* 届かなかった結果の送り直し（tick() から）。受け取ってから30分を過ぎたら諦める（Worker は期限切れにしている） */
+  function resend() {
+    const pending = unsent;
+    if (!pending || resending) return false;
+    if (now() - pending.target.receivedAt >= REPORT_LIMIT_MS) {
+      unsent = null;
+      console.info('[RemoteSettings] gave up reporting ' + pending.fields.status);
+      return false;
+    }
+    resending = true;
+    return report(pending.target, pending.fields).finally(() => { resending = false; });
+  }
+
+  /* 処理を終えて、結果を返す */
+  function finish(target, fields, prepare) {
+    if (job === target) job = null;
+    console.info('[RemoteSettings] ' + fields.status + (fields.reason ? ' (' + fields.reason + ')' : '')
+      + (fields.results ? ' ' + fields.results.length + ' changes' : ''));
+    return report(target, fields, prepare);
+  }
+
+  /* 今の指示を1歩進める。結果を返す送信の Promise、何も送らなければ false */
+  function step() {
+    const target = job;
+    if (!target) return false;
+    // 受け取って25分たった指示は、待つ理由が無くても書き換えずに終える（古い依頼で、あとから設定が変わらないように）
+    if (now() - target.receivedAt >= WAIT_LIMIT_MS) return finish(target, { status:'failed', reason:busyReason() ? 'busy_timeout' : 'too_late' });
+    const hard = hardReject();
+    if (hard) return finish(target, { status:'rejected', reason:hard });
+    const evaluated = evaluate(target.changes);
+    if (evaluated.malformed) return finish(target, { status:'rejected', reason:'invalid_request' });
+    // 差し戻す指示は、空くのを待たずにすぐ返す（待っても通らない）
+    if (evaluated.results.some(item => !item.ok)) return finish(target, { status:'rejected', results:evaluated.results });
+    const busy = busyReason();
+    if (busy) {
+      if (target.deferredSent) return false;
+      target.deferredSent = true;                     // 待機中は1回だけ返す
+      console.info('[RemoteSettings] deferred (' + busy + ')');
+      return report(target, { status:'deferred', reason:busy });
+    }
+    const outcome = apply(evaluated.plan);
+    if (!outcome.ok) return finish(target, { status:'failed', reason:outcome.reason });
+    const applied = { status:'applied', results:evaluated.results, hashAfter:outcome.hashAfter };
+    // 結果を返す前に、保存先まで書けたことを確かめる。確かめられなくても書き換えは残し、applied に reason:'save_unconfirmed' を付けて返す。
+    // 書いている間に止まったタブになった時だけ failed（stopped_tab）。そのタブは開き直すと USB の中身を読むので、変更は残らない（そのタブの中だけのことなので巻き戻しは要らない）
+    return finish(target, applied, async () => {
+      const outcomeOfSave = await persisted(outcome.names);
+      if (outcomeOfSave === 'ok') return applied;
+      if (outcomeOfSave === 'stopped') return { status:'failed', reason:'stopped_tab' };
+      return { ...applied, reason:'save_unconfirmed' };
+    });
+  }
+
+  /* 指示を受ける。書き換えは同じ呼び出しの中で済ませる（結果の返信だけが非同期）。
+     戻り値: 受けなかった（形が違う・前に受けた番号・送れない状態）なら false、受けたら結果を返す送信の Promise か true。 */
+  function handle(command) {
+    const rid = command?.rid;
+    if (typeof rid !== 'string' || !/^[0-9a-f]{32}$/.test(rid)) return false;
+    if (seen.has(rid) || (job && job.rid === rid)) return false;
+    if (!reportable(cfg.monitorShopId)) { console.info('[RemoteSettings] dropped a request (cannot report back)'); return false; }   // 結果を返せない状態では受けない
+    seen.add(rid);
+    if (seen.size > 20) seen.delete(seen.values().next().value);
+    if (job && now() - job.receivedAt >= WAIT_LIMIT_MS) step();   // 古い処理が残っていたら、先に終わらせる（failed を返す）
+    if (job) {
+      // まだ有効な処理中の指示がある。新しい指示を黙って捨てず、差し戻す（Worker は進行中の依頼があれば新しい依頼を作らないので、通常は起きない）
+      console.info('[RemoteSettings] rejected (busy)');
+      return report({ rid, shopId:cfg.monitorShopId, receivedAt:now() }, { status:'rejected', reason:'busy' });
+    }
+    job = { rid, shopId:cfg.monitorShopId, changes:command.changes, receivedAt:now(), deferredSent:false };
+    return step() || true;
+  }
+
+  /* 30秒ごとの送信のたびに呼ぶ（47e）。待っている指示があれば、空いたか・諦める時間かを見る */
+  function tick() {
+    const resent = resend();
+    return job ? (step() || true) : resent;
+  }
+
+  const api = {
+    handle,
+    tick,
+    /* テスト用: 結果の返信が全部終わるまで待つ */
+    async whenIdle() { let last; do { last = chain; await last; } while (last !== chain); },
+    _now: () => Date.now(),
+    _sleep: ms => new Promise(resolve => setTimeout(resolve, ms)),
+    _limit: ms => new Promise(resolve => setTimeout(resolve, ms)),   // テスト用に差し替える（USB の確認の打ち切り）
   };
   return api;
 })();
