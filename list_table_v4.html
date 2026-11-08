@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.129">
+<meta name="app-version" content="1.1.130">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -4626,6 +4626,18 @@ html[data-display="tablet"] #list-table .col-ctrl-btn { min-width: 32px; min-hei
   align-items: center;
   gap: 8px;
 }
+/* SETの明細が無い伝票の札（2026-11-08）。残り時間が出ない理由を卓ビューで分かるようにする */
+#pos-panel .pos-floor-noset {
+  align-self: flex-start;
+  padding: 3px 10px;
+  border-radius: 10px;
+  background: var(--pos-over);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  white-space: nowrap;
+}
 #pos-panel .pos-floor-timerange {
   color: var(--pos-tx2);
   font-family: var(--mono);
@@ -6253,6 +6265,12 @@ html[data-theme="night"] #summary-bar.has-pos-actions #summary-pos-actions .pos-
     color: #fff8e9;
   }
 
+  /* SET未入力の札。金のカードの上でも読めるよう、白地に濃い赤 */
+  html[data-theme="champagne"] #pos-panel .pos-floor-noset {
+    background: rgba(255, 250, 240, .95);
+    color: #a92430;
+    border: 1px solid #d86b72;
+  }
   html[data-theme="champagne"] #pos-panel .pos-floor-total { margin-top: auto; }
   html[data-theme="champagne"] #pos-panel .pos-floor-total small,
   html[data-theme="champagne"] #pos-panel .pos-floor-total b { color: inherit; }
@@ -17685,6 +17703,14 @@ function _posSlipTimerText(row) {
   return { text: String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0'), cls };
 }
 
+/* POSで作ったのにSETの明細が無い伝票（セット入力の画面で「セット追加」を押さずに離れた・履歴修正でSETを消した・
+   オーダーの「同伴」だけ後から足した）。この伝票は残り時間も状態の色も出ないので、卓カードに「SET未入力」の札を出す。
+   2026-11-08 chuchu の V3 で時間が出なかった件の再発防止。表示だけで、金額・保存・集計は変えない。 */
+function _posFloorSetMissing(row) {
+  if (!row || !row.posManaged || row.settled) return false;
+  return !(Array.isArray(row.posOrders) && row.posOrders.some(o => o && o.category === 'set'));
+}
+
 function _posFloorStatus(timer) {
   if (!timer || !timer.text) return 'none';
   if (timer.cls === 'waiting') return 'wait';
@@ -18975,6 +19001,7 @@ function _posFloorCard(row) {
     + (row.source ? '<span class="pos-floor-source">' + escHtml(row.source) + '</span>' : '')
     + '</span>'
     + statusRow
+    + (_posFloorSetMissing(row) ? '<span class="pos-floor-noset">⚠ SET未入力</span>' : '')
     + '<span class="pos-floor-casts">' + _posFloorCastChips(row) + '</span>'
     + (_posShowtimeEnabled() ? _posShowtimeCountHtml(row) : '')
     + '<span class="pos-floor-total"><small>累計</small><b data-pos-floor-total-gid="' + row.gid + '">¥' + posMoney(_posFloorTotal(row)) + '</b></span>'
