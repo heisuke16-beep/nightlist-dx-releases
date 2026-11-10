@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.130">
+<meta name="app-version" content="1.1.131">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -10314,11 +10314,13 @@ const CFG_DEFAULTS = {
   // --- 折半バック（メニューで「折半」にした品の（販売価格−仕入れ値）×率%。0=使わない） ---
   payrollMarginBackRate:             0,
   // --- 控除項目（店舗定義。空=控除機能オフ＝日計表の表示は従来どおり） ---
-  // key はラベル変更後も不変。mode: fixed=固定額 / rate=日給×率% / manual=都度手入力
-  payrollDeductions:             [],  // fixed/rate/manual=店舗計算、boolean=本部計算用○×記録
+  // key はラベル変更後も不変。mode: fixed=固定額 / rate=率%（かける額は payrollRateDeductionBase） / manual=都度手入力
+  payrollDeductions:             [],  // fixed/rate/manual=店舗計算、boolean=○×の記録だけ（金額は引かない）
   payrollDeductionDisplayField:  'dailyPay', // 控除票の金額欄: dailyPay | nominatedSales
   payrollDeductionDisplayPrint:  true, // 控除票の先頭金額欄をA4印刷する（画面・計算には影響しない）
   payrollDeductionNibaraiPrint:  false, // 控除票のA4印刷に日払いの列を出す（既定OFF＝今の店の紙はそのまま。画面・計算には影響しない）
+  // 率%の控除をかける額（2026-11-10）: daily=日給（遅刻罰金を引いた後。今まで通り）| beforeLate=遅刻罰金を引く前の日給。どちらもほかの控除を引く前の額
+  payrollRateDeductionBase:      'daily',
   payrollHiddenCols:             [],     // 日計表で非表示にする列ID（空=全列表示）
   castListOrder:                 'clockIn', // 出勤キャスト・日計表の並び: clockIn=出勤順 | roster=名簿順（固定） | custom=手動（ドラッグ）
   castListCustomOrder:           [],     // 手動（ドラッグ）で決めたキャスト名の並び
@@ -10339,6 +10341,11 @@ let _cfgNeedsDailyClosePresetMigration = false;   // 保存済みの設定に日
 
 function normalizePayrollDeductionDisplayField(value) {
   return value === 'nominatedSales' ? 'nominatedSales' : 'dailyPay';
+}
+
+/* 率%の控除をかける額。beforeLate 以外（壊れた保存値・古い保存データ）は daily（今まで通り）に戻す */
+function normalizePayrollRateDeductionBase(value) {
+  return value === 'beforeLate' ? 'beforeLate' : 'daily';
 }
 
 /* バックの端数単位（2026-10-30。キー名は payrollSplitRoundUnit のまま）。1・10・100 以外（壊れた保存値）は 1（今まで通り）に戻す */
@@ -10389,6 +10396,7 @@ function mergeCfgDefaults(saved) {
   // 旧設定に印刷フラグが無い場合は、従来どおり先頭金額欄を印刷する。
   merged.payrollDeductionDisplayPrint = merged.payrollDeductionDisplayPrint !== false;
   merged.payrollDeductionNibaraiPrint = merged.payrollDeductionNibaraiPrint === true;
+  merged.payrollRateDeductionBase = normalizePayrollRateDeductionBase(merged.payrollRateDeductionBase);
   // 締め日が壊れていても給与明細が開けなくならないよう、読み込み時に初期値へ戻す（2026-10-23）
   merged.payrollCloseDay = normalizePayrollCloseDay(merged.payrollCloseDay);
   merged.payrollHalfCloseDays = normalizePayrollHalfCloseDays(merged.payrollHalfCloseDays);
@@ -25661,7 +25669,7 @@ function _deductionSheetInnerHtml(src, opts = { plain:false }) {
 
 /* 控除1セル分の値を決める純関数（日計表の控除列・控除票の画面・印刷で共通）。
    ○×方式（boolean / flagFixed）は該当の有無だけを返す（flagFixedの金額は控除計に入る）。金額方式は、手修正があればその値、
-   無ければ自動計算値（fixed=固定額 / rate=日給×率 / manual=0）。 */
+   無ければ自動計算値（fixed=固定額 / rate=率%（かける額は設定の payrollRateDeductionBase） / manual=0）。 */
 function _deductionCellValue(item, calculated, manualDeductions) {
   const calc = calculated || {};
   if (isPayrollDeductionFlagMode(item.mode)) return { flag:true, checked:calc.checked === true, amount:Number(calc.amount) || 0 };
@@ -25853,7 +25861,7 @@ function _payrollSectionHtml(src) {
   const model = _payrollTableModel(src);
   const hasDeductions = typeof cfg !== 'undefined' && Array.isArray(cfg.payrollDeductions) && cfg.payrollDeductions.length > 0;
   const deductionNote = hasDeductions
-    ? '<span class="payroll-note">金額方式は店舗計算、○×方式は本部計算用の発生記録です</span>' : '';
+    ? '<span class="payroll-note">金額の控除は控除計・差引支給に入り、「○×の記録だけ」の項目は○×を残すだけです</span>' : '';
   return '<div id="report-payroll" class="agg-box" style="margin-top:18px">'
     + '<div class="agg-box-head">'
     + '<h3>日計表 <span class="payroll-note">※時給は表示されません（キャスト管理で管理）／社交名を固定して横にスクロールできます</span>' + deductionNote + '</h3>'
@@ -25876,7 +25884,7 @@ function _deductionSheetSectionHtml(src) {
   const hasDeductions = typeof cfg !== 'undefined' && Array.isArray(cfg.payrollDeductions) && cfg.payrollDeductions.length > 0;
   return '<div id="report-deduction" class="agg-box" style="margin-top:18px">'
     + '<div class="agg-box-head">'
-    + '<h3>控除票 <span class="payroll-note">※出勤キャスト全員。金額と○×は日計表に連動し、○×記録（本部計算）は控除計・差引支給に加算されません</span></h3>'
+    + '<h3>控除票 <span class="payroll-note">※出勤キャスト全員。金額と○×は日計表に連動し、「○×の記録だけ」の項目は控除計・差引支給に加算されません</span></h3>'
     + '<div class="agg-box-actions">'
     + '<button onclick="printDeductionSheet()"' + (hasDeductions ? '' : ' disabled') + '>🖨 印刷</button>'
     + '<button type="button" onclick="payrollDeductionSettingsOpenModal()" aria-label="控除項目を設定" title="控除項目を設定">⚙</button>'
@@ -34189,7 +34197,7 @@ async function applySettings() {
     payrollLateFineUnitMin, payrollLateFineAmt, payrollBottleSpRate, payrollSpMode, payrollSpFixed, defaultWage, payrollPeriod, payrollCloseDay, payrollHalfCloseDays,
     payrollDouhanAddsHonshimei, payrollDouhanAddsHonenFirst, payrollSpInBackTotal,
     payrollSlideTable, payrollSlideSource, payrollPeriodDeductions, payrollRoundMode, payrollRoundUnit,
-    payrollDeductions, payrollDeductionDisplayField, payrollDeductionDisplayPrint, payrollDeductionNibaraiPrint, payrollMergeDrinks,
+    payrollDeductions, payrollDeductionDisplayField, payrollDeductionDisplayPrint, payrollDeductionNibaraiPrint, payrollRateDeductionBase, payrollMergeDrinks,
     payrollHonshimeiBackMode, payrollHonshimeiBackRate, payrollHonshimeiBackHighRate, payrollHonshimeiBackHighThreshold,
     payrollDouhanBackMode, payrollDouhanBackRate, payrollHonshimeiBackBase, payrollDouhanBackBase, payrollCustomBacks, payrollMarginBackRate,
     payrollSplitRoundUnit,
@@ -34258,7 +34266,7 @@ async function applySettings() {
     payrollLateFineUnitMin, payrollLateFineAmt, payrollBottleSpRate, payrollSpMode, payrollSpFixed, defaultWage, payrollPeriod, payrollCloseDay, payrollHalfCloseDays,
     payrollDouhanAddsHonshimei, payrollDouhanAddsHonenFirst, payrollSpInBackTotal,
     payrollSlideTable, payrollSlideSource, payrollPeriodDeductions, payrollRoundMode, payrollRoundUnit,
-    payrollDeductions, payrollDeductionDisplayField, payrollDeductionDisplayPrint, payrollDeductionNibaraiPrint, payrollMergeDrinks,
+    payrollDeductions, payrollDeductionDisplayField, payrollDeductionDisplayPrint, payrollDeductionNibaraiPrint, payrollRateDeductionBase, payrollMergeDrinks,
     payrollHonshimeiBackMode, payrollHonshimeiBackRate, payrollHonshimeiBackHighRate, payrollHonshimeiBackHighThreshold,
     payrollDouhanBackMode, payrollDouhanBackRate, payrollHonshimeiBackBase, payrollDouhanBackBase, payrollCustomBacks, payrollMarginBackRate,
     payrollSplitRoundUnit,
@@ -34460,7 +34468,7 @@ function _payrollDeductionRowHTML(item) {
       <option value="attendFixed"${mode === 'attendFixed' ? ' selected' : ''}>出勤日だけ定額</option>
       <option value="rate"${mode === 'rate' ? ' selected' : ''}>率%</option>
       <option value="manual"${mode === 'manual' ? ' selected' : ''}>都度手入力</option>
-      <option value="boolean"${mode === 'boolean' ? ' selected' : ''}>○×記録（本部計算）</option>
+      <option value="boolean"${mode === 'boolean' ? ' selected' : ''}>○×の記録だけ</option>
       <option value="flagFixed"${mode === 'flagFixed' ? ' selected' : ''}>○×で固定額</option>
     </select></td>
     <td><span style="display:inline-flex;align-items:center;gap:4px"><input type="number" class="settings-input payroll-deduction-value" value="${mode === 'manual' || mode === 'boolean' ? 0 : (Number(row.value) || 0)}" step="${step}" style="width:88px"${disabled}><span class="payroll-deduction-unit" style="font-size:11px;color:var(--tx3)">${unit}</span></span></td>
@@ -34505,10 +34513,11 @@ function _payrollDeductionSettingsModalHtml() {
   const nibaraiPrint = cfg.payrollDeductionNibaraiPrint === true;
   return '<div id="payroll-deduction-settings-overlay" class="pos-co-overlay" onclick="if(event.target===this)payrollDeductionSettingsCloseModal()">'
     + '<div class="pos-co-panel pay-bd-panel" style="width:min(760px,96vw);max-width:760px">'
-    + '<div class="pay-bd-head"><div><div class="pay-bd-title">控除項目設定</div><div class="pay-bd-date">金額計算または本部へ渡す○×記録を設定（設定 → 💴 給与計算ルール →「控除・記録」と同じ内容です）</div></div><button type="button" class="pay-bd-close" onclick="payrollDeductionSettingsCloseModal()" aria-label="閉じる">×</button></div>'
+    + '<div class="pay-bd-head"><div><div class="pay-bd-title">控除項目設定</div><div class="pay-bd-date">金額を引く控除と、○×を残すだけの記録を設定（設定 → 💴 給与計算ルール →「控除・記録」と同じ内容です）</div></div><button type="button" class="pay-bd-close" onclick="payrollDeductionSettingsCloseModal()" aria-label="閉じる">×</button></div>'
     + '<div class="pay-bd-body" style="max-height:72vh;overflow-y:auto">'
     + '<div class="pay-settings-row" style="margin-bottom:12px"><div><label for="payroll-deduction-display-field">控除票の金額欄</label><p>画面には常に表示。紙へ出すかは右で選べます。</p></div><div class="pay-settings-inputs"><select id="payroll-deduction-display-field" class="settings-input"><option value="dailyPay"' + (displayField === 'dailyPay' ? ' selected' : '') + '>日給</option><option value="nominatedSales"' + (displayField === 'nominatedSales' ? ' selected' : '') + '>本指名売上</option></select><label style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap"><input type="checkbox" id="payroll-deduction-display-print"' + (displayPrint ? ' checked' : '') + '>印刷</label></div></div>'
     + '<div class="pay-settings-row" style="margin-bottom:12px"><div><label for="payroll-deduction-nibarai-print">控除票の日払い</label><p>画面には常に表示。紙にも出すときはチェックします。</p></div><div class="pay-settings-inputs"><label style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap"><input type="checkbox" id="payroll-deduction-nibarai-print"' + (nibaraiPrint ? ' checked' : '') + '>印刷</label></div></div>'
+    + '<div style="margin-bottom:12px">' + _payrollRateDeductionBaseRowHtml('payroll-rate-deduction-base') + '</div>'
     + '<div style="overflow-x:auto"><table class="pos-me-table" id="payroll-deduction-settings-table" style="min-width:590px">'
     + '<thead><tr><th>名称</th><th style="width:170px">方式</th><th style="width:130px">値</th><th style="width:70px">印刷</th><th style="width:56px"></th></tr></thead><tbody>'
     + items.map(_payrollDeductionRowHTML).join('') + '</tbody></table></div>'
@@ -34538,6 +34547,9 @@ function payrollDeductionSettingsSave() {
   );
   cfg.payrollDeductionDisplayPrint = document.getElementById('payroll-deduction-display-print')?.checked !== false;
   cfg.payrollDeductionNibaraiPrint = document.getElementById('payroll-deduction-nibarai-print')?.checked === true;
+  cfg.payrollRateDeductionBase = normalizePayrollRateDeductionBase(
+    document.getElementById('payroll-rate-deduction-base')?.value ?? cfg.payrollRateDeductionBase
+  );
   saveCfg();
   _payrollSettingsRefreshSummary();
   payrollDeductionSettingsCloseModal();
@@ -34811,7 +34823,7 @@ const PAYROLL_SETTINGS_KEYS = [
   'defaultWage', 'payrollClockInRoundMin', 'payrollClockOutRoundMin', 'payrollClockOutRoundThreshold',
   'payrollLateFineEnabled', 'payrollLateFineUnitMin', 'payrollLateFineAmt', 'payrollDouhanAddsHonshimei',
   'payrollDouhanAddsHonenFirst', 'payrollSpInBackTotal', 'payrollBottleSpRate', 'payrollSpMode', 'payrollSpFixed',
-  'payrollDeductions', 'payrollDeductionDisplayField', 'payrollDeductionDisplayPrint', 'payrollDeductionNibaraiPrint', 'payrollPeriodDeductions', 'payrollPeriod', 'payrollCloseDay', 'payrollHalfCloseDays', 'payrollSlideSource',
+  'payrollDeductions', 'payrollDeductionDisplayField', 'payrollDeductionDisplayPrint', 'payrollDeductionNibaraiPrint', 'payrollRateDeductionBase', 'payrollPeriodDeductions', 'payrollPeriod', 'payrollCloseDay', 'payrollHalfCloseDays', 'payrollSlideSource',
   'payrollSlideTable', 'payrollRoundMode', 'payrollRoundUnit',
   'payrollMergeDrinks',
   'payrollHonshimeiBackMode', 'payrollHonshimeiBackRate', 'payrollHonshimeiBackHighRate', 'payrollHonshimeiBackHighThreshold',
@@ -34856,7 +34868,23 @@ function _payrollSettingsSummaryHtml() {
   return '<div class="pay-settings-summary">' + PAYROLL_SETTINGS_GROUPS.map(([key, label]) =>
     '<button type="button" id="pay-settings-open-' + key + '" class="pay-settings-entry" onclick="payrollRulesOpenModal(\'' + key + '\')" aria-label="' + label + 'を編集">'
     + '<span><strong>' + label + '</strong><span>' + escHtml(summaries[key]) + '</span></span><span class="pay-settings-edit">編集 ›</span></button>'
-  ).join('') + '</div><div class="pay-settings-formula">日給 ＝ 時間給 ＋ バック合計 − 遅刻罰金<br>差引支給 ＝ 日給 − 日ごとの金額控除</div>';
+  ).join('') + '</div><div class="pay-settings-formula">日給 ＝ 時間給 ＋ バック合計 − 遅刻罰金<br>差引支給 ＝ 日給 − 日ごとの金額控除'
+    + ((cfg.payrollDeductions || []).some(item => item && item.mode === 'rate')
+      ? '<br>率%の控除 ＝ ' + (normalizePayrollRateDeductionBase(cfg.payrollRateDeductionBase) === 'beforeLate'
+        ? '（時間給 ＋ バック合計）× 率（遅刻罰金とほかの控除を引く前）' : '日給 × 率（ほかの控除を引く前）')
+      : '')
+    + '</div>';
+}
+
+/* 率%の控除をかける額の選択（2026-11-10）。給与計算ルールと控除項目設定の両方に出す */
+function _payrollRateDeductionBaseRowHtml(id) {
+  const base = normalizePayrollRateDeductionBase(cfg.payrollRateDeductionBase);
+  const opt = (value, label) => '<option value="' + value + '"' + (base === value ? ' selected' : '') + '>' + label + '</option>';
+  return '<div class="pay-settings-row"><div><label for="' + id + '">率%の控除をかける額</label>'
+    + '<p>率%は、ほかの控除を引く前のこの額にかけます（項目の並び順で金額は変わりません）。例：時間給とバックで20,000円・遅刻罰金1,000円（日給19,000円）の日に10%なら、「日給」を選ぶと控除は1,900円、「遅刻罰金を引く前の日給」を選ぶと2,000円。</p></div>'
+    + '<div class="pay-settings-inputs"><select id="' + id + '" class="settings-input">'
+    + opt('daily', '日給（遅刻罰金を引いた後）') + opt('beforeLate', '遅刻罰金を引く前の日給')
+    + '</select></div></div>';
 }
 
 function _payrollSettingsSectionHtml() {
@@ -34917,12 +34945,13 @@ function _payrollSettingsModalHtml() {
         </section>
         <section id="pay-settings-group-deductions" role="tabpanel" aria-labelledby="pay-settings-tab-deductions" data-pay-group="deductions" hidden>
           <h3>日ごとの控除・○×記録</h3>
-          <p class="pay-settings-note">日計表・控除票に表示。「○×記録」は本部への記録用で金額計算に含めません。「○×で固定額」は日計表で○にした日だけ、その金額を控除します。</p>
+          <p class="pay-settings-note">日計表・控除票に表示。「○×の記録だけ」は○×を残すだけで、金額は引きません（給与を別のところで計算する店向け）。「○×で固定額」は日計表で○にした日だけ、その金額を控除します。</p>
           <div class="pay-settings-row"><div><label for="cfg-payrollDeductionDisplayField">控除票の金額欄</label><p>画面には常に表示。紙へ出すかは右で選べます。</p></div><div class="pay-settings-inputs"><select id="cfg-payrollDeductionDisplayField" class="settings-input">${options([['dailyPay','日給'],['nominatedSales','本指名売上']],normalizePayrollDeductionDisplayField(cfg.payrollDeductionDisplayField))}</select><label style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap"><input type="checkbox" id="cfg-payrollDeductionDisplayPrint"${cfg.payrollDeductionDisplayPrint !== false ? ' checked' : ''}>印刷</label></div></div>
           <div class="pay-settings-row"><div><label for="cfg-payrollDeductionNibaraiPrint">控除票の日払い</label><p>画面には常に表示。紙にも出すときはチェックします。</p></div><div class="pay-settings-inputs"><label style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap"><input type="checkbox" id="cfg-payrollDeductionNibaraiPrint"${cfg.payrollDeductionNibaraiPrint === true ? ' checked' : ''}>印刷</label></div></div>
+          ${_payrollRateDeductionBaseRowHtml('cfg-payrollRateDeductionBase')}
           <div class="pay-settings-table-wrap"><table class="pos-me-table" id="cfg-payroll-deductions-table"><thead><tr><th>名称</th><th>方式</th><th>金額・率</th><th>印刷</th><th></th></tr></thead><tbody>${(cfg.payrollDeductions || []).map(_payrollDeductionRowHTML).join('')}</tbody></table></div>
           <div class="pay-settings-add"><button type="button" class="pos-me-add-btn" onclick="payrollDeductionAdd()">＋ 項目を追加</button>${PAYROLL_DEDUCTION_PRESETS.map(label => '<button type="button" class="btn" onclick="payrollDeductionAddPreset(\'' + escAttr(label) + '\')">＋ ' + label + '</button>').join('')}</div>
-          <details class="pay-settings-details"><summary>日ごとの控除の計算</summary><p>固定額は1日ごと、率は日給に対して計算します。都度手入力は日計表・控除票で入力します。</p></details>
+          <details class="pay-settings-details"><summary>日ごとの控除の計算</summary><p>差引支給 ＝ 日給 − 控除の合計。固定額は1日ごとに引きます。率%は「率%の控除をかける額」で選んだ額 × 率（1円未満は四捨五入）で、ほかの控除を引く前の額にかけます。率%の項目が2つあっても、どちらも同じ額にかけます（重ねて掛けません）。都度手入力は日計表・控除票で入力します。</p></details>
           <details class="pay-settings-details pay-settings-optional"${(cfg.payrollPeriodDeductions || []).length ? ' open' : ''}><summary>締めごとの控除 <span>${(cfg.payrollPeriodDeductions || []).length}項目</span></summary>
             <p>給与明細で期間ごとに計算します。日ごとの控除とは別に設定してください。</p>
             <div class="pay-settings-table-wrap"><table class="pos-me-table" id="cfg-payroll-period-deductions-table"><thead><tr><th>名称</th><th>方式</th><th>金額・率・速算表</th><th>非課税枠/日</th><th>未徴収を繰越</th><th></th></tr></thead><tbody>${(cfg.payrollPeriodDeductions || []).map(_payrollPeriodDeductionRowHTML).join('')}</tbody></table></div>
@@ -35174,6 +35203,8 @@ function _collectPayrollSettings(overlay) {
   result.payrollDeductionDisplayField = normalizePayrollDeductionDisplayField(get('payrollDeductionDisplayField')?.value);
   result.payrollDeductionDisplayPrint = get('payrollDeductionDisplayPrint')?.checked !== false;
   result.payrollDeductionNibaraiPrint = get('payrollDeductionNibaraiPrint')?.checked === true;
+  // 率%の控除をかける額（2026-11-10）。入力欄が無い画面では今の設定のまま
+  result.payrollRateDeductionBase = normalizePayrollRateDeductionBase(get('payrollRateDeductionBase') ? get('payrollRateDeductionBase').value : cfg.payrollRateDeductionBase);
   ['payrollPeriod','payrollSlideSource','payrollRoundMode'].forEach(key => { result[key] = get(key).value; });
   // 締め日（2026-10-23）。入力欄が無い画面では今の設定のまま。半月払いの2つの並びは payrollSettingsSave が保存前に確かめる
   result.payrollCloseDay = normalizePayrollCloseDay(get('payrollCloseDay') ? get('payrollCloseDay').value : cfg.payrollCloseDay);
@@ -38424,7 +38455,7 @@ function _payrollManualCounts(raw, keys) {
 
 /* dayKey/castName の手入力を取得（無ければ既定 {sp:0,nibarai:0,counts:{},deductions:{},deductionFlags:{}}）。state は変更しない。
    counts/deductions は「手修正されたキーのみ」を持つ（欠落＝自動値を使う合図）。
-   deductionFlags は本部計算用の○×記録で、金額上書きとは別領域に保存する。 */
+   deductionFlags は「○×の記録だけ」（金額は引かない）の○×で、金額上書きとは別領域に保存する。 */
 function getPayrollManual(dayKey, castName) {
   const day = (state.payrollManual && state.payrollManual[dayKey]) || null;
   const rec = (day && day[castName]) || null;
@@ -38493,7 +38524,7 @@ function setPayrollDeduction(dayKey, castName, key, value) {
   return rec.deductions[key];
 }
 
-/* 本部計算用の○×記録。金額上書きと混在させず、方式変更後も履歴を保つ。 */
+/* 「○×の記録だけ」の○×。金額上書きと混在させず、方式変更後も履歴を保つ。 */
 function setPayrollDeductionFlagValue(dayKey, castName, key, checked) {
   const day = _ensurePayrollManual(dayKey);
   const rec = day[castName] = day[castName] || {};
@@ -38503,7 +38534,7 @@ function setPayrollDeductionFlagValue(dayKey, castName, key, checked) {
   return rec.deductionFlags[key];
 }
 
-/* ○×で入力する控除方式。boolean=本部計算用の記録のみ（金額0）／flagFixed=○の日だけ固定額を控除。 */
+/* ○×で入力する控除方式。boolean=○×の記録だけ（金額0）／flagFixed=○の日だけ固定額を控除。 */
 function isPayrollDeductionFlagMode(mode) {
   return mode === 'boolean' || mode === 'flagFixed';
 }
@@ -38512,7 +38543,8 @@ function isPayrollDeductionFlagMode(mode) {
    当欠（touketsu=true）は出勤していないので、固定額（雑費・厚生費など）を自動では引かない。
    手入力した金額はそのまま使う（2026-10-20 オーナー指示）。 */
 /* attendFixed（出勤日だけ定額）は、出勤時刻が入っている日（attended=true）にだけ value を引く。当欠は0。
-   attended を渡さない呼び出し（旧来）は出勤ありとして扱う。 */
+   attended を渡さない呼び出し（旧来）は出勤ありとして扱う。
+   1つ目の引数は率%の控除をかける額（日給、または設定で遅刻罰金を引く前の日給）。率%だけがこの額を使う。 */
 function calcPayrollDeductions(dailyPay, items, overrides, flags, touketsu, attended) {
   const basePay = Math.max(0, Number(dailyPay) || 0);
   const manual = overrides && typeof overrides === 'object' ? overrides : {};
@@ -38703,7 +38735,11 @@ function computePayrollForCast(castName, prodByCast, opts) {
     ? cfg.payrollDeductions : [];
   // 手入力だけで日計表に残った子（出勤予定・売上・出退勤が無い）は、当欠と同じく固定額の控除を自動では引かない（2026-11-06）
   const noAutoFixed = touketsu || !!(opts.manualOnly && opts.manualOnly[castName]);
-  const deductionResult = calcPayrollDeductions(dailyPay, deductionItems, manualRec.deductions, manualRec.deductionFlags, noAutoFixed, !!inHHMM);
+  // 率%の控除をかける額（2026-11-10。アンベリールは「日給×0.9 のあとに遅刻罰金」）。既定は日給（遅刻罰金を引いた後）。
+  // どちらの場合も、ほかの控除を引く前の額にかける。日給・給率の値は変わらない
+  const rateBase = (typeof cfg !== 'undefined' && cfg && cfg.payrollRateDeductionBase === 'beforeLate')
+    ? dailyPay + lateFee : dailyPay;
+  const deductionResult = calcPayrollDeductions(rateBase, deductionItems, manualRec.deductions, manualRec.deductionFlags, noAutoFixed, !!inHHMM);
   const deductionTotal = deductionResult.total;
   const netPay = dailyPay - deductionTotal;
 
