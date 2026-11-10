@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.131">
+<meta name="app-version" content="1.1.132">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -10314,13 +10314,16 @@ const CFG_DEFAULTS = {
   // --- 折半バック（メニューで「折半」にした品の（販売価格−仕入れ値）×率%。0=使わない） ---
   payrollMarginBackRate:             0,
   // --- 控除項目（店舗定義。空=控除機能オフ＝日計表の表示は従来どおり） ---
-  // key はラベル変更後も不変。mode: fixed=固定額 / rate=率%（かける額は payrollRateDeductionBase） / manual=都度手入力
+  // key はラベル変更後も不変。mode: fixed=固定額 / rate=日給×率%（端数は payrollRateDeductionRound） / manual=都度手入力
   payrollDeductions:             [],  // fixed/rate/manual=店舗計算、boolean=○×の記録だけ（金額は引かない）
   payrollDeductionDisplayField:  'dailyPay', // 控除票の金額欄: dailyPay | nominatedSales
   payrollDeductionDisplayPrint:  true, // 控除票の先頭金額欄をA4印刷する（画面・計算には影響しない）
   payrollDeductionNibaraiPrint:  false, // 控除票のA4印刷に日払いの列を出す（既定OFF＝今の店の紙はそのまま。画面・計算には影響しない）
-  // 率%の控除をかける額（2026-11-10）: daily=日給（遅刻罰金を引いた後。今まで通り）| beforeLate=遅刻罰金を引く前の日給。どちらもほかの控除を引く前の額
-  payrollRateDeductionBase:      'daily',
+  // 遅刻罰金の扱い（2026-11-10 アンベリール）: inPay=日給の中で引く（今まで通り）| deduction=控除として引く
+  //   （日給は遅刻罰金を引く前の額になり、遅刻罰金は控除計に入る。率%の控除はその日給にかかる）
+  payrollLateFineMode:           'inPay',
+  // 率%の控除の端数（2026-11-10）: round1=1円未満を四捨五入（今まで通り）| ceil10=1の位を切り上げ | ceil100=10の位を切り上げ
+  payrollRateDeductionRound:     'round1',
   payrollHiddenCols:             [],     // 日計表で非表示にする列ID（空=全列表示）
   castListOrder:                 'clockIn', // 出勤キャスト・日計表の並び: clockIn=出勤順 | roster=名簿順（固定） | custom=手動（ドラッグ）
   castListCustomOrder:           [],     // 手動（ドラッグ）で決めたキャスト名の並び
@@ -10343,9 +10346,14 @@ function normalizePayrollDeductionDisplayField(value) {
   return value === 'nominatedSales' ? 'nominatedSales' : 'dailyPay';
 }
 
-/* 率%の控除をかける額。beforeLate 以外（壊れた保存値・古い保存データ）は daily（今まで通り）に戻す */
-function normalizePayrollRateDeductionBase(value) {
-  return value === 'beforeLate' ? 'beforeLate' : 'daily';
+/* 遅刻罰金の扱い。deduction 以外（壊れた保存値・古い保存データ）は inPay（今まで通り）に戻す */
+function normalizePayrollLateFineMode(value) {
+  return value === 'deduction' ? 'deduction' : 'inPay';
+}
+
+/* 率%の控除の端数。ceil10・ceil100 以外は round1（今まで通り）に戻す */
+function normalizePayrollRateDeductionRound(value) {
+  return value === 'ceil10' || value === 'ceil100' ? value : 'round1';
 }
 
 /* バックの端数単位（2026-10-30。キー名は payrollSplitRoundUnit のまま）。1・10・100 以外（壊れた保存値）は 1（今まで通り）に戻す */
@@ -10396,7 +10404,13 @@ function mergeCfgDefaults(saved) {
   // 旧設定に印刷フラグが無い場合は、従来どおり先頭金額欄を印刷する。
   merged.payrollDeductionDisplayPrint = merged.payrollDeductionDisplayPrint !== false;
   merged.payrollDeductionNibaraiPrint = merged.payrollDeductionNibaraiPrint === true;
-  merged.payrollRateDeductionBase = normalizePayrollRateDeductionBase(merged.payrollRateDeductionBase);
+  // v1.1.131 の「率%の控除をかける額＝遅刻罰金を引く前の日給」は、v1.1.132 で「遅刻罰金を控除として引く」に置き換えた（差引支給は同じ額）
+  if (merged.payrollRateDeductionBase === 'beforeLate' && !Object.prototype.hasOwnProperty.call(saved || {}, 'payrollLateFineMode')) {
+    merged.payrollLateFineMode = 'deduction';
+  }
+  delete merged.payrollRateDeductionBase;
+  merged.payrollLateFineMode = normalizePayrollLateFineMode(merged.payrollLateFineMode);
+  merged.payrollRateDeductionRound = normalizePayrollRateDeductionRound(merged.payrollRateDeductionRound);
   // 締め日が壊れていても給与明細が開けなくならないよう、読み込み時に初期値へ戻す（2026-10-23）
   merged.payrollCloseDay = normalizePayrollCloseDay(merged.payrollCloseDay);
   merged.payrollHalfCloseDays = normalizePayrollHalfCloseDays(merged.payrollHalfCloseDays);
@@ -13534,6 +13548,8 @@ function _payslipPreviewHtml(data, period) {
       + (notes.length ? '<small>（' + notes.map(_payslipEsc).join(' / ') + '）</small>' : '')
       + '</td><td class="num">' + _payslipYen(item.amount) + '</td></tr>';
   }).join('');
+  const lateFeeInDeductions = Number((data.deductions.find(item => item && item.key === '_lateFee') || {}).amount) || 0;
+  const lateFeeInPay = Math.max(0, (Number(data.lateFee) || 0) - lateFeeInDeductions);
   const dailyRows = data.dailyRows.map(row =>
     '<tr><td>' + _payslipEsc(_payslipMd(row.bizKey)) + '</td><td class="num">' + _payslipHm(row.workMinutes)
       + '</td><td class="num">' + _payslipYen(row.hourlyPay) + '</td><td class="num">' + _payslipYen(row.backTotal)
@@ -13553,7 +13569,8 @@ function _payslipPreviewHtml(data, period) {
     + '</div>'
     + (backRows ? '<h2>バック内訳</h2><table><thead><tr><th>項目</th><th>本数</th><th>金額</th></tr></thead><tbody>' + backRows + '</tbody></table>' : '')
     + '<div class="payslip-totals"><div><span>SP計</span><b>' + _payslipYen(data.sp) + '</b></div>'
-    + '<div><span>遅刻罰金計</span><b>−' + _payslipYen(data.lateFee) + '</b></div>'
+    // 遅刻罰金を控除として引いた日の分は「控除内訳」の遅刻罰金に出るので、ここでは日給の中で引いた分だけを出す（2026-11-10）
+    + (lateFeeInPay > 0 || lateFeeInDeductions === 0 ? '<div><span>遅刻罰金計</span><b>−' + _payslipYen(lateFeeInPay) + '</b></div>' : '')
     + '<div class="strong"><span>支給合計</span><b>' + _payslipYen(data.dailyPay) + '</b></div>'
     + (data.slideAdjustment ? '<div><span>スライド/保証時給調整<small>適用時給 ' + _payslipYen(data.slideAdjustment.appliedWage)
       + ' / 判定売上 ' + _payslipYen(data.slideAdjustment.baseSales) + '</small></span><b>+' + _payslipYen(data.slideAdjustment.amount) + '</b></div>' : '')
@@ -23850,7 +23867,7 @@ function _reportPeriodSwitchHtml() {
     + '.pay-bd-grid{display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);gap:12px;margin-top:12px}.pay-bd-section{min-width:0;border:1px solid var(--bdr);border-radius:10px;background:var(--sur2);overflow:hidden}.pay-bd-summary,.pay-bd-deductions{grid-column:1/-1}.pay-bd-section-head{display:flex;align-items:center;gap:8px;padding:10px 13px;border-bottom:1px solid var(--bdr);font-size:13px;font-weight:800;color:var(--tx)}.pay-bd-section-no{display:flex;align-items:center;justify-content:center;width:23px;height:23px;border:1px solid var(--bdr2);border-radius:50%;color:var(--tx3);font:800 10px var(--mono)}.pay-bd-section-body{padding:11px 13px}'
     + '.pay-bd-time-line{display:grid;grid-template-columns:1fr 22px 1fr;align-items:center;gap:6px;margin-bottom:10px}.pay-bd-time-box{padding:9px 10px;border:1px solid var(--bdr);border-radius:8px;background:var(--sur)}.pay-bd-time-box span{display:block;margin-bottom:3px;font-size:10px;color:var(--tx3)}.pay-bd-time-box b{font:800 17px var(--mono);color:var(--tx);font-variant-numeric:tabular-nums}.pay-bd-time-arrow{text-align:center;color:var(--tx3);font-weight:900}'
     + '.pay-bd-row{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:6px 0;border-top:1px solid var(--bdr);font-size:13px}.pay-bd-row:first-child{border-top:0}.pay-bd-row-label{min-width:0;color:var(--tx2)}.pay-bd-row-value{flex:0 0 auto;text-align:right;color:var(--tx);font:700 13px var(--mono);font-variant-numeric:tabular-nums}.pay-bd-row-total{margin-top:4px;padding-top:9px;border-top:1px solid var(--bdr2);font-weight:800}.pay-bd-row-total .pay-bd-row-label{color:var(--tx)}.pay-bd-row-total .pay-bd-row-value{font-size:15px}.pay-bd-empty{padding:4px 0 8px;color:var(--tx3);font-size:12px}.pay-bd-note{margin-top:8px;padding:7px 9px;border-left:2px solid var(--gold);background:var(--sur);color:var(--tx2);font-size:11px;line-height:1.5}'
-    + '.pay-bd-equation{display:grid;grid-template-columns:repeat(7,auto);align-items:end;justify-content:end;gap:8px;padding-bottom:10px;border-bottom:1px solid var(--bdr2);font-family:var(--mono);font-variant-numeric:tabular-nums}.pay-bd-equation-part{display:grid;gap:3px;text-align:right}.pay-bd-equation-part span{font-size:10px;color:var(--tx3)}.pay-bd-equation-part b{font-size:14px;color:var(--tx)}.pay-bd-equation-part .pay-bd-daily-value{color:var(--gold)}.pay-bd-equation-op{padding-bottom:1px;color:var(--tx3);font-weight:900}.pay-bd-rate{display:flex;justify-content:space-between;gap:16px;margin-top:12px;padding:10px 13px;border:1px solid var(--bdr);border-radius:9px;background:var(--sur2);font-size:12px;color:var(--tx2)}.pay-bd-rate b{color:var(--tx);font:800 13px var(--mono);text-align:right}'
+    + '.pay-bd-equation{display:grid;grid-template-columns:repeat(7,auto);align-items:end;justify-content:end;gap:8px;padding-bottom:10px;border-bottom:1px solid var(--bdr2);font-family:var(--mono);font-variant-numeric:tabular-nums}.pay-bd-equation-nolate{grid-template-columns:repeat(5,auto)}.pay-bd-equation-part{display:grid;gap:3px;text-align:right}.pay-bd-equation-part span{font-size:10px;color:var(--tx3)}.pay-bd-equation-part b{font-size:14px;color:var(--tx)}.pay-bd-equation-part .pay-bd-daily-value{color:var(--gold)}.pay-bd-equation-op{padding-bottom:1px;color:var(--tx3);font-weight:900}.pay-bd-rate{display:flex;justify-content:space-between;gap:16px;margin-top:12px;padding:10px 13px;border:1px solid var(--bdr);border-radius:9px;background:var(--sur2);font-size:12px;color:var(--tx2)}.pay-bd-rate b{color:var(--tx);font:800 13px var(--mono);text-align:right}'
     + '@media(max-width:680px){.pay-bd-payroll{width:min(96vw,760px);max-height:96vh}.pay-bd-payroll .pay-bd-head{align-items:flex-start;padding:12px}.pay-bd-head-actions{gap:6px}.pay-bd-print{padding:0 11px}.pay-bd-payroll .pay-bd-body{padding:12px}.pay-bd-hero{grid-template-columns:1fr;padding:13px}.pay-bd-hero-amount{grid-row:auto;grid-column:auto;text-align:left;font-size:27px}.pay-bd-grid{grid-template-columns:1fr}.pay-bd-summary,.pay-bd-deductions{grid-column:auto}.pay-bd-equation{grid-template-columns:1fr;justify-content:stretch}.pay-bd-equation-part{display:flex;justify-content:space-between;text-align:left}.pay-bd-equation-op{display:none}}'
     + '.payroll-table tr.pay-totalrow td{background:var(--sur2);font-weight:700;border-top:2px solid var(--bdr2);color:var(--tx)}'
     + '.payroll-table input.pay-in{box-sizing:border-box;width:42px;font-size:11px;padding:3px 2px;background:var(--sur2);color:var(--tx);border:1px solid var(--bdr2);border-radius:5px;text-align:right}'
@@ -24102,6 +24119,7 @@ function _payrollTableColumns(countCols, deductionItems, showPoints) {
     { id:'dailyPay', group:'pay', label:'日給', cell:(x, start) => _payrollTd(x.hasOut ? _payYen(x.r.dailyPay) : '（時給未確定）', 'pay-daily' + (x.hasOut ? '' : ' pay-muted'), start), total:(x, start) => _payrollTd(_payYen(x.tot.daily), 'pay-daily', start) },
     // マイナスの金額は「控除」の見出しにまとめる（表示列の設定も同じ欄。2026-10-18 オーナー決定）。
     // 遅刻は日給の中で引く額なので控除計には入らないが、見出しをつなげるため日給の後ろに置く
+    // （「遅刻罰金を控除として引く」店では、遅刻罰金は日給に含めず控除計に入る。この列の金額は同じ）
     { id:'late', group:'deduction', label:'遅刻', cell:(x, start) => _payrollTd(x.r.lateFee ? '-' + _payYen(x.r.lateFee) : '—', 'pay-amt' + (x.r.lateFee ? '' : ' pay-muted'), start), total:(x, start) => _payrollTd(x.tot.late ? '-' + _payYen(x.tot.late) : '—', 'pay-amt', start) },
     // 控除は項目ごとに表示・非表示を選べる（2026-10-18 オーナー「罰金と送迎、制服を個別項目にして」）
     ...deductionItems.map((item, index) => ({
@@ -25286,8 +25304,10 @@ function _payrollBreakdownData(r, src, countCols) {
   countCols = countCols || _payrollCountCols([r], {});
   const workMinutes = Math.max(0, Number(r.workMinutes) || 0);
   const withAdvance = _payrollWithAdvance(r);
+  const lateMinutes = Number(r.chikokuMin) || 0;
   const deductionItems = (Array.isArray(r.deductions) ? r.deductions : []).map(item => ({
-    label:String(item.label || ''),
+    // 遅刻罰金を控除として引いた日の遅刻罰金の行には、遅刻した分数を付ける（支給計算の式から遅刻が消えるため）
+    label:String(item.label || '') + (item.key === '_lateFee' && lateMinutes ? `（${lateMinutes}分）` : ''),
     value:item.mode === 'boolean' ? _payrollDeductionMark(item)
       : (item.mode === 'flagFixed' ? (item.checked === true ? '○ ' + _payYen(item.amount) : '×') : _payYen(item.amount)),
   }));
@@ -25325,6 +25345,8 @@ function _payrollBreakdownData(r, src, countCols) {
     backTotal:Number(r.backTotal) || 0,
     lateFee:Number(r.lateFee) || 0,
     lateMinutes:Number(r.chikokuMin) || 0,
+    // 遅刻罰金を控除として引いた日（控除の並びに遅刻罰金の行がある日。締めた日の控えでも分かる）
+    lateInDeductions:!!_payrollLateFeeDeduction(r),
     dailyPay:Number(r.dailyPay) || 0,
     deductionItems,
     deductions:deductionItems.concat([{ label:'日払い', value:_payYen(withAdvance.nibarai) }]),
@@ -25371,7 +25393,7 @@ function _payrollBreakdownHtml(r, src, countCols) {
             <div class="pay-bd-row"><span class="pay-bd-row-label">勤務時間</span><span class="pay-bd-row-value">${d.workLabel}</span></div><div class="pay-bd-row"><span class="pay-bd-row-label">時間給</span><span class="pay-bd-row-value">${_payYen(d.hourlyPay)}</span></div>${(d.checkoutPending && !d.touketsu && !d.manualOnly) ? '<div class="pay-bd-note">退勤未入力のため、時間給は未確定です</div>' : ''}
           </div></section>
           <section class="pay-bd-section"><div class="pay-bd-section-head"><span class="pay-bd-section-no">02</span>バック内訳</div><div class="pay-bd-section-body">${backRows || '<div class="pay-bd-empty">本数バックはありません</div>'}${d.prodBack ? '<div class="pay-bd-row"><span class="pay-bd-row-label">商品バック</span><span class="pay-bd-row-value">' + _payYen(d.prodBack) + '</span></div>' : ''}<div class="pay-bd-row"><span class="pay-bd-row-label">SP${d.spExcluded ? '（参考）' : ''}</span><span class="pay-bd-row-value">${_payYen(d.sp)}</span></div><div class="pay-bd-row pay-bd-row-total"><span class="pay-bd-row-label">バック合計</span><span class="pay-bd-row-value">${_payYen(d.backTotal)}</span></div>${d.spExcluded ? '<div class="pay-bd-note">SPは参考表示です。日給には含まれません</div>' : ''}</div></section>
-          <section class="pay-bd-section pay-bd-summary"><div class="pay-bd-section-head"><span class="pay-bd-section-no">03</span>支給計算</div><div class="pay-bd-section-body"><div class="pay-bd-equation"><div class="pay-bd-equation-part"><span>時間給</span><b>${_payYen(d.hourlyPay)}</b></div><span class="pay-bd-equation-op">＋</span><div class="pay-bd-equation-part"><span>バック</span><b>${_payYen(d.backTotal)}</b></div><span class="pay-bd-equation-op">−</span><div class="pay-bd-equation-part"><span>遅刻 ${d.lateMinutes ? `(${d.lateMinutes}分)` : ''}</span><b>${_payYen(d.lateFee)}</b></div><span class="pay-bd-equation-op">＝</span><div class="pay-bd-equation-part"><span>日給</span><b class="pay-bd-daily-value">${_payYen(d.dailyPay)}</b></div></div></div></section>
+          <section class="pay-bd-section pay-bd-summary"><div class="pay-bd-section-head"><span class="pay-bd-section-no">03</span>支給計算</div><div class="pay-bd-section-body"><div class="pay-bd-equation${d.lateInDeductions ? " pay-bd-equation-nolate" : ""}"><div class="pay-bd-equation-part"><span>時間給</span><b>${_payYen(d.hourlyPay)}</b></div><span class="pay-bd-equation-op">＋</span><div class="pay-bd-equation-part"><span>バック</span><b>${_payYen(d.backTotal)}</b></div>${d.lateInDeductions ? '' : `<span class="pay-bd-equation-op">−</span><div class="pay-bd-equation-part"><span>遅刻 ${d.lateMinutes ? `(${d.lateMinutes}分)` : ''}</span><b>${_payYen(d.lateFee)}</b></div>`}<span class="pay-bd-equation-op">＝</span><div class="pay-bd-equation-part"><span>日給</span><b class="pay-bd-daily-value">${_payYen(d.dailyPay)}</b></div></div></div></section>
           <section class="pay-bd-section pay-bd-deductions"><div class="pay-bd-section-head"><span class="pay-bd-section-no">04</span>控除・記録</div><div class="pay-bd-section-body">${deductionRows}<div class="pay-bd-row pay-bd-row-total"><span class="pay-bd-row-label">控除計</span><span class="pay-bd-row-value">${_payYen(d.deductionTotal)}</span></div></div></section>
         </div>
         <div class="pay-bd-rate"><span>給率</span><b>${escHtml(d.rateLabel)}</b></div>
@@ -25422,8 +25444,8 @@ function _payrollBreakdownPrintDocument(r, src, countCols) {
     + '<section class="sec"><h2>給与</h2>' + row('時給', _payYen(d.wage)) + row('時間給', _payYen(d.hourlyPay)) + '</section>'
     + '<section class="sec"><h2>バック</h2><table class="backs"><tbody>' + (backRows || '<tr><td class="empty" colspan="3">バックなし</td></tr>') + '</tbody></table>'
     + row('バック合計', _payYen(d.backTotal), 'total') + '</section>'
-    + (d.lateFee ? '<div class="sec">' + row('遅刻罰金', '−' + _payYen(d.lateFee)) + '</div>' : '')
-    + '<div class="gross"><span>支給合計</span><b>' + _payYen(d.dailyPay) + '</b></div><div class="calc">時間給 ＋ バック合計' + (d.lateFee ? ' − 遅刻罰金' : '') + '</div>'
+    + (d.lateFee && !d.lateInDeductions ? '<div class="sec">' + row('遅刻罰金', '−' + _payYen(d.lateFee)) + '</div>' : '')
+    + '<div class="gross"><span>支給合計</span><b>' + _payYen(d.dailyPay) + '</b></div><div class="calc">時間給 ＋ バック合計' + (d.lateFee && !d.lateInDeductions ? ' − 遅刻罰金' : '') + '</div>'
     + '<div class="sec">' + row('売上', _payYen(d.sales)) + row('給率', escHtml(d.rateText)) + '</div>'
     + '<section class="sec"><h2>控除</h2>' + deductionHtml + '</section>'
     + (d.nibarai ? '<div class="advance">本日の日払い済み ' + _payYen(d.nibarai) + '</div>' : '')
@@ -25618,9 +25640,11 @@ function _deductionSheetInnerHtml(src, opts = { plain:false }) {
     return '<div class="agg-side-empty" style="padding:24px;text-align:center">出勤キャストがいません</div>';
   }
   const checkouts = (src.tt && src.tt.checkouts) || {};
-  const tot = { display:0, nibarai:0, deduction:0, net:0 };
+  const tot = { display:0, late:0, nibarai:0, deduction:0, net:0 };
+  const showLate = _deductionSheetShowsLateFee(rows);
   const head = '<thead><tr><th class="pay-name">社交名</th><th>' + displayColumn.label + '</th>'
     + deductionItems.map(item => '<th>' + escHtml(item.label || '') + '</th>').join('')
+    + (showLate ? '<th>遅刻罰金</th>' : '')
     + '<th>日払い</th><th>控除計</th><th>差引支給</th></tr></thead>';
   const body = rows.map(r => {
     const c = r.castName;
@@ -25649,10 +25673,13 @@ function _deductionSheetInnerHtml(src, opts = { plain:false }) {
       return '<td>' + _deductionCellInputHtml(cell, cj, item.key) + '</td>';
     }).join('');
     const hasRecordedFlag = (r.deductions || []).some(item => isPayrollDeductionFlagMode(item.mode) && item.checked === true);
+    const lateAmount = Number((_payrollLateFeeDeduction(r) || {}).amount) || 0;
+    if (hasOut) tot.late += lateAmount;
     return '<tr' + (!hasOut || (withAdvance.deductionTotal === 0 && !hasRecordedFlag) ? ' class="ded-zero"' : '') + '>'
       + '<td class="pay-name">' + escHtml(c) + _payrollTouketsuMark(r) + '</td>'
       + '<td class="pay-daily' + (displayReady ? '' : ' pay-muted') + '">' + (displayReady ? _payYen(displayValue) : '（時給未確定）') + '</td>'
       + cells
+      + (showLate ? '<td>' + (hasOut ? _payYen(lateAmount) : '') + '</td>' : '')
       + '<td>' + (withAdvance.nibarai ? _payYen(withAdvance.nibarai) : '') + '</td>'
       + '<td class="pay-total' + (hasOut ? '' : ' pay-muted') + '">' + (hasOut ? _payYen(withAdvance.deductionTotal) : '—') + '</td>'
       + '<td class="pay-net' + (hasOut ? '' : ' pay-muted') + '">' + (hasOut ? _payYen(withAdvance.netPay) : '（時給未確定）') + '</td>'
@@ -25660,6 +25687,7 @@ function _deductionSheetInnerHtml(src, opts = { plain:false }) {
   }).join('');
   const totalRow = '<tr class="pay-totalrow"><td class="pay-name">合計</td><td>' + _payYen(tot.display) + '</td>'
     + deductionItems.map(() => '<td></td>').join('')
+    + (showLate ? '<td>' + _payYen(tot.late) + '</td>' : '')
     + '<td>' + _payYen(tot.nibarai) + '</td>'
     + '<td class="pay-total">' + _payYen(tot.deduction) + '</td>'
     + '<td class="pay-net">' + _payYen(tot.net) + '</td></tr>';
@@ -25669,7 +25697,7 @@ function _deductionSheetInnerHtml(src, opts = { plain:false }) {
 
 /* 控除1セル分の値を決める純関数（日計表の控除列・控除票の画面・印刷で共通）。
    ○×方式（boolean / flagFixed）は該当の有無だけを返す（flagFixedの金額は控除計に入る）。金額方式は、手修正があればその値、
-   無ければ自動計算値（fixed=固定額 / rate=率%（かける額は設定の payrollRateDeductionBase） / manual=0）。 */
+   無ければ自動計算値（fixed=固定額 / rate=日給×率%（端数は設定の payrollRateDeductionRound） / manual=0）。 */
 function _deductionCellValue(item, calculated, manualDeductions) {
   const calc = calculated || {};
   if (isPayrollDeductionFlagMode(item.mode)) return { flag:true, checked:calc.checked === true, amount:Number(calc.amount) || 0 };
@@ -25696,6 +25724,18 @@ function _deductionSheetDisplayColumn() {
     : { field, label:'日給', requiresCheckout:true, value:row => Number(row?.dailyPay) || 0 };
 }
 
+/* 遅刻罰金を控除として引いた日の遅刻罰金の行（無ければ null）。key '_lateFee' は 48-payroll-engine.js の PAYROLL_LATE_FEE_DEDUCTION_KEY */
+function _payrollLateFeeDeduction(r) {
+  return (Array.isArray(r && r.deductions) ? r.deductions : []).find(item => item && item.key === '_lateFee') || null;
+}
+
+/* 控除票に遅刻罰金の列を出すか（2026-11-10）。設定が「控除として引く」の店か、その日の行に遅刻罰金の行がある時 */
+function _deductionSheetShowsLateFee(rows) {
+  return (typeof cfg !== 'undefined' && cfg && cfg.payrollLateFineMode === 'deduction'
+      && Array.isArray(cfg.payrollDeductions) && cfg.payrollDeductions.length > 0)
+    || (rows || []).some(r => !!_payrollLateFeeDeduction(r));
+}
+
 function _deductionSheetPrintTableHtml(src) {
   const model = _payrollTableModel(src);
   src = model.src;
@@ -25708,9 +25748,13 @@ function _deductionSheetPrintTableHtml(src) {
   const printableItems = deductionItems.map((item, index) => ({ item, index })).filter(({ item }) => item.print !== false);
   // 日払いの列は設定でONにした店だけ（既定OFF＝今の店の紙はそのまま）。画面の控除票は常に日払いを出す。
   const nibaraiPrintable = typeof cfg !== 'undefined' && cfg.payrollDeductionNibaraiPrint === true;
+  // 遅刻罰金を控除として引く店は、紙にも遅刻罰金の列を出す（日給の欄が遅刻罰金を引く前の額になるため。2026-11-10）
+  const latePrintable = _deductionSheetShowsLateFee(rows);
   const checkouts = (src.tt && src.tt.checkouts) || {};
   let displayTotal = 0;
   let displayCount = 0;
+  let lateTotal = 0;
+  let lateCount = 0;
   let nibaraiTotal = 0;
   let nibaraiCount = 0;
   const totals = printableItems.map(() => 0);
@@ -25719,6 +25763,7 @@ function _deductionSheetPrintTableHtml(src) {
   const displayYen = value => '¥' + (Number(value) || 0).toLocaleString();
   const head = '<thead><tr><th>No.</th><th>名前</th>' + (displayPrintable ? '<th>' + displayColumn.label + '</th>' : '')
     + printableItems.map(({ item }) => '<th>' + escHtml(item.label || '') + '</th>').join('')
+    + (latePrintable ? '<th>遅刻罰金</th>' : '')
     + (nibaraiPrintable ? '<th>日払い</th>' : '')
     + '</tr></thead>';
   const bodyRows = rows.map(r => {
@@ -25739,6 +25784,9 @@ function _deductionSheetPrintTableHtml(src) {
       if (cell.value > 0) counts[printableIndex] += 1;
       return '<td class="amt">' + yen(cell.value) + '</td>';
     }).join('');
+    const lateAmount = Number((_payrollLateFeeDeduction(r) || {}).amount) || 0;
+    lateTotal += lateAmount;
+    if (lateAmount > 0) lateCount += 1;
     const nibarai = Number(r.nibarai) || 0;
     nibaraiTotal += nibarai;
     if (nibarai > 0) nibaraiCount += 1;
@@ -25747,19 +25795,23 @@ function _deductionSheetPrintTableHtml(src) {
     const castNo = hasCastNo ? String(profile.no) : '';
     return '<tr><td class="cno">' + escHtml(castNo) + '</td><td class="nm">' + escHtml(c) + '</td>'
       + (displayPrintable ? '<td class="amt">' + (displayReady ? displayYen(displayValue) : '¥') + '</td>' : '') + cells
+      + (latePrintable ? '<td class="amt">' + yen(lateAmount) + '</td>' : '')
       + (nibaraiPrintable ? '<td class="amt">' + yen(nibarai) + '</td>' : '') + '</tr>';
   });
   const rowCount = Math.max(25, rows.length);
   for (let rowIndex = rows.length; rowIndex < rowCount; rowIndex += 1) {
     bodyRows.push('<tr><td class="cno"></td><td class="nm"></td>' + (displayPrintable ? '<td class="amt">¥</td>' : '')
       + printableItems.map(({ item }) => '<td class="amt">' + (isPayrollDeductionFlagMode(item.mode) ? '' : '¥') + '</td>').join('')
+      + (latePrintable ? '<td class="amt">¥</td>' : '')
       + (nibaraiPrintable ? '<td class="amt">¥</td>' : '') + '</tr>');
   }
   const sumRow = '<tr class="sum"><td class="cno"></td><td class="nm">合計</td>' + (displayPrintable ? '<td class="amt">' + displayYen(displayTotal) + '</td>' : '')
     + totals.map((value, index) => '<td class="amt">' + (isPayrollDeductionFlagMode(printableItems[index]?.item.mode) ? '—' : yen(value)) + '</td>').join('')
+    + (latePrintable ? '<td class="amt">' + yen(lateTotal) + '</td>' : '')
     + (nibaraiPrintable ? '<td class="amt">' + yen(nibaraiTotal) + '</td>' : '') + '</tr>';
   const countRow = '<tr class="sum"><td class="cno"></td><td class="nm">人数</td>' + (displayPrintable ? '<td class="amt">' + displayCount + ' 人</td>' : '')
     + counts.map(value => '<td class="amt">' + value + ' 人</td>').join('')
+    + (latePrintable ? '<td class="amt">' + lateCount + ' 人</td>' : '')
     + (nibaraiPrintable ? '<td class="amt">' + nibaraiCount + ' 人</td>' : '') + '</tr>';
   return '<table class="ded">' + head + '<tbody>' + bodyRows.join('') + sumRow + countRow + '</tbody></table>';
 }
@@ -25841,7 +25893,11 @@ function exportPayrollCSV() {
       r.sp||0, r.backTotal||0, r.lateFee||0, r.nibarai||0,
       hasOut ? r.dailyPay : '',
     ];
-    out.push([...baseRow, ...(r.deductions || []).map(item => item.mode === 'boolean' ? _payrollDeductionMark(item) : item.amount),
+    // 控除の欄は設定の項目の位置どおりに並べる（遅刻罰金を控除として引く日の遅刻罰金の行は、上の「遅刻」の列に出ている）
+    out.push([...baseRow, ...deductionItems.map((_, index) => {
+      const item = (r.deductions || [])[index];
+      return !item ? '' : (item.mode === 'boolean' ? _payrollDeductionMark(item) : item.amount);
+    }),
       ...(deductionItems.length ? [_payrollWithAdvance(r).deductionTotal, hasOut ? _payrollWithAdvance(r).netPay : ''] : []),
       r.kyuuritsu == null ? '' : r.kyuuritsu.toFixed(1)]);
   });
@@ -34197,7 +34253,7 @@ async function applySettings() {
     payrollLateFineUnitMin, payrollLateFineAmt, payrollBottleSpRate, payrollSpMode, payrollSpFixed, defaultWage, payrollPeriod, payrollCloseDay, payrollHalfCloseDays,
     payrollDouhanAddsHonshimei, payrollDouhanAddsHonenFirst, payrollSpInBackTotal,
     payrollSlideTable, payrollSlideSource, payrollPeriodDeductions, payrollRoundMode, payrollRoundUnit,
-    payrollDeductions, payrollDeductionDisplayField, payrollDeductionDisplayPrint, payrollDeductionNibaraiPrint, payrollRateDeductionBase, payrollMergeDrinks,
+    payrollDeductions, payrollDeductionDisplayField, payrollDeductionDisplayPrint, payrollDeductionNibaraiPrint, payrollLateFineMode, payrollRateDeductionRound, payrollMergeDrinks,
     payrollHonshimeiBackMode, payrollHonshimeiBackRate, payrollHonshimeiBackHighRate, payrollHonshimeiBackHighThreshold,
     payrollDouhanBackMode, payrollDouhanBackRate, payrollHonshimeiBackBase, payrollDouhanBackBase, payrollCustomBacks, payrollMarginBackRate,
     payrollSplitRoundUnit,
@@ -34266,7 +34322,7 @@ async function applySettings() {
     payrollLateFineUnitMin, payrollLateFineAmt, payrollBottleSpRate, payrollSpMode, payrollSpFixed, defaultWage, payrollPeriod, payrollCloseDay, payrollHalfCloseDays,
     payrollDouhanAddsHonshimei, payrollDouhanAddsHonenFirst, payrollSpInBackTotal,
     payrollSlideTable, payrollSlideSource, payrollPeriodDeductions, payrollRoundMode, payrollRoundUnit,
-    payrollDeductions, payrollDeductionDisplayField, payrollDeductionDisplayPrint, payrollDeductionNibaraiPrint, payrollRateDeductionBase, payrollMergeDrinks,
+    payrollDeductions, payrollDeductionDisplayField, payrollDeductionDisplayPrint, payrollDeductionNibaraiPrint, payrollLateFineMode, payrollRateDeductionRound, payrollMergeDrinks,
     payrollHonshimeiBackMode, payrollHonshimeiBackRate, payrollHonshimeiBackHighRate, payrollHonshimeiBackHighThreshold,
     payrollDouhanBackMode, payrollDouhanBackRate, payrollHonshimeiBackBase, payrollDouhanBackBase, payrollCustomBacks, payrollMarginBackRate,
     payrollSplitRoundUnit,
@@ -34517,7 +34573,7 @@ function _payrollDeductionSettingsModalHtml() {
     + '<div class="pay-bd-body" style="max-height:72vh;overflow-y:auto">'
     + '<div class="pay-settings-row" style="margin-bottom:12px"><div><label for="payroll-deduction-display-field">控除票の金額欄</label><p>画面には常に表示。紙へ出すかは右で選べます。</p></div><div class="pay-settings-inputs"><select id="payroll-deduction-display-field" class="settings-input"><option value="dailyPay"' + (displayField === 'dailyPay' ? ' selected' : '') + '>日給</option><option value="nominatedSales"' + (displayField === 'nominatedSales' ? ' selected' : '') + '>本指名売上</option></select><label style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap"><input type="checkbox" id="payroll-deduction-display-print"' + (displayPrint ? ' checked' : '') + '>印刷</label></div></div>'
     + '<div class="pay-settings-row" style="margin-bottom:12px"><div><label for="payroll-deduction-nibarai-print">控除票の日払い</label><p>画面には常に表示。紙にも出すときはチェックします。</p></div><div class="pay-settings-inputs"><label style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap"><input type="checkbox" id="payroll-deduction-nibarai-print"' + (nibaraiPrint ? ' checked' : '') + '>印刷</label></div></div>'
-    + '<div style="margin-bottom:12px">' + _payrollRateDeductionBaseRowHtml('payroll-rate-deduction-base') + '</div>'
+    + '<div style="margin-bottom:12px">' + _payrollDeductionCalcRowsHtml('payroll-late-fine-mode', 'payroll-rate-deduction-round') + '</div>'
     + '<div style="overflow-x:auto"><table class="pos-me-table" id="payroll-deduction-settings-table" style="min-width:590px">'
     + '<thead><tr><th>名称</th><th style="width:170px">方式</th><th style="width:130px">値</th><th style="width:70px">印刷</th><th style="width:56px"></th></tr></thead><tbody>'
     + items.map(_payrollDeductionRowHTML).join('') + '</tbody></table></div>'
@@ -34547,8 +34603,11 @@ function payrollDeductionSettingsSave() {
   );
   cfg.payrollDeductionDisplayPrint = document.getElementById('payroll-deduction-display-print')?.checked !== false;
   cfg.payrollDeductionNibaraiPrint = document.getElementById('payroll-deduction-nibarai-print')?.checked === true;
-  cfg.payrollRateDeductionBase = normalizePayrollRateDeductionBase(
-    document.getElementById('payroll-rate-deduction-base')?.value ?? cfg.payrollRateDeductionBase
+  cfg.payrollLateFineMode = normalizePayrollLateFineMode(
+    document.getElementById('payroll-late-fine-mode')?.value ?? cfg.payrollLateFineMode
+  );
+  cfg.payrollRateDeductionRound = normalizePayrollRateDeductionRound(
+    document.getElementById('payroll-rate-deduction-round')?.value ?? cfg.payrollRateDeductionRound
   );
   saveCfg();
   _payrollSettingsRefreshSummary();
@@ -34823,7 +34882,7 @@ const PAYROLL_SETTINGS_KEYS = [
   'defaultWage', 'payrollClockInRoundMin', 'payrollClockOutRoundMin', 'payrollClockOutRoundThreshold',
   'payrollLateFineEnabled', 'payrollLateFineUnitMin', 'payrollLateFineAmt', 'payrollDouhanAddsHonshimei',
   'payrollDouhanAddsHonenFirst', 'payrollSpInBackTotal', 'payrollBottleSpRate', 'payrollSpMode', 'payrollSpFixed',
-  'payrollDeductions', 'payrollDeductionDisplayField', 'payrollDeductionDisplayPrint', 'payrollDeductionNibaraiPrint', 'payrollRateDeductionBase', 'payrollPeriodDeductions', 'payrollPeriod', 'payrollCloseDay', 'payrollHalfCloseDays', 'payrollSlideSource',
+  'payrollDeductions', 'payrollDeductionDisplayField', 'payrollDeductionDisplayPrint', 'payrollDeductionNibaraiPrint', 'payrollLateFineMode', 'payrollRateDeductionRound', 'payrollPeriodDeductions', 'payrollPeriod', 'payrollCloseDay', 'payrollHalfCloseDays', 'payrollSlideSource',
   'payrollSlideTable', 'payrollRoundMode', 'payrollRoundUnit',
   'payrollMergeDrinks',
   'payrollHonshimeiBackMode', 'payrollHonshimeiBackRate', 'payrollHonshimeiBackHighRate', 'payrollHonshimeiBackHighThreshold',
@@ -34868,22 +34927,37 @@ function _payrollSettingsSummaryHtml() {
   return '<div class="pay-settings-summary">' + PAYROLL_SETTINGS_GROUPS.map(([key, label]) =>
     '<button type="button" id="pay-settings-open-' + key + '" class="pay-settings-entry" onclick="payrollRulesOpenModal(\'' + key + '\')" aria-label="' + label + 'を編集">'
     + '<span><strong>' + label + '</strong><span>' + escHtml(summaries[key]) + '</span></span><span class="pay-settings-edit">編集 ›</span></button>'
-  ).join('') + '</div><div class="pay-settings-formula">日給 ＝ 時間給 ＋ バック合計 − 遅刻罰金<br>差引支給 ＝ 日給 − 日ごとの金額控除'
-    + ((cfg.payrollDeductions || []).some(item => item && item.mode === 'rate')
-      ? '<br>率%の控除 ＝ ' + (normalizePayrollRateDeductionBase(cfg.payrollRateDeductionBase) === 'beforeLate'
-        ? '（時間給 ＋ バック合計）× 率（遅刻罰金とほかの控除を引く前）' : '日給 × 率（ほかの控除を引く前）')
-      : '')
-    + '</div>';
+  ).join('') + '</div><div class="pay-settings-formula">' + _payrollFormulaHtml() + '</div>';
 }
 
-/* 率%の控除をかける額の選択（2026-11-10）。給与計算ルールと控除項目設定の両方に出す */
-function _payrollRateDeductionBaseRowHtml(id) {
-  const base = normalizePayrollRateDeductionBase(cfg.payrollRateDeductionBase);
-  const opt = (value, label) => '<option value="' + value + '"' + (base === value ? ' selected' : '') + '>' + label + '</option>';
-  return '<div class="pay-settings-row"><div><label for="' + id + '">率%の控除をかける額</label>'
-    + '<p>率%は、ほかの控除を引く前のこの額にかけます（項目の並び順で金額は変わりません）。例：時間給とバックで20,000円・遅刻罰金1,000円（日給19,000円）の日に10%なら、「日給」を選ぶと控除は1,900円、「遅刻罰金を引く前の日給」を選ぶと2,000円。</p></div>'
-    + '<div class="pay-settings-inputs"><select id="' + id + '" class="settings-input">'
-    + opt('daily', '日給（遅刻罰金を引いた後）') + opt('beforeLate', '遅刻罰金を引く前の日給')
+/* 計算式の欄（2026-11-10）。遅刻罰金の扱いで式が変わる。率%の控除がある店は、率%がかかる額と端数も出す */
+function _payrollFormulaHtml() {
+  // 控除項目が1つも無い間は、計算と同じく日給の中で引く式を出す
+  const lateAsDeduction = normalizePayrollLateFineMode(cfg.payrollLateFineMode) === 'deduction' && (cfg.payrollDeductions || []).length > 0;
+  const round = normalizePayrollRateDeductionRound(cfg.payrollRateDeductionRound);
+  const roundLabel = { ceil10:'1の位を切り上げ', ceil100:'10の位を切り上げ' }[round];
+  return (lateAsDeduction
+    ? '日給 ＝ 時間給 ＋ バック合計<br>差引支給 ＝ 日給 − 遅刻罰金 − 日ごとの金額控除'
+    : '日給 ＝ 時間給 ＋ バック合計 − 遅刻罰金<br>差引支給 ＝ 日給 − 日ごとの金額控除')
+    + ((cfg.payrollDeductions || []).some(item => item && item.mode === 'rate')
+      ? '<br>率%の控除 ＝ 日給 × 率（' + (lateAsDeduction ? '遅刻罰金と' : '') + 'ほかの控除を引く前' + (roundLabel ? '・' + roundLabel : '') + '）'
+      : '');
+}
+
+/* 遅刻罰金の扱いと率%の控除の端数の選択（2026-11-10）。給与計算ルールと控除項目設定の両方に出す */
+function _payrollDeductionCalcRowsHtml(lateId, roundId) {
+  const late = normalizePayrollLateFineMode(cfg.payrollLateFineMode);
+  const round = normalizePayrollRateDeductionRound(cfg.payrollRateDeductionRound);
+  const opt = (current, value, label) => '<option value="' + value + '"' + (current === value ? ' selected' : '') + '>' + label + '</option>';
+  return '<div class="pay-settings-row"><div><label for="' + lateId + '">遅刻罰金の扱い</label>'
+    + '<p>「控除として引く」にすると、日給は遅刻罰金を引く前の額（時間給＋バック）になり、遅刻罰金は控除の1つとして控除計に入ります（控除票にも遅刻罰金の列が出ます）。率%の控除はこの日給にかかるので、遅刻罰金を引く前の額にかかります。日次締めの社交給料計・粗利・給率も、この日給で出ます。控除項目が1つも無い間は、日給の中で引きます。</p></div>'
+    + '<div class="pay-settings-inputs"><select id="' + lateId + '" class="settings-input">'
+    + opt(late, 'inPay', '日給の中で引く') + opt(late, 'deduction', '控除として引く')
+    + '</select></div></div>'
+    + '<div class="pay-settings-row"><div><label for="' + roundId + '">率%の控除の端数</label>'
+    + '<p>率%は、ほかの控除を引く前の日給にかけます（項目の並び順で金額は変わりません）。切り上げは、1円未満を四捨五入したあとにかけます。例：日給8,900円の10%（890円）は、10の位を切り上げると900円。日計表で手で直した額はそのままです。</p></div>'
+    + '<div class="pay-settings-inputs"><select id="' + roundId + '" class="settings-input">'
+    + opt(round, 'round1', '1円未満を四捨五入') + opt(round, 'ceil10', '1の位を切り上げ（10円単位）') + opt(round, 'ceil100', '10の位を切り上げ（100円単位）')
     + '</select></div></div>';
 }
 
@@ -34923,7 +34997,7 @@ function _payrollSettingsModalHtml() {
           <div class="pay-settings-row"><div><label for="cfg-payrollClockOutRoundMin">退勤</label><p>境目未満は切り捨て、境目以上は切り上げ。</p></div><div class="pay-settings-inputs">${num('payrollClockOutRoundMin','退勤の計算単位',30,1,60)}<span>分単位</span><label for="cfg-payrollClockOutRoundThreshold">境目</label>${num('payrollClockOutRoundThreshold','退勤の切り上げ境目',15,1,60)}<span>分</span></div></div>
           <h3>遅刻罰金</h3>
           <label class="pay-settings-choice"><input type="checkbox" id="cfg-payrollLateFineEnabled"${checked('payrollLateFineEnabled')}><span>遅刻罰金を取る<small>OFFにすると、遅刻は記録・表示されますが罰金は0円になります。</small></span></label>
-          <div class="pay-settings-row"><div><label for="cfg-payrollLateFineUnitMin">遅刻時間ごとの金額</label><p>例：15分なら、1〜15分で1回分。空欄・0円は既定の1,000円。</p></div><div class="pay-settings-inputs">${num('payrollLateFineUnitMin','遅刻罰金の分単位',15,1,60)}<span>分ごとに</span>${num('payrollLateFineAmt','遅刻罰金の金額',1000,0,null,100)}<span>円</span></div></div>
+          <div class="pay-settings-row"><div><label for="cfg-payrollLateFineUnitMin">遅刻時間ごとの金額</label><p>例：15分なら、1〜15分で1回分。空欄・0円は既定の1,000円。日給の中で引くか、控除として引くかは「控除・記録」の「遅刻罰金の扱い」で選びます。</p></div><div class="pay-settings-inputs">${num('payrollLateFineUnitMin','遅刻罰金の分単位',15,1,60)}<span>分ごとに</span>${num('payrollLateFineAmt','遅刻罰金の金額',1000,0,null,100)}<span>円</span></div></div>
           <details class="pay-settings-details"><summary>時間給の計算を確認</summary><p>時間給 ＝ 適用時給 × 計算後の勤務分 ÷ 60（1円未満は四捨五入）。個別時給が空欄なら店標準時給を使い、店標準も0円なら時間給は0円です。</p></details>
         </section>
         <section id="pay-settings-group-back" role="tabpanel" aria-labelledby="pay-settings-tab-back" data-pay-group="back" hidden>
@@ -34948,10 +35022,10 @@ function _payrollSettingsModalHtml() {
           <p class="pay-settings-note">日計表・控除票に表示。「○×の記録だけ」は○×を残すだけで、金額は引きません（給与を別のところで計算する店向け）。「○×で固定額」は日計表で○にした日だけ、その金額を控除します。</p>
           <div class="pay-settings-row"><div><label for="cfg-payrollDeductionDisplayField">控除票の金額欄</label><p>画面には常に表示。紙へ出すかは右で選べます。</p></div><div class="pay-settings-inputs"><select id="cfg-payrollDeductionDisplayField" class="settings-input">${options([['dailyPay','日給'],['nominatedSales','本指名売上']],normalizePayrollDeductionDisplayField(cfg.payrollDeductionDisplayField))}</select><label style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap"><input type="checkbox" id="cfg-payrollDeductionDisplayPrint"${cfg.payrollDeductionDisplayPrint !== false ? ' checked' : ''}>印刷</label></div></div>
           <div class="pay-settings-row"><div><label for="cfg-payrollDeductionNibaraiPrint">控除票の日払い</label><p>画面には常に表示。紙にも出すときはチェックします。</p></div><div class="pay-settings-inputs"><label style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap"><input type="checkbox" id="cfg-payrollDeductionNibaraiPrint"${cfg.payrollDeductionNibaraiPrint === true ? ' checked' : ''}>印刷</label></div></div>
-          ${_payrollRateDeductionBaseRowHtml('cfg-payrollRateDeductionBase')}
+          ${_payrollDeductionCalcRowsHtml('cfg-payrollLateFineMode', 'cfg-payrollRateDeductionRound')}
           <div class="pay-settings-table-wrap"><table class="pos-me-table" id="cfg-payroll-deductions-table"><thead><tr><th>名称</th><th>方式</th><th>金額・率</th><th>印刷</th><th></th></tr></thead><tbody>${(cfg.payrollDeductions || []).map(_payrollDeductionRowHTML).join('')}</tbody></table></div>
           <div class="pay-settings-add"><button type="button" class="pos-me-add-btn" onclick="payrollDeductionAdd()">＋ 項目を追加</button>${PAYROLL_DEDUCTION_PRESETS.map(label => '<button type="button" class="btn" onclick="payrollDeductionAddPreset(\'' + escAttr(label) + '\')">＋ ' + label + '</button>').join('')}</div>
-          <details class="pay-settings-details"><summary>日ごとの控除の計算</summary><p>差引支給 ＝ 日給 − 控除の合計。固定額は1日ごとに引きます。率%は「率%の控除をかける額」で選んだ額 × 率（1円未満は四捨五入）で、ほかの控除を引く前の額にかけます。率%の項目が2つあっても、どちらも同じ額にかけます（重ねて掛けません）。都度手入力は日計表・控除票で入力します。</p></details>
+          <details class="pay-settings-details"><summary>日ごとの控除の計算</summary><p>差引支給 ＝ 日給 − 控除の合計。固定額は1日ごとに引きます。率%は 日給 × 率 で、ほかの控除を引く前の日給にかけ、端数は「率%の控除の端数」のとおりに整えます。率%の項目が2つあっても、どちらも同じ日給にかけます（重ねて掛けません）。「遅刻罰金の扱い」を「控除として引く」にすると、日給は遅刻罰金を引く前の額になり、遅刻罰金も控除計に入ります。都度手入力は日計表・控除票で入力します。</p></details>
           <details class="pay-settings-details pay-settings-optional"${(cfg.payrollPeriodDeductions || []).length ? ' open' : ''}><summary>締めごとの控除 <span>${(cfg.payrollPeriodDeductions || []).length}項目</span></summary>
             <p>給与明細で期間ごとに計算します。日ごとの控除とは別に設定してください。</p>
             <div class="pay-settings-table-wrap"><table class="pos-me-table" id="cfg-payroll-period-deductions-table"><thead><tr><th>名称</th><th>方式</th><th>金額・率・速算表</th><th>非課税枠/日</th><th>未徴収を繰越</th><th></th></tr></thead><tbody>${(cfg.payrollPeriodDeductions || []).map(_payrollPeriodDeductionRowHTML).join('')}</tbody></table></div>
@@ -35203,8 +35277,9 @@ function _collectPayrollSettings(overlay) {
   result.payrollDeductionDisplayField = normalizePayrollDeductionDisplayField(get('payrollDeductionDisplayField')?.value);
   result.payrollDeductionDisplayPrint = get('payrollDeductionDisplayPrint')?.checked !== false;
   result.payrollDeductionNibaraiPrint = get('payrollDeductionNibaraiPrint')?.checked === true;
-  // 率%の控除をかける額（2026-11-10）。入力欄が無い画面では今の設定のまま
-  result.payrollRateDeductionBase = normalizePayrollRateDeductionBase(get('payrollRateDeductionBase') ? get('payrollRateDeductionBase').value : cfg.payrollRateDeductionBase);
+  // 遅刻罰金の扱い・率%の控除の端数（2026-11-10）。入力欄が無い画面では今の設定のまま
+  result.payrollLateFineMode = normalizePayrollLateFineMode(get('payrollLateFineMode') ? get('payrollLateFineMode').value : cfg.payrollLateFineMode);
+  result.payrollRateDeductionRound = normalizePayrollRateDeductionRound(get('payrollRateDeductionRound') ? get('payrollRateDeductionRound').value : cfg.payrollRateDeductionRound);
   ['payrollPeriod','payrollSlideSource','payrollRoundMode'].forEach(key => { result[key] = get(key).value; });
   // 締め日（2026-10-23）。入力欄が無い画面では今の設定のまま。半月払いの2つの並びは payrollSettingsSave が保存前に確かめる
   result.payrollCloseDay = normalizePayrollCloseDay(get('payrollCloseDay') ? get('payrollCloseDay').value : cfg.payrollCloseDay);
@@ -38544,8 +38619,8 @@ function isPayrollDeductionFlagMode(mode) {
    手入力した金額はそのまま使う（2026-10-20 オーナー指示）。 */
 /* attendFixed（出勤日だけ定額）は、出勤時刻が入っている日（attended=true）にだけ value を引く。当欠は0。
    attended を渡さない呼び出し（旧来）は出勤ありとして扱う。
-   1つ目の引数は率%の控除をかける額（日給、または設定で遅刻罰金を引く前の日給）。率%だけがこの額を使う。 */
-function calcPayrollDeductions(dailyPay, items, overrides, flags, touketsu, attended) {
+   率%は日給（ほかの控除を引く前）× 率で、rateRound（cfg.payrollRateDeductionRound）で端数を整える。渡さなければ1円未満を四捨五入（今まで通り）。 */
+function calcPayrollDeductions(dailyPay, items, overrides, flags, touketsu, attended, rateRound) {
   const basePay = Math.max(0, Number(dailyPay) || 0);
   const manual = overrides && typeof overrides === 'object' ? overrides : {};
   const recorded = flags && typeof flags === 'object' ? flags : {};
@@ -38561,13 +38636,26 @@ function calcPayrollDeductions(dailyPay, items, overrides, flags, touketsu, atte
     const value = Number(item?.value) || 0;
     const auto = mode === 'fixed' ? (touketsu === true ? 0 : value)
       : mode === 'attendFixed' ? ((touketsu === true || attended === false) ? 0 : value)
-      : (mode === 'rate' ? Math.round(basePay * value / 100) : 0);
+      : (mode === 'rate' ? payrollRoundRateDeduction(basePay * value / 100, rateRound) : 0);
     const amount = Object.prototype.hasOwnProperty.call(manual, key)
       ? (Number(manual[key]) || 0) : auto;
     return { key, label, mode, amount, auto };
   });
   return { list, total: list.reduce((sum, item) => sum + item.amount, 0) };
 }
+
+/* 率%の控除の端数（2026-11-10 アンベリール「控除の%の値10の位はきり上げ」）。
+   まず1円未満を四捨五入し（今まで通りの額）、ceil10 なら1の位、ceil100 なら10の位を切り上げる。 */
+function payrollRoundRateDeduction(rawYen, round) {
+  const yen = Math.round(Number(rawYen) || 0);
+  const unit = round === 'ceil100' ? 100 : (round === 'ceil10' ? 10 : 1);
+  return unit === 1 ? yen : Math.ceil(yen / unit) * unit;
+}
+
+/* 遅刻罰金を控除として引く店で、控除の並びの最後に足す遅刻罰金の行の key と mode。
+   日計表・控除票の控除の列は設定の項目と同じ位置で並ぶので、最後に足しても列はずれない。 */
+const PAYROLL_LATE_FEE_DEDUCTION_KEY = '_lateFee';
+const PAYROLL_LATE_FEE_DEDUCTION_MODE = 'lateFee';
 
 /* SPのうち伝票から自動で決まる分（キャスト折半＋注文に付いたバック）。日計表のSP欄は、これに手入力分を足した合計を出す。
    orderBackByCast を渡さなければ、精算済みの伝票から集計する。 */
@@ -38727,19 +38815,25 @@ function computePayrollForCast(castName, prodByCast, opts) {
   const chikokuMin = (tt.chikokuMins || {})[castName] || 0;
   const lateFee = calcLateFee(chikokuMin);
 
-  /* --- 日給 --- */
-  const dailyPay = hourlyPay + backTotal - lateFee;
+  /* --- 日給 ---
+     遅刻罰金の扱い（2026-11-10）: 既定（inPay）は日給の中で引く。deduction の店は日給に含めず、下で控除の1つとして引く。
+     控除項目が1つも無い店は日計表に控除計・差引支給の列が出ないので、deduction でも日給の中で引く */
+  const lateFeeAsDeduction = typeof cfg !== 'undefined' && cfg && cfg.payrollLateFineMode === 'deduction'
+    && Array.isArray(cfg.payrollDeductions) && cfg.payrollDeductions.length > 0;
+  const dailyPay = hourlyPay + backTotal - (lateFeeAsDeduction ? 0 : lateFee);
 
   /* --- 控除・差引支給 --- */
   const deductionItems = (typeof cfg !== 'undefined' && cfg && Array.isArray(cfg.payrollDeductions))
     ? cfg.payrollDeductions : [];
   // 手入力だけで日計表に残った子（出勤予定・売上・出退勤が無い）は、当欠と同じく固定額の控除を自動では引かない（2026-11-06）
   const noAutoFixed = touketsu || !!(opts.manualOnly && opts.manualOnly[castName]);
-  // 率%の控除をかける額（2026-11-10。アンベリールは「日給×0.9 のあとに遅刻罰金」）。既定は日給（遅刻罰金を引いた後）。
-  // どちらの場合も、ほかの控除を引く前の額にかける。日給・給率の値は変わらない
-  const rateBase = (typeof cfg !== 'undefined' && cfg && cfg.payrollRateDeductionBase === 'beforeLate')
-    ? dailyPay + lateFee : dailyPay;
-  const deductionResult = calcPayrollDeductions(rateBase, deductionItems, manualRec.deductions, manualRec.deductionFlags, noAutoFixed, !!inHHMM);
+  const rateRound = typeof cfg !== 'undefined' && cfg ? cfg.payrollRateDeductionRound : undefined;
+  const deductionResult = calcPayrollDeductions(dailyPay, deductionItems, manualRec.deductions, manualRec.deductionFlags, noAutoFixed, !!inHHMM, rateRound);
+  // 遅刻罰金を控除として引く店は、控除の並びの最後に遅刻罰金の行を足す（締めた日の控えにも同じ行が残る）
+  if (lateFeeAsDeduction && lateFee > 0) {
+    deductionResult.list.push({ key:PAYROLL_LATE_FEE_DEDUCTION_KEY, label:'遅刻罰金', mode:PAYROLL_LATE_FEE_DEDUCTION_MODE, amount:lateFee, auto:lateFee });
+    deductionResult.total += lateFee;
+  }
   const deductionTotal = deductionResult.total;
   const netPay = dailyPay - deductionTotal;
 
@@ -39369,7 +39463,9 @@ function computePayslipFinal(dailycloseStore, payslipsStore, castName, from, to,
   const carryoverIn = previousConfirmed && previousConfirmed.snapshot
     && previousConfirmed.carryovers && typeof previousConfirmed.carryovers === 'object'
     ? previousConfirmed.carryovers : {};
-  const gross = base.dailyPay + adjustmentAmount;
+  // 締めごとの控除の計算元は、遅刻罰金を引いた後の支給合計のまま（遅刻罰金を控除として引く日の分を、日給の合計から引く。2026-11-10）
+  const lateFeeInDeductions = Number(((base.deductions || []).find(item => item && item.key === '_lateFee') || {}).amount) || 0;
+  const gross = base.dailyPay - lateFeeInDeductions + adjustmentAmount;
   const available = Math.max(0, base.netPay + adjustmentAmount - base.nibaraiTotal);
   const periodDeductions = calcPeriodDeductions(gross, periodItems, {
     mode: roundMode,
