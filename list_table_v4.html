@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.132">
+<meta name="app-version" content="1.1.133">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -10319,6 +10319,7 @@ const CFG_DEFAULTS = {
   payrollDeductionDisplayField:  'dailyPay', // 控除票の金額欄: dailyPay | nominatedSales
   payrollDeductionDisplayPrint:  true, // 控除票の先頭金額欄をA4印刷する（画面・計算には影響しない）
   payrollDeductionNibaraiPrint:  false, // 控除票のA4印刷に日払いの列を出す（既定OFF＝今の店の紙はそのまま。画面・計算には影響しない）
+  payrollDeductionLatePrint:     false, // 遅刻罰金を控除として引く店で、控除票のA4印刷に遅刻罰金の列を出す（既定OFF。画面の控除票には常に出る。2026-11-11 オーナー）
   // 遅刻罰金の扱い（2026-11-10 アンベリール）: inPay=日給の中で引く（今まで通り）| deduction=控除として引く
   //   （日給は遅刻罰金を引く前の額になり、遅刻罰金は控除計に入る。率%の控除はその日給にかかる）
   payrollLateFineMode:           'inPay',
@@ -10404,6 +10405,7 @@ function mergeCfgDefaults(saved) {
   // 旧設定に印刷フラグが無い場合は、従来どおり先頭金額欄を印刷する。
   merged.payrollDeductionDisplayPrint = merged.payrollDeductionDisplayPrint !== false;
   merged.payrollDeductionNibaraiPrint = merged.payrollDeductionNibaraiPrint === true;
+  merged.payrollDeductionLatePrint = merged.payrollDeductionLatePrint === true;
   // v1.1.131 の「率%の控除をかける額＝遅刻罰金を引く前の日給」は、v1.1.132 で「遅刻罰金を控除として引く」に置き換えた（差引支給は同じ額）
   if (merged.payrollRateDeductionBase === 'beforeLate' && !Object.prototype.hasOwnProperty.call(saved || {}, 'payrollLateFineMode')) {
     merged.payrollLateFineMode = 'deduction';
@@ -25245,10 +25247,42 @@ function _payrollSetClock(field, castName, value) {
   if (dayKey === liveKey) {
     const tt = loadTimetableState();
     tt[field] = tt[field] || {};
+    const prev = tt[field][castName] || '';
     tt[field][castName] = v;
+    // 退勤時刻を入れたら、出勤キャストの「退勤」ボタンと同じく出勤中から外す。消したら「取消」と同じく出勤中に戻す（2026-11-11 オーナー）。
+    // 退勤済みの子の時刻を直すだけなら、時刻を変えて出勤中の印が残っていれば外すだけ（お知らせは出さない）。
+    // 営業終了の後の日計表は控えの時刻を出していて、ここで書くライブの時刻は画面に出ないので、今まで通り時刻を書くだけにする
+    const closedView = typeof _reportClosedTodaySnap === 'function' && !!_reportClosedTodaySnap();
+    const isCheckout = field === 'checkouts' && !closedView;
+    const checkedOut = isCheckout && !!v && !prev;
+    const cleared = isCheckout && !v && !!prev;
+    let activeChanged = false;
+    let restored = false;
+    if (isCheckout && v) {
+      const ai = state.activeCasts.indexOf(castName);
+      if (ai >= 0) { state.activeCasts.splice(ai, 1); activeChanged = true; }
+    } else if (cleared && (tt.clockIns || {})[castName] && !(tt.touketsu || []).includes(castName)
+      && !state.activeCasts.includes(castName) && state.allCasts.includes(castName)) {
+      // 出勤時刻があって当欠でない子だけ戻す（出勤していない子・当欠の子を出勤中にしない）
+      state.activeCasts.push(castName);
+      activeChanged = true;
+      restored = true;
+    }
+    if (activeChanged) saveState();
     saveTimetableState(tt);
     _rerenderPayrollTable();
     if (typeof renderTimetable === 'function') renderTimetable();   // タイムテーブル側も即連動
+    if (checkedOut || cleared || activeChanged) {
+      if (typeof renderCastPanel === 'function') renderCastPanel();   // 上の出勤キャストボタン列
+      if (typeof renderTable === 'function') renderTable();           // リスト表のキャストの選択肢
+      if (typeof updateStoreStatusBadge === 'function') updateStoreStatusBadge();
+    }
+    // 前から出勤中の印が残っていた子は push しなくても出勤中に戻るので、お知らせは最後の状態で選ぶ
+    restored = restored || (cleared && state.activeCasts.includes(castName) && !!(tt.clockIns || {})[castName] && !(tt.touketsu || []).includes(castName));
+    if ((checkedOut || cleared) && typeof showToast === 'function') {
+      showToast(checkedOut ? `${castName} が退勤しました（${formatCheckoutTime(v)}）`
+        : (restored ? `${castName} の退勤を取り消しました（出勤中に戻しました）` : `${castName} の退勤時刻を消しました`));
+    }
   } else {
     // 過去営業日：その日のバックアップ snapshot の timetableSnap を更新（ライブには触れない）
     const backups = (typeof loadBackups === 'function') ? loadBackups() : [];
@@ -25748,8 +25782,9 @@ function _deductionSheetPrintTableHtml(src) {
   const printableItems = deductionItems.map((item, index) => ({ item, index })).filter(({ item }) => item.print !== false);
   // 日払いの列は設定でONにした店だけ（既定OFF＝今の店の紙はそのまま）。画面の控除票は常に日払いを出す。
   const nibaraiPrintable = typeof cfg !== 'undefined' && cfg.payrollDeductionNibaraiPrint === true;
-  // 遅刻罰金を控除として引く店は、紙にも遅刻罰金の列を出す（日給の欄が遅刻罰金を引く前の額になるため。2026-11-10）
-  const latePrintable = _deductionSheetShowsLateFee(rows);
+  // 遅刻罰金を控除として引く店で、「控除票の遅刻罰金」の印刷をONにした時だけ紙にも遅刻罰金の列を出す
+  // （v1.1.132 は常に出していた。オーナー「前まで遅刻罰金の欄が印刷されてなかった」で既定OFFに。2026-11-11）。画面の控除票は常に出す
+  const latePrintable = _deductionSheetShowsLateFee(rows) && typeof cfg !== 'undefined' && cfg.payrollDeductionLatePrint === true;
   const checkouts = (src.tt && src.tt.checkouts) || {};
   let displayTotal = 0;
   let displayCount = 0;
@@ -25769,7 +25804,10 @@ function _deductionSheetPrintTableHtml(src) {
   const bodyRows = rows.map(r => {
     const c = r.castName;
     const displayReady = !displayColumn.requiresCheckout || !!checkouts[c];
-    const displayValue = displayReady ? displayColumn.value(r) : 0;
+    const lateAmount = Number((_payrollLateFeeDeduction(r) || {}).amount) || 0;
+    // 遅刻罰金を控除として引く日の日給は遅刻罰金を引く前の額。紙に遅刻罰金の列を出さない時は、前までの紙と同じく遅刻罰金を引いた日給を出す（2026-11-11 監査）
+    const displayLateOffset = (!latePrintable && displayColumn.field === 'dailyPay') ? lateAmount : 0;
+    const displayValue = displayReady ? displayColumn.value(r) - displayLateOffset : 0;
     if (displayPrintable && displayReady) displayTotal += displayValue;
     if (displayPrintable && displayReady && displayValue > 0) displayCount += 1;
     const manualDeductions = (typeof getPayrollManual === 'function')
@@ -25784,7 +25822,6 @@ function _deductionSheetPrintTableHtml(src) {
       if (cell.value > 0) counts[printableIndex] += 1;
       return '<td class="amt">' + yen(cell.value) + '</td>';
     }).join('');
-    const lateAmount = Number((_payrollLateFeeDeduction(r) || {}).amount) || 0;
     lateTotal += lateAmount;
     if (lateAmount > 0) lateCount += 1;
     const nibarai = Number(r.nibarai) || 0;
@@ -34253,7 +34290,7 @@ async function applySettings() {
     payrollLateFineUnitMin, payrollLateFineAmt, payrollBottleSpRate, payrollSpMode, payrollSpFixed, defaultWage, payrollPeriod, payrollCloseDay, payrollHalfCloseDays,
     payrollDouhanAddsHonshimei, payrollDouhanAddsHonenFirst, payrollSpInBackTotal,
     payrollSlideTable, payrollSlideSource, payrollPeriodDeductions, payrollRoundMode, payrollRoundUnit,
-    payrollDeductions, payrollDeductionDisplayField, payrollDeductionDisplayPrint, payrollDeductionNibaraiPrint, payrollLateFineMode, payrollRateDeductionRound, payrollMergeDrinks,
+    payrollDeductions, payrollDeductionDisplayField, payrollDeductionDisplayPrint, payrollDeductionNibaraiPrint, payrollDeductionLatePrint, payrollLateFineMode, payrollRateDeductionRound, payrollMergeDrinks,
     payrollHonshimeiBackMode, payrollHonshimeiBackRate, payrollHonshimeiBackHighRate, payrollHonshimeiBackHighThreshold,
     payrollDouhanBackMode, payrollDouhanBackRate, payrollHonshimeiBackBase, payrollDouhanBackBase, payrollCustomBacks, payrollMarginBackRate,
     payrollSplitRoundUnit,
@@ -34322,7 +34359,7 @@ async function applySettings() {
     payrollLateFineUnitMin, payrollLateFineAmt, payrollBottleSpRate, payrollSpMode, payrollSpFixed, defaultWage, payrollPeriod, payrollCloseDay, payrollHalfCloseDays,
     payrollDouhanAddsHonshimei, payrollDouhanAddsHonenFirst, payrollSpInBackTotal,
     payrollSlideTable, payrollSlideSource, payrollPeriodDeductions, payrollRoundMode, payrollRoundUnit,
-    payrollDeductions, payrollDeductionDisplayField, payrollDeductionDisplayPrint, payrollDeductionNibaraiPrint, payrollLateFineMode, payrollRateDeductionRound, payrollMergeDrinks,
+    payrollDeductions, payrollDeductionDisplayField, payrollDeductionDisplayPrint, payrollDeductionNibaraiPrint, payrollDeductionLatePrint, payrollLateFineMode, payrollRateDeductionRound, payrollMergeDrinks,
     payrollHonshimeiBackMode, payrollHonshimeiBackRate, payrollHonshimeiBackHighRate, payrollHonshimeiBackHighThreshold,
     payrollDouhanBackMode, payrollDouhanBackRate, payrollHonshimeiBackBase, payrollDouhanBackBase, payrollCustomBacks, payrollMarginBackRate,
     payrollSplitRoundUnit,
@@ -34567,12 +34604,14 @@ function _payrollDeductionSettingsModalHtml() {
   const displayField = normalizePayrollDeductionDisplayField(cfg.payrollDeductionDisplayField);
   const displayPrint = cfg.payrollDeductionDisplayPrint !== false;
   const nibaraiPrint = cfg.payrollDeductionNibaraiPrint === true;
+  const latePrint = cfg.payrollDeductionLatePrint === true;
   return '<div id="payroll-deduction-settings-overlay" class="pos-co-overlay" onclick="if(event.target===this)payrollDeductionSettingsCloseModal()">'
     + '<div class="pos-co-panel pay-bd-panel" style="width:min(760px,96vw);max-width:760px">'
     + '<div class="pay-bd-head"><div><div class="pay-bd-title">控除項目設定</div><div class="pay-bd-date">金額を引く控除と、○×を残すだけの記録を設定（設定 → 💴 給与計算ルール →「控除・記録」と同じ内容です）</div></div><button type="button" class="pay-bd-close" onclick="payrollDeductionSettingsCloseModal()" aria-label="閉じる">×</button></div>'
     + '<div class="pay-bd-body" style="max-height:72vh;overflow-y:auto">'
     + '<div class="pay-settings-row" style="margin-bottom:12px"><div><label for="payroll-deduction-display-field">控除票の金額欄</label><p>画面には常に表示。紙へ出すかは右で選べます。</p></div><div class="pay-settings-inputs"><select id="payroll-deduction-display-field" class="settings-input"><option value="dailyPay"' + (displayField === 'dailyPay' ? ' selected' : '') + '>日給</option><option value="nominatedSales"' + (displayField === 'nominatedSales' ? ' selected' : '') + '>本指名売上</option></select><label style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap"><input type="checkbox" id="payroll-deduction-display-print"' + (displayPrint ? ' checked' : '') + '>印刷</label></div></div>'
     + '<div class="pay-settings-row" style="margin-bottom:12px"><div><label for="payroll-deduction-nibarai-print">控除票の日払い</label><p>画面には常に表示。紙にも出すときはチェックします。</p></div><div class="pay-settings-inputs"><label style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap"><input type="checkbox" id="payroll-deduction-nibarai-print"' + (nibaraiPrint ? ' checked' : '') + '>印刷</label></div></div>'
+    + '<div class="pay-settings-row" style="margin-bottom:12px"><div><label for="payroll-deduction-late-print">控除票の遅刻罰金</label><p>「遅刻罰金の扱い」が「控除として引く」のとき、画面には常に表示。紙にも出すときはチェックします。</p></div><div class="pay-settings-inputs"><label style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap"><input type="checkbox" id="payroll-deduction-late-print"' + (latePrint ? ' checked' : '') + '>印刷</label></div></div>'
     + '<div style="margin-bottom:12px">' + _payrollDeductionCalcRowsHtml('payroll-late-fine-mode', 'payroll-rate-deduction-round') + '</div>'
     + '<div style="overflow-x:auto"><table class="pos-me-table" id="payroll-deduction-settings-table" style="min-width:590px">'
     + '<thead><tr><th>名称</th><th style="width:170px">方式</th><th style="width:130px">値</th><th style="width:70px">印刷</th><th style="width:56px"></th></tr></thead><tbody>'
@@ -34603,6 +34642,7 @@ function payrollDeductionSettingsSave() {
   );
   cfg.payrollDeductionDisplayPrint = document.getElementById('payroll-deduction-display-print')?.checked !== false;
   cfg.payrollDeductionNibaraiPrint = document.getElementById('payroll-deduction-nibarai-print')?.checked === true;
+  cfg.payrollDeductionLatePrint = document.getElementById('payroll-deduction-late-print')?.checked === true;
   cfg.payrollLateFineMode = normalizePayrollLateFineMode(
     document.getElementById('payroll-late-fine-mode')?.value ?? cfg.payrollLateFineMode
   );
@@ -34882,7 +34922,7 @@ const PAYROLL_SETTINGS_KEYS = [
   'defaultWage', 'payrollClockInRoundMin', 'payrollClockOutRoundMin', 'payrollClockOutRoundThreshold',
   'payrollLateFineEnabled', 'payrollLateFineUnitMin', 'payrollLateFineAmt', 'payrollDouhanAddsHonshimei',
   'payrollDouhanAddsHonenFirst', 'payrollSpInBackTotal', 'payrollBottleSpRate', 'payrollSpMode', 'payrollSpFixed',
-  'payrollDeductions', 'payrollDeductionDisplayField', 'payrollDeductionDisplayPrint', 'payrollDeductionNibaraiPrint', 'payrollLateFineMode', 'payrollRateDeductionRound', 'payrollPeriodDeductions', 'payrollPeriod', 'payrollCloseDay', 'payrollHalfCloseDays', 'payrollSlideSource',
+  'payrollDeductions', 'payrollDeductionDisplayField', 'payrollDeductionDisplayPrint', 'payrollDeductionNibaraiPrint', 'payrollDeductionLatePrint', 'payrollLateFineMode', 'payrollRateDeductionRound', 'payrollPeriodDeductions', 'payrollPeriod', 'payrollCloseDay', 'payrollHalfCloseDays', 'payrollSlideSource',
   'payrollSlideTable', 'payrollRoundMode', 'payrollRoundUnit',
   'payrollMergeDrinks',
   'payrollHonshimeiBackMode', 'payrollHonshimeiBackRate', 'payrollHonshimeiBackHighRate', 'payrollHonshimeiBackHighThreshold',
@@ -35022,6 +35062,7 @@ function _payrollSettingsModalHtml() {
           <p class="pay-settings-note">日計表・控除票に表示。「○×の記録だけ」は○×を残すだけで、金額は引きません（給与を別のところで計算する店向け）。「○×で固定額」は日計表で○にした日だけ、その金額を控除します。</p>
           <div class="pay-settings-row"><div><label for="cfg-payrollDeductionDisplayField">控除票の金額欄</label><p>画面には常に表示。紙へ出すかは右で選べます。</p></div><div class="pay-settings-inputs"><select id="cfg-payrollDeductionDisplayField" class="settings-input">${options([['dailyPay','日給'],['nominatedSales','本指名売上']],normalizePayrollDeductionDisplayField(cfg.payrollDeductionDisplayField))}</select><label style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap"><input type="checkbox" id="cfg-payrollDeductionDisplayPrint"${cfg.payrollDeductionDisplayPrint !== false ? ' checked' : ''}>印刷</label></div></div>
           <div class="pay-settings-row"><div><label for="cfg-payrollDeductionNibaraiPrint">控除票の日払い</label><p>画面には常に表示。紙にも出すときはチェックします。</p></div><div class="pay-settings-inputs"><label style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap"><input type="checkbox" id="cfg-payrollDeductionNibaraiPrint"${cfg.payrollDeductionNibaraiPrint === true ? ' checked' : ''}>印刷</label></div></div>
+          <div class="pay-settings-row"><div><label for="cfg-payrollDeductionLatePrint">控除票の遅刻罰金</label><p>「遅刻罰金の扱い」が「控除として引く」のとき、画面には常に表示。紙にも出すときはチェックします。</p></div><div class="pay-settings-inputs"><label style="display:inline-flex;align-items:center;gap:4px;white-space:nowrap"><input type="checkbox" id="cfg-payrollDeductionLatePrint"${cfg.payrollDeductionLatePrint === true ? ' checked' : ''}>印刷</label></div></div>
           ${_payrollDeductionCalcRowsHtml('cfg-payrollLateFineMode', 'cfg-payrollRateDeductionRound')}
           <div class="pay-settings-table-wrap"><table class="pos-me-table" id="cfg-payroll-deductions-table"><thead><tr><th>名称</th><th>方式</th><th>金額・率</th><th>印刷</th><th></th></tr></thead><tbody>${(cfg.payrollDeductions || []).map(_payrollDeductionRowHTML).join('')}</tbody></table></div>
           <div class="pay-settings-add"><button type="button" class="pos-me-add-btn" onclick="payrollDeductionAdd()">＋ 項目を追加</button>${PAYROLL_DEDUCTION_PRESETS.map(label => '<button type="button" class="btn" onclick="payrollDeductionAddPreset(\'' + escAttr(label) + '\')">＋ ' + label + '</button>').join('')}</div>
@@ -35277,6 +35318,8 @@ function _collectPayrollSettings(overlay) {
   result.payrollDeductionDisplayField = normalizePayrollDeductionDisplayField(get('payrollDeductionDisplayField')?.value);
   result.payrollDeductionDisplayPrint = get('payrollDeductionDisplayPrint')?.checked !== false;
   result.payrollDeductionNibaraiPrint = get('payrollDeductionNibaraiPrint')?.checked === true;
+  // 控除票の遅刻罰金の印刷（2026-11-11）。入力欄が無い画面では今の設定のまま
+  result.payrollDeductionLatePrint = get('payrollDeductionLatePrint') ? get('payrollDeductionLatePrint').checked === true : cfg.payrollDeductionLatePrint === true;
   // 遅刻罰金の扱い・率%の控除の端数（2026-11-10）。入力欄が無い画面では今の設定のまま
   result.payrollLateFineMode = normalizePayrollLateFineMode(get('payrollLateFineMode') ? get('payrollLateFineMode').value : cfg.payrollLateFineMode);
   result.payrollRateDeductionRound = normalizePayrollRateDeductionRound(get('payrollRateDeductionRound') ? get('payrollRateDeductionRound').value : cfg.payrollRateDeductionRound);
