@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.133">
+<meta name="app-version" content="1.1.134">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -10191,6 +10191,7 @@ const CFG_DEFAULTS = {
   dohanIncludesSet: false,  // false: dohan SET 0 / true: SET + dohan fee
   jonaiFee:        2000,    // 場内指名料（円）
   enchoshimeiFee:  2000,    // 延長指名料（初回着席時・初期指名タイプ用）
+  listShimeiNoCharge: false, // true: リスト表の種別・サブキャストで選んだ指名は料金に入れない（POSの指名明細だけ計上）
   extFeeHonshimeiAmt:   2000,           // 旧スカラー（フォールバック用）
   extFeeJounaiAmt:      2000,
   extFeeEnchoshimeiAmt: 2000,
@@ -12875,7 +12876,7 @@ function rowCardCount(r) {
    extAutoShimeiFee/Mapping(延長を押した時の明細の自動追加だけ)・給与の設定。 */
 const SLIP_PRICING_CFG_KEYS = [
   'setPrice', 'earlySetEnabled', 'earlySetFromH', 'earlySetToH', 'earlySetPrice', 'dohanIncludesSet',
-  'nominateFee', 'dohanFee', 'jonaiFee', 'enchoshimeiFee',
+  'nominateFee', 'dohanFee', 'jonaiFee', 'enchoshimeiFee', 'listShimeiNoCharge',
   'extOptions', 'extNames', 'extPrices', 'extBasePerSeat', 'extFeePerSeat',
   'extFeeOnHonshimei', 'extFeeOnJounai', 'extFeeOnEnchoshimei', 'shimeiExtItems', 'doubanAsHonshimeiExt',
   'taxRate', 'taxRound', 'specialRateRound', 'discountAfterTax',
@@ -13020,6 +13021,12 @@ function slipPricingWriteGuard(writer) {
   try { return writer(); } finally { _slipPricingRestore(target, now); }
 }
 
+/* 「リスト表で選んだ指名を料金に入れない」を、この伝票に効かせるか。
+   精算済みで写しを持たない古い伝票（この設定が無かった頃に精算した伝票）は、設定がONでも今までどおり（OFF）で計算する */
+function _listShimeiOffFor(row) {
+  if (cfg.listShimeiNoCharge !== true) return false;
+  return !(row && row.settled && !slipPricingOf(row));
+}
 function calcBill(row) { return withSlipPricing(row, () => _calcBillCore(row)); }
 function _calcBillCore(row) {
   // POSオーダーに該当明細がある場合、mainType由来の料金は二重計上しない
@@ -13040,11 +13047,14 @@ function _calcBillCore(row) {
     }
     if (row.mainType === 'douban' && !cfg.dohanIncludesSet) base = 0;
   }
-  if      (row.mainType === 'honshimei')   { if (!_hasOrderCatCast('nominate', row.mainCast)) base += (cfg.nominateFee    || 0); }
+  // 「リスト表で選んだ指名を料金に入れない」ON: リスト表の種別・サブキャスト由来の指名料は足さない（POS明細だけで計上）
+  const _listShimeiOff = _listShimeiOffFor(row);
+  if (_listShimeiOff) { /* リスト表の指名は料金に入れない */ }
+  else if (row.mainType === 'honshimei')   { if (!_hasOrderCatCast('nominate', row.mainCast)) base += (cfg.nominateFee    || 0); }
   else if (row.mainType === 'douban')      { if (!_hasOrderCatCast('dohan', row.mainCast))    base += (cfg.dohanFee       || 0); }
   else if (row.mainType === 'jounai')      { if (!_hasOrderCatCast('jonai', row.mainCast))    base += (cfg.jonaiFee       || 0); }
   else if (row.mainType === 'enchoshimei') { if (!_hasExtNomOrder) base += (cfg.enchoshimeiFee || 0); }
-  (row.subCasts || []).forEach(sc => {
+  (_listShimeiOff ? [] : (row.subCasts || [])).forEach(sc => {
     if      (sc.type === 'honshimei')   { if (!_hasOrderCatCast('nominate', sc.cast)) base += (cfg.nominateFee    || 0); }
     else if (sc.type === 'jounai')      { if (!_hasOrderCatCast('jonai', sc.cast))    base += (cfg.jonaiFee       || 0); }
     else if (sc.type === 'enchoshimei') { if (!_hasExtNomOrder) base += (cfg.enchoshimeiFee || 0); }
@@ -17078,7 +17088,37 @@ function _posResumeDesignation(row, cast) {
   const stopped = _posDesignationStop(row, cast);
   if (stopped) stopped.resumedAt = Date.now();
 }
-function _posTableDesignations(row, includeStopped = false) {
+/* 「リスト表の指名を料金に入れない」ON時の延長の自動追加・試算が使う、キャストごとの指名の種類（POS明細で裏づくキャストだけ）。
+   リスト表の種別は、同じ系統のPOS明細がある時だけ使う（本指名←nominate/honen、同伴←dohan/honen、場内←jonai、延長指名←enshi、
+   出戻り本指←honen、出戻り延指←enshi）。系統が違えば、明細から本指名＞同伴＞場内＞延長指名の順で一番強いものにする。
+   POSの延指・本延ボタンは、リスト表に種別があると上書きしないため、リスト表の誤選択が料金の種類を決めないようにする。
+   返り値: Map(キャスト名 → 'honshimei' | 'douban' | 'jounai' | 'enchoshimei') */
+function _posOrderDesignatedTypes(row) {
+  const ev = new Map();
+  posOrders(row).forEach(o => {
+    const c = o.category || '';
+    const fam = c === 'nominate' ? 'nominate' : c === 'dohan' ? 'dohan' : c === 'jonai' ? 'jonai' : /^honen/.test(c) ? 'honen' : /^enshi/.test(c) ? 'enshi' : '';
+    if (!fam) return;
+    const n = o.name || '';
+    const cast = n.includes(':') ? n.slice(n.indexOf(':') + 1) : '';
+    if (!cast) return;
+    if (!ev.has(cast)) ev.set(cast, {});
+    ev.get(cast)[fam] = true;
+  });
+  const listType = cast => row.mainCast === cast ? row.mainType : ((row.subCasts || []).find(sc => sc.cast === cast) || {}).type;
+  const out = new Map();
+  ev.forEach((e, cast) => {
+    const lt = listType(cast);
+    const ok = { honshimei: e.nominate || e.honen, douban: e.dohan || e.honen, jounai: e.jonai, enchoshimei: e.enshi,
+      modori_honshimei: e.honen, modori_enchoshimei: e.enshi }[lt];
+    const type = ok ? (lt === 'modori_honshimei' ? 'honshimei' : lt === 'modori_enchoshimei' ? 'enchoshimei' : lt)
+      : (e.nominate || e.honen) ? 'honshimei' : e.dohan ? 'douban' : e.jonai ? 'jounai' : 'enchoshimei';
+    out.set(cast, type);
+  });
+  return out;
+}
+/* orderOnly=true: POS明細で裏づくキャストだけ、役割は _posOrderDesignatedTypes で決める（料金に入れない設定ON時の延長の自動追加・試算用） */
+function _posTableDesignations(row, includeStopped = false, orderOnly = false) {
   const ROLE = {
     honshimei:'本指名', douban:'同伴', jounai:'場内', enchoshimei:'延長指名',
     modori_honshimei:'本指名', modori_enchoshimei:'延長指名'
@@ -17095,7 +17135,10 @@ function _posTableDesignations(row, includeStopped = false) {
     else if (/^enshi/.test(c)) add(cast, '延長指名');
     else if (/^honen/.test(c)) add(cast, '本指名');
   });
-  return Object.values(map).filter(d => includeStopped || !_posDesignationStop(row, d.cast))
+  const typed = orderOnly ? _posOrderDesignatedTypes(row) : null;
+  const TYPE_ROLE = { honshimei:'本指名', douban:'同伴', jounai:'場内', enchoshimei:'延長指名' };
+  return Object.values(map).filter(d => !typed || typed.has(d.cast)).filter(d => includeStopped || !_posDesignationStop(row, d.cast))
+    .map(d => typed ? { cast: d.cast, role: TYPE_ROLE[typed.get(d.cast)] } : d)
     .map(d => ({ cast: d.cast, role: d.role, label: d.cast + '（' + d.role + '）' }));
 }
 /* 同伴は当初対象外だったが、オーナー指示で追加（2026-07-20） */
@@ -17152,7 +17195,7 @@ function _posAutoExtShimeiFeeSync(row, min) {
     ? [false, true].map(after => ({ after, rounds: targetRounds.filter(r => vipMoveExtAfter(row, r.slot, move) === after).length }))
     : [{ after: null, rounds }];
   const departed = _posDepartedCasts(row);
-  _posTableDesignations(row).forEach(d => {
+  _posTableDesignations(row, false, cfg.listShimeiNoCharge === true).forEach(d => {
     if (!d.cast || departed.includes(d.cast)) return;
     let type = '';
     if (d.role === '本指名') type = 'honen';
@@ -17366,9 +17409,10 @@ function _posSeatLineItemsCore(row, side) {
   // 延指/本延オーダーがある＝延長指名の源泉はオーダー側。mainType/subCast由来の延長指名(enchoshimei)は重複表示しない（calcBillと一致）
   const _hasExtNomOrder = Array.isArray(row.posOrders) && row.posOrders.some(o => /^(honen|enshi)/.test(o.category||''));
   const _suppressEncho = row.mainType === 'enchoshimei' && _hasExtNomOrder;
-  const mainLine = (_mainInOrders || _suppressEncho) ? null : _posMainTypeLine(row.mainType, row.mainCast);
+  const _listShimeiOff = _listShimeiOffFor(row);   // ON: リスト表の指名は料金行にしない（calcBillと一致）
+  const mainLine = (_listShimeiOff || _mainInOrders || _suppressEncho) ? null : _posMainTypeLine(row.mainType, row.mainCast);
   if (mainLine) items.push(mainLine);
-  (row.subCasts || []).forEach(sc => {
+  (_listShimeiOff ? [] : (row.subCasts || [])).forEach(sc => {
     if (sc.type === 'enchoshimei' && _hasExtNomOrder) return;
     const subCat = { honshimei:'nominate', douban:'dohan', jounai:'jonai' }[sc.type];
     if (_posHasOrderCatCast(_groupOrderRow, subCat, sc.cast)) return;
@@ -20282,7 +20326,7 @@ function extMappingCountAs(row, category, cast, amount) {
 function _extMappingEntries(row, min, mapping) {
   const entries = [];
   const missing = new Set();
-  for (const d of _posTableDesignations(row)) {
+  for (const d of _posTableDesignations(row, false, cfg.listShimeiNoCharge === true)) {
     if (!d.cast || _posDepartedCasts(row).includes(d.cast)) continue;
     const role = EXT_MAPPING_ROLES.find(r => r.label === d.role);
     if (!role || (role.key === 'douban' && cfg.doubanAsHonshimeiExt === false)) continue;
@@ -26123,7 +26167,8 @@ function _renderReportDay() {
         <span style="color:var(--tx3);font-size:11px">${minToHHMM(r.startMin)}–${minToHHMM(r.endMin)}</span>
       </div>
       <div class="pos-report-slip-actions">
-        <button class="pos-report-btn" style="color:#2680e8" onclick="posReportPrint(${r.gid})">🧾 印刷</button>
+        <button class="pos-report-btn" style="color:#2680e8" onclick="posReportPrint(${r.gid})">🧾 伝票</button>
+        ${(typeof receiptPrinterOff === 'function' && receiptPrinterOff()) ? '' : `<button class="pos-report-btn" style="color:#2a7a4a" onclick="posReportReceipt(${r.gid})">🧾 領収書</button>`}
         ${isPast || closedToday ? '' : `
         <button class="pos-report-btn restore" onclick="posReportRestore(${r.gid})">↩ 復元</button>
         <button class="pos-report-btn delete" onclick="posReportDelete(${r.gid})">🗑 完全削除</button>`}
@@ -26179,6 +26224,16 @@ function posReportPrint(gid) {
   const row = (src.rows || []).find(r => r.gid === gid && r.isFirst);
   if (!row) return;
   posPrintReceiptDirect(row);
+}
+
+/* 会計伝票一覧から領収書を出す（集計だけの版は伝票のボタン列ごと隠す＝99s）。集計が見せている日の rows から引き、その伝票だけを渡す（printReceipt が別の伝票へ落ちない）。データは書き換えない */
+function posReportReceipt(gid) {
+  if (typeof receiptPrinterOff === 'function' && receiptPrinterOff()) return;
+  const src = (typeof _reportDaySource === 'function') ? _reportDaySource() : { rows: state.rows, dayKey: getLoadedDayKey() };
+  const row = (src.rows || []).find(r => String(r.gid) === String(gid) && r.isFirst);
+  if (!row) { showToast('該当する伝票が見つかりません'); return; }
+  const dayKey = src.dayKey && src.dayKey !== getLoadedDayKey() ? src.dayKey : '';
+  printReceipt(row.id, { row, dayKey });
 }
 
 async function posReportRestore(gid) {
@@ -28738,9 +28793,14 @@ function _posExtTrial(row, extMin, trialCasts = [], extIdx) {
     if (!(key in _castType) || _ef2(_castType[key]) === 0) _castType[key] = type;  // 料金が立つ型を優先
   };
   const _castOf = o => { const n = o.name || ''; const i = n.indexOf(':'); return i >= 0 ? n.slice(i + 1) : ''; };
-  _bump(row.mainCast, row.mainType);
-  (row.subCasts || []).forEach(sc => _bump(sc.cast, sc.type));
-  posOrders(row).forEach(o => {
+  // ON: POS明細で裏づく指名だけを、実精算・自動追加と同じ種類（_posOrderDesignatedTypes）で試算に入れる
+  const _onTypes = cfg.listShimeiNoCharge === true ? _posOrderDesignatedTypes(row) : null;
+  if (_onTypes) _onTypes.forEach((type, cast) => _bump(cast, type));
+  else {
+    _bump(row.mainCast, row.mainType);
+    (row.subCasts || []).forEach(sc => _bump(sc.cast, sc.type));
+  }
+  if (!_onTypes) posOrders(row).forEach(o => {
     const c = o.category || '';
     if      (/^enshi/.test(c)) _bump(_castOf(o), 'enchoshimei');  // フリー席の延長指名＝場内扱い
     else if (/^honen/.test(c)) _bump(_castOf(o), 'honshimei');    // 本指名卓の延長
@@ -28861,9 +28921,13 @@ function _posExtTrialFeeCasts(row) {
     if (departed.has(cast) || (typeof _posDesignationStop === 'function' && _posDesignationStop(row, cast))) return;
     if (!(cast in types) || fee(types[cast]) === 0) types[cast] = type;
   };
-  bump(row.mainCast, row.mainType);
-  (row.subCasts || []).forEach(sc => bump(sc.cast, sc.type));
-  posOrders(row).forEach(o => {
+  const onTypes = cfg.listShimeiNoCharge === true ? _posOrderDesignatedTypes(row) : null;
+  if (onTypes) onTypes.forEach((type, cast) => bump(cast, type));
+  else {
+    bump(row.mainCast, row.mainType);
+    (row.subCasts || []).forEach(sc => bump(sc.cast, sc.type));
+  }
+  if (!onTypes) posOrders(row).forEach(o => {
     const c = o.category || '';
     if      (/^enshi/.test(c)) bump(castOf(o), 'enchoshimei');
     else if (/^honen/.test(c)) bump(castOf(o), 'honshimei');
@@ -32438,6 +32502,10 @@ function renderSettingsPanel() {
             </table>
           </div>`;
         })()}
+        <div class="settings-row">
+          <div class="settings-label">リスト表で選んだ指名を料金に入れない<div class="settings-sub">ONにすると、リスト表の種別やサブキャストで選んだ本指名・場内・延長指名・同伴は、伝票の料金に入りません。料金は POS の指名ボタン（本指名・場内・同伴・延指・本延）で入れた分だけになります。キャストの指名本数・バック・給与の計算は今までどおりリスト表で数えます。延長の分数は今までどおり料金に入ります。</div></div>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px"><input type="checkbox" id="cfg-listShimeiNoCharge" ${cfg.listShimeiNoCharge === true ? 'checked' : ''}> 料金に入れない</label>
+        </div>
         <div class="settings-group-head">🍸 セット</div>
         <div class="settings-row">
           <div class="settings-label">基本セット料金<div class="settings-sub">1セットの時間と料金。セット追加の初期値と終了時刻の計算に使われます</div></div>
@@ -34119,6 +34187,7 @@ async function applySettings() {
   const nominateFee     = feeMasterValues.nominateFee;
   const dohanFee        = feeMasterValues.dohanFee;
   const dohanIncludesSet = !!(get('cfg-dohanIncludesSet')?.checked);
+  const listShimeiNoCharge = get('cfg-listShimeiNoCharge') ? !!get('cfg-listShimeiNoCharge').checked : cfg.listShimeiNoCharge === true;   // 集計だけの版は欄が無いので今の値のまま
   const jonaiFee        = feeMasterValues.jonaiFee;
   const enchoshimeiFee        = _int('cfg-enchoshimeiFee', cfg.enchoshimeiFee ?? 2000); // 延長指名（明細なし）
   const extFeeHonshimeiAmt   = cfg.extFeeHonshimeiAmt   || 2000; // スカラーはフォールバック保持
@@ -34340,7 +34409,7 @@ async function applySettings() {
     extOptions, sources, conditions, staffNames, expenseLabels, hqOutLabels, specialInLabels, rankVip, rankRepeat,
     birthdayAlertDays,
     setPrice, earlySetEnabled, earlySetFromH, earlySetToH, earlySetPrice,
-    nominateFee, dohanFee, dohanIncludesSet, jonaiFee, enchoshimeiFee,
+    nominateFee, dohanFee, dohanIncludesSet, jonaiFee, enchoshimeiFee, listShimeiNoCharge,
     extFeeHonshimeiAmt, extFeeJounaiAmt, extFeeEnchoshimeiAmt,
     extFeeHonshimeiAmts, extFeeJounaiAmts, extFeeEnchoshimeiAmts,
     extFeeOnHonshimei, extFeeOnJounai, extFeeOnEnchoshimei, extPrices, extPosHiddenRows, extPosByRow, extNames,
@@ -40026,8 +40095,9 @@ function castMonthlyPrint() {
    row に通し番号フィールドが無いため、営業日ベースの簡易番号を生成する。
    形式 = 営業日(YYMMDD) + 卓番(無ければ末尾2桁の連番風)。
    例: 卓5・2026-06-01 → 260601-05 */
-function _receiptSlipNo(row) {
-  const base = String(getLoadedDayKey() || '').slice(-6);
+function _receiptSlipNo(row, dayKey) {
+  // dayKey: 読み込み中の日と違う過去の日の伝票から出す時、その伝票の営業日の日付を使う
+  const base = String(dayKey || getLoadedDayKey() || '').slice(-6);
   if (Number(row && row.slipNo) > 0) return base + '-' + row.slipNo;
   const tbl = row && row.tableNum ? String(row.tableNum).padStart(2, '0') : null;
   if (tbl) return base + '-' + tbl;
@@ -40150,18 +40220,23 @@ function _receiptToggleCardPayment() {
 /* 領収書印刷：確認・修正モーダルを表示 */
 function printReceipt(rowId, opts) {
   opts = opts || {};
-  // rowId 指定があればその行、無ければ選択中の伝票
+  // opts.row（集計の過去日・締め後など state.rows に無い伝票）か rowId で伝票を指定した時は、その伝票だけを使う。
+  // 見つからなくても選択中の伝票へ落とさない（別の伝票の領収書が出るのを防ぐ）。指定が無い時だけ選択中の伝票
   let row = null;
-  if (rowId != null && rowId !== '') {
+  const _asked = !!opts.row || (rowId != null && rowId !== '');
+  if (opts.row) row = opts.row;
+  else if (rowId != null && rowId !== '') {
     row = (state.rows || []).find(r => String(r.id) === String(rowId)) || null;
   }
-  if (!row && typeof posSelectedRow === 'function') row = posSelectedRow();
-  if (!row) { showToast('伝票を選択してください'); return; }
+  if (!row && !_asked && typeof posSelectedRow === 'function') row = posSelectedRow();
+  if (!row) { showToast(_asked ? '該当する伝票が見つかりません' : '伝票を選択してください'); return; }
+  const dayKey = opts.dayKey ? String(opts.dayKey) : '';
 
   // 金額の初期値：精算額（rowSales）を優先、無ければ POS 込み合計
   let amount = 0;
   if (typeof rowSales === 'function') amount = rowSales(row) || 0;
-  if (!amount && typeof _posCalcTotal === 'function') amount = _posCalcTotal(row).cash || 0;
+  // 精算済みの伝票は精算した額のまま（0円でも今の設定で計算し直さない）。未精算だけ POS 込み合計へ
+  if (!amount && !row.settled && typeof _posCalcTotal === 'function') amount = _posCalcTotal(row).cash || 0;
   // 領収書宛名は顧客マスタの receiptName 専用フィールドから引く。
   // 伝票上の通称（row.guestName / あだ名）からは引かない（現場で意図しない宛名が出るのを防ぐ）。
   const customers = (typeof loadCustomers === 'function') ? loadCustomers() : {};
@@ -40173,7 +40248,7 @@ function printReceipt(rowId, opts) {
     ? '<datalist id="receipt-name-options">' + receiptNames.map(name => '<option value="' + escAttr(name) + '"></option>').join('') + '</datalist>'
     : '';
   const note = cfg.receiptNote || 'ご飲食代として';
-  const slipNo = _receiptSlipNo(row);
+  const slipNo = _receiptSlipNo(row, dayKey);
 
   // 確認・修正モーダル（既存 pos-co-overlay スタイルを流用）
   const html = '<div class="pos-co-overlay" id="receipt-edit-overlay" style="z-index:9960" onclick="if(event.target===this)document.getElementById(\'receipt-edit-overlay\').remove()">'
@@ -40198,7 +40273,7 @@ function printReceipt(rowId, opts) {
     + '<label style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="receipt-edit-blankdate">日付を空欄にする（手書き用）</label>'
     + '</div>'
     + '<div class="pos-co-actions" style="margin-top:18px">'
-    + '<button class="pos-co-btn cash" onclick="_receiptDoPrint(\'' + escAttr(slipNo) + '\')">🖨️ 印刷する</button>'
+    + '<button class="pos-co-btn cash" onclick="_receiptDoPrint(\'' + escAttr(slipNo) + '\',\'' + escAttr(dayKey) + '\')">🖨️ 印刷する</button>'
     + '<button class="pos-co-btn cancel" onclick="document.getElementById(\'receipt-edit-overlay\').remove()">キャンセル</button>'
     + '</div>'
     + '</div></div></div>';
@@ -40207,7 +40282,7 @@ function printReceipt(rowId, opts) {
 }
 
 /* モーダルの入力値を読み取り、領収書を別ウィンドウで印刷 */
-function _receiptDoPrint(slipNo) {
+function _receiptDoPrint(slipNo, dayKey) {
   const nameEl = document.getElementById('receipt-edit-name');
   const amtEl  = document.getElementById('receipt-edit-amount');
   const noteEl = document.getElementById('receipt-edit-note');
@@ -40216,12 +40291,14 @@ function _receiptDoPrint(slipNo) {
   const amount = Math.max(0, parseInt(amtEl?.value) || 0);
   const note = (noteEl?.value || '').trim() || (cfg.receiptNote || 'ご飲食代として');
   document.getElementById('receipt-edit-overlay')?.remove();
-  _receiptOpenWindow({ guestName, amount, note, slipNo, blankDate });
+  _receiptOpenWindow({ guestName, amount, note, slipNo, blankDate, dayKey: dayKey || '' });
 }
 
 function _ryoshuPrintModel(data, sourceOpts) {
   const opts = _ryoshuOpts(sourceOpts);
-  const d = getBizDate();
+  // dayKey（YYYYMMDD）があれば、その営業日の日付。無ければ今までどおり今日の営業日
+  const dk = String(data.dayKey || '');
+  const d = /^\d{8}$/.test(dk) ? new Date(+dk.slice(0, 4), +dk.slice(4, 6) - 1, +dk.slice(6, 8)) : getBizDate();
   const dateStr = data.blankDate ? '　　年　　月　　日' : d.getFullYear() + '年' + (d.getMonth() + 1) + '月' + d.getDate() + '日';
   const name1 = cfg.receiptStoreName1 || '';
   const addr  = cfg.receiptStoreAddr  || '';
