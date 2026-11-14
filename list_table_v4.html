@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.134">
+<meta name="app-version" content="1.1.135">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -40217,6 +40217,32 @@ function _receiptToggleCardPayment() {
   button.style.color = '#fff';
 }
 
+/* 開いた時の「カード決済」の状態（2026-11-14 ギャルサークル「カードで払った伝票の但し書きにカード決済が載らない」）。
+   カードで全額精算した伝票は、払った額（手数料込み）のまま、ボタンを押した状態・カード決済の但し書きで開く。
+   ボタンを外すと手数料を除いた額に戻す。その額は精算時の設定で出した現金の合計で、カードの額と計算が合う時だけ使う
+   （合わなければ金額は変えず、但し書きだけ戻す）。現金・分割・売掛・未精算は今までどおり押さない状態 */
+function _receiptInitialCardState(row, amount, note) {
+  const off = { active:false, amount, note, originalAmount:'', cardNote:'', originalNote:'' };
+  if (!row || !row.settled || row.amountMethod !== 'card' || !(Number(amount) > 0)) return off;
+  const cardNote = _receiptCardNoteText();
+  let base = Number(amount);
+  // POSの明細が無い伝票は計算しない（posOrders() が空の配列を伝票に足すため。領収書はデータを書き換えない）
+  if (Array.isArray(row.posOrders) && row.posOrders.length && typeof _posCalcTotal === 'function' && typeof withSlipPricing === 'function') {
+    base = withSlipPricing(row, () => {
+      const cash = Number(_posCalcTotal(row).cash) || 0;
+      return cash > 0 && ceilAddRate(cash, cfg.cardFeeRate || 0, cfg.cardFeeRound || 100) === Number(amount) ? cash : Number(amount);
+    });
+  }
+  return {
+    active:true,
+    amount,
+    note: cardNote || (note.endsWith(_RECEIPT_CARD_SUFFIX) ? note : note + _RECEIPT_CARD_SUFFIX),
+    originalAmount: String(base),
+    cardNote,
+    originalNote: note,
+  };
+}
+
 /* 領収書印刷：確認・修正モーダルを表示 */
 function printReceipt(rowId, opts) {
   opts = opts || {};
@@ -40249,6 +40275,9 @@ function printReceipt(rowId, opts) {
     : '';
   const note = cfg.receiptNote || 'ご飲食代として';
   const slipNo = _receiptSlipNo(row, dayKey);
+  const init = _receiptInitialCardState(row, amount, note);
+  const cardOnStyle = 'background:#2a5a3a;border:1px solid #2a5a3a;color:#fff';
+  const cardOffStyle = 'background:var(--sur3);border:1px solid var(--bdr2);color:var(--tx)';
 
   // 確認・修正モーダル（既存 pos-co-overlay スタイルを流用）
   const html = '<div class="pos-co-overlay" id="receipt-edit-overlay" style="z-index:9960" onclick="if(event.target===this)document.getElementById(\'receipt-edit-overlay\').remove()">'
@@ -40263,12 +40292,14 @@ function printReceipt(rowId, opts) {
     + '<input type="text" id="receipt-edit-name" value="' + escAttr(guestName) + '" placeholder="（空欄可）"' + (receiptNames.length ? ' list="receipt-name-options"' : '')
     + ' style="padding:9px 11px;font-size:15px;background:var(--sur3);border:1px solid var(--bdr2);color:var(--tx);border-radius:6px;outline:none">' + receiptNameOptions + '</label>'
     + '<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--tx2)">金額（円）'
-    + '<input type="number" id="receipt-edit-amount" value="' + (Number(amount) || 0) + '" min="0" step="1"'
+    + '<input type="number" id="receipt-edit-amount" value="' + (Number(init.amount) || 0) + '" min="0" step="1"'
+    + (init.active ? ' data-receipt-original-amount="' + escAttr(init.originalAmount) + '"' : '')
     + ' style="padding:9px 11px;font-size:18px;font-weight:700;background:var(--sur3);border:1px solid var(--bdr2);color:var(--tx);border-radius:6px;outline:none"></label>'
-    + '<button type="button" id="receipt-edit-card" data-active="0" onclick="_receiptToggleCardPayment()"'
-    + ' style="padding:9px 11px;font-size:13px;font-weight:700;background:var(--sur3);border:1px solid var(--bdr2);color:var(--tx);border-radius:6px;cursor:pointer">💳 カード決済（手数料上乗せ）</button>'
+    + '<button type="button" id="receipt-edit-card" data-active="' + (init.active ? '1' : '0') + '" onclick="_receiptToggleCardPayment()"'
+    + ' style="padding:9px 11px;font-size:13px;font-weight:700;' + (init.active ? cardOnStyle : cardOffStyle) + ';border-radius:6px;cursor:pointer">💳 カード決済（手数料上乗せ）</button>'
     + '<label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--tx2)">但し書き'
-    + '<input type="text" id="receipt-edit-note" value="' + escAttr(note) + '"'
+    + '<input type="text" id="receipt-edit-note" value="' + escAttr(init.note) + '"'
+    + (init.active && init.cardNote ? ' data-receipt-card-note="' + escAttr(init.cardNote) + '" data-receipt-original-note="' + escAttr(init.originalNote) + '"' : '')
     + ' style="padding:9px 11px;font-size:14px;background:var(--sur3);border:1px solid var(--bdr2);color:var(--tx);border-radius:6px;outline:none"></label>'
     + '<label style="display:flex;align-items:center;gap:6px"><input type="checkbox" id="receipt-edit-blankdate">日付を空欄にする（手書き用）</label>'
     + '</div>'
