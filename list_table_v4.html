@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.135">
+<meta name="app-version" content="1.1.136">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -12854,6 +12854,11 @@ function rowCard(r) {
   const extra = (r.cardEntries||[]).reduce((s,e)=>s+(parseInt(e.amount)||0),0);
   return (parseInt(r.amountCard)||0) + extra;
 }
+/* カードの手数料カット（31 精算画面）で精算した伝票。会計伝票・POSの伝票は、計算上のカード額（手数料込み）ではなく
+   実際に切った額（rowCard）を出す（2026-11-14 ギャルサークル） */
+function rowCardFeeCut(r) {
+  return !!(r && r.settled && r.amountMethod === 'card' && r.cardFeeCut === true);
+}
 /* カードを切った回数（1枚目=amountCard、2枚目以降=cardEntries）。カード端末の伝票枚数と照合する用 */
 function rowCardCount(r) {
   const extra = (r.cardEntries||[]).reduce((s,e)=>s+((parseInt(e.amount)||0) > 0 ? 1 : 0),0);
@@ -18124,7 +18129,7 @@ function _posSlipCardCore(r, isSelected, totalCount, mode, padRows) {
         ? '<div class="pos-slip-sheet-footrow pos-slip-footrow-cash"><span>現金(分割)</span><span>' + posMoney(cashPaid) + '</span></div>'
           + '<div class="pos-slip-sheet-footrow pos-slip-footrow-card"><span>カード(分割)</span><span>' + posMoney(cardPaid) + '</span></div>'
         : '<div class="pos-slip-sheet-footrow pos-slip-footrow-cash"><span>現金</span><span>' + posMoney(b.cash) + '</span></div>'
-          + '<div class="pos-slip-sheet-footrow pos-slip-footrow-card"><span>カード</span><span>' + posMoney(b.card) + '</span></div>')
+          + '<div class="pos-slip-sheet-footrow pos-slip-footrow-card"><span>' + (rowCardFeeCut(r) ? 'カード(手数料カット)' : 'カード') + '</span><span>' + posMoney(rowCardFeeCut(r) ? rowCard(r) : b.card) + '</span></div>')
     +   '</div>'
     + '</div>'
     + '</div>';
@@ -18241,9 +18246,10 @@ function _posOrderSlipPanelCore(r) {
     + depLines.map(label => '<div class="pos-order-slip-line departed"><span></span><span class="pos-order-slip-name">' + escHtml(label) + '</span><span></span><span></span></div>').join('');
   const isSplit = r.settled && r.amountMethod === 'both';
   const cash = isSplit ? (parseInt(r.amountCash) || 0) : totals.cash;
-  const card = isSplit ? (parseInt(r.amountCard) || 0) : totals.card;
+  const feeCutCard = rowCardFeeCut(r);   // カードの手数料カットで精算した伝票は実際に切った額
+  const card = isSplit ? (parseInt(r.amountCard) || 0) : (feeCutCard ? rowCard(r) : totals.card);
   const cashLabel = isSplit ? '現金（分割）' : '現金合計';
-  const cardLabel = isSplit ? 'カード（分割）' : 'カード';
+  const cardLabel = isSplit ? 'カード（分割）' : (feeCutCard ? 'カード（手数料カット）' : 'カード');
   const casts = _posFloorCastChips(r) || '<span class="pos-floor-cast">キャスト未付け</span>';
   const castHistory = _posOrderCastHistory(r);
   return '<section class="pos-order-slip-panel">'
@@ -22781,6 +22787,7 @@ function _posSetEntryHTML() {
 /* ================================================================
    POS 精算パネル
 ================================================================ */
+let _posCoFeeCut = null;   // { gid } … 精算画面で「カードの手数料カット」に印を付けた伝票
 function posOpenCheckoutPanel() {
   const row = posSelectedRow();
   if (!row) { showToast('伝票を選択してください'); return; }
@@ -22791,6 +22798,9 @@ function posOpenCheckoutPanel() {
   const dueCard = _posSplitCardFee(due);
   const table = row.tableNum ? ((typeof posTableCustomName === 'function' && posTableCustomName(row.tableNum)) || posTableLabel(row.tableNum)) : '-';
   const advRows = _posAdvanceListHTML(row);
+  // 「カードの手数料カット」の印。前金の登録・削除で精算画面を描き直す時は残し、新しく開いた時は外す（2026-11-14 ギャルサークル）
+  if (!document.getElementById('pos-co-overlay') || !_posCoFeeCut || String(_posCoFeeCut.gid) !== String(row.gid)) _posCoFeeCut = null;
+  const feeCut = !!_posCoFeeCut;
 
   // 前金が多いと縦に伸びて精算ボタンが画面外に出るため、本文だけスクロールさせ
   // 精算ボタンは footer に固定して常に見せる（2026-09-19 ギャルサークル: 前金8件で精算できず）
@@ -22813,9 +22823,11 @@ function posOpenCheckoutPanel() {
     + '<div class="pos-co-advance-list">' + (advRows || '<div style="color:var(--tx3);font-size:12px">登録済みの前金はありません</div>') + '</div>'
     + '</div>'
     + '</div>'
-    + '<div class="pos-co-footer"><div class="pos-co-actions">'
+    + '<div class="pos-co-footer">'
+    + '<label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:13px;cursor:pointer"><input type="checkbox" id="pos-co-feecut"' + (feeCut ? ' checked' : '') + ' onchange="posCheckoutFeeCut(this.checked)">カードの手数料カット（手数料を乗せずにカードで精算）</label>'
+    + '<div class="pos-co-actions">'
     + '<button class="pos-co-btn cash" onclick="posExecCheckout(\'cash\')">現金で精算<small>¥' + due.toLocaleString() + '</small></button>'
-    + '<button class="pos-co-btn card" onclick="posOpenCardSplitModal()">カードで精算<small>¥' + dueCard.toLocaleString() + '</small></button>'
+    + '<button class="pos-co-btn card" id="pos-co-card-btn" onclick="posOpenCardSplitModal()">カードで精算<small>¥' + (feeCut ? due : dueCard).toLocaleString() + '</small></button>'
     + '<button class="pos-co-btn both" onclick="posOpenSplitModal()">分割で精算</button>'
     + '<button class="pos-co-btn urikake" onclick="posOpenUrikakeModal()">売掛で精算<small>¥' + due.toLocaleString() + '</small></button>'
     + '</div></div>'
@@ -22824,7 +22836,17 @@ function posOpenCheckoutPanel() {
   document.body.insertAdjacentHTML('beforeend', html);
 }
 
-function posExecCheckout(method, urikakePayment, cardAmounts) {
+/* 精算画面の「カードの手数料カット」。カードで精算の金額を、手数料を乗せない額（現金と同じ）に変える */
+function posCheckoutFeeCut(checked) {
+  const row = posSelectedRow();
+  _posCoFeeCut = checked && row ? { gid: row.gid } : null;
+  const small = document.querySelector('#pos-co-card-btn small');
+  if (!row || !small) return;
+  const due = _posDue(row);
+  small.textContent = '¥' + (_posCoFeeCut ? due : _posSplitCardFee(due)).toLocaleString();
+}
+
+function posExecCheckout(method, urikakePayment, cardAmounts, feeCut) {
   const row = posSelectedRow();
   if (!row) return;
   // 併用(both)は分割精算モーダル経由が唯一の正しい経路。
@@ -22842,7 +22864,9 @@ function posExecCheckout(method, urikakePayment, cardAmounts) {
     }
   }
   // 前金を内訳へ畳み込む：現金/カードの受領合計（前金＋今回の精算分）で確定する。
-  const bd = _posSettlementBreakdown(row, method, urikakePayment);
+  // カードの手数料カット: カードで精算する分に手数料を乗せない（前金の手数料カットと同じ考え。2026-11-14 ギャルサークル）
+  const cardFeeCut = method === 'card' && feeCut === true;
+  const bd = _posSettlementBreakdown(row, method, urikakePayment, cardFeeCut);
   if (method === 'urikake' && bd.amountUrikake <= 0) {
     showToast('売掛にできる未収金がありません');
     return;
@@ -22873,6 +22897,8 @@ function posExecCheckout(method, urikakePayment, cardAmounts) {
   const todayCard = bd.amountCard - advCards.reduce((s, v) => s + v, 0);
   const todayCards = method === 'card' ? (cardSplit || [todayCard]) : (todayCard > 0 ? [todayCard] : []);
   _posAssignCardCharges(row, [...advCards, ...todayCards]);
+  if (cardFeeCut && todayCard > 0) row.cardFeeCut = true;   // 会計伝票・POSの伝票でカードの実際の額を出す印（14 rowCardFeeCut）
+  else delete row.cardFeeCut;
   row.amountUrikake = bd.amountUrikake ? String(bd.amountUrikake) : '';
   if (typeof slipPricingStamp === 'function') slipPricingStamp(row);   // 精算した時の設定の写しを先頭行へ残す（15）
   row.settled = true;
@@ -23012,11 +23038,12 @@ let _posCardSplit = null;
 function posOpenCardSplitModal() {
   const row = posSelectedRow();
   if (!row) { showToast('伝票を選択してください'); return; }
-  const bd = _posSettlementBreakdown(row, 'card');
+  const feeCut = !!(_posCoFeeCut && String(_posCoFeeCut.gid) === String(row.gid));
+  const bd = _posSettlementBreakdown(row, 'card', null, feeCut);
   const adv = _posAdvanceTotals(row);
   const total = Math.max(0, bd.amountCard - adv.card);
-  if (total === 0) { posExecCheckout('card'); return; }
-  _posCardSplit = { gid: row.gid, total, amounts: [total], active: 0 };
+  if (total === 0) { posExecCheckout('card', null, null, feeCut); return; }
+  _posCardSplit = { gid: row.gid, total, amounts: [total], active: 0, feeCut };
   document.getElementById('pos-card-split-overlay')?.remove();
   document.body.insertAdjacentHTML('beforeend',
     '<div class="pos-co-overlay" id="pos-card-split-overlay" onclick="if(event.target===this)posCardSplitClose()"></div>');
@@ -23069,7 +23096,7 @@ function _posCardSplitRender() {
       + '</div>';
   }).join('');
   ov.innerHTML = '<div class="pos-co-panel">'
-    + '<div class="pos-co-header"><div class="pos-co-title">💳 カード分割 — 請求額 ¥' + _posCardSplit.total.toLocaleString() + '</div>'
+    + '<div class="pos-co-header"><div class="pos-co-title">💳 カード分割 — 請求額 ¥' + _posCardSplit.total.toLocaleString() + (_posCardSplit.feeCut ? '（手数料カット）' : '') + '</div>'
     + '<button class="pos-co-close" onclick="posCardSplitClose()">×</button></div>'
     + '<div class="pos-co-body">'
     + '<div class="pos-split-fields" style="display:grid;grid-template-columns:1fr">' + rows + '</div>'
@@ -23137,7 +23164,7 @@ function posCardSplitApply() {
   if (!row || !_posCardSplit) return;
   if (!_posCardSplitValid()) { showToast('各カードの金額を確認してください'); return; }
   const amounts = _posCardSplit.amounts.slice();
-  posExecCheckout('card', null, amounts);
+  posExecCheckout('card', null, amounts, _posCardSplit.feeCut === true);
   posCardSplitClose();
 }
 
@@ -23251,6 +23278,7 @@ function posSplitApply() {
   row.amountCash = totalCash ? String(totalCash) : '';
   _posAssignCardCharges(row, [..._posAdvanceCardCharges(row), card]);
   row.amountUrikake = '';
+  delete row.cardFeeCut;   // 分割で精算し直した伝票にカードの手数料カットの印を残さない
   // 「元に戻す」経由の再精算（分割）でも旧chargeを台帳に残さない（posExecCheckoutと同じ冪等化）
   urikakeRevokeByRowId(row.id);
   if (typeof slipPricingStamp === 'function') slipPricingStamp(row);   // 精算した時の設定の写しを先頭行へ残す（15）
@@ -23330,6 +23358,7 @@ function posRestorePreSettle(row) {
     row.cardEntries = [];
   }
   delete row.preSettle;
+  delete row.cardFeeCut;   // カードの手数料カットの印も外す
   delete row.settledPricingId;   // 精算時の設定の写しも消す＝未精算に戻った伝票は今の設定で計算（15）
   delete row.floorStay;   // 未精算に戻った伝票に「会計後も卓に残す」の印を残さない
 }
@@ -23343,8 +23372,9 @@ function _posAssignCardCharges(row, charges) {
 
 /* 精算の内訳を確定（単一窓口）。前金（現金/カード受領）＋今回の精算分を合算し、
    amountMethod / amountCash / amountCard / amountUrikake を返す。カード精算分は手数料込み。
-   method: 'cash' | 'card' | 'urikake'（'both'は posSplitApply 側で処理）。 */
-function _posSettlementBreakdown(row, method, urikakePayment) {
+   method: 'cash' | 'card' | 'urikake'（'both'は posSplitApply 側で処理）。
+   feeCut=true（カードの手数料カット）はカードで精算する分に手数料を乗せない。前金の分はそのまま。 */
+function _posSettlementBreakdown(row, method, urikakePayment, feeCut) {
   const due = _posDue(row);
   const adv = _posAdvanceTotals(row);
   if (method === 'urikake') {
@@ -23358,7 +23388,7 @@ function _posSettlementBreakdown(row, method, urikakePayment) {
     };
   }
   let setCash = 0, setCard = 0;
-  if (method === 'card') setCard = _posSplitCardFee(due);
+  if (method === 'card') setCard = feeCut ? due : _posSplitCardFee(due);
   else setCash = due;
   const cash = adv.cash + setCash;
   const card = adv.card + setCard;
@@ -29342,7 +29372,7 @@ function _receiptTotalsRowsCore(row, block) {
   const tax = b.cash - b.subtotal;
   const isSplit = row.settled && row.amountMethod === 'both';
   const cashTotal = isSplit ? (parseInt(row.amountCash) || 0) : b.cash;
-  const cardFinal = isSplit ? (parseInt(row.amountCard) || 0) : b.card;
+  const cardFinal = isSplit ? (parseInt(row.amountCard) || 0) : (rowCardFeeCut(row) ? rowCard(row) : b.card);   // 手数料カットは実際に切った額
   const rows = [];
   if (block.showSubtotal) rows.push({ label:'合計', amount:b.subtotal });
   if (block.showTax) rows.push({ label:'税サ' + taxRateNoteForRow(row), amount:tax });   // VIP席の率が効いている伝票だけ「税サ(40%)」
