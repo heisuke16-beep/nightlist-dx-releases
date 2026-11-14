@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.136">
+<meta name="app-version" content="1.1.137">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -22937,8 +22937,26 @@ let _posUrikake = null;
 function posOpenUrikakeModal() {
   const row = posSelectedRow();
   if (!row) { showToast('伝票を選択してください'); return; }
+  // 売掛は後で回収する相手が要るので、名前のない伝票は顧客リストから選ぶか新しく登録してから売掛の画面へ進む。
+  // 以前は右上の小さな知らせだけで止まり、現場では「ボタンが押せない」に見えた（2026-11-13 アンベリール）
   if (!(row.guestName || '').trim()) {
-    showToast('売掛精算には顧客名が必要です');
+    const gid = row.gid;
+    openCustomerPicker({
+      title: '売掛にするお客様を選択',
+      note: '売掛にはお客様の名前が必要です。リストから選ぶか、「＋ 新規追加」で登録してください。',
+      onSelect: name => {
+        name = String(name || '').trim();
+        const target = posSelectedRow();
+        if (!name || !target || String(target.gid) !== String(gid)) return;
+        pushUndo();
+        target.guestName = name;
+        saveState();
+        renderTable();
+        // 売掛の画面は次の順番で開く。新規追加の名前欄で押したEnterが document まで上がり、
+        // その場で足した売掛の画面のEnter（＝全額を売掛にして精算）に拾われるのを防ぐ（2026-11-14 監査）
+        setTimeout(posOpenUrikakeModal, 0);
+      },
+    });
     return;
   }
   _posUrikake = { gid: row.gid, total: _posDue(row), paid: 0, paidMethod: 'cash' };
@@ -22960,7 +22978,7 @@ function _posUrikakeKeydown(e) {
   if (e.key >= '0' && e.key <= '9') { posUrikakeKey(e.key); e.preventDefault(); }
   else if (e.key === 'Backspace') { posUrikakeKey('back'); e.preventDefault(); }
   else if (e.key === 'Delete') { posUrikakeKey('clear'); e.preventDefault(); }
-  else if (e.key === 'Enter') { posUrikakeApply(); e.preventDefault(); }
+  else if (e.key === 'Enter') { if (!e.repeat) posUrikakeApply(); e.preventDefault(); }   // 押しっぱなしのEnterで開いた直後に精算しない
   else if (e.key === 'Escape') { posUrikakeClose(); e.preventDefault(); }
 }
 
@@ -37256,13 +37274,16 @@ function filterCustomerPicker(customers, query) {
 function openCustomerPicker(opts) {
   const current = String(opts?.current || '');
   const onSelect = typeof opts?.onSelect === 'function' ? opts.onSelect : () => {};
+  const title = String(opts?.title || '顧客を選択');
+  const note = String(opts?.note || '');
   const customers = Object.values(loadCustomersWithKana());
   document.getElementById('customer-picker-overlay')?.remove();
 
   document.body.insertAdjacentHTML('beforeend', `
     <div class="pos-co-overlay customer-picker-overlay" id="customer-picker-overlay">
       <div class="customer-picker-modal" role="dialog" aria-modal="true" aria-labelledby="customer-picker-title">
-        <div class="customer-picker-header"><span id="customer-picker-title">顧客を選択</span><button type="button" class="customer-picker-close" aria-label="閉じる">×</button></div>
+        <div class="customer-picker-header"><span id="customer-picker-title">${escHtml(title)}</span><button type="button" class="customer-picker-close" aria-label="閉じる">×</button></div>
+        ${note ? `<div class="customer-picker-note" style="padding:10px 14px 0;color:var(--tx);font-size:14px;line-height:1.6">${escHtml(note)}</div>` : ''}
         <div class="customer-picker-search-wrap"><input type="search" class="customer-picker-search" placeholder="名前・カナ・電話番号・タグで検索" autocomplete="off"></div>
         <div class="customer-picker-list"></div>
         <div class="customer-picker-new">
