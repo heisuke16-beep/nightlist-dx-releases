@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="app-version" content="1.1.137">
+<meta name="app-version" content="1.1.138">
 <title>リスト表 v4</title>
 <link rel="manifest" href="nightlist.webmanifest">
 <!-- 外部フォント読み込みは廃止（オフライン動作の保証＋店舗PCからの外部通信をセルフアップデートのみに限定）。
@@ -10268,6 +10268,7 @@ const CFG_DEFAULTS = {
   payrollClockOutRoundThreshold: 15,    // 退勤丸めの四捨五入境界（分。〜threshold未満は切り捨て）
   payrollLateFineEnabled:        true,  // 遅刻罰金を取るか（false=遅刻は記録するが罰金0円。2026-09-28）
   payrollLateFineUnitMin:        15,    // 遅刻罰金の単位（分。N分ごとに1段階）
+  payrollLateStepMin:            30,    // 出勤キャスト画面の「遅刻」ボタン1回で足す分（10・15・30。2026-11-17）
   payrollLateFineAmt:            1000,  // 遅刻罰金の単位額（円・1段階あたり）
   payrollBottleSpRate:           0.2,   // SP参考値の率（ボトル小計×rate）。最終額は手入力優先。
   payrollSpMode:                 'percent', // 店標準SP。既存データは従来の率を維持。
@@ -10353,6 +10354,12 @@ function normalizePayrollLateFineMode(value) {
   return value === 'deduction' ? 'deduction' : 'inPay';
 }
 
+/* 遅刻ボタンの刻み（分）。10・15・30 以外（壊れた保存値・古い保存データ）は 30（今まで通り）に戻す。文字列の "10" は数値として可 */
+function normalizePayrollLateStepMin(value) {
+  const n = typeof value === 'string' && value.trim() !== '' ? Number(value) : value;
+  return n === 10 || n === 15 || n === 30 ? n : 30;
+}
+
 /* 率%の控除の端数。ceil10・ceil100 以外は round1（今まで通り）に戻す */
 function normalizePayrollRateDeductionRound(value) {
   return value === 'ceil10' || value === 'ceil100' ? value : 'round1';
@@ -10413,6 +10420,7 @@ function mergeCfgDefaults(saved) {
   }
   delete merged.payrollRateDeductionBase;
   merged.payrollLateFineMode = normalizePayrollLateFineMode(merged.payrollLateFineMode);
+  merged.payrollLateStepMin = normalizePayrollLateStepMin(merged.payrollLateStepMin);
   merged.payrollRateDeductionRound = normalizePayrollRateDeductionRound(merged.payrollRateDeductionRound);
   // 締め日が壊れていても給与明細が開けなくならないよう、読み込み時に初期値へ戻す（2026-10-23）
   merged.payrollCloseDay = normalizePayrollCloseDay(merged.payrollCloseDay);
@@ -13432,6 +13440,336 @@ async function deleteCastMaster(name){
   saveState(); renderCastPanel(); renderTable(); renderCastMgmt();
   try { showToast('「' + name + '」を削除しました'); } catch(_){}
 }
+/* ================================================================
+   キャストの名前変更（体入で登録した名前を源氏名に変える。2026-11-17）
+   名前が全データの鍵なので、名前を持つ所を全部書き換える。顧客名の変更 editCustomerName と同じ考え方。
+   旧名と完全に一致するものだけを変える（部分一致・別キャストは触らない）。仕様: dev/specs/2026-11-17-nightlistdx-キャストの名前変更.md
+================================================================ */
+/* 名前を鍵にしたオブジェクトの鍵を、並びを保ったまま付け替えた新しいオブジェクトを返す。旧名の鍵が無ければ null */
+function _castRenameKeys(obj, oldName, newName) {
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null;
+  if (!Object.prototype.hasOwnProperty.call(obj, oldName)) return null;
+  if (Object.prototype.hasOwnProperty.call(obj, newName)) return null;   // 重なる場合は事前の確認で止めている
+  const out = {};
+  Object.keys(obj).forEach(key => { out[key === oldName ? newName : key] = obj[key]; });
+  return out;
+}
+/* 旧名の鍵と新名の鍵が両方あるか（書き換えると上書きで記録が消える） */
+function _castRenameKeysClash(obj, oldName, newName) {
+  return !!obj && typeof obj === 'object' && !Array.isArray(obj)
+    && Object.prototype.hasOwnProperty.call(obj, oldName) && Object.prototype.hasOwnProperty.call(obj, newName);
+}
+/* 文字列の配列の、旧名と完全に一致する要素を置き換える（位置は保つ） */
+function _castRenameList(list, oldName, newName) {
+  let changed = false;
+  if (!Array.isArray(list)) return false;
+  for (let i = 0; i < list.length; i++) if (list[i] === oldName) { list[i] = newName; changed = true; }
+  return changed;
+}
+/* [{cast:…}] の配列の cast（field）を置き換える */
+function _castRenameField(list, field, oldName, newName) {
+  let changed = false;
+  if (!Array.isArray(list)) return false;
+  list.forEach(item => { if (item && typeof item === 'object' && item[field] === oldName) { item[field] = newName; changed = true; } });
+  return changed;
+}
+/* 「品名:キャスト名」の最初の「:」より後ろが旧名と完全に一致するときだけ置き換えた文字列を返す（違えば null） */
+function _castRenameLabeled(text, oldName, newName) {
+  if (typeof text !== 'string') return null;
+  const i = text.indexOf(':');
+  if (i < 0 || text.slice(i + 1) !== oldName) return null;
+  return text.slice(0, i + 1) + newName;
+}
+/* 行（伝票の1行）の名前を持つ所を全部置き換える。行を持つ全ての集まり（今日・バックアップ・復旧・削除済み伝票・過去リスト）が使う唯一の関数。
+   名前を持つ行のフィールドを足したら、ここへ足す。変えたら true */
+function _castRenameInRow(row, oldName, newName) {
+  if (!row || typeof row !== 'object') return false;
+  let changed = false;
+  if (row.mainCast === oldName) { row.mainCast = newName; changed = true; }
+  if (_castRenameField(row.subCasts, 'cast', oldName, newName)) changed = true;
+  if (_castRenameList(row.rotations, oldName, newName)) changed = true;
+  if (_castRenameList(row.rotations2, oldName, newName)) changed = true;
+  if (_castRenameList(row.departedCasts, oldName, newName)) changed = true;
+  if (_castRenameField(row.departedGuestRows, 'cast', oldName, newName)) changed = true;
+  if (_castRenameField(row.designationStops, 'cast', oldName, newName)) changed = true;
+  if (_castRenameField(row.designationRetargets, 'cast', oldName, newName)) changed = true;
+  if (_castRenameList(row.extTrialExclude, oldName, newName)) changed = true;
+  ['nominateShares', 'nominateGroupShares'].forEach(field => {
+    const next = _castRenameKeys(row[field], oldName, newName);
+    if (next) { row[field] = next; changed = true; }
+  });
+  if (Array.isArray(row.posOrders)) {
+    row.posOrders.forEach(order => {
+      if (!order || typeof order !== 'object') return;
+      const name = _castRenameLabeled(order.name, oldName, newName);
+      if (name !== null) { order.name = name; changed = true; }
+      const shares = _castRenameKeys(order.spShares, oldName, newName);
+      if (shares) { order.spShares = shares; changed = true; }
+    });
+  }
+  // 延長の追加項目の記録（延長ごとに、どのキャストの何を足したか）
+  if (row.extAutoFeeRounds && typeof row.extAutoFeeRounds === 'object') {
+    Object.values(row.extAutoFeeRounds).forEach(record => {
+      (record && Array.isArray(record.entries) ? record.entries : []).forEach(entry => {
+        if (!entry || typeof entry !== 'object') return;
+        if (entry.cast === oldName) { entry.cast = newName; changed = true; }
+        const name = _castRenameLabeled(entry.name, oldName, newName);
+        if (name !== null) { entry.name = name; changed = true; }
+      });
+    });
+  }
+  return changed;
+}
+function _castRenameInRows(rows, oldName, newName) {
+  let changed = false;
+  (Array.isArray(rows) ? rows : []).forEach(row => { if (_castRenameInRow(row, oldName, newName)) changed = true; });
+  return changed;
+}
+/* 行の、書き換えると記録が消える鍵の重なり（旧名と新名が同じオブジェクトに両方ある） */
+function _castRenameRowClash(row, oldName, newName) {
+  if (!row || typeof row !== 'object') return false;
+  if (_castRenameKeysClash(row.nominateShares, oldName, newName) || _castRenameKeysClash(row.nominateGroupShares, oldName, newName)) return true;
+  return Array.isArray(row.posOrders) && row.posOrders.some(order => order && _castRenameKeysClash(order.spShares, oldName, newName));
+}
+/* 勤怠（タイムテーブルの形）。バックアップ・復旧の timetableSnap も同じ形 */
+const _CAST_RENAME_TT_KEYED = ['clockIns', 'checkouts', 'plannedClockIns', 'chikokuMins'];
+function _castRenameTimetable(tt, oldName, newName) {
+  if (!tt || typeof tt !== 'object') return false;
+  let changed = false;
+  _CAST_RENAME_TT_KEYED.forEach(field => {
+    const next = _castRenameKeys(tt[field], oldName, newName);
+    if (next) { tt[field] = next; changed = true; }
+  });
+  if (_castRenameList(tt.douban, oldName, newName)) changed = true;
+  if (_castRenameList(tt.touketsu, oldName, newName)) changed = true;
+  return changed;
+}
+function _castRenameTimetableClash(tt, oldName, newName) {
+  return !!tt && typeof tt === 'object' && _CAST_RENAME_TT_KEYED.some(field => _castRenameKeysClash(tt[field], oldName, newName));
+}
+/* バックアップ・復旧の1日分（rows・allCasts・activeCasts・timetableSnap） */
+function _castRenameSnap(snap, oldName, newName) {
+  if (!snap || typeof snap !== 'object') return false;
+  let changed = _castRenameInRows(snap.rows, oldName, newName);
+  if (_castRenameList(snap.allCasts, oldName, newName)) changed = true;
+  if (_castRenameList(snap.activeCasts, oldName, newName)) changed = true;
+  if (_castRenameTimetable(snap.timetableSnap, oldName, newName)) changed = true;
+  return changed;
+}
+function _castRenameSnapClash(snap, oldName, newName) {
+  if (!snap || typeof snap !== 'object') return false;
+  return (Array.isArray(snap.rows) && snap.rows.some(row => _castRenameRowClash(row, oldName, newName)))
+    || _castRenameTimetableClash(snap.timetableSnap, oldName, newName);
+}
+/* 給与明細の保存キー「YYYYMMDD_YYYYMMDD_名前」。旧名のキーなら新名のキーを返す（違えば null） */
+function _castRenamePayslipKey(key, oldName, newName) {
+  const m = /^(\d{8}_\d{8})_([\s\S]*)$/.exec(String(key));
+  return m && m[2] === oldName ? m[1] + '_' + newName : null;
+}
+function _castRenamePayslips(store, oldName, newName) {
+  if (!store || typeof store !== 'object' || Array.isArray(store)) return null;
+  let changed = false;
+  const out = {};
+  Object.keys(store).forEach(key => {
+    const next = _castRenamePayslipKey(key, oldName, newName);
+    if (next === null) { out[key] = store[key]; return; }
+    const value = store[key];
+    if (value && value.snapshot && typeof value.snapshot === 'object' && value.snapshot.castName === oldName) value.snapshot.castName = newName;
+    out[next] = value;
+    changed = true;
+  });
+  return changed ? out : null;
+}
+function _castRenamePayslipsClash(store, oldName, newName) {
+  if (!store || typeof store !== 'object' || Array.isArray(store)) return false;
+  return Object.keys(store).some(key => {
+    const next = _castRenamePayslipKey(key, oldName, newName);
+    return next !== null && Object.prototype.hasOwnProperty.call(store, next);
+  });
+}
+function _castRenameDailyClose(store, oldName, newName) {
+  let changed = false;
+  if (!store || typeof store !== 'object') return false;
+  Object.values(store).forEach(record => {
+    const frozen = record && typeof record === 'object' ? record.frozen : null;
+    if (frozen && _castRenameField(frozen.castRows, 'castName', oldName, newName)) changed = true;
+  });
+  return changed;
+}
+/* 顧客の注文のまとめ「品名:名前×数, …」。各項目の「:」の後ろ〜最後の「×」の前が旧名と完全に一致するものだけ変える */
+function _castRenameOrderSummary(text, oldName, newName) {
+  if (typeof text !== 'string' || !text) return null;
+  let changed = false;
+  const parts = text.split(', ').map(part => {
+    const x = part.lastIndexOf('×');
+    if (x < 0) return part;
+    const next = _castRenameLabeled(part.slice(0, x), oldName, newName);
+    if (next === null) return part;
+    changed = true;
+    return next + part.slice(x);
+  });
+  return changed ? parts.join(', ') : null;
+}
+function _castRenameCustomers(customers, oldName, newName) {
+  let changed = false;
+  if (!customers || typeof customers !== 'object') return false;
+  Object.values(customers).forEach(customer => {
+    if (!customer || typeof customer !== 'object') return;
+    (Array.isArray(customer.shimeiHistory) ? customer.shimeiHistory : []).forEach(item => {
+      if (!item || typeof item !== 'object') return;
+      if (item.cast === oldName) { item.cast = newName; changed = true; }
+      if (typeof item.key === 'string' && item.key.startsWith(oldName + '::')) { item.key = newName + item.key.slice(oldName.length); changed = true; }
+    });
+    if (_castRenameField(customer.attendedHistory, 'cast', oldName, newName)) changed = true;
+    if (_castRenameList(customer.rotHistory, oldName, newName)) changed = true;
+    (Array.isArray(customer.visitHistory) ? customer.visitHistory : []).forEach(visit => {
+      if (!visit || typeof visit !== 'object') return;
+      if (visit.mainCast === oldName) { visit.mainCast = newName; changed = true; }
+      if (_castRenameField(visit.attendedCasts, 'cast', oldName, newName)) changed = true;
+      if (_castRenameField(visit.extraShimei, 'cast', oldName, newName)) changed = true;
+      const summary = _castRenameOrderSummary(visit.orderSummary, oldName, newName);
+      if (summary !== null) { visit.orderSummary = summary; changed = true; }
+    });
+  });
+  return changed;
+}
+/* 保存データを全部読む（書き換えの前に済ませる）。読めない・書けないものがあれば blocked:true */
+const _CAST_RENAME_STORES = ['listState', 'backups', 'recovery', 'deletedSlips', 'dailyclose', 'payslips', 'customers', 'timetable', 'settings'];
+function _castRenameLoad() {
+  const data = {
+    backups: loadBackups(),
+    recovery: loadRecovery(),
+    deletedSlips: loadDeletedSlips(),
+    dailyclose: loadDailyClose(),
+    payslips: loadPayslips(),
+    customers: loadCustomers(),
+    timetable: Persist.read('timetable'),
+  };
+  data.blocked = !!Persist.writeBlockedReason || _CAST_RENAME_STORES.some(name => Persist.failedReads.has(name));
+  return data;
+}
+/* 変えられない理由を返す（無ければ ''）。何も書き換えない */
+function _castRenameRefusal(oldName, newName, data) {
+  if (state.allCasts.includes(newName) || (state.retiredCasts || []).includes(newName) || (state.castProfiles && Object.prototype.hasOwnProperty.call(state.castProfiles, newName))) {
+    return '『' + newName + '』は既に名簿か退店リストにいるため、この名前には変更できません。';
+  }
+  if (data.blocked) return '保存データの一部が読めないため、名前を変更できません。運営者へ連絡してください。';
+  const clash = Object.values(state.payrollManual || {}).some(day => _castRenameKeysClash(day, oldName, newName))
+    || _castRenameTimetableClash(data.timetable, oldName, newName)
+    || data.backups.some(snap => _castRenameSnapClash(snap, oldName, newName))
+    || data.recovery.some(snap => _castRenameSnapClash(snap, oldName, newName))
+    || data.deletedSlips.some(entry => entry && Array.isArray(entry.rows) && entry.rows.some(row => _castRenameRowClash(row, oldName, newName)))
+    || (state.rows || []).some(row => _castRenameRowClash(row, oldName, newName))
+    || (typeof pastState !== 'undefined' && pastState && Array.isArray(pastState.rows) && pastState.rows.some(row => _castRenameRowClash(row, oldName, newName)))
+    || _castRenamePayslipsClash(data.payslips, oldName, newName);
+  return clash ? '『' + newName + '』の記録が既にあるため、この名前には変更できません。' : '';
+}
+
+async function renameCast(oldName) {
+  ensureCastStores();
+  const input = await appPrompt('キャストの名前を変更します。\n\n新しい名前を入力してください：', oldName);
+  if (input === null || input === undefined) return false;
+  const newName = String(input).trim();
+  if (!newName) { await appAlert('空の名前には変更できません。'); return false; }
+  if (newName === oldName) return false;
+
+  let refusal = _castRenameRefusal(oldName, newName, _castRenameLoad());
+  if (refusal) { await appAlert(refusal); return false; }
+  if (!(await appConfirm('『' + oldName + '』を『' + newName + '』に変更します。\n\n'
+    + '・名簿、今日の出勤・伝票・日計表、過去の全営業日の記録、給与明細、顧客の指名履歴が新しい名前に変わります\n'
+    + '・時給やバックの単価はそのまま引き継ぎます\n'
+    + '・元に戻すときは、もう一度『名前を変更』で元の名前を入れてください\n\n'
+    + '変更しますか？', { danger: true }))) return false;
+
+  // 確認の間に自動保存などで保存データが変わっていても上書きしないよう、確認のあとで読み直して判定し直す
+  const data = _castRenameLoad();
+  refusal = _castRenameRefusal(oldName, newName, data);
+  if (refusal) { await appAlert(refusal); return false; }
+
+  // 1. 保存データの書き換えは全部メモリ上で作る（state は最後まで触らない）
+  const dirty = {
+    backups: data.backups.map(snap => _castRenameSnap(snap, oldName, newName)).some(Boolean),
+    recovery: data.recovery.map(snap => _castRenameSnap(snap, oldName, newName)).some(Boolean),
+    deletedSlips: data.deletedSlips.map(entry => entry && _castRenameInRows(entry.rows, oldName, newName)).some(Boolean),
+    dailyclose: _castRenameDailyClose(data.dailyclose, oldName, newName),
+    customers: _castRenameCustomers(data.customers, oldName, newName),
+    timetable: _castRenameTimetable(data.timetable, oldName, newName),
+  };
+  const payslips = _castRenamePayslips(data.payslips, oldName, newName);
+  const order = Array.isArray(cfg.castListCustomOrder) ? cfg.castListCustomOrder : null;
+  const newOrder = order && order.includes(oldName) ? order.map(n => n === oldName ? newName : n) : null;
+
+  // 2. 保存。いちばん大きいバックアップを最初に書き、失敗したらそこで止める（ほかは何も書かない）
+  if (dirty.backups && !saveBackups(data.backups, data.backups)) {
+    await appAlert('保存できなかったため、名前を変更できませんでした。端末の空き容量を確認してください。');
+    return false;
+  }
+  // 3. 残りは続けて書く。失敗が1つでもあれば、書けていない所を同じ変更でやり直せるよう state は変えない
+  let failed = false;
+  if (dirty.recovery && !saveRecovery(data.recovery)) failed = true;
+  if (dirty.deletedSlips && !saveDeletedSlips(data.deletedSlips)) failed = true;
+  if (dirty.dailyclose && !saveDailyClose(data.dailyclose)) failed = true;
+  if (payslips && !savePayslips(payslips)) failed = true;
+  if (dirty.customers && !saveCustomers(data.customers)) failed = true;
+  if (dirty.timetable && !Persist.write('timetable', data.timetable)) failed = true;
+  if (newOrder) {
+    cfg.castListCustomOrder = newOrder;
+    if (!saveCfg()) { cfg.castListCustomOrder = order; failed = true; }
+  }
+  if (failed) {
+    await appAlert('名前の変更の一部が保存できませんでした。端末の空き容量を確認し、もう一度同じ名前に変更してください。');
+    return false;
+  }
+
+  // 4. 最後に state を書き換えて保存
+  _castRenameList(state.allCasts, oldName, newName);
+  _castRenameList(state.activeCasts, oldName, newName);
+  _castRenameList(state.retiredCasts, oldName, newName);
+  const profiles = _castRenameKeys(state.castProfiles, oldName, newName);
+  if (profiles) state.castProfiles = profiles;
+  Object.keys(state.payrollManual || {}).forEach(day => {
+    const next = _castRenameKeys(state.payrollManual[day], oldName, newName);
+    if (next) state.payrollManual[day] = next;
+  });
+  _castRenameInRows(state.rows, oldName, newName);
+  if (typeof pastState !== 'undefined' && pastState) {
+    const clean = typeof isPastEditorOpen === 'function' && !isPastEditorDirty();
+    _castRenameInRows(pastState.rows, oldName, newName);
+    _castRenameList(pastState.allCasts, oldName, newName);
+    _castRenameList(pastState.activeCasts, oldName, newName);
+    if (clean && typeof _pastEditorSetBaseline === 'function') _pastEditorSetBaseline();   // 名前の変更だけで「編集あり」にしない
+  }
+  saveState();
+
+  // 5. 画面の状態（保存しない変数）
+  if (typeof _castDetailName !== 'undefined' && _castDetailName === oldName) _castDetailName = newName;
+  if (_payslipSelectedCast === oldName) _payslipSelectedCast = newName;
+  if (_payslipDaySelectedCast === oldName) _payslipDaySelectedCast = newName;
+  if (typeof _payrollBreakdownActiveCast !== 'undefined' && _payrollBreakdownActiveCast === oldName) _payrollBreakdownActiveCast = newName;
+  if (typeof _payrollDaySlipPreviewCast !== 'undefined' && _payrollDaySlipPreviewCast === oldName) _payrollDaySlipPreviewCast = newName;
+  if (typeof posBetaState !== 'undefined' && posBetaState && posBetaState.assignCast === oldName) posBetaState.assignCast = newName;
+  // 元に戻す履歴は旧名の行を持っているので、戻すと名前が食い違う。破棄する（営業終了後に消すのと同じ）
+  try { undoStack.length = 0; undoLabels.length = 0; redoStack.length = 0; redoLabels.length = 0; } catch (_) {}
+
+  // 6. 再描画（applySnapshot の後と同じもの＋キャスト専用ページ・POS・過去リスト）
+  const call = fn => { try { if (typeof fn === 'function') fn(); } catch (e) { console.error('[renameCast] render failed:', e); } };
+  call(typeof renderTable === 'function' ? renderTable : null);
+  call(typeof renderCastPanel === 'function' ? renderCastPanel : null);
+  call(typeof renderTimetable === 'function' ? renderTimetable : null);
+  call(typeof renderCastMgmt === 'function' ? renderCastMgmt : null);
+  call(typeof updateStoreStatusBadge === 'function' ? updateStoreStatusBadge : null);
+  call(typeof refreshHistoryBtns === 'function' ? refreshHistoryBtns : null);
+  call(typeof renderReportPanel === 'function' ? renderReportPanel : null);
+  call(typeof renderPOSPanel === 'function' ? renderPOSPanel : null);
+  if (typeof pastState !== 'undefined' && pastState) call(typeof renderPastTable === 'function' ? renderPastTable : null);
+  try {
+    const title = document.querySelector('#cast-detail-overlay .pos-co-title');
+    if (title) title.innerHTML = _castDetailTitleHtml(newName);   // 名前の横の「名前を変更」も新名で描き直す
+    if (typeof renderCastDetailModal === 'function') renderCastDetailModal();
+  } catch (e) { console.error('[renameCast] render failed:', e); }
+  if (typeof showToast === 'function') showToast('「' + oldName + '」を「' + newName + '」に変更しました');
+  return true;
+}
 function setCastDefault(field, value){
   ensureCastStores();
   state.castDefaults[field] = (value === '' ? '' : (Number(value) || 0));
@@ -15218,6 +15556,7 @@ function renderTimetable() {
   const touketsuSet     = new Set(tt.touketsu  || []);
   const plannedClockIns = tt.plannedClockIns  || {};
   const chikokuMins     = tt.chikokuMins      || {};
+  const lateStep        = normalizePayrollLateStepMin(cfg.payrollLateStepMin);
   const activeSet       = new Set(state.activeCasts);
   const allCasts        = state.allCasts;
 
@@ -15360,13 +15699,13 @@ function renderTimetable() {
     } else if (isActive) {
       btns = `
         <div class="tt-btn-group">
-          <button class="tt-action-btn gold"   onclick="ttAddChikoku('${escAttr(castName)}')">遅刻+30</button>
+          <button class="tt-action-btn gold"   onclick="ttAddChikoku('${escAttr(castName)}')">遅刻+${lateStep}</button>
           <button class="tt-action-btn"        onclick="ttMarkTouketsu('${escAttr(castName)}')">当欠</button>
           ${eraseBtn}
         </div>`;
     } else {
       btns = `<div class="tt-btn-group">
-        <button class="tt-action-btn gold" onclick="ttAddChikoku('${escAttr(castName)}')">遅刻 +30</button>
+        <button class="tt-action-btn gold" onclick="ttAddChikoku('${escAttr(castName)}')">遅刻 +${lateStep}</button>
         ${chikokuMin > 0 ? `<button class="tt-action-btn" onclick="ttResetChikoku('${escAttr(castName)}')">取消</button>` : ''}
         <button class="tt-action-btn" onclick="ttMarkTouketsu('${escAttr(castName)}')">当欠</button>
         ${eraseBtn}
@@ -15445,7 +15784,7 @@ function ttSetPlannedClockIn(castName, timeStr) {
   updateStoreStatusBadge();
 }
 
-/* 遅刻 +30分（出勤中・未出勤どちらからでも適用可能） */
+/* 遅刻 +N分（N は設定の「遅刻ボタンの刻み」payrollLateStepMin。既定30。出勤中・未出勤どちらからでも適用可能） */
 function ttAddChikoku(castName) {
   const tt = loadTimetableState();
   if (!tt.plannedClockIns) tt.plannedClockIns = {};
@@ -15466,14 +15805,15 @@ function ttAddChikoku(castName) {
   delete tt.clockIns[castName];
   state.activeCasts = state.activeCasts.filter(c => c !== castName);
 
-  tt.chikokuMins[castName] = (tt.chikokuMins[castName] || 0) + 30;
+  const step = normalizePayrollLateStepMin(cfg.payrollLateStepMin);
+  tt.chikokuMins[castName] = (tt.chikokuMins[castName] || 0) + step;
   saveTimetableState(tt);
   saveState();
   renderTimetable();
   renderCastPanel();
   updateStoreStatusBadge();
   const total = tt.chikokuMins[castName];
-  showToast(`${castName} +30分遅刻（合計 ${total}分遅れ）`);
+  showToast(`${castName} +${step}分遅刻（合計 ${total}分遅れ）`);
 }
 
 /* 遅刻記録をリセット */
@@ -34404,7 +34744,7 @@ async function applySettings() {
   // 給与は専用モーダルで保存済み。全体保存で不在の入力を既定値に戻さない。
   const {
     payrollClockInRoundMin, payrollClockOutRoundMin, payrollClockOutRoundThreshold,
-    payrollLateFineUnitMin, payrollLateFineAmt, payrollBottleSpRate, payrollSpMode, payrollSpFixed, defaultWage, payrollPeriod, payrollCloseDay, payrollHalfCloseDays,
+    payrollLateFineUnitMin, payrollLateStepMin, payrollLateFineAmt, payrollBottleSpRate, payrollSpMode, payrollSpFixed, defaultWage, payrollPeriod, payrollCloseDay, payrollHalfCloseDays,
     payrollDouhanAddsHonshimei, payrollDouhanAddsHonenFirst, payrollSpInBackTotal,
     payrollSlideTable, payrollSlideSource, payrollPeriodDeductions, payrollRoundMode, payrollRoundUnit,
     payrollDeductions, payrollDeductionDisplayField, payrollDeductionDisplayPrint, payrollDeductionNibaraiPrint, payrollDeductionLatePrint, payrollLateFineMode, payrollRateDeductionRound, payrollMergeDrinks,
@@ -34473,7 +34813,7 @@ async function applySettings() {
     receiptLayout, extTrialLayout, ryoshuOpts, receiptScale, extTrialScale, ryoshuScale,
     extTrialCompareEnabled: document.getElementById('cfg-extTrialCompareEnabled')?.checked ?? (cfg.extTrialCompareEnabled === true),
     payrollClockInRoundMin, payrollClockOutRoundMin, payrollClockOutRoundThreshold,
-    payrollLateFineUnitMin, payrollLateFineAmt, payrollBottleSpRate, payrollSpMode, payrollSpFixed, defaultWage, payrollPeriod, payrollCloseDay, payrollHalfCloseDays,
+    payrollLateFineUnitMin, payrollLateStepMin, payrollLateFineAmt, payrollBottleSpRate, payrollSpMode, payrollSpFixed, defaultWage, payrollPeriod, payrollCloseDay, payrollHalfCloseDays,
     payrollDouhanAddsHonshimei, payrollDouhanAddsHonenFirst, payrollSpInBackTotal,
     payrollSlideTable, payrollSlideSource, payrollPeriodDeductions, payrollRoundMode, payrollRoundUnit,
     payrollDeductions, payrollDeductionDisplayField, payrollDeductionDisplayPrint, payrollDeductionNibaraiPrint, payrollDeductionLatePrint, payrollLateFineMode, payrollRateDeductionRound, payrollMergeDrinks,
@@ -35037,7 +35377,7 @@ const PAYROLL_SETTINGS_GROUPS = [
 ];
 const PAYROLL_SETTINGS_KEYS = [
   'defaultWage', 'payrollClockInRoundMin', 'payrollClockOutRoundMin', 'payrollClockOutRoundThreshold',
-  'payrollLateFineEnabled', 'payrollLateFineUnitMin', 'payrollLateFineAmt', 'payrollDouhanAddsHonshimei',
+  'payrollLateFineEnabled', 'payrollLateFineUnitMin', 'payrollLateStepMin', 'payrollLateFineAmt', 'payrollDouhanAddsHonshimei',
   'payrollDouhanAddsHonenFirst', 'payrollSpInBackTotal', 'payrollBottleSpRate', 'payrollSpMode', 'payrollSpFixed',
   'payrollDeductions', 'payrollDeductionDisplayField', 'payrollDeductionDisplayPrint', 'payrollDeductionNibaraiPrint', 'payrollDeductionLatePrint', 'payrollLateFineMode', 'payrollRateDeductionRound', 'payrollPeriodDeductions', 'payrollPeriod', 'payrollCloseDay', 'payrollHalfCloseDays', 'payrollSlideSource',
   'payrollSlideTable', 'payrollRoundMode', 'payrollRoundUnit',
@@ -35155,6 +35495,7 @@ function _payrollSettingsModalHtml() {
           <h3>遅刻罰金</h3>
           <label class="pay-settings-choice"><input type="checkbox" id="cfg-payrollLateFineEnabled"${checked('payrollLateFineEnabled')}><span>遅刻罰金を取る<small>OFFにすると、遅刻は記録・表示されますが罰金は0円になります。</small></span></label>
           <div class="pay-settings-row"><div><label for="cfg-payrollLateFineUnitMin">遅刻時間ごとの金額</label><p>例：15分なら、1〜15分で1回分。空欄・0円は既定の1,000円。日給の中で引くか、控除として引くかは「控除・記録」の「遅刻罰金の扱い」で選びます。</p></div><div class="pay-settings-inputs">${num('payrollLateFineUnitMin','遅刻罰金の分単位',15,1,60)}<span>分ごとに</span>${num('payrollLateFineAmt','遅刻罰金の金額',1000,0,null,100)}<span>円</span></div></div>
+          <div class="pay-settings-row"><div><label for="cfg-payrollLateStepMin">遅刻ボタンの刻み</label><p>出勤キャストの画面の「遅刻」ボタンを1回押したときに足す分数です。上の「○分ごとに」と同じにすると数えやすくなります。</p></div><div class="pay-settings-inputs"><select id="cfg-payrollLateStepMin" class="settings-input" aria-label="遅刻ボタンの刻み">${options([[10,'10分'],[15,'15分'],[30,'30分']], normalizePayrollLateStepMin(cfg.payrollLateStepMin))}</select></div></div>
           <details class="pay-settings-details"><summary>時間給の計算を確認</summary><p>時間給 ＝ 適用時給 × 計算後の勤務分 ÷ 60（1円未満は四捨五入）。個別時給が空欄なら店標準時給を使い、店標準も0円なら時間給は0円です。</p></details>
         </section>
         <section id="pay-settings-group-back" role="tabpanel" aria-labelledby="pay-settings-tab-back" data-pay-group="back" hidden>
@@ -35438,6 +35779,8 @@ function _collectPayrollSettings(overlay) {
   // 控除票の遅刻罰金の印刷（2026-11-11）。入力欄が無い画面では今の設定のまま
   result.payrollDeductionLatePrint = get('payrollDeductionLatePrint') ? get('payrollDeductionLatePrint').checked === true : cfg.payrollDeductionLatePrint === true;
   // 遅刻罰金の扱い・率%の控除の端数（2026-11-10）。入力欄が無い画面では今の設定のまま
+  // 遅刻ボタンの刻み（2026-11-17）。入力欄が無い画面では今の設定のまま
+  result.payrollLateStepMin = normalizePayrollLateStepMin(get('payrollLateStepMin') ? get('payrollLateStepMin').value : cfg.payrollLateStepMin);
   result.payrollLateFineMode = normalizePayrollLateFineMode(get('payrollLateFineMode') ? get('payrollLateFineMode').value : cfg.payrollLateFineMode);
   result.payrollRateDeductionRound = normalizePayrollRateDeductionRound(get('payrollRateDeductionRound') ? get('payrollRateDeductionRound').value : cfg.payrollRateDeductionRound);
   ['payrollPeriod','payrollSlideSource','payrollRoundMode'].forEach(key => { result[key] = get(key).value; });
@@ -39792,10 +40135,16 @@ function openCastDetailModal(name) {
   document.getElementById('cast-detail-overlay')?.remove();
   document.body.insertAdjacentHTML('beforeend', '<div class="pos-co-overlay" id="cast-detail-overlay" onclick="if(event.target===this)closeCastDetailModal()">'
     + '<div class="pos-co-panel cast-detail-modal" style="width:min(1200px,97vw);max-height:94vh;display:flex;flex-direction:column">'
-    + '<div class="pos-co-header"><div class="pos-co-title">👤 ' + escHtml(name) + '</div><button class="pos-co-close" onclick="closeCastDetailModal()">×</button></div>'
+    + '<div class="pos-co-header"><div class="pos-co-title">' + _castDetailTitleHtml(name) + '</div><button class="pos-co-close" onclick="closeCastDetailModal()">×</button></div>'
     + '<div id="cast-detail-body" style="overflow:auto"></div></div></div>');
   document.addEventListener('keydown', _castDetailKeydown);
   renderCastDetailModal();
+}
+
+/* 見出し: 名前と、その横の「名前を変更」ボタン（2026-11-17 オーナー「名前の横にボタンを作って」） */
+function _castDetailTitleHtml(name) {
+  return '👤 ' + escHtml(name)
+    + '<button type="button" class="cd-rename-btn" onclick="renameCast(\'' + _cmq(name) + '\')">✎ 名前を変更</button>';
 }
 
 function closeCastDetailModal() {
@@ -40066,6 +40415,8 @@ function _castDetailStyles() {
     + '.cd-check{flex-direction:row;align-items:center;gap:8px;justify-content:flex-start;padding:8px 0}'
     + '.cd-check input{width:20px;height:20px}'
     + '.cd-profile-actions{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap}'
+    + '.cd-rename-btn{margin-left:12px;min-height:38px;padding:4px 14px;vertical-align:middle;font:inherit;font-size:13px;font-weight:700;color:inherit;background:rgba(255,255,255,0.16);border:1px solid rgba(255,255,255,0.6);border-radius:8px;cursor:pointer}'
+    + '.cd-rename-btn:hover{background:rgba(255,255,255,0.28)}'
     + '.cd-monthly{padding:16px 18px}'
     + '.cd-monthly-head{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:10px}'
     + '.cd-monthly-nav{display:flex;align-items:center;gap:10px}'
